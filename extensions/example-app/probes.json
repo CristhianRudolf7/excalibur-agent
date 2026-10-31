@@ -1,0 +1,1 @@
+[{"tool": "example_board_move", "args": {"instance": "board-1", "ops": "move card A to done"}}]

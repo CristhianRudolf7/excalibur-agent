@@ -1,0 +1,9 @@
+{
+  "$comment": "Excalibur MCP server fragment for Muse Code. Installed by: excalibur mcp install --client muse-code [--print]. Checked against the Muse Code MCP format as of 2026-10.",
+  "mcpServers": {
+    "excalibur": {
+      "command": "excalibur",
+      "args": ["mcp"]
+    }
+  }
+}

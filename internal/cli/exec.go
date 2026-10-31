@@ -1,0 +1,634 @@
+package cli
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+)
+
+// Version identifies the binary in ATIF metadata and reports.
+// The release build overrides it with -ldflags -X.
+var Version = "dev"
+
+// ExecOptions configures one non-interactive run (Section 6.5): no
+// master, no conversation, a level-1 root execution with the request
+// file built from Request. Exec never asks: the assume branch of
+// Section 6.4 applies and the most conservative interpretation wins.
+type ExecOptions struct {
+	// Request is the user petition; empty means a mandatory datum is
+	// missing and the run ends blocked (Section 6.5).
+	Request string
+	// ProjectDir scopes the run; empty means no project.
+	ProjectDir string
+	// OutputSchema validates the final result document when set.
+	OutputSchema string
+	// EmitJSON streams the JSONL event flow to Emit (usually stdout).
+	EmitJSON bool
+	// Emit receives streamed events when EmitJSON is set.
+	Emit io.Writer
+	// BudgetUSD caps spend; a non-positive explicit budget means the
+	// budget is already exhausted and the run pauses.
+	BudgetUSD *float64
+	// MaxSteps caps engine steps; negative is an invalid flag.
+	MaxSteps int
+	// TimeoutSecs bounds wall time; expiry pauses the run (Section
+	// 6.5: paused by budget or time, code 4).
+	TimeoutSecs int64
+	// Profile selects default, delegate or eval. Empty is default.
+	Profile ProfileName
+	// NoMemory disables memory entirely (delegate profile).
+	NoMemory bool
+	// Ephemeral uses a temporary database removed on exit; rejected
+	// with the default profile (Section 3.6).
+	Ephemeral bool
+	// ProfileOverride declares an eval deviation; recorded in
+	// metadata and ATIF, and the trial never compares clean.
+	ProfileOverride string
+	// LogsDir overrides trial log resolution (tests, Harbor).
+	LogsDir string
+	// RunDir pins the per-run artifact directory (task runs reuse
+	// their task directory so status/wait/result read one place).
+	RunDir string
+	// TaskID and RunID link artifacts when running inside a task.
+	TaskID types.TaskID
+	RunID  types.RunID
+	// AllowAsk parks with a question instead of assuming, for
+	// delegated tasks whose client answers via reply (Section 3.6).
+	// Exec itself always assumes (Section 6.5).
+	AllowAsk bool
+	// NeverAsk forces the assume branch even when AllowAsk is set
+	// (--never-ask / never_ask:true, Section 3.6).
+	NeverAsk bool
+	// ForceOutcome pins the terminal state for tests that cover the
+	// Section 6.5 exit-code table without a model. The CLI never
+	// sets it.
+	ForceOutcome types.RunState
+	// ForceReason is recorded with a forced outcome.
+	ForceReason string
+	// Work is an optional hook that performs the run's work between
+	// the opening and closing ATIF steps. Nil runs the embedded
+	// deterministic step. Tests use it to simulate tool effects,
+	// questions and failures.
+	Work func(ctx context.Context, run *ExecRun) error
+}
+
+// ExecRun is the live handle passed to the Work hook.
+type ExecRun struct {
+	TaskID   types.TaskID
+	RunID    types.RunID
+	Dir      string
+	ATIF     *telemetry.Writer
+	Metrics  *telemetry.TaskMetrics
+	Events   []map[string]any
+	emit     io.Writer
+	emitJSON bool
+}
+
+// EmitStep records one ATIF step plus a matching JSONL event.
+func (r *ExecRun) EmitStep(step telemetry.ATIFStep, event string) error {
+	step.At = time.Now().UTC()
+	if err := r.ATIF.Append(step); err != nil {
+		return err
+	}
+	return r.EmitEvent(event, map[string]any{"step": step})
+}
+
+// EmitEvent appends one event to the in-memory flow and, with
+// EmitJSON, streams it to the caller.
+func (r *ExecRun) EmitEvent(event string, fields map[string]any) error {
+	rec := map[string]any{"event": event, "at": time.Now().UTC().Format(time.RFC3339Nano)}
+	for k, v := range fields {
+		rec[k] = v
+	}
+	r.Events = append(r.Events, rec)
+	if r.emitJSON && r.emit != nil {
+		buf, err := json.Marshal(rec)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(r.emit, "%s\n", buf); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ExecOutcome is the finished run: final state, stable exit code,
+// artifact locations and the validated result document.
+type ExecOutcome struct {
+	State       types.RunState `json:"state"`
+	Reason      string         `json:"reason,omitempty"`
+	Summary     string         `json:"summary"`
+	Assumptions []string       `json:"assumptions,omitempty"`
+	Question    string         `json:"question,omitempty"`
+	TaskID      types.TaskID   `json:"task_id"`
+	RunID       types.RunID    `json:"run_id"`
+	Dir         string         `json:"dir"`
+	ATIFPath    string         `json:"atif_path"`
+	MetricsPath string         `json:"metrics_path"`
+	Profile     ProfileName    `json:"profile"`
+	ProfileHash string         `json:"profile_hash"`
+	ResultJSON  []byte         `json:"-"`
+	ExitCode    int            `json:"exit_code"`
+	Overridden  bool           `json:"overridden,omitempty"`
+}
+
+// QuestionMarker delimits a deterministic data request inside a task
+// petition: {{ask: what is missing}}. Without NeverAsk the run parks
+// in waiting(user) and wait returns the question; with NeverAsk (or
+// in exec, always) the assume branch records it and continues.
+const (
+	askOpen  = "{{ask:"
+	askClose = "}}"
+)
+
+// ExtractQuestion returns the first ask-marker payload in the
+// request, if any.
+func ExtractQuestion(request string) (string, bool) {
+	start := strings.Index(request, askOpen)
+	if start < 0 {
+		return "", false
+	}
+	rest := request[start+len(askOpen):]
+	end := strings.Index(rest, askClose)
+	if end < 0 {
+		return "", false
+	}
+	q := strings.TrimSpace(rest[:end])
+	if q == "" {
+		return "", false
+	}
+	return q, true
+}
+
+// stripFirstAsk removes the first ask marker from a request: the
+// delegating answer consumes the question it resolves.
+func stripFirstAsk(request string) string {
+	start := strings.Index(request, askOpen)
+	if start < 0 {
+		return request
+	}
+	rest := request[start+len(askOpen):]
+	end := strings.Index(rest, askClose)
+	if end < 0 {
+		return request
+	}
+	return strings.TrimSpace(request[:start] + " " + rest[end+len(askClose):])
+}
+
+// EffectiveTools declares the deterministic tool surface per profile
+// (Sections 3.6 table, 23.2 table). The engine clamps real tool calls
+// to this list; the hashes below pin it for Appendix F records.
+func EffectiveTools(profile ProfileName) (core, deferred []string) {
+	core = append([]string(nil), eval.DefaultEvalProfile().EnabledTools...)
+	deferred = append([]string(nil), eval.DefaultEvalProfile().DeferredTools...)
+	if profile == ProfileDefault {
+		core = append(core, "send_message", "question_answer")
+	}
+	return core, deferred
+}
+
+// ToolsHash pins the exposed catalog for a profile.
+func ToolsHash(profile ProfileName) string {
+	core, deferred := EffectiveTools(profile)
+	sort.Strings(core)
+	sort.Strings(deferred)
+	h := sha256.New()
+	fmt.Fprintf(h, "profile=%s\n", profile)
+	for _, t := range core {
+		fmt.Fprintf(h, "tool=%s\n", t)
+	}
+	for _, t := range deferred {
+		fmt.Fprintf(h, "deferred=%s\n", t)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// EvalToolAllowed gates one operation under the eval profile table
+// (Section 23.2): project-management operations of task_db, general
+// memory search, ask_user and personal-assistant tools are rejected
+// or hidden while the task-internal planning surface stays enabled.
+// op names the task_db operation ("" for non-task_db tools).
+func EvalToolAllowed(tool, op string) error {
+	hidden := map[string]bool{
+		"send_message": true, "ask_user": true, "settings": true,
+		"email": true, "calendar": true, "meeting": true,
+		"contact_message": true, "github": true, "userdb": true,
+		"gpu_training": true, "browser_navigate": true,
+		"nodes": true, "memory_search": true, "install_skill": true,
+	}
+	if hidden[tool] {
+		return fmt.Errorf("cli: tool %q is disabled under the eval profile", tool)
+	}
+	if tool == "task_db" {
+		switch op {
+		case "register_project", "update_project", "archive_project":
+			return fmt.Errorf("cli: task_db op %q is disabled under the eval profile (single task scope)", op)
+		}
+	}
+	return nil
+}
+
+// RunExec executes one non-interactive request to a terminal state
+// (or to waiting when AllowAsk parks a question) and writes the
+// Appendix F minimum records: profile config and hashes, the ATIF
+// trajectory, events and metrics.json. It never calls a paid API:
+// the embedded step is deterministic, so local runs and tests need
+// no credentials; live model execution arrives behind the providers
+// gateway in a later milestone without changing this contract.
+func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
+	profile := opts.Profile
+	if profile == "" {
+		profile = ProfileDefault
+	}
+	switch profile {
+	case ProfileDefault, ProfileDelegate, ProfileEval:
+	default:
+		return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: unknown profile %q", opts.Profile)}
+	}
+	if err := ValidateEphemeral(profile, opts.Ephemeral); err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+	if opts.MaxSteps < 0 {
+		return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: --max-steps must not be negative")}
+	}
+	if opts.TimeoutSecs < 0 {
+		return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: --timeout must not be negative")}
+	}
+
+	logsDir, err := ResolveLogsDir(opts.LogsDir)
+	if err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+
+	runID := opts.RunID
+	if runID == "" {
+		runID = types.NewRunID()
+	}
+	taskID := opts.TaskID
+	if taskID == "" {
+		taskID = types.NewTaskID()
+	}
+
+	runDir := opts.RunDir
+	var cleanup func()
+	if runDir == "" {
+		if opts.Ephemeral {
+			ephem, err := EphemeralDir()
+			if err != nil {
+				return nil, &CodedError{Code: ExitError, Err: err}
+			}
+			cleanup = func() { os.RemoveAll(ephem) }
+			runDir = ephem
+		} else {
+			dataDir, err := DataDir(profile, opts.ProjectDir, logsDir)
+			if err != nil {
+				return nil, &CodedError{Code: ExitError, Err: err}
+			}
+			if profile == ProfileEval {
+				if err := EvalDataReady(dataDir, opts.ProfileOverride); err != nil {
+					return nil, &CodedError{Code: ExitError, Err: err}
+				}
+			}
+			if err := os.MkdirAll(dataDir, 0o755); err != nil {
+				return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: data dir: %w", err)}
+			}
+			if profile == ProfileEval {
+				runDir = logsDir
+			} else {
+				runDir = filepath.Join(dataDir, "run-"+string(runID))
+				if err := os.MkdirAll(runDir, 0o755); err != nil {
+					return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: run dir: %w", err)}
+				}
+			}
+		}
+	} else if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return nil, &CodedError{Code: ExitError, Err: fmt.Errorf("cli: run dir: %w", err)}
+	}
+	if cleanup != nil {
+		defer cleanup()
+	}
+
+	if opts.TimeoutSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(opts.TimeoutSecs)*time.Second)
+		defer cancel()
+	}
+
+	provider := envOr("EXCALIBUR_PROVIDER", "stub")
+	model := envOr("EXCALIBUR_MODEL", "embedded-stub")
+	profileCfg := eval.DefaultEvalProfile()
+	if opts.ProfileOverride != "" {
+		profileCfg.Override = opts.ProfileOverride
+	}
+	profileHash := profileCfg.Hash()
+	if profile != ProfileEval {
+		profileHash = ToolsHash(profile)
+	}
+
+	if err := writeRunProfile(runDir, profile, profileCfg, opts.ProfileOverride); err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+
+	meta := telemetry.ATIFMetadata{
+		TaskID:          string(taskID),
+		ExcaliburCommit: Version,
+		Profile:         string(profile),
+		ProfileHash:     profileHash,
+		Model:           model,
+		Provider:        provider,
+		StartedAt:       time.Now().UTC(),
+	}
+	atifPath := filepath.Join(runDir, "trajectory.json")
+	var writer *telemetry.Writer
+	if _, err := os.Stat(atifPath); err == nil && opts.RunDir != "" {
+		writer, err = telemetry.OpenWriter(atifPath)
+		if err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+	} else {
+		writer, err = telemetry.NewWriter(runDir, telemetry.ATIFv18, meta)
+		if err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+	}
+
+	metrics := telemetry.NewTaskMetrics(taskID, runID, "v1")
+	metrics.SetModel(provider, model)
+
+	run := &ExecRun{
+		TaskID: taskID, RunID: runID, Dir: runDir,
+		ATIF: writer, Metrics: metrics,
+		emit: opts.Emit, emitJSON: opts.EmitJSON,
+	}
+	outcome := &ExecOutcome{
+		TaskID: taskID, RunID: runID, Dir: runDir,
+		ATIFPath: writer.Path(), Profile: profile,
+		ProfileHash: profileHash, Overridden: opts.ProfileOverride != "",
+	}
+	outcome.MetricsPath = metricsPathFor(runDir, profile, logsDir)
+
+	request := strings.TrimSpace(opts.Request)
+	assumptions := []string{}
+	if opts.NoMemory && profile == ProfileDelegate {
+		assumptions = append(assumptions, "memory disabled by --no-memory")
+	}
+
+	if err := run.EmitEvent("run_started", map[string]any{
+		"task_id": string(taskID), "run_id": string(runID),
+		"profile": string(profile), "profile_hash": profileHash,
+		"override": opts.ProfileOverride,
+	}); err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+	if err := run.EmitStep(telemetry.ATIFStep{Role: "user", Content: opts.Request}, "message"); err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+
+	finalize := func(state types.RunState, reason, summary string, question string) (*ExecOutcome, error) {
+		outcome.State = state
+		outcome.Reason = reason
+		outcome.Summary = summary
+		outcome.Question = question
+		outcome.Assumptions = append([]string(nil), assumptions...)
+		outcome.ExitCode = CodeForRunState(state)
+		if err := run.EmitEvent("run_finished", map[string]any{
+			"state": string(state), "reason": reason, "summary": summary,
+		}); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		if err := finishRun(runDir, run, outcome, metrics, state, profile, logsDir); err != nil {
+			return nil, err
+		}
+		if opts.OutputSchema != "" && state != types.RunWaiting {
+			if err := ValidateAgainstSchema(outcome.ResultJSON, opts.OutputSchema); err != nil {
+				return nil, &CodedError{Code: ExitError, Err: err}
+			}
+		}
+		return outcome, nil
+	}
+
+	if ctx.Err() != nil {
+		return finalize(types.RunCanceled, "context", "run canceled before start", "")
+	}
+	if opts.BudgetUSD != nil && *opts.BudgetUSD <= 0 {
+		return finalize(types.RunPaused, "budget", "budget exhausted before start; paused", "")
+	}
+	if question, ok := ExtractQuestion(request); ok && opts.AllowAsk && !opts.NeverAsk {
+		if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: "waiting for user input"}, "waiting"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		return finalize(types.RunWaiting, "user", "waiting for user input", question)
+	}
+	if request == "" {
+		summary := "blocked: the request is empty, a mandatory datum (what to do) is missing"
+		if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: summary}, "blocked"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		return finalize(types.RunBlocked, "missing_data", summary, "")
+	}
+	if question, ok := ExtractQuestion(request); ok {
+		assumptions = append(assumptions, "assumed default for open question: "+question)
+	}
+
+	if opts.Work != nil {
+		if err := opts.Work(ctx, run); err != nil {
+			var q *NeedInputError
+			if errors.As(err, &q) {
+				return finalize(types.RunWaiting, "user", "waiting for user input", q.Question)
+			}
+			return finalize(types.RunFailed, "work", fmt.Sprintf("failed: %v", err), "")
+		}
+	} else {
+		toolArgs, _ := json.Marshal(map[string]string{"request": request})
+		if err := run.EmitStep(telemetry.ATIFStep{
+			Role: "assistant", Content: "working on the request",
+			ToolCalls: []telemetry.ATIFToolCall{{ID: "call_1", Name: "exec", Arguments: string(toolArgs)}},
+		}, "tool_call"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		if err := run.EmitStep(telemetry.ATIFStep{
+			Role:       "tool",
+			ToolResult: &telemetry.ATIFToolResult{CallID: "call_1", Name: "exec", Output: "ok"},
+		}, "tool_result"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: "done"}, "message"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+	}
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return finalize(types.RunPaused, "timeout", "timeout expired; paused", "")
+	}
+	if ctx.Err() == context.Canceled {
+		return finalize(types.RunCanceled, "signal", "canceled", "")
+	}
+	if opts.ForceOutcome != "" {
+		state := opts.ForceOutcome
+		reason := opts.ForceReason
+		if reason == "" {
+			reason = "forced"
+		}
+		summary := reason
+		if state == types.RunWaiting {
+			return finalize(state, reason, summary, outcome.Question)
+		}
+		return finalize(state, reason, summary, "")
+	}
+	return finalize(types.RunCompleted, "", "completed: "+shortSummary(request), "")
+}
+
+// NeedInputError parks a Work hook in waiting(user) with a question
+// for the delegating client to answer via reply.
+type NeedInputError struct {
+	Question string
+}
+
+// Error implements error.
+func (e *NeedInputError) Error() string { return "need input: " + e.Question }
+
+func shortSummary(request string) string {
+	if len(request) <= 120 {
+		return request
+	}
+	return request[:117] + "..."
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func metricsPathFor(runDir string, profile ProfileName, logsDir string) string {
+	if profile == ProfileEval {
+		return eval.MetricsPath(logsDir)
+	}
+	return filepath.Join(runDir, "metrics.json")
+}
+
+func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileConfig, override string) error {
+	core, deferred := EffectiveTools(profile)
+	rec := map[string]any{
+		"version":              cfg.Version,
+		"profile":              string(profile),
+		"enabled_tools":        core,
+		"deferred_tools":       deferred,
+		"enabled_skill_groups": cfg.EnabledSkillGroups,
+		"skills_catalog_hash":  cfg.SkillsCatalogHash,
+		"single_model":         cfg.SingleModel,
+		"tools_hash":           ToolsHash(profile),
+		"eval_profile_hash":    cfg.Hash(),
+		"override":             override,
+		"memory":               memoryMode(profile),
+		"personal_memory":      profile == ProfileDefault,
+		"timezone":             "UTC",
+		"language":             "en",
+	}
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return fmt.Errorf("cli: marshal profile: %w", err)
+	}
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		return fmt.Errorf("cli: mkdir run dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(runDir, "profile.json"), append(buf, '\n'), 0o644); err != nil {
+		return fmt.Errorf("cli: write profile: %w", err)
+	}
+	hash := sha256.Sum256(buf)
+	if err := os.WriteFile(filepath.Join(runDir, "profile.sha256"), []byte(hex.EncodeToString(hash[:])+"\n"), 0o644); err != nil {
+		return fmt.Errorf("cli: write profile hash: %w", err)
+	}
+	return nil
+}
+
+// memoryMode names the Section 3.6 memory scope per profile.
+func memoryMode(profile ProfileName) string {
+	switch profile {
+	case ProfileDefault:
+		return "full"
+	case ProfileDelegate:
+		return "project"
+	default:
+		return "none"
+	}
+}
+
+func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telemetry.TaskMetrics, state types.RunState, profile ProfileName, logsDir string) error {
+	if err := telemetry.ValidateFile(run.ATIF.Path()); err != nil {
+		metrics.Finish("failed")
+		return &CodedError{Code: ExitError, Err: fmt.Errorf("cli: invalid ATIF: %w", err)}
+	}
+	metrics.Finish(string(state))
+	snap := metrics.Snapshot()
+	dest := metricsPathFor(runDir, profile, logsDir)
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return &CodedError{Code: ExitError, Err: fmt.Errorf("cli: mkdir metrics: %w", err)}
+	}
+	if err := telemetry.WriteMetricsFile(filepath.Dir(dest), snap); err != nil {
+		return &CodedError{Code: ExitError, Err: err}
+	}
+	if dest != filepath.Join(runDir, "metrics.json") {
+		if err := telemetry.WriteMetricsFile(runDir, snap); err != nil {
+			return &CodedError{Code: ExitError, Err: err}
+		}
+	}
+	doc := map[string]any{
+		"state": string(state), "summary": outcome.Summary,
+		"task_id": string(outcome.TaskID), "run_id": string(outcome.RunID),
+	}
+	if outcome.Reason != "" {
+		doc["reason"] = outcome.Reason
+	}
+	if len(outcome.Assumptions) > 0 {
+		doc["assumptions"] = outcome.Assumptions
+	}
+	if outcome.Question != "" {
+		doc["question"] = outcome.Question
+	}
+	buf, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return &CodedError{Code: ExitError, Err: fmt.Errorf("cli: marshal result: %w", err)}
+	}
+	outcome.ResultJSON = append(buf, '\n')
+	if err := os.WriteFile(filepath.Join(runDir, "result.json"), outcome.ResultJSON, 0o644); err != nil {
+		return &CodedError{Code: ExitError, Err: fmt.Errorf("cli: write result: %w", err)}
+	}
+	if err := writeEventsFile(runDir, run.Events); err != nil {
+		return &CodedError{Code: ExitError, Err: err}
+	}
+	return nil
+}
+
+func writeEventsFile(runDir string, events []map[string]any) error {
+	f, err := os.OpenFile(filepath.Join(runDir, "events.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("cli: open events: %w", err)
+	}
+	defer f.Close()
+	for _, ev := range events {
+		buf, err := json.Marshal(ev)
+		if err != nil {
+			return fmt.Errorf("cli: marshal event: %w", err)
+		}
+		if _, err := fmt.Fprintf(f, "%s\n", buf); err != nil {
+			return fmt.Errorf("cli: write event: %w", err)
+		}
+	}
+	return f.Close()
+}

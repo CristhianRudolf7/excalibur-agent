@@ -1,0 +1,12 @@
+id: example-mcp
+version: 0.1.0
+contract: excalibur-ext/1
+kind: mcp
+transport: stdio
+command: ["./server"]
+lifecycle: lazy
+platforms: ["linux"]
+profiles: ["default", "delegate", "eval"]
+# Route 1 declares no static tools: the server tools/list is the source
+# of truth. Build the server first: go build -o server ./server
+tools: []

@@ -1,0 +1,22 @@
+id: example-builtin
+version: 0.1.0
+contract: excalibur-ext/1
+kind: builtin
+lifecycle: resident
+platforms: ["linux"]
+profiles: ["default", "delegate", "eval"]
+tools:
+  - name: example_echo
+    description: "Echo a fixed reply: the in-process route fixture"
+    input_schema:
+      type: object
+    effect: exec
+    idempotency: keyed
+    timeout: 60s
+    output_budget: 65536
+    cancel: graceful
+    fast: false
+    group: extensions
+    tags: ["extensions", "example"]
+    keywords: ["example", "echo"]
+    dry_run: "reports the reply without side effects"

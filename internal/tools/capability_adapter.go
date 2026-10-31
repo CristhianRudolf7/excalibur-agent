@@ -46,15 +46,33 @@ type capabilityTool struct {
 }
 
 func (t *capabilityTool) Definition() Definition {
+	timeout := time.Duration(120_000_000_000)
+	if t.op.TimeoutSecs > 0 {
+		timeout = time.Duration(t.op.TimeoutSecs) * time.Second
+	}
+	budget := int64(DefaultOutputBudget)
+	if t.op.OutputBudget > 0 {
+		budget = t.op.OutputBudget
+	}
+	group := t.op.Group
+	if group == "" {
+		group = "capability"
+	}
+	tags := append([]string(nil), t.op.Tags...)
+	if len(tags) == 0 {
+		tags = []string{"capability"}
+	}
+	keywords := append([]string{"capability", t.op.Name}, t.op.Keywords...)
 	return Definition{
 		Name: t.op.Name, Description: t.op.Description,
 		InputSchema: t.op.InputSchema, OutputSchema: t.op.OutputSchema,
 		Effect: types.EffectClass(t.op.Effect), Idempotency: types.IdempotencyClass(t.op.Idempotency),
 		Cancel: types.CancelMode(t.op.Cancel), Fast: t.op.Fast,
-		Timeout: 120_000_000_000, OutputBudget: DefaultOutputBudget,
+		Timeout: timeout, OutputBudget: budget,
 		Platforms: append([]string(nil), t.op.Platforms...),
 		Profiles:  append([]string(nil), t.op.Profiles...),
-		Group:     "capability", Tags: []string{"capability"}, Keywords: []string{"capability", t.op.Name},
+		Inverse:   t.op.Inverse, Probe: t.op.Probe, DryRun: t.op.DryRun,
+		Group: group, Tags: tags, Keywords: keywords,
 	}
 }
 

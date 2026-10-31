@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 )
 
 // Exit codes. The 0/2/3/4/5/130 mapping mirrors the exec final-state
@@ -48,19 +50,19 @@ func notImpl(name string) func([]string) error {
 
 func commands() map[string]command {
 	taskSub := map[string]command{
-		"start":  {summary: "Create a task and return immediately", run: notImpl("task start")},
-		"status": {summary: "Task status snapshot", run: notImpl("task status")},
-		"wait":   {summary: "Wait for completion or a pending answer", run: notImpl("task wait")},
-		"result": {summary: "Delivery report", run: notImpl("task result")},
-		"reply":  {summary: "Answer a question or add a directive", run: notImpl("task reply")},
-		"cancel": {summary: "Cancel a task", run: notImpl("task cancel")},
-		"pause":  {summary: "Pause a task", run: notImpl("task pause")},
-		"resume": {summary: "Resume a task", run: notImpl("task resume")},
-		"list":   {summary: "List tasks", run: notImpl("task list")},
-		"logs":   {summary: "Live event stream as JSONL", run: notImpl("task logs")},
+		"start":  {summary: "Create a task and return immediately", run: taskStart},
+		"status": {summary: "Task status snapshot", run: taskStatus},
+		"wait":   {summary: "Wait for completion or a pending answer", run: taskWait},
+		"result": {summary: "Delivery report", run: taskResult},
+		"reply":  {summary: "Answer a question or add a directive", run: taskReply},
+		"cancel": {summary: "Cancel a task", run: func(a []string) error { return taskControl("cancel", cli.Cancel, a) }},
+		"pause":  {summary: "Pause a task", run: func(a []string) error { return taskControl("pause", cli.Pause, a) }},
+		"resume": {summary: "Resume a task", run: func(a []string) error { return taskControl("resume", cli.Resume, a) }},
+		"list":   {summary: "List tasks", run: taskList},
+		"logs":   {summary: "Live event stream as JSONL", run: taskLogs},
 	}
 	mcpSub := map[string]command{
-		"install": {summary: "Install MCP client fragments or delegate skill", run: notImpl("mcp install")},
+		"install": {summary: "Install MCP client fragments or delegate skill", run: installMCP},
 	}
 	daemonSub := map[string]command{
 		"start": {summary: "Start the daemon", run: notImpl("daemon start")},
@@ -82,15 +84,15 @@ func commands() map[string]command {
 		"usage":    {summary: "Show where a secret was used", run: notImpl("vault usage")},
 	}
 	extSub := map[string]command{
-		"new":     {summary: "Scaffold an extension", run: notImpl("ext new")},
-		"list":    {summary: "List extensions", run: notImpl("ext list")},
-		"install": {summary: "Install an extension", run: notImpl("ext install")},
-		"enable":  {summary: "Enable an extension", run: notImpl("ext enable")},
-		"disable": {summary: "Disable an extension", run: notImpl("ext disable")},
-		"remove":  {summary: "Remove an extension", run: notImpl("ext remove")},
-		"logs":    {summary: "Show extension logs", run: notImpl("ext logs")},
-		"test":    {summary: "Run the contract conformance suite", run: notImpl("ext test")},
-		"doctor":  {summary: "Report validation, health and versions", run: notImpl("ext doctor")},
+		"new":     {summary: "Scaffold an extension", run: runExt("new")},
+		"list":    {summary: "List extensions", run: runExt("list")},
+		"install": {summary: "Install an extension", run: runExt("install")},
+		"enable":  {summary: "Enable an extension", run: runExt("enable")},
+		"disable": {summary: "Disable an extension", run: runExt("disable")},
+		"remove":  {summary: "Remove an extension", run: runExt("remove")},
+		"logs":    {summary: "Show extension logs", run: runExt("logs")},
+		"test":    {summary: "Run the contract conformance suite", run: runExt("test")},
+		"doctor":  {summary: "Report validation, health and versions", run: runExt("doctor")},
 	}
 	evalSub := map[string]command{
 		"smoke":  {summary: "Run the smoke evaluation (Section 23.2)", run: runEvalSmoke},
@@ -102,7 +104,7 @@ func commands() map[string]command {
 	}
 	return map[string]command{
 		"chat":     {summary: "Open a conversation turn with the master", run: notImpl("chat")},
-		"exec":     {summary: "Run a request non-interactively (Section 6.5)", run: notImpl("exec")},
+		"exec":     {summary: "Run a request non-interactively (Section 6.5)", run: runExecCmd},
 		"status":   {summary: "Deterministic status snapshot", run: notImpl("status")},
 		"tasks":    {summary: "List tasks", run: notImpl("tasks")},
 		"projects": {summary: "Manage registered projects", run: notImpl("projects")},
@@ -115,7 +117,8 @@ func commands() map[string]command {
 		"install":  {summary: "Install the daemon and clients", run: notImpl("install")},
 		"update":   {summary: "Update the binary", run: notImpl("update")},
 		"task":     {summary: "Async delegated work (Section 3.6)", sub: taskSub},
-		"mcp":      {summary: "Run the MCP delegation server over stdio", sub: mcpSub, run: notImpl("mcp server")},
+		"mcp":      {summary: "Run the MCP delegation server over stdio", sub: mcpSub, run: serveMCP},
+		"acp":      {summary: "Run the ACP adapter over stdio", run: serveACP},
 		"plan":     {summary: "Approve or deny macro plans", sub: planSub},
 	}
 }
@@ -126,7 +129,7 @@ func topUsage(cmds map[string]command) string {
 	b.WriteString("Usage: excalibur [--json] <command> [args]\n\nCommands:\n")
 	names := []string{
 		"chat", "exec", "status", "tasks", "projects", "memory", "skills",
-		"ext", "vault", "eval", "daemon", "install", "update", "task", "mcp", "plan",
+		"ext", "vault", "eval", "daemon", "install", "update", "task", "mcp", "acp", "plan",
 	}
 	for _, n := range names {
 		fmt.Fprintf(&b, "  %-10s %s\n", n, cmds[n].summary)
@@ -138,6 +141,17 @@ func topUsage(cmds map[string]command) string {
 func main() { os.Exit(run(os.Args[1:])) }
 
 func run(argv []string) int {
+	if len(argv) > 0 && argv[0] == "__run-task" {
+		if len(argv) != 2 {
+			fmt.Fprintln(os.Stderr, "excalibur __run-task: need a task file")
+			return ExitError
+		}
+		if err := cli.RunTaskFile(argv[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "excalibur __run-task: %v\n", err)
+			return cli.ExitCode(err)
+		}
+		return ExitOK
+	}
 	fs := flag.NewFlagSet("excalibur", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	if err := fs.Parse(argv); err != nil {
@@ -146,7 +160,7 @@ func run(argv []string) int {
 		}
 		return ExitError
 	}
-	_ = asJSON
+	globalJSON = *asJSON
 	rest := fs.Args()
 	cmds := commands()
 	if len(rest) == 0 || rest[0] == "--help" || rest[0] == "-h" || rest[0] == "help" {
@@ -209,12 +223,33 @@ func run(argv []string) int {
 	return ExitOK
 }
 
+// runExt runs one excalibur ext subcommand through the thin CLI layer
+// over the shared loader and conformance suite (Section 14.12). The
+// ext family is local-first: it works without a daemon on the local
+// extensions root.
+func runExt(sub string) func([]string) error {
+	return func(args []string) error {
+		out, code := cli.RunExt(append([]string{sub}, args...))
+		if out != "" {
+			fmt.Fprintln(os.Stdout, out)
+		}
+		if code != 0 {
+			return fmt.Errorf("ext %s failed", sub)
+		}
+		return nil
+	}
+}
+
 // report prints the failure and maps it to a stable exit code.
 func report(what string, err error) int {
 	if errors.Is(err, errNotImplemented) {
 		fmt.Fprintf(os.Stderr, "excalibur %s: %v\n", what, err)
 		return ExitNotImplemented
 	}
+	code := cli.ExitCode(err)
+	if code == ExitOK {
+		code = ExitError
+	}
 	fmt.Fprintf(os.Stderr, "excalibur %s: %v\n", what, err)
-	return ExitError
+	return code
 }

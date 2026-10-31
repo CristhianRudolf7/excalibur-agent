@@ -34,9 +34,10 @@ const (
 
 // ExtensionTool is one tool entry of a manifest: every field of Section
 // 13.1 (see Definition) plus discovery hints for search_tools, which
-// live in Definition.Group/Tags/Keywords.
+// live in Definition.Group/Tags/Keywords. The inline tag matters:
+// without it yaml.v3 decodes manifest tool entries to zero values.
 type ExtensionTool struct {
-	Definition
+	Definition `yaml:",inline"`
 }
 
 // Manifest is the excalibur-extension.yaml content (Section 14.12).
@@ -97,7 +98,9 @@ func (m Manifest) Validate() error {
 	default:
 		return fmt.Errorf("tools: extension %q has unknown lifecycle %q", m.ID, m.Lifecycle)
 	}
-	if len(m.Tools) == 0 {
+	// Route-1 (MCP) manifests may declare no static tools: the server
+	// tools/list is the source of truth and binding fills the catalog.
+	if len(m.Tools) == 0 && m.Kind != ExtensionMCP {
 		return fmt.Errorf("tools: extension %q declares no tools", m.ID)
 	}
 	seen := map[string]bool{}

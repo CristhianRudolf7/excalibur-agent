@@ -73,6 +73,15 @@ func (c *DeferredCatalog) MarkDeferred(name string) {
 	c.deferred[name] = true
 }
 
+// UnmarkDeferred drops the deferred mark of a name. It exists for
+// the extension kit (Section 14.12): retiring an extension removes
+// its entries from search_tools. Core marks are never touched.
+func (c *DeferredCatalog) UnmarkDeferred(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.deferred, name)
+}
+
 // IsDeferred reports whether a name resolves as a deferred tool.
 func (c *DeferredCatalog) IsDeferred(name string) bool {
 	c.mu.RLock()

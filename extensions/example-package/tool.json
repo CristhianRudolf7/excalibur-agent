@@ -1,0 +1,21 @@
+{
+  "name": "example_greet",
+  "version": "0.1.0",
+  "description": "Greet a name with the example package script",
+  "input_schema": {
+    "type": "object",
+    "properties": {"name": {"type": "string"}},
+    "required": ["name"]
+  },
+  "effect": "read_only",
+  "idempotency": "pure",
+  "cancel": "immediate",
+  "fast": false,
+  "group": "extensions",
+  "tags": ["extensions", "example"],
+  "keywords": ["example", "greet", "hello"],
+  "implementation": {"kind": "script", "script_cmd": "echo"},
+  "tests": [
+    {"name": "greet", "input": {"name": "Ada"}, "exact": "script echo: {\"name\":\"Ada\"}"}
+  ]
+}

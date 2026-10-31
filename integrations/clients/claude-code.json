@@ -1,0 +1,9 @@
+{
+  "$comment": "Excalibur MCP server fragment for Claude Code. Installed by: excalibur mcp install --client claude-code [--print]. Checked against the Claude Code MCP format as of 2026-10. Equivalent command: claude mcp add excalibur -- excalibur mcp",
+  "mcpServers": {
+    "excalibur": {
+      "command": "excalibur",
+      "args": ["mcp"]
+    }
+  }
+}

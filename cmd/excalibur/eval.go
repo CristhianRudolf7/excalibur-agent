@@ -15,7 +15,7 @@ import (
 func runEvalSmoke(args []string) error {
 	fs := flag.NewFlagSet("eval smoke", flag.ContinueOnError)
 	dir := fs.String("dir", "", "output directory for smoke trials (default: fresh temp dir)")
-	if err := fs.Parse(args); err != nil {
+	if _, err := parseCmd(fs, args); err != nil {
 		return err
 	}
 	out := *dir
@@ -53,10 +53,11 @@ func runEvalReport(args []string) error {
 	fs := flag.NewFlagSet("eval report", flag.ContinueOnError)
 	out := fs.String("out", "", "directory for report.json (default: <trials>)")
 	k := fs.Int("k", 5, "pass@k horizon")
-	if err := fs.Parse(args); err != nil {
+	rest, err := parseCmd(fs, args)
+	if err != nil {
 		return err
 	}
-	rest := fs.Args()
+	rest = append(rest[:0], rest...)
 	if len(rest) != 1 {
 		return fmt.Errorf("usage: excalibur eval report <trials-dir> [--out DIR] [--k N]")
 	}

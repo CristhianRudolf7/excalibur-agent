@@ -19,9 +19,11 @@ const (
 	LifecyclePerCall  = "per_call"
 )
 
-// ExtensionTool is one tool entry of a manifest.
+// ExtensionTool is one tool entry of a manifest. The inline tag
+// matters: without it yaml.v3 decodes manifest tool entries to zero
+// values.
 type ExtensionTool struct {
-	Definition
+	Definition `yaml:",inline"`
 }
 
 // AppBinding describes the app-channel binding (path 2).

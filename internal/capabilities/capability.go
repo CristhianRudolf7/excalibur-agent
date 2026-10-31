@@ -35,7 +35,12 @@ const (
 )
 
 // Operation is one capability operation exposed as a deferred tool
-// (Sections 13.3 and 14.1).
+// (Sections 13.3 and 14.1). Group, Tags and Keywords steer
+// search_tools discovery (verb, object, domain per Section 13.3);
+// TimeoutSecs, OutputBudget, Inverse, Probe and DryRun carry the
+// Section 13.1 execution fields so a capability operation converts to
+// a deferred tool without loss. Zero values fall back to the harness
+// defaults applied by the adapter.
 type Operation struct {
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
@@ -47,6 +52,14 @@ type Operation struct {
 	Profiles     []string        `json:"profiles,omitempty"`
 	Cancel       string          `json:"cancel"`
 	Fast         bool            `json:"fast"`
+	Group        string          `json:"group,omitempty"`
+	Tags         []string        `json:"tags,omitempty"`
+	Keywords     []string        `json:"keywords,omitempty"`
+	TimeoutSecs  int64           `json:"timeout_secs,omitempty"`
+	OutputBudget int64           `json:"output_budget,omitempty"`
+	Inverse      string          `json:"inverse,omitempty"`
+	Probe        string          `json:"probe,omitempty"`
+	DryRun       string          `json:"dry_run,omitempty"`
 }
 
 // Validate checks the operation entry.

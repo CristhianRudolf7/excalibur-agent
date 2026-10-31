@@ -1,0 +1,32 @@
+id: example-app
+version: 0.1.0
+contract: excalibur-ext/1
+kind: app
+lifecycle: lazy
+platforms: ["linux"]
+profiles: ["default", "delegate", "eval"]
+app:
+  state_form: "board with columns and cards plus the last action"
+  events: ["user_change"]
+  scope: "app:example-board"
+tools:
+  - name: example_board_move
+    description: "Move a card on the example board: operation on the app state shared with the user"
+    input_schema:
+      type: object
+      properties:
+        instance:
+          type: string
+        ops:
+          type: string
+      required: ["instance", "ops"]
+    effect: write_local
+    idempotency: keyed
+    timeout: 120s
+    output_budget: 65536
+    cancel: cooperative
+    fast: false
+    group: boards
+    tags: ["boards", "example"]
+    keywords: ["board", "move", "card", "example"]
+    dry_run: "reports the card move without applying it"

@@ -139,3 +139,33 @@ commercial-use restriction.
 Permissive license, no copyleft or commercial-use restriction; use
 reviewed against the project license policy before adoption.
 
+## Adopted in H13 (wave w3-capabilities, Sections 14.1 and 14.12)
+
+| Dependency | Version | License (verified) | Use |
+|---|---|---|---|
+| `github.com/modelcontextprotocol/go-sdk` | v1.8.0 | MIT/Apache-2.0 transition (LICENSE file in module cache: all new contributions Apache-2.0, unconsented older code stays MIT) | MCP client over stdio and streamable HTTP, tool listing and calls, `_meta` execution fields, Sections 14.1 and 14.12. Pinned in `go.mod`; resolved by `go mod tidy` (adds `github.com/google/jsonschema-go`, `github.com/golang-jwt/jwt/v5`, `github.com/segmentio/encoding` as indirect). |
+
+Permissive license, no copyleft or commercial-use restriction; use
+reviewed against the project license policy before adoption. The
+planned-libraries table entry for the MCP SDK is superseded by this
+adoption. `gopkg.in/yaml.v3` (already adopted, MIT) additionally backs
+`excalibur-extension.yaml` parsing in H13 via `pkg/extsdk`.
+
+## Adopted in H9 (agent w3-daemon, Sections 3.5/5/6)
+
+| Dependency | Version | License | Use |
+|---|---|---|---|
+| `github.com/coder/websocket` | v1.8.13 | ISC (LICENSE.txt in module cache: copyright Anmol Sethi) | WebSocket side of the gate (`internal/gateway` `/ws`: JSON-RPC over sockets, cursor subscriptions, live event push), the architecture's Section 3.4 choice. Pinned in `go.mod`; builds on darwin/windows (pure Go, no cgo), so cross builds keep working. |
+
+Permissive license, no copyleft or commercial-use restriction; use
+reviewed against the project license policy before adoption.
+
+## Adopted in H4/H8 (agent w3-exec-eval, exec and delegation, 2026-10-31)
+
+No new dependencies. `internal/cli` (profiles, exec, task store,
+MCP server, MCP install, ACP adapter), the client fragments in
+`integrations/clients/` and the bench scripts use the standard
+library only; the MCP stdio subset and the JSON-schema subset for
+`--output-schema` are hand-rolled (see
+`docs/decisions/0023-exec-delegation-no-new-deps.md`). `go.mod`
+unchanged.

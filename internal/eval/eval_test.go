@@ -311,3 +311,35 @@ func closeTo(a, b float64) bool {
 	}
 	return d < 1e-9
 }
+
+func TestSmokeTrialsAreReportable(t *testing.T) {
+	dir := t.TempDir()
+	r := SmokeRunner{Dir: dir, Profile: DefaultEvalProfile()}
+	results, err := r.Run(DefaultSmokeTasks())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, res := range results {
+		if !res.Passed {
+			t.Fatalf("smoke %s failed", res.Name)
+		}
+	}
+	// Smoke trials feed `eval report` exactly like Harbor trials.
+	trials, err := LoadTrials(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trials) != len(results) {
+		t.Fatalf("loaded %d trials, want %d", len(trials), len(results))
+	}
+	rep, err := Aggregate(trials, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Trials != len(results) || rep.Success.Mean != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	if err := WriteReport(filepath.Join(dir, "report"), rep); err != nil {
+		t.Fatal(err)
+	}
+}

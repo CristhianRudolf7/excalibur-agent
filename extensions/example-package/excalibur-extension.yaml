@@ -1,0 +1,25 @@
+id: example-package
+version: 0.1.0
+contract: excalibur-ext/1
+kind: package
+lifecycle: lazy
+platforms: ["linux"]
+profiles: ["default", "delegate", "eval"]
+tools:
+  - name: example_greet
+    description: "Greet a name with the example package script"
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+      required: ["name"]
+    effect: read_only
+    idempotency: pure
+    timeout: 60s
+    output_budget: 65536
+    cancel: immediate
+    fast: false
+    group: extensions
+    tags: ["extensions", "example"]
+    keywords: ["example", "greet", "hello"]

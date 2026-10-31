@@ -46,6 +46,16 @@ func (r *MapRegistry) Register(t Tool) error {
 	return nil
 }
 
+// Unregister removes a tool from the catalog. It exists for the
+// extension kit (Section 14.12): disabling or replacing an extension
+// retires its deferred tools without touching the fixed prefix. Core
+// tools are never unregistered.
+func (r *MapRegistry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
 // Get implements Registry.
 func (r *MapRegistry) Get(name string) (Tool, error) {
 	r.mu.RLock()

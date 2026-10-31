@@ -248,6 +248,21 @@ func Aggregate(trials []TrialOutcome, k int) (Report, error) {
 	return rep, nil
 }
 
+// WriteTrial writes one trial.json into a trial directory.
+func WriteTrial(dir string, t TrialOutcome) error {
+	buf, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return fmt.Errorf("eval: marshal trial: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("eval: mkdir trial: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "trial.json"), append(buf, '\n'), 0o644); err != nil {
+		return fmt.Errorf("eval: write trial: %w", err)
+	}
+	return nil
+}
+
 // WriteReport writes report.json into dir.
 func WriteReport(dir string, rep Report) error {
 	buf, err := json.MarshalIndent(rep, "", "  ")

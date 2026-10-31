@@ -1,0 +1,8 @@
+# Excalibur MCP server fragment for Codex CLI.
+# Installed by: excalibur mcp install --client codex [--print]
+# Checked against the Codex CLI config format as of 2026-10.
+# Appends an [mcp_servers.excalibur] section to ~/.codex/config.toml.
+
+[mcp_servers.excalibur]
+command = "excalibur"
+args = ["mcp"]

@@ -94,7 +94,15 @@ func (r SmokeRunner) runOne(t SmokeTask) (SmokeResult, error) {
 	m := telemetry.NewTaskMetrics(types.NewTaskID(), types.NewRunID(), "smoke")
 	m.SetModel("smoke", "smoke")
 	m.Finish("completed")
-	if err := telemetry.WriteMetricsFile(taskDir, m.Snapshot()); err != nil {
+	snap := m.Snapshot()
+	if err := telemetry.WriteMetricsFile(taskDir, snap); err != nil {
+		return SmokeResult{}, err
+	}
+	// Every smoke task also records a trial.json so `eval report`
+	// aggregates smoke trials exactly like Harbor trials (Section
+	// 23.2: smoke first, report with the 23.7 statistics).
+	trial := TrialFromSnapshot(snap, t.Name, "smoke", "smoke", 1, false, "")
+	if err := WriteTrial(taskDir, trial); err != nil {
 		return SmokeResult{}, err
 	}
 	return SmokeResult{Name: t.Name, Passed: true, Detail: "atif+metrics valid", At: time.Now().UTC(), ATIFPath: w.Path()}, nil
