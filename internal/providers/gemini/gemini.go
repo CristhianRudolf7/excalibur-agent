@@ -174,7 +174,9 @@ func (p *Provider) post(ctx context.Context, url string, body []byte, accept str
 		if ctx.Err() != nil {
 			return nil, &providers.ProviderError{Kind: providers.KindTransient, Provider: p.Name(), Err: ctx.Err()}
 		}
-		return nil, &providers.ProviderError{Kind: providers.KindTransient, Provider: p.Name(), Err: herr}
+		// TLS verification failures are deployment configuration
+		// errors (KindInput, no retry); anything else is transient.
+		return nil, &providers.ProviderError{Kind: providers.TransportKind(herr), Provider: p.Name(), Err: herr}
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
@@ -531,7 +533,7 @@ func (p *Provider) streamOnce(ctx context.Context, url string, body []byte, emit
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return &providers.ProviderError{Kind: providers.KindTransient, Provider: p.Name(), Err: herr}
+		return &providers.ProviderError{Kind: providers.TransportKind(herr), Provider: p.Name(), Err: herr}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

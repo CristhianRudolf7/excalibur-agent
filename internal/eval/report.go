@@ -49,6 +49,7 @@ type TrialOutcome struct {
 	MaskBatches      int     `json:"mask_batches"`
 	LoopsDetected    int     `json:"loops_detected"`
 	GateAttempts     int     `json:"gate_attempts"`
+	Interruptions    int     `json:"interruptions"`
 }
 
 // Passed reports the Harbor rule: reward > 0 and not failed.

@@ -308,6 +308,9 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 		return providers.ChatResponse{}, CallMeta{}, fmt.Errorf("models: empty chain for role %q", string(role))
 	}
 	var lastErr error
+	var failedAttempts int
+	var failedRef ModelRef
+	var failedFallback bool
 	for i, ref := range chain {
 		if err := ctx.Err(); err != nil {
 			return providers.ChatResponse{}, CallMeta{}, err
@@ -321,6 +324,8 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 				Kind: providers.KindTransient, Provider: ref.Provider, Model: ref.Model,
 				Err: fmt.Errorf("models: breaker open for %q", ref.Provider),
 			}
+			failedRef = ref
+			failedFallback = i > 0
 			continue
 		}
 		if err := g.acquire(ctx, lane); err != nil {
@@ -341,14 +346,26 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 			}, nil
 		}
 		lastErr = err
+		failedAttempts += attempts
+		failedRef = ref
+		failedFallback = i > 0
 		if !retryableChain(err, ref, req) {
-			return providers.ChatResponse{}, CallMeta{}, err
+			return providers.ChatResponse{}, CallMeta{
+				Provider: ref.Provider, Model: ref.Model, Role: role, Lane: lane,
+				Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
+			}, err
 		}
 	}
 	if lastErr == nil {
 		lastErr = fmt.Errorf("models: all endpoints of role %q refused (breakers open)", string(role))
 	}
-	return providers.ChatResponse{}, CallMeta{}, lastErr
+	// Report how many provider tries happened even though none
+	// served the call, so recorders and metrics account retries
+	// (Appendix F) instead of reporting zero on failure.
+	return providers.ChatResponse{}, CallMeta{
+		Provider: failedRef.Provider, Model: failedRef.Model, Role: role, Lane: lane,
+		Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
+	}, lastErr
 }
 
 // tryEndpoint calls one endpoint with bounded retries. Retryable

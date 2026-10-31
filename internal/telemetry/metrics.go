@@ -271,6 +271,29 @@ func (m *TaskMetrics) ObserveEfficiency(compaction, mask, loop, modelRetry, suba
 	}
 }
 
+// AddGateAttempts records n completion-gate evaluations at once (the
+// engine reports its total after the run; the index prefers this over
+// counting gate_attempts.jsonl rows, which carry one extra final row).
+func (m *TaskMetrics) AddGateAttempts(n int) {
+	if n <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.GateAttempts += n
+}
+
+// AddLoopDetections records n loop-detector hits at once (same
+// batching rationale as AddGateAttempts).
+func (m *TaskMetrics) AddLoopDetections(n int) {
+	if n <= 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.LoopsCaught += n
+}
+
 // Finish closes the wall clock and records the final state.
 func (m *TaskMetrics) Finish(state string) {
 	m.mu.Lock()

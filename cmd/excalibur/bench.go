@@ -234,7 +234,13 @@ func loadBenchTrials(runDir string) ([]eval.TrialOutcome, error) {
 				InputTokens:  row.InputTokens, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite,
 				OutputTokens: row.OutputTokens, CostUSD: row.CostUSD,
 				WallSeconds: row.WallSecs, ModelSeconds: row.ModelSecs, ToolSeconds: row.ToolSecs,
-				ChildPeakBytes: row.PeakRSS, ToolCalls: int64(sumToolCalls(row.ToolCalls)),
+				ChildPeakBytes: row.PeakRSS, HarnessPeakBytes: row.HarnessPeakRSS,
+				CPUSeconds:   row.CPUSeconds,
+				ModelRetries: row.ModelRetries, ToolRetries: row.ToolRetries,
+				ModelCalls: row.ModelCalls, ToolCalls: row.ToolCallSum,
+				Subagents: row.Subagents, Compactions: row.Compactions,
+				MaskBatches: row.MaskBatches, LoopsDetected: row.LoopsCaught,
+				GateAttempts: row.GateAttempts, Interruptions: row.Interruptions,
 			})
 		}
 		if len(out) > 0 {
@@ -242,14 +248,6 @@ func loadBenchTrials(runDir string) ([]eval.TrialOutcome, error) {
 		}
 	}
 	return eval.LoadTrials(runDir)
-}
-
-func sumToolCalls(m map[string]int64) int64 {
-	var total int64
-	for _, v := range m {
-		total += v
-	}
-	return total
 }
 
 func runBenchRun(dataset eval.BenchDataset, args []string) error {
@@ -619,167 +617,11 @@ func finalizeBenchRun(jobsDir, jobName string, dataset eval.BenchDataset, ref ev
 	return nil
 }
 
-// indexTrial builds one trials.jsonl row from a Harbor trial directory.
+// indexTrial builds one trials.jsonl row from a Harbor trial
+// directory: every Appendix F per-trial field from the per-trial
+// records (Section 23.2, defect w8-bench-fixes/3). The logic lives
+// in internal/eval for unit testing; this stays a thin delegate so
+// the binary and the tests share one implementation.
 func indexTrial(trialDir string) (eval.BenchTrialIndex, error) {
-	var row eval.BenchTrialIndex
-	raw, err := os.ReadFile(filepath.Join(trialDir, "result.json"))
-	if err != nil {
-		return row, err
-	}
-	var doc struct {
-		TaskName  string `json:"task_name"`
-		TrialName string `json:"trial_name"`
-		TaskID    struct {
-			Ref string `json:"ref"`
-		} `json:"task_id"`
-		AgentResult struct {
-			NInput  *int64   `json:"n_input_tokens"`
-			NCache  *int64   `json:"n_cache_tokens"`
-			NOutput *int64   `json:"n_output_tokens"`
-			Cost    *float64 `json:"cost_usd"`
-		} `json:"agent_result"`
-		VerifierResult struct {
-			Rewards map[string]float64 `json:"rewards"`
-		} `json:"verifier_result"`
-		ExceptionInfo *struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
-		} `json:"exception_info"`
-		AgentExecution *struct {
-			StartedAt  string `json:"started_at"`
-			FinishedAt string `json:"finished_at"`
-		} `json:"agent_execution"`
-	}
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		return row, err
-	}
-	row.Task = doc.TaskName
-	if row.Task == "" {
-		row.Task = filepath.Base(trialDir)
-	}
-	row.Trial = doc.TrialName
-	if row.Trial == "" {
-		row.Trial = filepath.Base(trialDir)
-	}
-	for _, v := range doc.VerifierResult.Rewards {
-		row.Reward = v
-		break
-	}
-	// Failure category per Appendix F.
-	row.FailCategory = eval.FailVerifier
-	if doc.ExceptionInfo != nil {
-		msg := (doc.ExceptionInfo.Type + " " + doc.ExceptionInfo.Message)
-		lower := strings.ToLower(msg)
-		switch {
-		case strings.Contains(lower, "timeout"):
-			row.FailCategory = eval.FailTimeout
-		case strings.Contains(lower, "oom") || strings.Contains(lower, "out of memory") || strings.Contains(lower, "memory"):
-			row.FailCategory = eval.FailOOM
-		case strings.Contains(lower, "budget"):
-			row.FailCategory = eval.FailBudget
-		case strings.Contains(lower, "cancel") || strings.Contains(lower, "interrupt"):
-			row.FailCategory = eval.FailBlocked
-		default:
-			row.FailCategory = eval.FailHarness
-		}
-	} else if row.Reward > 0 {
-		row.FailCategory = ""
-	} else {
-		// Reward 0 with no exception: check for harness markers in
-		// the excalibur final state.
-		if finalRaw, err := os.ReadFile(filepath.Join(trialDir, "agent", "excalibur", "final.json")); err == nil {
-			var fin struct {
-				State string `json:"state"`
-			}
-			if json.Unmarshal(finalRaw, &fin) == nil {
-				switch fin.State {
-				case "completed", "failed":
-					row.FailCategory = eval.FailVerifier
-				case "paused":
-					row.FailCategory = eval.FailBudget
-				case "blocked":
-					row.FailCategory = eval.FailBlocked
-				default:
-					row.FailCategory = eval.FailHarness
-				}
-			}
-		}
-	}
-	// Usage from Harbor agent_result, falling back to our metrics.json.
-	if doc.AgentResult.NInput != nil {
-		row.InputTokens = *doc.AgentResult.NInput
-	}
-	if doc.AgentResult.NCache != nil {
-		row.CacheRead = *doc.AgentResult.NCache
-	}
-	if doc.AgentResult.NOutput != nil {
-		row.OutputTokens = *doc.AgentResult.NOutput
-	}
-	if doc.AgentResult.Cost != nil {
-		row.CostUSD = *doc.AgentResult.Cost
-	}
-	if metricsRaw, err := os.ReadFile(filepath.Join(trialDir, "agent", "excalibur", "metrics.json")); err == nil {
-		var snap struct {
-			Usage struct {
-				Input      int64 `json:"input"`
-				CacheRead  int64 `json:"cache_read"`
-				CacheWrite int64 `json:"cache_write"`
-				Output     int64 `json:"output"`
-				Reasoning  int64 `json:"reasoning"`
-			} `json:"usage"`
-			CostUSD             float64          `json:"cost_usd"`
-			WallSeconds         float64          `json:"wall_seconds"`
-			ModelSeconds        float64          `json:"model_seconds"`
-			ToolSeconds         float64          `json:"tool_seconds"`
-			ChildPeakBytes      uint64           `json:"child_peak_bytes"`
-			DaemonRSSTotalBytes uint64           `json:"daemon_rss_total_bytes"`
-			CallsByTool         map[string]int64 `json:"calls_by_tool"`
-		}
-		if json.Unmarshal(metricsRaw, &snap) == nil {
-			if row.InputTokens == 0 {
-				row.InputTokens = snap.Usage.Input
-				row.CacheRead = snap.Usage.CacheRead
-				row.CacheWrite = snap.Usage.CacheWrite
-				row.OutputTokens = snap.Usage.Output + snap.Usage.Reasoning
-				row.CostUSD = snap.CostUSD
-			}
-			row.WallSecs = snap.WallSeconds
-			row.ModelSecs = snap.ModelSeconds
-			row.ToolSecs = snap.ToolSeconds
-			row.PeakRSS = snap.ChildPeakBytes
-			if snap.DaemonRSSTotalBytes > row.PeakRSS {
-				row.PeakRSS = snap.DaemonRSSTotalBytes
-			}
-			row.ToolCalls = snap.CallsByTool
-			row.Steps = countLines(filepath.Join(trialDir, "agent", "excalibur", "model_calls.jsonl"))
-		}
-	}
-	// Collect verifier reward/output next to the excalibur records.
-	exDir := filepath.Join(trialDir, "agent", "excalibur")
-	for _, name := range []string{"reward.txt", "reward.json", "test-stdout.txt", "test-stderr.txt", "ctrf.json"} {
-		src := filepath.Join(trialDir, "verifier", name)
-		if raw, err := os.ReadFile(src); err == nil {
-			_ = os.WriteFile(filepath.Join(exDir, "verifier_"+name), raw, 0o644)
-		}
-	}
-	for _, name := range []string{"result.json", "trial.log", "config.json"} {
-		if raw, err := os.ReadFile(filepath.Join(trialDir, name)); err == nil {
-			_ = os.WriteFile(filepath.Join(exDir, "harbor_"+name), raw, 0o644)
-		}
-	}
-	return row, nil
-}
-
-func countLines(path string) int {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return 0
-	}
-	n := 0
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.TrimSpace(line) != "" {
-			n++
-		}
-	}
-	return n
+	return eval.IndexTrial(trialDir)
 }

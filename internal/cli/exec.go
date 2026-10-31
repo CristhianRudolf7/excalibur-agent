@@ -586,7 +586,11 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	} else if opts.Provider != nil {
 		gw := BuildGateway(eff, layerCfg, opts.Provider)
 		st, usage, err := runEnginePath(ctx, opts, run, eff, gw)
-		if usage != (providers.Usage{}) {
+		// Recorded runs already observed every model call (with real
+		// latency, including failures) through recordingModelEndpoint;
+		// the aggregate below only covers the unrecorded path so
+		// eval metrics are never double-counted.
+		if run.Recorder == nil && usage != (providers.Usage{}) {
 			metrics.ObserveModel(types.RoleExecutor, model, usage, telemetry.PriceTable{}, 0)
 		}
 		if err != nil {

@@ -142,6 +142,21 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 	if m.run.Recorder == nil {
 		return resp, meta, err
 	}
+	// Appendix F accounting lives here (not in the post-hoc aggregate
+	// in RunExec): every model call, successful or failed, lands in
+	// the task metrics with its real latency, and every gateway retry
+	// lands in the retry counter. The post-hoc path skips recorded
+	// runs so nothing is double-counted.
+	model := req.Model
+	if model == "" {
+		model = m.settings.Model
+	}
+	if m.run.Metrics != nil {
+		m.run.Metrics.ObserveModel(role, model, resp.Usage, telemetry.PriceTable{}, latency)
+		for i := 1; i < meta.Attempts; i++ {
+			m.run.Metrics.ObserveEfficiency(false, false, false, true, false, 0)
+		}
+	}
 	m.run.modelSeq++
 	layerHashes := map[string]string{}
 	layerSizes := map[string]int{}
@@ -180,10 +195,6 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		} else {
 			providerErr = "unknown"
 		}
-	}
-	model := req.Model
-	if model == "" {
-		model = m.settings.Model
 	}
 	effort := req.ReasoningEffort
 	if effort == "" {
@@ -232,6 +243,11 @@ func (r *recordingToolRunner) Execute(ctx context.Context, name string, args jso
 		ExitCode: exitCode, DurationSec: dur.Seconds(),
 		Truncated: res.Truncated, IsError: err != nil || res.Status != tools.StatusOK,
 	}, res.Output)
+	// Appendix F time split and per-tool call counts: the engine has
+	// no tool-level retry, so every execution is a first attempt.
+	if r.run.Metrics != nil {
+		r.run.Metrics.ObserveTool(name, dur, false)
+	}
 	// Masking/compaction signals piggyback on tool history depth: the
 	// engine emits them separately; here we only note large outputs.
 	if res.Truncated {
@@ -408,6 +424,18 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		Output: int64(erun.Tracker.Used.OutputTokens),
 	}
 	rep := eng.Report(erun)
+	// Appendix F efficiency counters that the engine owns: gate
+	// evaluations and loop detections, synced into the task metrics
+	// so metrics.json carries them even when the JSONL fallback is
+	// what the index reads for older records.
+	if run.Metrics != nil {
+		run.Metrics.AddGateAttempts(erun.GateAttempts)
+		if erun.Loop != nil {
+			for _, n := range erun.Loop.Counts() {
+				run.Metrics.AddLoopDetections(n)
+			}
+		}
+	}
 	// Mirror the real trajectory into ATIF: one assistant step per
 	// model turn is already journaled; here the tool history and the
 	// final report land as steps so the trajectory is complete.

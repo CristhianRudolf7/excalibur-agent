@@ -169,3 +169,13 @@ library only; the MCP stdio subset and the JSON-schema subset for
 `--output-schema` are hand-rolled (see
 `docs/decisions/0025-exec-delegation-no-new-deps.md`). `go.mod`
 unchanged.
+
+## Adopted in W8 bench fixes (2026-10-31, Section 23.2)
+
+| Dependency | Version | License | Use |
+|---|---|---|---|
+| `golang.org/x/crypto/x509roots/fallback` | v0.0.0-20261030153154-30a33513ff6d | BSD-3-Clause (Go Authors; LICENSE file in module cache) | Embedded Mozilla root CAs for the static bench binary: blank-imported by `cmd/excalibur` only, so task images without CA certificates still verify TLS. The verifier uses the fallback only when the system pool is empty/missing. Pinned in `go.mod`. |
+
+Permissive license, no copyleft or commercial-use restriction; use
+reviewed against the project license policy before adoption. Pure
+Go, no cgo, so `GOOS=darwin`/`GOOS=windows` builds keep working.

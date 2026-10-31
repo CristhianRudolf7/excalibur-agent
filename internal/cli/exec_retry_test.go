@@ -1,0 +1,119 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+)
+
+// flakyProvider fails the first fails Chat calls with kind, then
+// answers with final text. It proves at the exec level which error
+// classes the Section 19.5 retry policy actually retries.
+type flakyProvider struct {
+	mu    sync.Mutex
+	fails int
+	kind  providers.ErrorKind
+	calls int
+}
+
+func (f *flakyProvider) Name() string { return "flaky-test" }
+
+func (f *flakyProvider) Chat(_ context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls <= f.fails {
+		return providers.ChatResponse{}, &providers.ProviderError{
+			Kind: f.kind, Provider: f.Name(), Model: req.Model,
+			Err: fmt.Errorf("flaky %s failure", f.kind),
+		}
+	}
+	return providers.ChatResponse{
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "done"},
+	}, nil
+}
+
+func (f *flakyProvider) Stream(context.Context, providers.ChatRequest, func(providers.StreamEvent) error) error {
+	return nil
+}
+
+func (f *flakyProvider) Close() error { return nil }
+
+func readEvalMetrics(t *testing.T, logsDir string) telemetry.Snapshot {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(logsDir, "excalibur", "metrics.json"))
+	if err != nil {
+		t.Fatalf("metrics.json: %v", err)
+	}
+	var snap telemetry.Snapshot
+	if err := json.Unmarshal(raw, &snap); err != nil {
+		t.Fatalf("metrics.json: %v", err)
+	}
+	return snap
+}
+
+// TestExecRetriesTransientProviderErrors proves the Section 19.5
+// retry policy is actually applied in exec: a transient that clears
+// completes the run, and the retries are recorded (defect
+// w8-bench-fixes/2).
+func TestExecRetriesTransientProviderErrors(t *testing.T) {
+	fake := &flakyProvider{fails: 2, kind: providers.KindTransient}
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{
+		Request: "say hi", LogsDir: logs, Profile: ProfileEval,
+		Provider: fake,
+	})
+	if err != nil {
+		t.Fatalf("RunExec: %v", err)
+	}
+	if out.State != types.RunCompleted {
+		t.Fatalf("state = %q, want completed", out.State)
+	}
+	if fake.calls != 3 {
+		t.Fatalf("provider calls = %d, want 3 (initial + 2 retries)", fake.calls)
+	}
+	snap := readEvalMetrics(t, logs)
+	if snap.ModelRetries != 2 {
+		t.Fatalf("model_retries = %d, want 2", snap.ModelRetries)
+	}
+	if snap.CallsByRole["executor"] != 1 {
+		t.Fatalf("calls_by_role = %v, want one executor call", snap.CallsByRole)
+	}
+	if snap.ModelSeconds <= 0 {
+		t.Fatalf("model_seconds = %v, want the real call latency", snap.ModelSeconds)
+	}
+}
+
+// TestExecTLSConfigErrorFailsFast proves a TLS verification failure
+// (task image without CA certificates) is a non-retryable
+// configuration error in exec: one attempt, immediate honest
+// failure, no burned retries (defect w8-bench-fixes/2).
+func TestExecTLSConfigErrorFailsFast(t *testing.T) {
+	fake := &flakyProvider{fails: 99, kind: providers.KindInput}
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{
+		Request: "say hi", LogsDir: logs, Profile: ProfileEval,
+		Provider: fake,
+	})
+	if err != nil {
+		t.Fatalf("RunExec: %v", err)
+	}
+	if out.State != types.RunFailed {
+		t.Fatalf("state = %q, want failed", out.State)
+	}
+	if fake.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1 (no retry of config errors)", fake.calls)
+	}
+	snap := readEvalMetrics(t, logs)
+	if snap.ModelRetries != 0 {
+		t.Fatalf("model_retries = %d, want 0", snap.ModelRetries)
+	}
+}

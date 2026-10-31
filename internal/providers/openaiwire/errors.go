@@ -170,7 +170,9 @@ func finishKind(reason string) (providers.ErrorKind, bool) {
 
 // netError normalizes a failed HTTP round trip. Canceled contexts
 // surface as the context error itself so callers can distinguish a
-// cancellation from a retryable failure with errors.Is.
+// cancellation from a retryable failure with errors.Is. TLS
+// certificate failures are deployment configuration errors
+// (KindInput, no retry); anything else is transient (Section 19.5).
 func netError(provider, model string, err error, ctxErr error) error {
 	if ctxErr != nil {
 		return ctxErr
@@ -180,7 +182,7 @@ func netError(provider, model string, err error, ctxErr error) error {
 		return err
 	}
 	return &providers.ProviderError{
-		Kind:     providers.KindTransient,
+		Kind:     providers.TransportKind(err),
 		Provider: provider,
 		Model:    model,
 		Err:      err,

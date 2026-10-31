@@ -60,6 +60,32 @@ Per trial, under the Harbor trial directory:
   version/commit, dataset+digest, model/provider/effort, k, budgets,
   machine), `trials.jsonl` index, `report.json` + `report.md`.
 
+### trials.jsonl index (Appendix F minimums, W8 fixed)
+
+One row per trial (`internal/eval.BenchTrialIndex`, built by
+`eval.IndexTrial`): reward and Appendix F failure category, token
+usage with cache read/write splits, cost, wall/model/tool seconds,
+harness and container RAM peaks, CPU seconds, provider and tool
+retries, model/tool call counts, calls by tool, subagents,
+compactions, mask batches, loop detections, gate attempts,
+interruptions. Precedence is `metrics.json`, then the incremental
+JSONL records (kill-safe), then Harbor `agent_result`.
+
+Failure categories: Harbor exceptions map to
+timeout/oom/budget/blocked (else `harness_error`); reward > 0
+passes; otherwise the harness final state decides. Only a
+completed harness run with reward 0 is `verifier`; a run the
+harness never completed (provider/config failure, exit 137 OOM,
+panic, missing records) is `harness_error` (or the matching
+timeout/oom/budget/crash category).
+
+Static binary TLS: the bench binary embeds Mozilla roots via
+`x509roots/fallback` (binary-only import), used only when the task
+image provides no system pool. TLS verification failures classify
+as non-retryable configuration errors (`KindInput`) in every
+adapter; transient provider errors retry through the gateway
+(Section 19.5) with attempts reported on failure.
+
 ## Live verification (2026-10-31)
 
 Static build + `eval smoke` pass. Two TB21 tasks with k=1 and

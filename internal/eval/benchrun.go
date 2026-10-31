@@ -98,22 +98,48 @@ func WriteManifest(runDir string, m RunManifest) error {
 }
 
 // BenchTrialIndex is one row of trials.jsonl (the run-level index).
+// It carries every Appendix F per-trial field the index can state:
+// reward and failure category, token usage with cache splits, cost,
+// the wall/model/tool time split, harness and container RAM peaks,
+// CPU, provider and tool retries, call counts, subagents, efficiency
+// counters and interruptions. Scalar counters prefer the aggregated
+// metrics.json snapshot and fall back to the incremental JSONL
+// records, which stay valid for killed trials; maps are aggregated
+// from the JSONL lines.
 type BenchTrialIndex struct {
-	Task         string           `json:"task"`
-	Trial        string           `json:"trial"`
-	Reward       float64          `json:"reward"`
-	FailCategory string           `json:"fail_category"`
-	InputTokens  int64            `json:"input_tokens"`
-	CacheRead    int64            `json:"cache_read"`
-	CacheWrite   int64            `json:"cache_write"`
-	OutputTokens int64            `json:"output_tokens"`
-	CostUSD      float64          `json:"cost_usd"`
-	WallSecs     float64          `json:"wall_seconds"`
-	ModelSecs    float64          `json:"model_seconds"`
-	ToolSecs     float64          `json:"tool_seconds"`
-	PeakRSS      uint64           `json:"peak_rss_bytes"`
-	Steps        int              `json:"steps"`
-	ToolCalls    map[string]int64 `json:"tool_calls_by_tool,omitempty"`
+	Task         string  `json:"task"`
+	Trial        string  `json:"trial"`
+	Reward       float64 `json:"reward"`
+	FailCategory string  `json:"fail_category"`
+
+	InputTokens  int64   `json:"input_tokens"`
+	CacheRead    int64   `json:"cache_read"`
+	CacheWrite   int64   `json:"cache_write"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+
+	WallSecs  float64 `json:"wall_seconds"`
+	ModelSecs float64 `json:"model_seconds"`
+	ToolSecs  float64 `json:"tool_seconds"`
+
+	PeakRSS        uint64  `json:"peak_rss_bytes"`
+	HarnessPeakRSS uint64  `json:"harness_peak_bytes"`
+	CPUSeconds     float64 `json:"cpu_seconds"`
+
+	Steps     int              `json:"steps"`
+	ToolCalls map[string]int64 `json:"tool_calls_by_tool,omitempty"`
+
+	ModelRetries int   `json:"model_retries"`
+	ToolRetries  int   `json:"tool_retries"`
+	ModelCalls   int64 `json:"model_calls"`
+	ToolCallSum  int64 `json:"tool_calls"`
+
+	Subagents     int `json:"subagents_created"`
+	Compactions   int `json:"compactions"`
+	MaskBatches   int `json:"mask_batches"`
+	LoopsCaught   int `json:"loops_detected"`
+	GateAttempts  int `json:"gate_attempts"`
+	Interruptions int `json:"interruptions"`
 }
 
 // AppendTrialIndex appends one row to trials.jsonl.

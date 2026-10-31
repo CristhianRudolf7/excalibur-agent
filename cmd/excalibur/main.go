@@ -15,6 +15,12 @@ import (
 	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
+	// Embedded Mozilla root CAs for the static bench binary (Section
+	// 23.2): the binary runs in arbitrary task images, many without CA
+	// certificates. The fallback roots apply only when the image
+	// provides no system pool, so images with their own CAs behave
+	// exactly as before. Binary-only import per the package docs.
+	_ "golang.org/x/crypto/x509roots/fallback"
 )
 
 // Exit codes. The 0/2/3/4/5/130 mapping mirrors the exec final-state

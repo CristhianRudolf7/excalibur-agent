@@ -92,6 +92,44 @@ func TestGatewayFailsOverToFallback(t *testing.T) {
 	}
 }
 
+func TestGatewayFailureReportsAttempts(t *testing.T) {
+	// A transient that never recovers still reports how many tries
+	// happened, so recorders and metrics account retries (Appendix F)
+	// instead of zero on failure (defect w8-bench-fixes/2).
+	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindTransient}
+	g := NewGateway(testConfig(p, nil))
+	g.Register(p)
+	_, meta, err := g.Call(context.Background(), types.RoleExecutor, providers.ChatRequest{})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if meta.Attempts != 3 || !meta.Retried {
+		t.Fatalf("failure meta = %+v, want 3 attempts retried", meta)
+	}
+	if p.calls != 3 {
+		t.Fatalf("calls = %d, want 3 (gateway retry policy applied)", p.calls)
+	}
+}
+
+func TestGatewayNoBlindRetryOnInput(t *testing.T) {
+	// Configuration errors (TLS verification, bad arguments) fail
+	// fast with a single attempt: retrying cannot fix them (defect
+	// w8-bench-fixes/2).
+	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindInput}
+	g := NewGateway(testConfig(p, nil))
+	g.Register(p)
+	_, meta, err := g.Call(context.Background(), types.RoleExecutor, providers.ChatRequest{})
+	if err == nil {
+		t.Fatal("input error should surface")
+	}
+	if p.calls != 1 {
+		t.Fatalf("input must not retry: %d calls", p.calls)
+	}
+	if meta.Attempts != 1 || meta.Retried {
+		t.Fatalf("input failure meta = %+v, want 1 attempt, not retried", meta)
+	}
+}
+
 func TestGatewayNoBlindRetryOnAuth(t *testing.T) {
 	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindAuth}
 	g := NewGateway(testConfig(p, nil))
