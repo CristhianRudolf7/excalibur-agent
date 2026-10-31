@@ -11,11 +11,13 @@ import sys
 import tempfile
 import unittest
 
+os.environ["EXCALIBUR_TEST_NO_HARBOR"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from excalibur_agent import (
     ExcaliburAgent,
     configure_env,
+    ensure_harbor_trajectory,
     fill_agent_context,
     install_binary,
     metrics_path,
@@ -86,11 +88,10 @@ class TestRun(unittest.TestCase):
             self.assertEqual(result["returncode"], 0)
             ctx = result["agent_context"]
             self.assertIsNotNone(ctx)
-            self.assertEqual(ctx.input_tokens, 1000)
-            self.assertEqual(ctx.cache_read_tokens, 300)
-            self.assertEqual(ctx.cache_write_tokens, 100)
+            self.assertEqual(ctx.n_input_tokens, 1000)
+            self.assertEqual(ctx.n_cache_tokens, 400)
             # Output includes reasoning.
-            self.assertEqual(ctx.output_tokens, 250)
+            self.assertEqual(ctx.n_output_tokens, 250)
             self.assertAlmostEqual(ctx.cost_usd, 0.05)
             self.assertTrue(result["trajectory"].endswith("trajectory.json"))
 
@@ -117,7 +118,17 @@ class TestRun(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(snap, f)
             ctx = fill_agent_context(tmp)
-            self.assertEqual(ctx.output_tokens, 7)
+            self.assertEqual(ctx.n_output_tokens, 7)
+            self.assertEqual(ctx.n_cache_tokens, 3)
+
+    def test_ensure_trajectory_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "excalibur"))
+            path = os.path.join(tmp, "excalibur", "metrics.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"usage": {"input": 1, "output": 1}, "cost_usd": 0.0}, f)
+            traj = ensure_harbor_trajectory(tmp, model="m")
+            self.assertTrue(os.path.exists(traj))
 
 
 if __name__ == "__main__":

@@ -11,7 +11,6 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	providerfake "github.com/CristhianRudolf7/excalibur-agent/internal/providers/fake"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -62,8 +61,13 @@ func TestExecEnginePathEndToEnd(t *testing.T) {
 	if first.Tools[0].Name != second.Tools[0].Name {
 		t.Fatal("tool prefix order must be stable across calls")
 	}
-	if err := telemetry.ValidateFile(out.ATIFPath); err != nil {
-		t.Fatalf("ATIF invalid: %v", err)
+	if raw, err := os.ReadFile(out.ATIFPath); err != nil {
+		t.Fatalf("harbor ATIF missing: %v", err)
+	} else {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil || doc["schema_version"] != "ATIF-v1.8" {
+			t.Fatalf("harbor ATIF invalid: %v %v", doc["schema_version"], err)
+		}
 	}
 	for _, name := range []string{"profile.json", "result.json", "events.jsonl", "metrics.json"} {
 		if _, err := os.Stat(filepath.Join(out.Dir, name)); err != nil {

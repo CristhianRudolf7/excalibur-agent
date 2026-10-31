@@ -352,7 +352,7 @@ func TestWalkthrough268EvalProfile(t *testing.T) {
 	if outcome.ProfileHash == "" {
 		t.Fatal("eval profile has no frozen hash")
 	}
-	if _, err := os.Stat(filepath.Join(runDir, "trajectory.json")); err != nil {
+	if _, err := os.Stat(outcome.ATIFPath); err != nil {
 		t.Fatalf("no ATIF trajectory: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(tree, "trajectory.json")); err == nil {

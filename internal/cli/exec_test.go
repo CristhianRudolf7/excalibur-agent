@@ -154,8 +154,21 @@ func TestExecArtifacts(t *testing.T) {
 	if out.ATIFPath != filepath.Join(logs, "trajectory.json") {
 		t.Fatalf("eval ATIF must sit in /logs/agent, got %q", out.ATIFPath)
 	}
-	if err := telemetry.ValidateFile(out.ATIFPath); err != nil {
-		t.Fatalf("ATIF invalid: %v", err)
+	// Harbor-compatible ATIF at the log root; rich custom trajectory
+	// under excalibur/.
+	if raw, err := os.ReadFile(out.ATIFPath); err != nil {
+		t.Fatalf("harbor ATIF missing: %v", err)
+	} else {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("harbor ATIF not JSON: %v", err)
+		}
+		if doc["schema_version"] != "ATIF-v1.8" {
+			t.Fatalf("harbor ATIF version = %v", doc["schema_version"])
+		}
+	}
+	if err := telemetry.ValidateFile(filepath.Join(logs, "excalibur", "trajectory.json")); err != nil {
+		t.Fatalf("custom ATIF invalid: %v", err)
 	}
 	if out.MetricsPath != eval.MetricsPath(logs) {
 		t.Fatalf("metrics path = %q", out.MetricsPath)
@@ -166,6 +179,11 @@ func TestExecArtifacts(t *testing.T) {
 	for _, name := range []string{"profile.json", "profile.sha256", "result.json", "events.jsonl", "metrics.json"} {
 		if _, err := os.Stat(filepath.Join(out.Dir, name)); err != nil {
 			t.Fatalf("missing artifact %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"trajectory.json", "metrics.json", "profile.json", "environment.json", "final.json", "transitions.jsonl", "gate_attempts.jsonl", "budget.jsonl", "resources.jsonl", "journal.jsonl"} {
+		if _, err := os.Stat(filepath.Join(logs, "excalibur", name)); err != nil {
+			t.Fatalf("missing trial record %s: %v", name, err)
 		}
 	}
 	if out.ProfileHash == "" || out.ProfileHash != eval.DefaultEvalProfile().Hash() {
@@ -292,8 +310,13 @@ func TestExecPartialArtifactsOnFailure(t *testing.T) {
 	if out.State != types.RunFailed || out.ExitCode != ExitFailed {
 		t.Fatalf("state = %q/%d", out.State, out.ExitCode)
 	}
-	if err := telemetry.ValidateFile(out.ATIFPath); err != nil {
-		t.Fatalf("partial ATIF must stay valid: %v", err)
+	if raw, err := os.ReadFile(out.ATIFPath); err != nil {
+		t.Fatalf("partial harbor ATIF missing: %v", err)
+	} else {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil || doc["schema_version"] != "ATIF-v1.8" {
+			t.Fatalf("partial harbor ATIF must stay valid: %v %v", doc["schema_version"], err)
+		}
 	}
 	if _, err := eval.FromMetricsFile(out.MetricsPath); err != nil {
 		t.Fatalf("partial metrics must feed AgentContext: %v", err)

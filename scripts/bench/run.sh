@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
-# Launch Harbor trials for Excalibur (Section 23.2, Appendix F).
+# Launch Harbor trials for Excalibur via the native bench command
+# (Section 23.2, Appendix F).
 #
-# Wraps `harbor run` with the fixed comparison conditions: pinned
-# dataset digest, no timeout/resource changes, -k 5 by default, results
-# never uploaded unless the user passes --upload.
+# Thin wrapper: `excalibur bench tb21 run` owns the frozen conditions
+# (pinned dataset digest, -k 5 default, no timeout/resource changes, no
+# upload). This script exists for the documented `scripts/bench/run.sh
+# tb21` entry point and forwards to the binary.
 #
-# Usage: scripts/bench/run.sh <tb21|tb40> <provider/model> [k] [--upload] [-- extra harbor args]
+# Usage: scripts/bench/run.sh <tb21|tb40> <provider/model> [k] [--upload] [-- extra bench flags]
+# Example: scripts/bench/run.sh tb21 openai/gpt-6-luna 1 -- --credentials-file ~/.config/excalibur/credentials/openai.json --tasks terminal-bench/write-compressor
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
-  echo "Usage: run.sh <tb21|tb40> <provider/model> [k] [--upload] [-- extra harbor args]" >&2
+  echo "Usage: run.sh <tb21|tb40> <provider/model> [k] [--upload] [-- extra bench flags]" >&2
   exit 1
 fi
 
@@ -28,25 +31,25 @@ if [[ $# -gt 0 && "$1" == "--" ]]; then
   shift
 fi
 
-case "$DATASET" in
-  tb21) SET="terminal-bench/terminal-bench-2-1" ;;
-  tb40) SET="terminal-bench/terminal-bench@4.0.0" ;;
-  *) echo "run.sh: dataset must be tb21 or tb40" >&2; exit 1 ;;
-esac
-
-AGENT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../integrations/harbor" && pwd)/excalibur_agent.py"
-
-UPLOAD_FLAGS=()
-if [[ "$UPLOAD" -eq 1 ]]; then
-  # Publish only on explicit request (Section 23.1).
-  UPLOAD_FLAGS=(--upload --public)
+PROVIDER="${MODEL%%/*}"
+MODEL_ID="${MODEL#*/}"
+if [[ "$PROVIDER" == "$MODEL" ]]; then
+  PROVIDER="openai"
+  MODEL_ID="$MODEL"
 fi
 
-echo "dataset=$SET model=$MODEL k=$K agent=$AGENT_PATH"
-exec harbor run \
-  -d "$SET" \
-  -a "$AGENT_PATH" \
-  -m "$MODEL" \
-  -k "$K" \
-  "${UPLOAD_FLAGS[@]}" \
+UPLOAD_FLAG=()
+if [[ "$UPLOAD" -eq 1 ]]; then
+  UPLOAD_FLAG=(--upload)
+fi
+
+BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.. && pwd)/dist/bench/excalibur-linux-amd64"
+if [[ ! -x "$BIN" ]]; then
+  echo "run.sh: building static binary first (scripts/bench/build.sh)" >&2
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/bench/build.sh" --arch amd64
+fi
+
+exec go run ./cmd/excalibur bench "$DATASET" run \
+  --provider "$PROVIDER" --model "$MODEL_ID" \
+  --k "$K" "${UPLOAD_FLAG[@]}" \
   "$@"

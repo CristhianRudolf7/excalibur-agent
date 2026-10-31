@@ -2,16 +2,22 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
+	"runtime"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -120,6 +126,120 @@ func taskDBOps(args json.RawMessage) []string {
 	return out
 }
 
+// recordingModelEndpoint wraps the gateway and logs one JSONL line
+// per model call (role, model, effort, layer hashes/sizes, tokens,
+// latency, finish reason, provider error class, retries).
+type recordingModelEndpoint struct {
+	base     engine.ModelEndpoint
+	run      *ExecRun
+	settings models.ModelSettings
+}
+
+func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole, req providers.ChatRequest) (providers.ChatResponse, models.CallMeta, error) {
+	start := time.Now()
+	resp, meta, err := m.base.Chat(ctx, role, req)
+	latency := time.Since(start)
+	if m.run.Recorder == nil {
+		return resp, meta, err
+	}
+	m.run.modelSeq++
+	layerHashes := map[string]string{}
+	layerSizes := map[string]int{}
+	for i, msg := range req.Messages {
+		h := sha256.Sum256([]byte(string(msg.Role) + "\n" + msg.Content))
+		key := fmt.Sprintf("msg_%d_%s", i, msg.Role)
+		layerHashes[key] = hex.EncodeToString(h[:])
+		layerSizes[key] = len(msg.Content)
+	}
+	for i, td := range req.Tools {
+		h := sha256.Sum256([]byte(td.Name + td.Description + string(td.Schema)))
+		key := fmt.Sprintf("tooldef_%d_%s", i, td.Name)
+		layerHashes[key] = hex.EncodeToString(h[:])
+		layerSizes[key] = len(td.Description) + len(td.Schema)
+	}
+	providerErr := ""
+	retries := 0
+	if meta.Attempts > 1 {
+		retries = meta.Attempts - 1
+	}
+	if err != nil {
+		var perr *providers.ProviderError
+		if e2, ok := err.(*providers.ProviderError); ok {
+			perr = e2
+		} else {
+			// Unwrap once for gateway-wrapped errors.
+			type unwrapper interface{ Unwrap() error }
+			if uw, ok := err.(unwrapper); ok {
+				if inner, ok := uw.Unwrap().(*providers.ProviderError); ok {
+					perr = inner
+				}
+			}
+		}
+		if perr != nil {
+			providerErr = string(perr.Kind)
+		} else {
+			providerErr = "unknown"
+		}
+	}
+	model := req.Model
+	if model == "" {
+		model = m.settings.Model
+	}
+	effort := req.ReasoningEffort
+	if effort == "" {
+		effort = m.settings.ReasoningEffort
+	}
+	_ = m.run.Recorder.RecordModelCall(eval.ModelCall{
+		Seq: m.run.modelSeq, Role: string(role), Model: model, Effort: effort,
+		LayerHashes: layerHashes, LayerSizes: layerSizes,
+		InputTokens: resp.Usage.Input, CacheRead: resp.Usage.CacheRead, CacheWrite: resp.Usage.CacheWrite,
+		OutputTokens: resp.Usage.Output, ReasoningTok: resp.Usage.Reasoning,
+		LatencySecs: latency.Seconds(), ProviderError: providerErr, Retries: retries,
+	})
+	// Budget consumption over time (incremental).
+	_ = m.run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: resp.Usage.Input + resp.Usage.Output, CostUSD: 0, Note: "model_call"})
+	return resp, meta, err
+}
+
+// recordingToolRunner wraps the gated runner and logs one JSONL line
+// per tool call with truncated inline output and a content-hashed blob.
+type recordingToolRunner struct {
+	base engine.ToolRunner
+	run  *ExecRun
+}
+
+func (r *recordingToolRunner) Definition(name string) (tools.Definition, error) {
+	return r.base.Definition(name)
+}
+
+func (r *recordingToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, o tools.ExecuteOptions) (tools.Result, error) {
+	start := time.Now()
+	res, err := r.base.Execute(ctx, name, args, o)
+	dur := time.Since(start)
+	if r.run.Recorder == nil {
+		return res, err
+	}
+	r.run.toolSeq++
+	exitCode := 0
+	if res.Status != tools.StatusOK {
+		exitCode = 1
+	}
+	if err != nil {
+		exitCode = 1
+	}
+	_ = r.run.Recorder.RecordToolCall(eval.ToolCall{
+		Seq: r.run.toolSeq, Tool: name, Arguments: string(args),
+		ExitCode: exitCode, DurationSec: dur.Seconds(),
+		Truncated: res.Truncated, IsError: err != nil || res.Status != tools.StatusOK,
+	}, res.Output)
+	// Masking/compaction signals piggyback on tool history depth: the
+	// engine emits them separately; here we only note large outputs.
+	if res.Truncated {
+		_ = r.run.Recorder.RecordMask(0, len(res.Output), "truncated tool output: "+name)
+	}
+	return res, err
+}
+
 // runEnginePath drives the real embedded engine loop with the full
 // wired catalog (Sections 7.3, 13.3, 13.4): leases, shared history,
 // LSP diagnostics, deferred tools through search_tools/call_tool,
@@ -203,13 +323,20 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if effort == "" {
 		effort = models.DefaultDecisionsEffort
 	}
+	var modelEndpoint engine.ModelEndpoint = gw
+	var toolRunner engine.ToolRunner = runner
+	if run.Recorder != nil {
+		modelEndpoint = &recordingModelEndpoint{base: gw, run: run, settings: settings}
+		toolRunner = &recordingToolRunner{base: runner, run: run}
+		_ = run.Recorder.RecordTransition("created", "executing", "engine admitted")
+	}
 	eng := engine.New(engine.Deps{
-		Models: gw,
+		Models: modelEndpoint,
 		Context: &engine.DefaultBuilder{
 			Config: ctxcompiler.DefaultConfig(), Counter: ctxcompiler.NewEstimator(0),
 			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: effort,
 		},
-		Tools:          runner,
+		Tools:          toolRunner,
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
 		LeaseRelease:   wireengine.LeaseReleaseHook(emb.Leases),
 	})
@@ -229,22 +356,53 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	er := engine.NewRunner(eng, erun)
 	orch.AttachRunner(er)
 	defer orch.DetachRunner(er.RunID())
+	// Resource sampler: harness RSS/CPU/processes/OOM every 5 s,
+	// incremental into resources.jsonl (Appendix F).
+	stopSampler := make(chan struct{})
+	if run.Recorder != nil {
+		sampler := newResourceSampler()
+		pid := os.Getpid()
+		safego.Go("bench-sampler", nil, func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopSampler:
+					return
+				case <-ticker.C:
+					sample, err := sampler.Sample(pid)
+					if err != nil {
+						continue
+					}
+					_ = run.Recorder.RecordResource(eval.ResourceSample{
+						HarnessRSS: sample.RSSBytes, CPUSeconds: sample.CPUSeconds,
+						Processes: sample.Processes, OOMEvents: sample.OOMKills,
+					})
+				}
+			}
+		})
+	}
 	if err := eng.Admit(ctx, erun); err != nil {
+		close(stopSampler)
 		return "", providers.Usage{}, err
 	}
 	if _, err := rec.RunStarted(ctx, map[string]string{"task": opts.Request}); err != nil {
+		close(stopSampler)
 		return "", providers.Usage{}, err
 	}
 	if err := eng.Start(ctx, erun); err != nil {
+		close(stopSampler)
 		return "", providers.Usage{}, err
 	}
 	if err := eng.Run(ctx, erun); err != nil {
 		// An interrupt cancels the context without failing: the
 		// orchestrator owns the resulting state.
 		if ctx.Err() == nil {
+			close(stopSampler)
 			return "", providers.Usage{}, err
 		}
 	}
+	close(stopSampler)
 	usage := providers.Usage{
 		Input:  int64(erun.Tracker.Used.InputTokens),
 		Output: int64(erun.Tracker.Used.OutputTokens),
@@ -272,6 +430,39 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		}, "tool_result"); err != nil {
 			return "", providers.Usage{}, err
 		}
+	}
+	if run.Recorder != nil {
+		// Completion-gate attempts with criteria and evidence.
+		for i := 0; i < erun.GateAttempts; i++ {
+			_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: i + 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
+		}
+		if erun.GateAttempts == 0 {
+			_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
+		}
+		// Loop-detector signals.
+		if erun.Loop != nil {
+			for rule, n := range erun.Loop.Counts() {
+				_ = run.Recorder.RecordLoop("observed", string(rule), fmt.Sprintf("count=%d", n))
+			}
+		}
+		// Masking and compaction counters from the tracker-adjacent
+		// engine state: at least one event each keeps killed-trial
+		// analysis honest about whether they ever fired.
+		_ = run.Recorder.RecordCompaction(0, len(erun.History), 0, "engine history length")
+		// Final resource sample with runtime memory.
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		sampler := newResourceSampler()
+		if sample, err := sampler.Sample(os.Getpid()); err == nil {
+			_ = run.Recorder.RecordResource(eval.ResourceSample{
+				HarnessRSS: sample.RSSBytes, CPUSeconds: sample.CPUSeconds,
+				Processes: sample.Processes, OOMEvents: sample.OOMKills,
+				ChildPeakRSS: 0, Note: "final",
+			})
+		} else {
+			_ = run.Recorder.RecordResource(eval.ResourceSample{HarnessRSS: mem.Alloc, Note: "final-fallback"})
+		}
+		_ = run.Recorder.RecordTransition("executing", string(erun.State()), rep.Summary)
 	}
 	summary := rep.Summary
 	if summary == "" {

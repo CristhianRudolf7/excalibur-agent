@@ -79,8 +79,13 @@ unconfigured and keeps the deterministic step only under explicit
 `EXCALIBUR_LIVE=1` with results in
 `docs/development/live-smoke.md`. Per-section evidence lives in
 `docs/development/coverage.md`; close-out fixes are recorded in
-`docs/decisions/0034-w5-closure.md` and the wiring decisions in
-`docs/decisions/0035-w6-live-wiring.md`.
+`docs/decisions/0034-w5-closure.md`, the wiring decisions in
+`docs/decisions/0035-w6-live-wiring.md`, and the native TB21 support
+(Harbor 0.25.0 pin, Section 23.2 resolutions, `bench` command, rich
+trial records, 2-task live verification) in
+`docs/decisions/0036-tb21-harbor-pinning.md`,
+`docs/decisions/0037-tb21-unverified-resolved.md` and
+`docs/development/terminal-bench.md`.
 Do not regress any milestone: every change must keep its area's
 contract and backend tests passing (`go test ./... -race`).
 
@@ -99,7 +104,10 @@ contract and backend tests passing (`go test ./... -race`).
 - H3 Durable engine and terminal: journal, agent loop, gateway subset,
   context compiler basics, core file/terminal tools, extension registry.
 - H4 Non-interactive mode and benchmarks: `exec`, eval profile, events,
-  metrics, ATIF, Harbor adapter, bench launchers.
+  metrics, ATIF, Harbor adapter, bench launchers, plus native TB21
+  (`excalibur bench tb21|tb40 run|smoke|status|report`,
+  `scripts/bench/run.sh` wrapper, rich per-trial records, 2-task live
+  verification; see `docs/development/terminal-bench.md`).
 - H5 Verifiable work: tasks/plans/requirements/criteria/evidence,
   completion gate, run states, loop detector, limits.
 - H6 Context and cache: layers, deltas, masking, compaction, cache

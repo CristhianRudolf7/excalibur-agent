@@ -114,15 +114,62 @@ type ExecRun struct {
 	Events   []map[string]any
 	emit     io.Writer
 	emitJSON bool
+	// Recorder holds the rich per-trial files under excalibur/ when the
+	// eval profile is active (Section 23.2, Appendix F). Nil elsewhere.
+	Recorder *eval.TrialRecorder
+	// Harbor mirrors the custom ATIF into the Harbor-compatible
+	// trajectory.json at the trial log root. Nil outside eval.
+	Harbor *eval.HarborATIFWriter
+	// modelSeq and toolSeq order the per-call JSONL files.
+	modelSeq int
+	toolSeq  int
 }
 
-// EmitStep records one ATIF step plus a matching JSONL event.
+// EmitStep records one ATIF step plus a matching JSONL event, and
+// mirrors it into the Harbor-compatible trajectory when present.
 func (r *ExecRun) EmitStep(step telemetry.ATIFStep, event string) error {
 	step.At = time.Now().UTC()
 	if err := r.ATIF.Append(step); err != nil {
 		return err
 	}
+	if r.Harbor != nil {
+		source := "agent"
+		switch step.Role {
+		case "user":
+			source = "user"
+		case "system":
+			source = "system"
+		}
+		content := step.Content
+		if content == "" && step.ToolResult != nil {
+			content = "tool " + step.ToolResult.Name + ": " + step.ToolResult.Output
+		}
+		if len(step.ToolCalls) > 0 && content == "" {
+			content = "tool call " + step.ToolCalls[0].Name
+		}
+		_ = r.Harbor.AppendStep(source, content, "")
+	}
 	return r.EmitEvent(event, map[string]any{"step": step})
+}
+
+// recordingJournalStore exports every journal append to the trial
+// recorder so killed trials keep a valid journal.jsonl.
+type recordingJournalStore struct {
+	base journal.Store
+	rec  *eval.TrialRecorder
+}
+
+func (s *recordingJournalStore) Append(ctx context.Context, e journal.Entry) (journal.Entry, error) {
+	out, err := s.base.Append(ctx, e)
+	if err != nil {
+		return out, err
+	}
+	_ = s.rec.RecordJournal(int64(out.Seq), string(out.Type), string(out.Payload), out.State)
+	return out, nil
+}
+
+func (s *recordingJournalStore) List(ctx context.Context, runID string) ([]journal.Entry, error) {
+	return s.base.List(ctx, runID)
 }
 
 // EmitEvent appends one event to the in-memory flow and, with
@@ -390,15 +437,47 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		Provider:        provider,
 		StartedAt:       time.Now().UTC(),
 	}
-	atifPath := filepath.Join(runDir, "trajectory.json")
+	// Trial records layout (Section 23.2, Appendix F):
+	// - Harbor-compatible ATIF at <logs>/trajectory.json (audited).
+	// - Rich custom ATIF plus per-trial JSONL files under
+	//   <logs>/excalibur/ (incremental, survive kills).
+	// Non-eval profiles keep the single custom trajectory at runDir.
 	var writer *telemetry.Writer
+	var harborWriter *eval.HarborATIFWriter
+	var recorder *eval.TrialRecorder
+	customDir := runDir
+	if profile == ProfileEval {
+		excaliburDir := filepath.Join(logsDir, "excalibur")
+		if err := os.MkdirAll(excaliburDir, 0o755); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		rec, err := eval.NewTrialRecorder(excaliburDir)
+		if err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		recorder = rec
+		if err := recorder.WriteEnvironment(eval.DetectEnvironment()); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		if err := recorder.RecordTransition("", "created", "run started"); err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		hw, err := eval.NewHarborATIFWriter(logsDir, Version, model)
+		if err != nil {
+			return nil, &CodedError{Code: ExitError, Err: err}
+		}
+		harborWriter = hw
+		_ = harborWriter.AppendStep("user", opts.Request, model)
+		customDir = excaliburDir
+	}
+	atifPath := filepath.Join(customDir, "trajectory.json")
 	if _, err := os.Stat(atifPath); err == nil && opts.RunDir != "" {
 		writer, err = telemetry.OpenWriter(atifPath)
 		if err != nil {
 			return nil, &CodedError{Code: ExitError, Err: err}
 		}
 	} else {
-		writer, err = telemetry.NewWriter(runDir, telemetry.ATIFv18, meta)
+		writer, err = telemetry.NewWriter(customDir, telemetry.ATIFv18, meta)
 		if err != nil {
 			return nil, &CodedError{Code: ExitError, Err: err}
 		}
@@ -411,11 +490,25 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		TaskID: taskID, RunID: runID, Dir: runDir,
 		ATIF: writer, Metrics: metrics,
 		emit: opts.Emit, emitJSON: opts.EmitJSON,
+		Recorder: recorder, Harbor: harborWriter,
+	}
+	// Journal export wraps the store when a recorder exists: every
+	// journal append also lands in excalibur/journal.jsonl.
+	if recorder != nil {
+		if opts.JournalStore == nil {
+			opts.JournalStore = journal.NewMemStore()
+		}
+		opts.JournalStore = &recordingJournalStore{base: opts.JournalStore, rec: recorder}
 	}
 	outcome := &ExecOutcome{
 		TaskID: taskID, RunID: runID, Dir: runDir,
 		ATIFPath: writer.Path(), Profile: profile,
 		ProfileHash: profileHash, Overridden: opts.ProfileOverride != "",
+	}
+	if profile == ProfileEval && harborWriter != nil {
+		// The audited ATIF is the Harbor-compatible file at the log
+		// root; the rich custom trajectory stays under excalibur/.
+		outcome.ATIFPath = harborWriter.Path()
 	}
 	outcome.MetricsPath = metricsPathFor(runDir, profile, logsDir)
 
@@ -686,6 +779,37 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 	if dest != filepath.Join(runDir, "metrics.json") {
 		if err := telemetry.WriteMetricsFile(runDir, snap); err != nil {
 			return &CodedError{Code: ExitError, Err: err}
+		}
+	}
+	// Trial recorder finalization (eval only): Harbor final metrics,
+	// final state and closing transition. All writes are incremental
+	// elsewhere, so a killed trial still keeps valid partial files.
+	// The deterministic stub path (no engine) still gets minimal
+	// gate/resource/journal rows so the record set is complete.
+	if run.Recorder != nil {
+		if run.Harbor != nil {
+			_ = run.Harbor.AppendStep("agent", outcome.Summary, snap.Model)
+			_ = run.Harbor.SetFinal(snap.Usage.Input, snap.Usage.Output+snap.Usage.Reasoning, snap.Usage.CacheRead+snap.Usage.CacheWrite, snap.CostUSD)
+		}
+		_ = run.Recorder.RecordTransition(string(state)+":running", string(state), outcome.Reason)
+		_ = run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: snap.Usage.Input + snap.Usage.Output, CostUSD: snap.CostUSD, WallSecs: snap.WallSeconds, Note: "final"})
+		_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: state == types.RunCompleted, Note: outcome.Summary})
+		_ = run.Recorder.RecordResource(eval.ResourceSample{HarnessRSS: snap.DaemonRSSTotalBytes, CPUSeconds: snap.CPUSeconds, Processes: 1, OOMEvents: snap.ChildOOMKills, Note: "final"})
+		_ = run.Recorder.RecordJournal(0, "run_finished", string(state), string(state))
+		_ = run.Recorder.RecordMask(0, 0, "final")
+		_ = run.Recorder.RecordCompaction(0, 0, 0, "final")
+		_ = run.Recorder.RecordLoop("final", "none", "no loop")
+		_ = run.Recorder.WriteFinal(string(state), outcome.Reason, outcome.ExitCode)
+		// Mirror profile hashes under excalibur/ for Appendix F.
+		if profile == ProfileEval {
+			excaliburDir := filepath.Join(logsDir, "excalibur")
+			for _, name := range []string{"profile.json", "profile.sha256"} {
+				src := filepath.Join(runDir, name)
+				dst := filepath.Join(excaliburDir, name)
+				if raw, err := os.ReadFile(src); err == nil {
+					_ = os.WriteFile(dst, raw, 0o644)
+				}
+			}
 		}
 	}
 	doc := map[string]any{

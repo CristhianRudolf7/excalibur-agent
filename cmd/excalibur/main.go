@@ -113,6 +113,7 @@ func commands() map[string]command {
 		"ext":      {summary: "Manage extensions (Section 14.12)", sub: extSub},
 		"vault":    {summary: "Manage the secrets vault (Section 20.1)", sub: vaultSub},
 		"eval":     {summary: "Run evaluations (Section 23)", sub: evalSub},
+		"bench":    {summary: "Native Terminal-Bench runs (Section 23.2)", run: runBench},
 		"daemon":   {summary: "Control the daemon", sub: daemonSub},
 		"install":  {summary: "Install the daemon and clients", run: runInstall},
 		"update":   {summary: "Update the binary", run: runUpdate},
@@ -129,7 +130,7 @@ func topUsage(cmds map[string]command) string {
 	b.WriteString("Usage: excalibur [--json] <command> [args]\n\nCommands:\n")
 	names := []string{
 		"chat", "exec", "status", "tasks", "projects", "memory", "skills",
-		"ext", "vault", "eval", "daemon", "install", "update", "task", "mcp", "acp", "plan",
+		"ext", "vault", "eval", "bench", "daemon", "install", "update", "task", "mcp", "acp", "plan",
 	}
 	for _, n := range names {
 		fmt.Fprintf(&b, "  %-10s %s\n", n, cmds[n].summary)
