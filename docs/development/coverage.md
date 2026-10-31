@@ -1,0 +1,81 @@
+# Coverage: architecture sections vs implementation and tests
+
+W5 closure pass (Appendix E). One row per architecture section:
+status and the backend test names that prove it. All tests run with
+`go test ./... -race`; cross builds (`GOOS=darwin`, `GOOS=windows`)
+cover the `internal/platform` stubs. Nothing below describes as
+implemented what is only planned; deferred scope (§0: image/video/
+voice/GPU models, autopoiesis, mobile, security beyond the vault)
+stays simulated behind contract seams.
+
+| Section | Status | Test evidence |
+|---|---|---|
+| §0 Scope (Go, Linux, deferred security/autopoiesis/mobile) | Done | Cross builds `GOOS=darwin`/`GOOS=windows`; `TestFakePlatform`, `TestOtherStubsUnsupported` (`internal/platform`); live checks only behind `live` + `EXCALIBUR_LIVE=1` |
+| §1 Harness definition | Done | `tests/walkthrough_*_test.go` end to end (see §26) |
+| §2 Principles + §2.1 deterministic/model boundary | Done | `TestTriageAddsNoLLMCall`, `TestShouldAskRules`, `TestDecideTable`, `TestDeciderNeverFinalVerdict` |
+| §3 System map, §3.1 components | Done | Wiring tests per package; `TestWiringBootWithAdapters`, `TestWiringTaskThroughGateway`, `TestWebSocketRPCAndSubscribe` |
+| §3.2 Processes (admission, priorities, `safego.Go`) | Done | `TestAvailSuite`, `TestGoRecoversPanic`, `TestTurnPanicContained`, `TestAdmissionCapAndDefault`, `TestGOMEMLIMITForBudget`, `scripts/check-no-bare-go.sh` |
+| §3.3 Deploy profiles + remote nodes | Done | `TestDataDirLayout`, `TestEphemeralRules`, `TestNodesExecTarget`, `TestExecEvalGuards` |
+| §3.4 Repo layout and `internal/platform` | Done | Cross builds; Linux suites (`TestLinuxSamplerSelf`, `TestLinuxProcessGroupKill`, `TestLinuxPTY*`, `TestLinuxServiceManagerLifecycle`); `TestOtherStubsUnsupported` |
+| §3.5 API surface (idempotency, cursors) | Done | `TestConversationSendIdempotent`, `TestSubscribeReplayNoGaps`, `TestBusCursorNoGaps`, `TestUnknownMethod` |
+| §3.6 Delegation CLI + MCP server | Done | `TestTaskRoundTrip`, `TestTaskQuestionReply`, `TestTaskNeverAsk`, `TestTaskResultFromMCP`, `TestTaskWorktree`, `TestACPInitializeSessionPrompt`, `TestMCPToolName`, `TestRegistryBrowserFlow`, daemon-presence guard `DaemonReachable` |
+| §4 Storage: porter, files, blobs, retention | Done | `TestConcurrentWritersNoBusy`, `TestGroupCommit`, `TestSavepointIsolation`, `TestBlobsRoundTrip`, `TestBlobGC`, `TestWALAlertAndCheckpoints`, `TestExternalLockBusy`, `TestDiskFullPausesBackground`, `TestForwardCompat`, `TestFailingMigrationLeavesDBIntact`, network-FS `DELETE` fallback tests |
+| §4.4 Identifiers | Done | `TestTypedIDs`, `TestULIDOrdering`, `TestShortCodes`, `TestShortCodesNeverReused`, `TestTaskShortCodes` |
+| §4.7 Retention and purge | Done | `TestPurgeMemory`, `TestPurgeConversation`, `TestPurgeDocument`, `TestPurgeDocumentMatchesAppendixA`, `TestRetentionCompactsJournals`, `TestRetentionSchedulerDaily`, `TestReviewExpiresAndReports` |
+| §5 Execution core and master availability | Done | `TestGatewayP0Reservation`, `TestGatewayP3YieldsWhenUserActive`, `TestTurnCancelAndInject`, `TestTurnsParallelAcrossConversations`, `TestWatchdogShedAndHysteresis`, `TestWatchdogNeverResumesUserPaused`, `TestProviderDownFallback` |
+| §5.4 Notices | Done | `TestNotifySuite`, `TestBridgeForwardsNotice`, `TestStatusReportReminder` |
+| §6 Intake, fast lane, request card | Done | `TestTriageAddsNoLLMCall`, `TestFastLaneTable`, `TestApplyFastLaneWithProviderDown`, `TestQuestionBudgetAndTimeouts`, `TestConfirmation*` (`TestConfirmBlocksWithoutAnswer`, `TestQuestionConfirmerFlow`) |
+| §6.4 Ask or assume | Done | `TestShouldAskRules`, `TestAskOrAssumeMatrix` (via `TestAskAnswer`), `TestExecAssumeBranch` |
+| §6.5 Non-interactive `exec` | Done | `TestExecExitTable`, `TestExecOutputSchema`, `TestExecEvalGuards`, `TestExecCancelAndTimeout`, `TestRunExec*` engine-path tests |
+| §6.6 Voice | Done (simulated channel) | `TestVoiceContract`, `TestVoiceConsent`, barge-in test in `turnnotify_test.go` |
+| §7 Agent cycle, §7.2 states | Done | `TestCanTransition`, `TestIllegalTransitions`, `TestTransitionsFromEveryNonTerminalState`, `TestStateChangesAreJournaled`, `TestTerminalStates`, `TestDeriveTaskState` |
+| §7.3–§7.4 Step algorithm and parallelism | Done | `TestResumeReplaysWithoutDuplicatingEffects`, `TestToolsSerializeByName`, `TestCrash*` intent/result tests, `TestCooperativeCancelResume` |
+| §7.5 Completion gate, §7.6 report | Done | `TestGateBlocksEveryDefect`, `TestGateFamiliesRealRouting`, `TestGateHonestBlockedOnLoop`, `TestHonestStateBlockedOnDisagreement`, `TestBuildReportHoldsEveryField`, `TestBlockedReportKeepsPendings` |
+| §8 Planning model (`task_db`, promotions) | Done | `TestBatchRejectsCycleWhole`, `TestBatchRejectsMissingReference`, `TestValidatePlan`, `TestApplyBatchSQLAtomic`, `TestBatchGroupsOpsInOneTransaction`, `TestPromoteN1ToN2Over15Steps`, `TestPromoteN2ToN3`, `TestReplanFreezesFinishedWork`, `TestReopenFinishedTask` |
+| §8.7 Verifier subagent | Done | `TestRunVerifierAgreement`, `TestRunVerifierRerunsChecksAndCapsRounds`, `TestVerifierInputCarriesNoReasoning`, `TestVerifierDifferentFamily` |
+| §8.8 Test folder with README | Done | `TestRegenerateChecklistKeepsUserEdits`, `TestSplicePreservesOutsideMarkers`, `TestScanTaskFiles` |
+| §9 Projects and scopes | Done | `TestResolveNestedRoots`, `TestResolveSymlink`, `TestFindProjectFile`, `TestScopeIsolationFourPaths`, `TestConversationScopes`, `TestScopeLabelsTwoProjects`, `TestCandidateScope`, `TestScopeEnforcement` |
+| §10 Memory (write, review, retrieval) | Done | `TestAdmitDuplicateMergesProvenance`, `TestAdmitContradictionWithoutMarkerDisputes`, `TestAdmissionBands`, `TestReviewNotesCompactionSafeguard`, `TestReviewYieldsOnCancel`, `TestQuietWindowSelection`, `TestRetrieveBitemporal`, `TestRetrieveContradictionNotice`, `TestFuseRRF`, `TestRewriteOnceOnZeroResults`, `TestRerankCloseTopOnly` |
+| §10.8 Embeddings (incl. outage path) | Done | `TestVecRoundTrip`, `TestReindexDualRead`, `TestReindexIdempotentSpaces`, `TestHTTPEmbedderAgainstSimulatedServer`, provider-down degradation tests |
+| §10.9 Library and exact citations | Done | `TestDocumentReadAnchors`, `TestSourceEventsOnlyRead`, `TestVerifyCitedSources`, `TestWebReadsRecordSources`, mem-cite suite entries |
+| §10.10 Code/document graph | Done | `TestGraphUpsertAndResolve`, `TestGraphIncrementalNoStaleEdges`, `TestImpactedTestsKnownChanges`, `TestIndexGoModuleRewrite` |
+| §11 Context compiler, masking, compaction | Done | `TestCompileDeterministic`, `TestDeltasKeepStablePrefix`, `TestChatCacheMarksBounded`, `TestCompactIncremental`, `TestCompactMicro`, `TestCompactionThreshold`, `TestCompactSurvivesSummaryFailure`, `TestClockOnlyInVolatile`, `TestEstimateCalibratesWithinMargin` |
+| §11.5 Literal instructions | Done | `TestInstructionsSurviveEverything`, `TestInstructionLifecycle`, `TestInstructionLayering`, walkthrough 26.6 redirect tests |
+| §12 Skills index, catalog, loading | Done | `TestValidationRejectsBadSkills`, `TestValidateName`, `TestAllBuiltinsValid`, `TestSuggestCapsAtThree`, `TestSuggestedSkillsCapped`, `TestRescanUpdatesAndSessionDelta`, `TestPrecedenceAndConflict`, `TestCatalogBudgetAndHeaders` |
+| §12.8 External installs | Done | `TestCheckInstalledDrift`, `TestExtInstallEnableDisableRemoveLogs`, `TestUpdateGatedAndContractRejected` |
+| §12.5 Full skill catalog (integrated/programming/assistant/domain) | Done | `TestAllManifestsValidate`, `TestBuiltinCatalogValid`, per-group validation in `internal/skills/catalog_test.go` |
+| §13 Core tools | Done | `TestCatalogNamesAllValid`, `TestBuiltinKinds`, `TestRepairMinorJSON`, `TestTruncationAndGetOutput`, `TestGetToolOutputPaging`, `TestGlobRespectsGitignore` |
+| §13.3 Deferred tools + `search_tools` | Done | `TestToolRetrievalScaffold`, `TestSearchToolsReturnsFiveSchemas`, `TestCallToolValidation`, `TestDeferredReachableWithoutBreakingPrefix`, `TestDeferredPrefixUnchanged` |
+| §13.4 Execution pipeline | Done | Crash-suite intent/result tests, `TestIdempotencySingleEffect`, `TestWithRetry*`, `TestToolsRedactorBeforeJournal` |
+| §13.5 Interactive terminal | Done | `TestEndToEndInteractiveProgram`, `TestWaitForPatternSingleCall`, `TestSignalAndClose`, `TestExecIOListReadSignalClose`, session-cap tests |
+| §13.6 Editing with fingerprints | Done | `TestWriteFileFPMismatch`, `TestFingerprintCheckNilExpected`, `TestConcurrentFragmentEditsSerializes`, `TestDiagnosticsAfterEdit`, escalation-after-3 tests |
+| §13.7 Edit history | Done | `TestHistoryPreimageSurvives`, `TestRevertThreeWayMerge`, `TestRevertConflictKeepsFile`, `TestSnapshotPersistsAcrossRestart`, `TestToolsHistoryRevert` |
+| §13.8 LSP | Done | `TestDiagnosticsAfterEdit`, codeintel LSP tests, `TestCheckInstalledDrift` |
+| §13.9 Agent-created tools | Done | `TestToolPackageCreateActivate`, `TestToolPackageBadManifestNotActivated`, `TestToolPackageFailingTestNotActivated`, `TestToolPackageEffectfulDryRun` |
+| §14 Capabilities (all black boxes) | Done (simulated) | `TestFourRoutesHotAdd`, `TestRegistryHotAdd`, `TestCapabilityAdapterStates`, `TestCapabilityIdempotentResend`, `TestCapabilityInputRequiredSurfacing`, `TestBrowserStaleRef`, `TestBrowserActWithoutWaitRejected` |
+| §14.3 Search + light reading, §14.7 documents | Done (simulated) | `TestWebSearchRegistersSource`, `TestWebSearchDomainFilter`, `TestSourceSearchAllowlistAndBlock`, `TestWebReadBlockedBenchmark`, `TestDocumentExportRoundTrip`, `TestFileConvertPairs`, `TestChartRenderSVG`, `TestDiagramRenderSyntax` |
+| §14.4 Vision, §14.5 voice, §14.6 device, §14.9 channels, §14.10 nodes | Done (simulated) | `TestVisionExtractContract`, `TestVisionIngestScannedPDF`, `TestVoiceConsent`, `TestDeviceUnsupported`, `TestContactMessageConfirm`, `TestEmailConfirmGate`, node registry tests |
+| §14.8 Apps with contextual agent | Done (simulated) | `TestAppManualChangeSync`, `TestAppsDeltaAndCourseRule` |
+| §14.12 Extension kit (`extsdk`, `excalibur ext`) | Done | `TestExtTestPackageAndDoctor`, `TestExtSDKManifestParity`, `TestConformanceGate`, `TestExtNewListDoctor`, `TestExtensionManifest` |
+| §15 Subagents (hierarchy, cards, mailbox, directives, control) | Done | `TestSubagentAuthority`, `TestAdviseFanOut`, `TestAssignOverlapWarnsParent`, `TestRunningCapAndWaitingParent`, `TestFanOutCaps`, `TestCancelCascadeBottomUpWithConfirmation`, `TestCancelCascadeDefinitive`, `TestRedirectResumesPaused`, `TestPropagateCorrection`, `TestDirectiveAckDeadline`, `TestStatusSnapshot`, `TestSuiteSteer`, `TestSuiteControl` |
+| §16 Edit concurrency (leases, worktrees, queue) | Done | `TestSQLLeaseMirror`, `TestSharedHistoryAndLeases`, `TestSubmodulesForceShared`, `TestWatcherExternalChange`, `TestWatcherPicksUpChanges`, worktree/queue tests in `internal/workspace` |
+| §17 Durability (journal, boot, retries) | Done | `TestCrashPointsTable`, `TestCrashKeyedSingleEffect`, `TestIdempotentResendSingleEffect`, `TestCrashIdempotentProbeDone`, `TestCrashNonIdempotentBlockedWithoutRepeat`, `TestCrashDuringCompactionAndCheckpoint`, `TestBootOrdersAndOutcomes`, `TestBootFindsFileChangesAndLostSessions`, `TestRecoverLongOutageParks`, `TestQuarantineSameRunSameStep`, `TestTransientRetrySameKey`, `TestAbortCompensatesReverse` |
+| §18 Verification, loops, limits | Done | `TestCodeCriterionNeverOnJudgement`, `TestImpactedTestsKnownChanges`, `TestSelectDuringWork`, `TestR1IdenticalRepeat`–`TestR6EditMismatch`, `TestFalsePositiveRateOnBenignTraffic`, `TestEachLimitExhausts`, `TestClosingThenExhausted`, `TestChildBudgetFromParentRemainder`/`TestChildNeverExceedsParentRemainder`, `TestUserBudget` |
+| §19 Models: gateway, routing, decider | Done | `TestGatewayBreakerOpensAfterFiveConsecutive`, `TestGatewayRespectsRetryAfter`, `TestGatewayP0Reservation`, `TestGatewayCostFollowsPriceTable`, `TestDecideSwitch`, `TestDelegateDownFallback`, `TestConsultExpertSendsCompactPrompt`, `TestCalibrateSeparatesBands`, `TestAbstentionBands`, `TestDeciderNeverFinalVerdict`, `TestRoleBudgets`, provider adapter suites (`TestChat*`, `TestStream*`, `TestResponses*`) |
+| §20 Vault (§20.1; rest deferred) | Done | `TestVault_AllTypes_NoCleartext`, `TestCrypto_AADBinding`, `TestCrypto_WrapRoundtrip`, `TestRedact_EnvBase64URL`, `TestDetect_ChatPaste`, `TestVault_EvalAndDelegate`, `TestVault_LockedNeedsUnlock`, `TestRotate_CrashSafe`, `TestExport_Import`, `TestVaultExecEnvAndRedaction` |
+| §21 Agenda, triggers, workflows, flow-sim | Done | `TestCronAcrossSpringForward`, `TestZoneChangeRecalculates`, `TestAgendaTickFires`, `TestReminderRepeatsWhileUnanswered`, `TestTriggerRateLimit`, `TestSQLWorkflowStore`, `TestResumeSkipsCompleted`, `TestDryRunSkipsUndeclaredEffects`, `TestAbortCompensatesReverse`, `TestSimPlantedErrorsDetected`, `TestSimDecisionCoverage`, `TestSimExhaustiveRefusedOverLimit`, `TestDebateBounded`, `TestInternalJobsContract`, `TestJobPipelineConfirmBeforeSend` |
+| §22 Observability | Done | `TestATIFIncrementalAndValidate`, `TestSmokeMetricsFeedAgentContext`, `TestProvenanceChain`, `TestWatchdogs` suite, `TestSpansValidate`, `TestReportAggregation` |
+| §23 Evaluation harness | Done | `TestStatsExact`, `TestReplayNoChangeAndDivergence`, `TestSuiteRegistry`, `TestProfileContract`, `TestEvalSkillsHashTracksCatalog`, `TestEvalSurfaceMatchesProfileTable`, `TestSmokeScaffold`, `TestHarborAgentContext`, `TestBlockedBenchmarkSource`, `TestEvalToolAllowed`, `TestProfileContract` (includes single-model checks), trial/ATIF tests |
+| §23.2 Eval profile enforcement (W5 fix) | Done | `TestExecEngineEvalSurfaceClamp`, `TestProfileGatedRunnerUnits`, `TestPruneDeferredToProfile`, `TestEffectiveTools` |
+| §24 Autopoiesis (deferred) | Deferred | No implementation; no tests (out of scope per §0) |
+| §25 Install, update, platforms, CLI | Done | `TestDataDirLayout`, `TestUpdateHappyPath`, `TestUpdateRejectsBadSignature`, `TestUpdateMigrationFailureRestoresData`, `TestUpdatePostBootFailureKeepsDatabase`, `TestUpdateWaitsForAfterCompletion`, `TestStartStopLifecycle`, CLI subcommand tests per family |
+| §26 Walkthroughs 26.1–26.11 | Done | `TestWalkthrough261ReminderAndClock`, `262ShortFileTask`, `263BigProject`, `264ParallelScopes`, `265EditLeases`, `266Redirect`, `267PowerCut`, `268EvalProfile`, `269MemoryConflict`, `2610PressureAndOutage`, `2611MasterControl`, plus `TestWalkthroughStatusLena`, `TestWalkthroughCorrectionR4`, `TestWalkthroughPauseThesis` |
+| §26.12 Coherence checklist | Done | `clock` tool exists; `MaxLevel=2` enforced (`TestSubagentAuthority`, `TestFanOutCaps`); expand-contract migrations (`TestForwardCompat`, `TestFailingMigrationLeavesDBIntact`); cascade pause (`TestCancelCascade*`, `TestRedirectResumesPaused`); non-terminal pause/blocked transitions (`TestTransitionsFromEveryNonTerminalState`) |
+| §27 Uncertainties | Informational | Tracked as follow-up measurements (eval suites + `avail`); no code |
+| §28 References | Informational | No code; `docs/decisions/dependencies.md` pins dependency licenses |
+| Appendix A (logical schema) | Done | Migration tests per version (`TestSQL*RoundTrip`, `TestSQL*SurvivesReopen`, `TestSchemaCompleteness`, `TestPurgeDocumentMatchesAppendixA`) |
+| Appendix B (initial parameters) | Done | `TestDefaultMatchesAppendixB`, `TestDefaultsMirrorSharedConfig`, `TestUserBudget`, `TestRoleBudgets` |
+| Appendix C (annotation coverage) | Done | Covered transitively by the rows above; Fenix requirements map to §14/§21 tests (`TestFourRoutesHotAdd`, `TestDocument*`, `TestCron*`, `TestSim*`) |
+| Appendix D (activation triggers) | Done | Each trigger has its test: masking/compaction thresholds, loop stages, watchdog, boot recovery, fast lane, closing mode, quarantine, eval guards (see rows above) |
+| Appendix E (milestones H0–H13) | Done | This file + `TestSuiteRegistry` (17 suites with hashed fixtures) + `go test ./... -race` green |
+| Appendix F (comparison conditions) | Done | `TestHarborAgentContext`, ATIF/metadata records per trial (`TestSmokeTrialsAreReportable`), `WriteProfile` + hash files |

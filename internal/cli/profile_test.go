@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 )
 
 func TestParseProfile(t *testing.T) {
@@ -154,4 +157,49 @@ func TestEvalToolAllowed(t *testing.T) {
 	if err := EvalToolAllowed("exec", ""); err != nil {
 		t.Fatalf("exec must stay enabled: %v", err)
 	}
+}
+
+// TestEvalSurfaceMatchesProfileTable pins the Section 23.8 control:
+// the tool surface --profile eval exposes must coincide exactly with
+// the frozen Section 23.2 table — same core, same deferred, same
+// skill groups, same recorded catalog hash. Any drift fails here
+// before it can silently change a benchmark arm (Appendix F).
+func TestEvalSurfaceMatchesProfileTable(t *testing.T) {
+	want := eval.DefaultEvalProfile()
+	core, deferred := EffectiveTools(ProfileEval)
+	if !sameSet(core, want.EnabledTools) {
+		t.Fatalf("eval core %v != profile table %v", core, want.EnabledTools)
+	}
+	if !sameSet(deferred, want.DeferredTools) {
+		t.Fatalf("eval deferred %v != profile table %v", deferred, want.DeferredTools)
+	}
+	if want.SkillsCatalogHash != eval.EvalSkillsCatalogHash() {
+		t.Fatal("profile must record the live embedded catalog hash")
+	}
+	ix := skills.NewBuiltinIndex()
+	if err := ix.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	if ix.CatalogHash() != want.SkillsCatalogHash {
+		t.Fatal("recorded catalog hash drifts from the embedded catalog")
+	}
+}
+
+func sameSet(have, want []string) bool {
+	if len(have) != len(want) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, h := range have {
+		seen[h]++
+	}
+	for _, w := range want {
+		seen[w]--
+	}
+	for _, n := range seen {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }

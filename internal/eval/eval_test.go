@@ -7,8 +7,32 @@ import (
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 )
+
+func TestEvalSkillsHashTracksCatalog(t *testing.T) {
+	// Section 23.2: the profile records the frozen skill catalog
+	// hash, so any builtin skill change moves profile.json and the
+	// ATIF profile hash (Appendix F minimum records).
+	p := DefaultEvalProfile()
+	if p.SkillsCatalogHash == "" || p.SkillsCatalogHash == "frozen-placeholder" {
+		t.Fatalf("eval profile carries no real catalog hash: %q", p.SkillsCatalogHash)
+	}
+	ix := skills.NewBuiltinIndex()
+	if err := ix.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ix.CatalogHash(); got != p.SkillsCatalogHash {
+		t.Fatalf("profile hash %q != embedded catalog hash %q", p.SkillsCatalogHash, got)
+	}
+	if again := DefaultEvalProfile().SkillsCatalogHash; again != p.SkillsCatalogHash {
+		t.Fatal("catalog hash not stable across constructions")
+	}
+	if p.Hash() == "" {
+		t.Fatal("profile hash empty")
+	}
+}
 
 func TestStatsExact(t *testing.T) {
 	if v, err := PassAtK(5, 5, 5); err != nil || v != 1 {

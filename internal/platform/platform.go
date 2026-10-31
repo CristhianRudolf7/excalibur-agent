@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-// ErrNotImplemented is returned by the wave-0 Linux placeholders until
-// milestone H2 provides the real implementations.
-var ErrNotImplemented = errors.New("platform: linux implementation pending (H2)")
+// ErrNotImplemented is a retained sentinel from the wave-0 contract:
+// the Linux backends are implemented since milestone H2 and no
+// longer return it. It stays for compatibility with out-of-tree
+// platform backends that have not implemented an operation yet.
+var ErrNotImplemented = errors.New("platform: operation not implemented")
 
 // Paths resolves OS-specific directories (XDG on Linux).
 type Paths interface {

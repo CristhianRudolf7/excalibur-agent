@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	providerfake "github.com/CristhianRudolf7/excalibur-agent/internal/providers/fake"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -67,6 +69,115 @@ func TestExecEnginePathEndToEnd(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out.Dir, name)); err != nil {
 			t.Fatalf("missing artifact %s: %v", name, err)
 		}
+	}
+}
+
+// TestExecEngineEvalSurfaceClamp covers the Section 23.2 eval table
+// end to end: the model only sees the profile's core tools, and a
+// call outside the surface — an assistant tool or a disabled
+// task_db operation — is rejected by the gate before execution.
+func TestExecEngineEvalSurfaceClamp(t *testing.T) {
+	fake := providerfake.New("e2e-eval-clamp")
+	badTaskDB, _ := json.Marshal(map[string]any{
+		"ops": []map[string]any{{"op": "register_project", "name": "evil"}},
+	})
+	fake.Responses = []providers.ChatResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "send_message", Arguments: json.RawMessage(`{}`)}}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "task_db", Arguments: badTaskDB}}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done within surface"}},
+	}
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{
+		Request: "stay inside the eval surface", LogsDir: logs, Profile: ProfileEval,
+		Provider: fake,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Assistant tools must not ride the eval tool prefix.
+	for _, req := range fake.ChatRequests {
+		for _, tool := range req.Tools {
+			if tool.Name == "send_message" || tool.Name == "ask_user" {
+				t.Fatalf("assistant tool %q exposed to the eval model", tool.Name)
+			}
+		}
+	}
+	if len(fake.ChatRequests) == 0 || len(fake.ChatRequests[0].Tools) == 0 {
+		t.Fatal("eval model calls must carry the tool prefix")
+	}
+	raw, err := os.ReadFile(out.ATIFPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trajectory := string(raw)
+	if !strings.Contains(trajectory, "send_message") {
+		t.Fatal("ATIF must record the rejected assistant-tool call")
+	}
+	if !strings.Contains(trajectory, "register_project") {
+		t.Fatal("ATIF must record the rejected task_db operation")
+	}
+	// Rejections surface as tool errors, so the scripted model
+	// recovers and finishes: the gate contains without failing
+	// the run.
+	if out.State != types.RunCompleted {
+		t.Fatalf("state = %q, want completed after contained rejections", out.State)
+	}
+}
+
+// TestProfileGatedRunnerUnits pins the gate matrix without an engine:
+// eval rejects outside the surface and disabled task_db ops, while
+// other profiles pass everything through.
+func TestProfileGatedRunnerUnits(t *testing.T) {
+	base := engine.NewRegistryRunner(nil, nil)
+	gate := newProfileGatedRunner(ProfileEval, base)
+	if err := gate.check("send_message", nil); err == nil {
+		t.Fatal("eval must reject send_message")
+	}
+	good, _ := json.Marshal(map[string]any{
+		"ops": []map[string]any{{"op": "query", "entity": "criteria"}},
+	})
+	if err := gate.check("task_db", good); err != nil {
+		t.Fatalf("eval must allow task-internal task_db ops: %v", err)
+	}
+	bad, _ := json.Marshal(map[string]any{
+		"ops": []map[string]any{{"op": "register_project"}},
+	})
+	if err := gate.check("task_db", bad); err == nil {
+		t.Fatal("eval must reject task_db register_project")
+	}
+	if err := gate.check("exec", nil); err != nil {
+		t.Fatalf("eval must allow exec: %v", err)
+	}
+	open := newProfileGatedRunner(ProfileDefault, base)
+	if err := open.check("send_message", nil); err != nil {
+		t.Fatalf("default must not gate: %v", err)
+	}
+}
+
+// TestPruneDeferredToProfile pins the eval search_tools/call_tool
+// surface: only the profile's deferred tools stay marked.
+func TestPruneDeferredToProfile(t *testing.T) {
+	reg := tools.NewMapRegistry()
+	cat := tools.NewDeferredCatalog(reg)
+	for _, name := range []string{"lsp", "tool_package", "email"} {
+		cat.MarkDeferred(name)
+	}
+	core, deferred := EffectiveTools(ProfileEval)
+	allowed := map[string]bool{}
+	for _, n := range core {
+		allowed[n] = true
+	}
+	for _, n := range deferred {
+		allowed[n] = true
+	}
+	pruneDeferredToProfile(cat, allowed)
+	if !cat.IsDeferred("lsp") {
+		t.Fatal("lsp must stay deferred in eval")
+	}
+	if cat.IsDeferred("tool_package") || cat.IsDeferred("email") {
+		t.Fatal("non-table deferred tools must be pruned in eval")
 	}
 }
 

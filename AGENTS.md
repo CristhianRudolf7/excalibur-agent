@@ -67,8 +67,19 @@ While iterating prefer `go test -race -p 2` for package-scoped runs.
 
 ## Milestones
 
-One section per milestone H1-H13; extend the section when the milestone
-lands. Status: H0 (wave 0, contracts skeleton) done; all others planned.
+Status: H0–H13 implemented, each with its verification-table tests
+green. Per-section evidence lives in `docs/development/coverage.md`;
+close-out fixes are recorded in `docs/decisions/0034-w5-closure.md`.
+Do not regress any milestone: every change must keep its area's
+contract and backend tests passing (`go test ./... -race`).
+
+- H0 Repository skeleton and shared contracts (wave 0) — done.
+- H1 Providers of language models — done (`internal/providers`).
+- H2 Base storage — done (identifiers, layered config, Linux
+  `internal/platform`, SQLite porter, blobs, migrations).
+- H3 Durable engine and terminal — done (journal, agent loop, gateway
+  subset, context compiler basics, core file/terminal tools, extension
+  registry).
 
 - H1 Providers of language models: `internal/providers` adapters on the
   wave-0 contract; contract tests against simulated servers.

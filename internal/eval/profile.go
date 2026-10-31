@@ -8,8 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 )
 
 // EvalProfile is the frozen benchmark profile of Section 23.2. The
@@ -37,9 +39,34 @@ type EvalProfileConfig struct {
 	Override string `json:"override,omitempty"`
 }
 
+// evalSkillsHashOnce memoizes the frozen catalog fingerprint: the
+// embedded builtin index is content-addressed, so scanning it on
+// every profile construction would only repeat the same result.
+var evalSkillsHashOnce = sync.OnceValue(func() string {
+	ix := skills.NewBuiltinIndex()
+	if err := ix.Scan(); err != nil {
+		// Scan only reports diagnostics for embedded content
+		// and returns nil today; a real failure means the
+		// binary itself is corrupt, so fail loudly instead of
+		// pinning a fake-stable hash.
+		panic(fmt.Sprintf("eval: scan embedded skill catalog: %v", err))
+	}
+	return ix.CatalogHash()
+})
+
+// EvalSkillsCatalogHash fingerprints the frozen eval skill catalog:
+// the embedded builtin skill index (Section 23.2). Any builtin skill
+// change moves the profile hash, so recorded trials stay comparable
+// per Appendix F. It only covers the embedded catalog because eval
+// trials run with an empty data dir and no user, project or installed
+// roots (CheckDataDir aborts otherwise).
+func EvalSkillsCatalogHash() string {
+	return evalSkillsHashOnce()
+}
+
 // DefaultEvalProfile returns the frozen Section 23.2 table: internal
 // planning on, multiprocject off, children <= min(2, task CPUs),
-// core+deferred tools per the table, assistant skills off,
+// core+deferred tools per the table, assistant tools off,
 // single-model mode, telemetry on.
 func DefaultEvalProfile() EvalProfileConfig {
 	return EvalProfileConfig{
@@ -57,7 +84,7 @@ func DefaultEvalProfile() EvalProfileConfig {
 			"diagram_render", "chart_render", "vision_extract",
 		},
 		EnabledSkillGroups: []string{"builtin", "software-engineering"},
-		SkillsCatalogHash:  "frozen-placeholder",
+		SkillsCatalogHash:  EvalSkillsCatalogHash(),
 		SingleModel:        true,
 	}
 }
