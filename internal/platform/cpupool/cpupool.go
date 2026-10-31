@@ -42,6 +42,12 @@ type Pool struct {
 	once   sync.Once
 	closed chan struct{}
 	size   int
+	// mu guards Close against concurrent Submit/TrySubmit: the
+	// tasks channel is closed only while mu is write-locked, and
+	// every send holds mu read-locked, so a send can never race
+	// with the close (a select that races a closed send against a
+	// closed receive would panic on the send half).
+	mu sync.RWMutex
 }
 
 // New returns a Pool with size workers and a 4*size queue using the
@@ -78,6 +84,19 @@ func NewWithLower(size, queueLen int, lower func() error) *Pool {
 // Submit queues task, blocking until a worker takes it. It returns
 // ErrClosed after Close.
 func (p *Pool) Submit(task func()) error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	// Check under the read lock first: if closed is closed, tasks
+	// is closed too, and selecting a send on a closed channel
+	// against the closed receive would panic on the send half. If
+	// closed is still open here, tasks is guaranteed open (Close
+	// closes both only under the write lock), so the send below is
+	// safe.
+	select {
+	case <-p.closed:
+		return ErrClosed
+	default:
+	}
 	select {
 	case <-p.closed:
 		return ErrClosed
@@ -89,14 +108,15 @@ func (p *Pool) Submit(task func()) error {
 // TrySubmit queues task without blocking. It returns ErrFull when the
 // queue is full and ErrClosed after Close.
 func (p *Pool) TrySubmit(task func()) error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	// Same closed-channel guard as Submit (see above).
 	select {
 	case <-p.closed:
 		return ErrClosed
 	default:
 	}
 	select {
-	case <-p.closed:
-		return ErrClosed
 	case p.tasks <- task:
 		return nil
 	default:
@@ -108,8 +128,10 @@ func (p *Pool) TrySubmit(task func()) error {
 // is idempotent. Tasks submitted after Close fail with ErrClosed.
 func (p *Pool) Close() {
 	p.once.Do(func() {
+		p.mu.Lock()
 		close(p.closed)
 		close(p.tasks)
+		p.mu.Unlock()
 	})
 	p.wg.Wait()
 }

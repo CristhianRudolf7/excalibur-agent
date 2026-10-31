@@ -1,4 +1,4 @@
-# 0004 — H5 persistence: PlanningStore seam with an in-memory implementation
+# 0011 — H5 persistence: PlanningStore seam with an in-memory implementation
 
 Date: 2026-10-31. Status: accepted.
 

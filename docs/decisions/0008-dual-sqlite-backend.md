@@ -1,4 +1,4 @@
-# 0003 — Dual SQLite backend: mattn/cgo production, pure-Go fallback
+# 0008 — Dual SQLite backend: mattn/cgo production, pure-Go fallback
 
 Date: 2026-10-31. Status: accepted.
 

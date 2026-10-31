@@ -1,4 +1,4 @@
-# 0003 — H5 placement: gate, report and Section 18 live in internal/tasks
+# 0010 — H5 placement: gate, report and Section 18 live in internal/tasks
 
 Date: 2026-10-31. Status: accepted.
 

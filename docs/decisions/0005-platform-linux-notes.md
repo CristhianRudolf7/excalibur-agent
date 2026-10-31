@@ -1,4 +1,4 @@
-# 0003 — Linux platform notes and discrepancies
+# 0005 — Linux platform notes and discrepancies
 
 Date: 2026-10-31. Scope: `internal/platform` Linux implementations
 (Sections 3.2, 3.4 table, 3.7, 5.2, 13.4, 13.5, 20.1, 25.2).

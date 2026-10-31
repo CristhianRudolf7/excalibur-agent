@@ -1,4 +1,4 @@
-# 0003 — Provider adapter wire choices (H1, OpenAI-wire wave)
+# 0006 — Provider adapter wire choices (H1, OpenAI-wire wave)
 
 Date: 2026-10-31. Status: accepted.
 

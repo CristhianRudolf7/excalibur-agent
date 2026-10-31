@@ -29,9 +29,9 @@ provider registry). Neither agent rewrites the other's rows.
 | Anthropic | `internal/providers/anthropic` | Messages (`POST {base}/v1/messages`), headers `X-Api-Key`, `anthropic-version: 2023-06-01` | Implemented, contract-tested vs simulated servers, one tiny live check (`-tags live`) | Explicit `cache_control` marks on the last system block, the last tool definition and the last two message blocks (max 4); TTL from `ChatRequest.CacheTTL` (`5m` default, `1h`). Usage: `input_tokens` to input, `cache_read_input_tokens` to cache read, `cache_creation_input_tokens` to cache write, `output_tokens` to output | `ReasoningEffort` `low` 1024, `medium` 4096, `high` 8192 tokens, or a numeric budget (>= 1024); budget >= max tokens is a `KindInput` error | Usage reported; rates come from the gateway table (H3) |
 | Google Gemini | `internal/providers/gemini` | `POST {base}/v1beta/models/{model}:generateContent` and `:streamGenerateContent?alt=sse`; key via the `x-goog-api-key` header, never in the URL query | Implemented, contract-tested vs simulated servers, one tiny live check (`-tags live`) | Implicit prefix cache: fixed wire order (tools, system, contents), no per-call variables. Usage: `promptTokenCount` to input, `cachedContentTokenCount` to cache read, `candidatesTokenCount` to output, `thoughtsTokenCount` to reasoning; cache write is 0 | `low` 512, `medium` 2048, `high` 8192 tokens, or a numeric budget (>= 0); `generationConfig` omitted entirely when no knob is set | Usage reported; rates come from the gateway table (H3) |
 
-See `docs/decisions/0003-provider-adapter-choices.md` (OpenAI-wire
+See `docs/decisions/0006-provider-adapter-choices.md` (OpenAI-wire
 choices, w1-providers-a) and
-`docs/decisions/0003-providers-anthropic-gemini.md` (Anthropic/Gemini
+`docs/decisions/0007-providers-anthropic-gemini.md` (Anthropic/Gemini
 choices including the additive `ChatRequest.CacheTTL`,
 w1-providers-b).
 

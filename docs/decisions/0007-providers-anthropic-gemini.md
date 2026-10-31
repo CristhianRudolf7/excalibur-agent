@@ -1,4 +1,4 @@
-# 0003: Anthropic and Gemini adapters, retry policy and registry
+# 0007: Anthropic and Gemini adapters, retry policy and registry
 
 Date: 2026-10-31. Milestone H1, agent w1-providers-b (Sections 19.2,
 19.5, 11.6 and Appendix E row H1).

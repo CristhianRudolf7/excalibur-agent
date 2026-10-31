@@ -1,4 +1,4 @@
-# 0004 — Additive schema and config notes for H2
+# 0009 — Additive schema and config notes for H2
 
 Date: 2026-10-31. Status: accepted.
 

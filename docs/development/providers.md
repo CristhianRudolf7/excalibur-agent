@@ -24,7 +24,7 @@ adapters.
   tool results require a call id; unknown roles are client-side
   input errors raised before any network use. Additive H1 change,
   recorded in
-  `docs/decisions/0003-providers-anthropic-gemini.md`:
+  `docs/decisions/0007-providers-anthropic-gemini.md`:
   `ChatRequest.CacheTTL` (`""`, `"5m"`, `"1h"`, default `"5m"`)
   for Anthropic explicit cache breakpoints (Section 11.6);
   providers with implicit caching ignore it.

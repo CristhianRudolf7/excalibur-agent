@@ -1,0 +1,745 @@
+package tools
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
+)
+
+// Terminal limits from Section 13.5 and Appendix B.
+const (
+	maxSessionsPerOwner = 16
+	maxSessionsGlobal   = 64
+	protectedSessions   = 8
+
+	defaultYieldMs = 10000
+	minYieldMs     = 250
+	maxYieldMs     = 30000
+
+	termKillMargin = 2 * time.Second
+
+	// LiveTailLines and LiveTailBytes bound the status live queue
+	// (Section 15.6): last 20 lines up to 2 KB.
+	LiveTailLines = 20
+	LiveTailBytes = 2 * 1024
+)
+
+// TerminalDeps wires platform interfaces into the session manager.
+// Nil entries degrade gracefully for tests and embedded use.
+type TerminalDeps struct {
+	Group    platform.ProcessGroup
+	Priority platform.ProcessPriority
+	Isolator platform.Isolator
+	PTY      platform.PTY
+	OnEvict  func(sessionID SessionID, owner, cmd string)
+}
+
+// SessionID identifies a terminal session.
+type SessionID string
+
+// Session is one live process behind exec/exec_io.
+type Session struct {
+	ID      SessionID
+	Owner   string
+	Cmd     string
+	Dir     string
+	UsePTY  bool
+	Started time.Time
+
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	full    bytes.Buffer
+	done    chan struct{}
+	exitErr error
+	exited  bool
+	lastUse time.Time
+	pty     platform.PTYSession
+	proc    *os.Process
+}
+
+func (s *Session) appendOut(p []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.buf.Write(p)
+	s.full.Write(p)
+	s.lastUse = time.Now()
+	// Bound the live buffer to MaxBufferedOutput head+tail style: keep
+	// first and last quarters when over budget.
+	if int64(s.buf.Len()) > MaxBufferedOutput {
+		data := s.buf.Bytes()
+		half := int(MaxBufferedOutput) / 2
+		kept := append([]byte(nil), data[:half]...)
+		kept = append(kept, data[len(data)-half:]...)
+		s.buf.Reset()
+		s.buf.Write(kept)
+	}
+}
+
+func (s *Session) markDone(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.exited {
+		s.exited = true
+		s.exitErr = err
+		s.lastUse = time.Now()
+	}
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
+}
+
+func (s *Session) snapshot() (alive bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.exited
+}
+
+// ReadSince returns output after offset with the new offset.
+func (s *Session) ReadSince(offset int) (string, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.full.Bytes()
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(data) {
+		offset = len(data)
+	}
+	return string(data[offset:]), len(data)
+}
+
+// LiveTail returns the last lines bounded for status.
+func (s *Session) LiveTail() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.full.Bytes()
+	if len(data) > LiveTailBytes*4 {
+		data = data[len(data)-LiveTailBytes*4:]
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) > LiveTailLines {
+		lines = lines[len(lines)-LiveTailLines:]
+	}
+	out := strings.Join(lines, "\n")
+	if len(out) > LiveTailBytes {
+		out = out[len(out)-LiveTailBytes:]
+	}
+	return out
+}
+
+// SessionManager keeps processes alive between interactions.
+type SessionManager struct {
+	mu       sync.Mutex
+	sessions map[SessionID]*Session
+	order    []SessionID
+	seq      uint64
+	deps     TerminalDeps
+	now      func() time.Time
+}
+
+// NewSessionManager returns a manager with the given platform deps.
+func NewSessionManager(deps TerminalDeps) *SessionManager {
+	return &SessionManager{sessions: map[SessionID]*Session{}, deps: deps, now: time.Now}
+}
+
+// Start launches cmd for owner and waits up to yieldMs.
+func (m *SessionManager) Start(owner, cmd, dir string, usePTY bool, yieldMs int, env []string) (*Session, string, bool) {
+	if yieldMs < minYieldMs {
+		yieldMs = minYieldMs
+	}
+	if yieldMs > maxYieldMs {
+		yieldMs = maxYieldMs
+	}
+	m.evictIfNeeded(owner)
+	s := &Session{
+		ID: SessionID(fmt.Sprintf("sess-%d", m.nextSeq())), Owner: owner,
+		Cmd: cmd, Dir: dir, UsePTY: usePTY, Started: m.now(), done: make(chan struct{}),
+	}
+	s.lastUse = s.Started
+	m.mu.Lock()
+	m.sessions[s.ID] = s
+	m.order = append(m.order, s.ID)
+	m.mu.Unlock()
+
+	if usePTY && m.deps.PTY != nil {
+		m.startPTY(s, cmd, dir, env)
+	} else {
+		m.startPipe(s, cmd, dir, env)
+	}
+	out, alive := s.waitYield(time.Duration(yieldMs) * time.Millisecond)
+	return s, out, alive
+}
+
+func (m *SessionManager) nextSeq() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.seq++
+	return m.seq
+}
+
+func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
+	shell := DetectShell()
+	c := exec.Command(shell, "-c", cmd)
+	if dir != "" {
+		c.Dir = dir
+	}
+	c.Env = pipeEnv(env)
+	c.SysProcAttr = sysProcAttr()
+	if m.deps.Group != nil {
+		m.deps.Group.Configure(c)
+	}
+	if m.deps.Isolator != nil {
+		_ = m.deps.Isolator.Isolate(c)
+	}
+	stdout, err := c.StdoutPipe()
+	if err != nil {
+		s.appendOut([]byte("start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	c.Stderr = c.Stdout
+	if err := c.Start(); err != nil {
+		s.appendOut([]byte("start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	s.mu.Lock()
+	s.proc = c.Process
+	if m.deps.Priority != nil && c.Process != nil {
+		_ = m.deps.Priority.LowerProcess(c.Process.Pid)
+	}
+	s.mu.Unlock()
+	safego.Go("tools/terminal-pipe", nil, func() {
+		buf := make([]byte, 8192)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				s.appendOut(buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		s.markDone(c.Wait())
+	})
+}
+
+func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
+	shell := DetectShell()
+	c := exec.Command(shell, "-c", cmd)
+	if dir != "" {
+		c.Dir = dir
+	}
+	c.Env = ptyEnv(env)
+	c.SysProcAttr = sysProcAttr()
+	if m.deps.Group != nil {
+		m.deps.Group.Configure(c)
+	}
+	if m.deps.Isolator != nil {
+		_ = m.deps.Isolator.Isolate(c)
+	}
+	sess, err := m.deps.PTY.Start(c, platform.Winsize{Rows: 24, Cols: 80})
+	if err != nil {
+		s.appendOut([]byte("pty start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	s.mu.Lock()
+	s.pty = sess
+	if c.Process != nil {
+		s.proc = c.Process
+	}
+	if m.deps.Priority != nil && s.proc != nil {
+		_ = m.deps.Priority.LowerProcess(s.proc.Pid)
+	}
+	s.mu.Unlock()
+	safego.Go("tools/terminal-pty", nil, func() {
+		buf := make([]byte, 8192)
+		for {
+			n, err := sess.Read(buf)
+			if n > 0 {
+				s.appendOut(buf[:n])
+			}
+			if err != nil {
+				break
+			}
+		}
+		s.markDone(sess.Wait())
+	})
+}
+
+func (s *Session) waitYield(d time.Duration) (string, bool) {
+	select {
+	case <-s.done:
+		out, _ := s.ReadSince(0)
+		return out, false
+	case <-time.After(d):
+		out, _ := s.ReadSince(0)
+		return out, s.snapshot()
+	}
+}
+
+// Get returns the session by id.
+func (m *SessionManager) Get(id SessionID) (*Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[id]
+	if ok {
+		s.mu.Lock()
+		s.lastUse = time.Now()
+		s.mu.Unlock()
+		// Refresh LRU order.
+		for i, sid := range m.order {
+			if sid == id {
+				m.order = append(m.order[:i], m.order[i+1:]...)
+				m.order = append(m.order, id)
+				break
+			}
+		}
+	}
+	return s, ok
+}
+
+// List returns session summaries for owner (empty owner lists all).
+func (m *SessionManager) List(owner string) []*Session {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []*Session
+	for _, sid := range m.order {
+		s := m.sessions[sid]
+		if owner == "" || s.Owner == owner {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// Write sends text to the session stdin/pty.
+func (m *SessionManager) Write(id SessionID, text string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("unknown session %q", id)
+	}
+	s.mu.Lock()
+	pty := s.pty
+	proc := s.proc
+	s.mu.Unlock()
+	if pty != nil {
+		_, err := io.WriteString(pty, text)
+		return err
+	}
+	_ = proc
+	return fmt.Errorf("session %q has no input channel (process stdin is not held); use a PTY session", id)
+}
+
+// Keys sends named keys to a PTY session.
+func (m *SessionManager) Keys(id SessionID, keys []string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("unknown session %q", id)
+	}
+	s.mu.Lock()
+	pty := s.pty
+	s.mu.Unlock()
+	if pty == nil {
+		return fmt.Errorf("session %q is not a PTY session", id)
+	}
+	for _, k := range keys {
+		seq, err := keySequence(k)
+		if err != nil {
+			return err
+		}
+		if _, err := io.WriteString(pty, seq); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func keySequence(k string) (string, error) {
+	switch strings.ToLower(k) {
+	case "enter", "return":
+		return "\r", nil
+	case "tab":
+		return "\t", nil
+	case "esc", "escape":
+		return "\x1b", nil
+	case "up":
+		return "\x1b[A", nil
+	case "down":
+		return "\x1b[B", nil
+	case "right":
+		return "\x1b[C", nil
+	case "left":
+		return "\x1b[D", nil
+	case "ctrl-c", "ctrl_c", "intr":
+		return "\x03", nil
+	case "ctrl-d":
+		return "\x04", nil
+	case "ctrl-z":
+		return "\x1a", nil
+	case "space":
+		return " ", nil
+	case "backspace":
+		return "\x7f", nil
+	default:
+		if len(k) == 1 {
+			return k, nil
+		}
+		return "", fmt.Errorf("unknown key %q (want enter, ctrl-c, up, down, left, right, tab, esc)", k)
+	}
+}
+
+// Read returns output since offset.
+func (m *SessionManager) Read(id SessionID, offset int) (string, int, bool, error) {
+	s, ok := m.Get(id)
+	if !ok {
+		return "", 0, false, fmt.Errorf("unknown session %q", id)
+	}
+	out, next := s.ReadSince(offset)
+	return out, next, !s.snapshot(), nil
+}
+
+// WaitFor blocks until pattern matches new output, the process ends,
+// or timeout elapses (Section 13.5). It avoids polling loops.
+func (m *SessionManager) WaitFor(ctx context.Context, id SessionID, pattern string, timeout time.Duration, fromOffset int) (string, int, bool, error) {
+	s, ok := m.Get(id)
+	if !ok {
+		return "", 0, false, fmt.Errorf("unknown session %q", id)
+	}
+	var re *regexp.Regexp
+	if pattern != "" {
+		var err error
+		re, err = regexp.Compile(pattern)
+		if err != nil {
+			return "", 0, false, fmt.Errorf("bad pattern: %v", err)
+		}
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		out, next := s.ReadSince(fromOffset)
+		if re != nil && re.MatchString(out) {
+			return out, next, !s.snapshot(), nil
+		}
+		if re == nil && !s.snapshot() {
+			return out, next, true, nil
+		}
+		if !time.Now().Before(deadline) {
+			return out, next, !s.snapshot(), fmt.Errorf("wait_for timed out after %s", timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return out, next, !s.snapshot(), ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// Signal sends interrupt/terminate/kill to the session process group.
+func (m *SessionManager) Signal(id SessionID, sig string) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("unknown session %q", id)
+	}
+	s.mu.Lock()
+	proc := s.proc
+	pty := s.pty
+	s.mu.Unlock()
+	switch strings.ToLower(sig) {
+	case "interrupt", "sigint":
+		if pty != nil {
+			_, err := io.WriteString(pty, "\x03")
+			return err
+		}
+		return m.signalProc(proc, sigINT())
+	case "terminate", "sigterm":
+		return m.signalProc(proc, sigTERM())
+	case "kill", "sigkill":
+		return m.killProc(s)
+	default:
+		return fmt.Errorf("unknown signal %q (want interrupt, terminate, kill)", sig)
+	}
+}
+
+func (m *SessionManager) signalProc(proc *os.Process, sig os.Signal) error {
+	if proc == nil {
+		return fmt.Errorf("session has no live process")
+	}
+	if m.deps.Group != nil {
+		// Prefer group kill through the platform interface when the
+		// test fake records it; real group signaling happens in the
+		// Linux implementation (H2).
+		if sig == sigKILL() {
+			return m.deps.Group.Kill(proc.Pid)
+		}
+	}
+	return proc.Signal(sig)
+}
+
+func (m *SessionManager) killProc(s *Session) error {
+	s.mu.Lock()
+	proc := s.proc
+	s.mu.Unlock()
+	if proc == nil {
+		return fmt.Errorf("session has no live process")
+	}
+	if m.deps.Group != nil {
+		return m.deps.Group.Kill(proc.Pid)
+	}
+	return proc.Kill()
+}
+
+// Close terminates the session: SIGTERM, 2 s margin, SIGKILL.
+func (m *SessionManager) Close(id SessionID) error {
+	s, ok := m.Get(id)
+	if !ok {
+		return fmt.Errorf("unknown session %q", id)
+	}
+	s.mu.Lock()
+	proc := s.proc
+	pty := s.pty
+	s.mu.Unlock()
+	if proc != nil {
+		_ = m.signalProc(proc, sigTERM())
+		select {
+		case <-s.done:
+		case <-time.After(termKillMargin):
+			_ = m.killProc(s)
+			select {
+			case <-s.done:
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	if pty != nil {
+		_ = pty.Close()
+		s.markDone(fmt.Errorf("closed"))
+	} else if proc == nil {
+		s.markDone(fmt.Errorf("closed"))
+	}
+	m.mu.Lock()
+	delete(m.sessions, id)
+	for i, sid := range m.order {
+		if sid == id {
+			m.order = append(m.order[:i], m.order[i+1:]...)
+			break
+		}
+	}
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *SessionManager) evictIfNeeded(owner string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	owned := 0
+	for _, s := range m.sessions {
+		if s.Owner == owner {
+			owned++
+		}
+	}
+	need := len(m.sessions) >= maxSessionsGlobal || owned >= maxSessionsPerOwner
+	if !need {
+		return
+	}
+	// Evict least-recently-used, protecting the 8 most recent globally.
+	type cand struct {
+		id   SessionID
+		use  time.Time
+		rank int
+	}
+	var cands []cand
+	for i, sid := range m.order {
+		s := m.sessions[sid]
+		s.mu.Lock()
+		use := s.lastUse
+		s.mu.Unlock()
+		cands = append(cands, cand{id: sid, use: use, rank: i})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].use.Before(cands[j].use) })
+	protected := map[SessionID]bool{}
+	for i := len(m.order) - protectedSessions; i < len(m.order); i++ {
+		if i >= 0 {
+			protected[m.order[i]] = true
+		}
+	}
+	for _, c := range cands {
+		if protected[c.id] {
+			continue
+		}
+		s := m.sessions[c.id]
+		if s == nil {
+			continue
+		}
+		if len(m.sessions) < maxSessionsGlobal {
+			ownedNow := 0
+			for _, x := range m.sessions {
+				if x.Owner == owner {
+					ownedNow++
+				}
+			}
+			if ownedNow < maxSessionsPerOwner {
+				return
+			}
+		}
+		delete(m.sessions, c.id)
+		for i, sid := range m.order {
+			if sid == c.id {
+				m.order = append(m.order[:i], m.order[i+1:]...)
+				break
+			}
+		}
+		if s.proc != nil {
+			_ = s.proc.Kill()
+		}
+		if s.pty != nil {
+			_ = s.pty.Close()
+		}
+		s.markDone(fmt.Errorf("evicted"))
+		if m.deps.OnEvict != nil {
+			onEvict := m.deps.OnEvict
+			evID, ow, cmd := c.id, s.Owner, s.Cmd
+			// Call outside the lock to avoid reentrancy.
+			defer func() { onEvict(evID, ow, cmd) }()
+		}
+		return
+	}
+}
+
+// pipeEnv forces non-interactive pager settings (Section 13.5).
+func pipeEnv(extra []string) []string {
+	base := os.Environ()
+	over := map[string]string{"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "dumb", "NO_COLOR": "1"}
+	return mergeEnv(base, over, extra)
+}
+
+func ptyEnv(extra []string) []string {
+	base := os.Environ()
+	over := map[string]string{"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "xterm-256color"}
+	return mergeEnv(base, over, extra)
+}
+
+func mergeEnv(base []string, over map[string]string, extra []string) []string {
+	out := append([]string(nil), base...)
+	idx := map[string]int{}
+	for i, kv := range out {
+		if k, _, ok := strings.Cut(kv, "="); ok {
+			idx[k] = i
+		}
+	}
+	for k, v := range over {
+		if i, ok := idx[k]; ok {
+			out[i] = k + "=" + v
+		} else {
+			out = append(out, k+"="+v)
+			idx[k] = len(out) - 1
+		}
+	}
+	for _, kv := range extra {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			if i, dup := idx[k]; dup {
+				out[i] = k + "=" + v
+			} else {
+				out = append(out, kv)
+				idx[k] = len(out) - 1
+			}
+		}
+	}
+	return out
+}
+
+// EnvProfile is the detected execution environment (Section 13.5).
+type EnvProfile struct {
+	OS              string          `json:"os"`
+	Arch            string          `json:"arch"`
+	Shells          []string        `json:"shells"`
+	DefaultShell    string          `json:"default_shell"`
+	PackageManagers []string        `json:"package_managers"`
+	Tools           map[string]bool `json:"tools"`
+	DetectedAt      time.Time       `json:"detected_at"`
+}
+
+// DetectEnv detects OS, arch, shells, package managers and tools.
+func DetectEnv() EnvProfile {
+	p := EnvProfile{OS: runtime.GOOS, Arch: runtime.GOARCH, Tools: map[string]bool{}, DetectedAt: time.Now()}
+	for _, sh := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+		if _, err := exec.LookPath(sh); err == nil {
+			p.Shells = append(p.Shells, sh)
+		}
+	}
+	p.DefaultShell = DetectShell()
+	for _, pm := range []string{"apt", "dnf", "pacman", "brew", "nix", "apk"} {
+		if _, err := exec.LookPath(pm); err == nil {
+			p.PackageManagers = append(p.PackageManagers, pm)
+		}
+	}
+	for _, t := range []string{"git", "rg", "fd", "fzf", "node", "python3", "go", "rustc", "cargo", "docker"} {
+		_, err := exec.LookPath(t)
+		p.Tools[t] = err == nil
+	}
+	return p
+}
+
+// DetectShell picks the default interpreter: bash or zsh on Linux.
+func DetectShell() string {
+	if sh := os.Getenv("SHELL"); sh != "" {
+		base := filepath.Base(sh)
+		if base == "bash" || base == "zsh" || base == "fish" || base == "sh" {
+			if _, err := exec.LookPath(sh); err == nil {
+				return sh
+			}
+			if _, err := exec.LookPath(base); err == nil {
+				return base
+			}
+		}
+	}
+	for _, cand := range []string{"bash", "zsh", "sh"} {
+		if p, err := exec.LookPath(cand); err == nil {
+			return p
+		}
+	}
+	return "/bin/sh"
+}
+
+// SessionSummary is the list entry for exec_io list and status.
+type SessionSummary struct {
+	ID      SessionID `json:"id"`
+	Owner   string    `json:"owner"`
+	Cmd     string    `json:"cmd"`
+	Alive   bool      `json:"alive"`
+	Started time.Time `json:"started"`
+	Tail    string    `json:"tail"`
+}
+
+// Summaries lists sessions for owner with live tails.
+func (m *SessionManager) Summaries(owner string) []SessionSummary {
+	var out []SessionSummary
+	for _, s := range m.List(owner) {
+		s.mu.Lock()
+		alive := !s.exited
+		started := s.Started
+		s.mu.Unlock()
+		out = append(out, SessionSummary{ID: s.ID, Owner: s.Owner, Cmd: s.Cmd, Alive: alive, Started: started, Tail: s.LiveTail()})
+	}
+	return out
+}

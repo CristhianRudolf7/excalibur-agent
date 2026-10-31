@@ -1,4 +1,4 @@
-# 0005 — H5 interpretation notes: checklist language, R3 scope, micro-plan ids
+# 0012 — H5 interpretation notes: checklist language, R3 scope, micro-plan ids
 
 Date: 2026-10-31. Status: accepted.
 

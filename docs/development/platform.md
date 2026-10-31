@@ -10,7 +10,7 @@ these interfaces; this document only grows with contract changes.
 `internal/platform/platform.go` declares the nine shared interfaces;
 this area implements them for Linux and adds the Section 3.2
 primitives. Nothing here changes the shared signatures (see
-`docs/decisions/0003-platform-linux-notes.md`).
+`docs/decisions/0005-platform-linux-notes.md`).
 
 - **Paths** (`paths_linux.go`): XDG data/config/cache roots plus
   `excalibur`, runtime root (`$XDG_RUNTIME_DIR`, then

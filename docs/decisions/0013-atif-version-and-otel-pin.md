@@ -1,4 +1,4 @@
-# 0003 — ATIF version selection and OTEL conventions pin
+# 0013 — ATIF version selection and OTEL conventions pin
 
 Date: 2026-10-31. Area: telemetry/eval (H4 measurement half).
 

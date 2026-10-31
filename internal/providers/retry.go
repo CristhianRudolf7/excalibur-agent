@@ -10,7 +10,7 @@ import (
 )
 
 // Retry tuning for provider calls (Section 19.5). Values are initial
-// and calibrated later; see docs/decisions/0003-*.
+// and calibrated later; see docs/decisions/0007-providers-anthropic-gemini.md.
 const (
 	// DefaultMaxAttempts bounds one call including the first try.
 	DefaultMaxAttempts = 3
