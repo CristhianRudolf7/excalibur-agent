@@ -141,6 +141,21 @@ calls a paid API.
   of the configured decisions model with bounded fallback-key
   retry on quota/rate-limit, plus the embedding no-effort
   rule. Tiny by construction.
+- W6 production wiring (`internal/models/operator.go`): resolved
+  `ModelSettings` (env aliases, layered config, credentials
+  file, defaults), fail-fast `NoProviderError`, single-model role
+  table for every core role, gateway config with breaker tuning,
+  and the decisions config pinning the no-effort-on-embeddings
+  rule. Backend tests: `TestResolve{Precedence,Defaults,
+  CredentialsSelectsOpenAI,MalformedCredentialsFails}`,
+  `TestRoleTableSingleModel`, `TestProviderDefMapping`,
+  `TestEmbeddingOmitsEffort`, `TestKeyRequired`,
+  `TestStubSelection`. Production builders live in
+  `internal/cli/modelwiring.go` (`TestResolveSettings*`,
+  `TestBuild{Provider,Gateway,Embedder,Decider}*`); daemon intake
+  and memory embedder wiring in `cmd/excalibur/daemon.go`; live
+  `TestLive{ExecHello,ExecTerminal,Embedding,Decider}` with
+  results in `docs/development/live-smoke.md`.
 
 ## Deferred (not in this wave)
 

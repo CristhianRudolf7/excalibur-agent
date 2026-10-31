@@ -180,6 +180,24 @@ All against `httptest` servers; no test calls a paid API.
   operator credential file. Never runs under plain
   `go test ./...`.
 
+## W6 production wiring (registry + credentials)
+
+W6 registers the OpenAI-family kinds in the same registry
+(`openai`, `deepseek`, `openrouter`, `ollama`, `generic`) and adds
+the operator layers: `OperatorCredentials` file loader, the
+`EXCALIBUR_API_KEY` alias after kind-specific variables, and
+fallback-credential resolution with a decorator that retries
+quota/rate-limit failures exactly once on the fallback key (never
+for auth/input/content; streams only before the first fragment).
+The Responses wire is the registry default for `openai` (Chat
+Completions rejects effort+tools on reasoning models). The
+`[models]` layered config section and the top-level-alias skip in
+the env loader live in `internal/config`. Backend tests:
+`TestBuiltinKindsAll`, `TestOperatorKeyAlias`,
+`TestFallback{KeyResolution,UsedOnlyOnQuotaLike,StreamNoDuplicate}`,
+`TestNewWrapsFallback`, `TestLoadOperatorCredentials`. See
+`docs/decisions/0035-w6-live-wiring.md`.
+
 ## Deferred (not in this wave)
 
 The model gateway itself — roles, routing, escalation, breaker,

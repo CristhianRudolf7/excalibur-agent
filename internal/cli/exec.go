@@ -16,7 +16,9 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/registry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
@@ -262,10 +264,12 @@ func EvalToolAllowed(tool, op string) error {
 // RunExec executes one non-interactive request to a terminal state
 // (or to waiting when AllowAsk parks a question) and writes the
 // Appendix F minimum records: profile config and hashes, the ATIF
-// trajectory, events and metrics.json. It never calls a paid API:
-// the embedded step is deterministic, so local runs and tests need
-// no credentials; live model execution arrives behind the providers
-// gateway in a later milestone without changing this contract.
+// trajectory, events and metrics.json. An injected Provider (tests,
+// explicit live wiring) drives the real engine loop; otherwise the
+// operator layers resolve to the explicit stub (EXCALIBUR_PROVIDER=
+// stub, the only silent-run mode), a registry-built provider behind
+// the models gateway, or a stable harness error (exit 1) when
+// nothing is configured.
 func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	profile := opts.Profile
 	if profile == "" {
@@ -345,8 +349,25 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		defer cancel()
 	}
 
-	provider := envOr("EXCALIBUR_PROVIDER", "stub")
-	model := envOr("EXCALIBUR_MODEL", "embedded-stub")
+	// Production model wiring (Sections 19.1, 19.2, 20.1): an
+	// injected provider (tests, explicit live wiring) wins; else
+	// the operator layers resolve to the explicit stub (the only
+	// silent-run mode), a real registry provider, or a stable
+	// startup error when nothing is configured. There is no silent
+	// default provider.
+	settings, layerCfg, err := resolveSettings()
+	if err != nil {
+		return nil, &CodedError{Code: ExitError, Err: err}
+	}
+	built, eff, err := resolveExecProvider(ctx, opts, profile, settings, string(runID))
+	if err != nil {
+		return nil, err
+	}
+	if built != nil {
+		opts.Provider = built
+		defer func() { _ = built.Close() }()
+	}
+	provider, model := eff.Provider, eff.Model
 	profileCfg := eval.DefaultEvalProfile()
 	if opts.ProfileOverride != "" {
 		profileCfg.Override = opts.ProfileOverride
@@ -470,7 +491,11 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 			return finalize(types.RunFailed, "work", fmt.Sprintf("failed: %v", err), "")
 		}
 	} else if opts.Provider != nil {
-		st, err := runEnginePath(ctx, opts, run)
+		gw := BuildGateway(eff, layerCfg, opts.Provider)
+		st, usage, err := runEnginePath(ctx, opts, run, eff, gw)
+		if usage != (providers.Usage{}) {
+			metrics.ObserveModel(types.RoleExecutor, model, usage, telemetry.PriceTable{}, 0)
+		}
 		if err != nil {
 			var q *NeedInputError
 			if errors.As(err, &q) {
@@ -530,6 +555,50 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	return finalize(types.RunCompleted, "", "completed: "+shortSummary(request), "")
 }
 
+// resolveExecProvider decides how RunExec answers model calls and
+// returns the effective wiring: an injected provider (tests,
+// explicit live wiring) routes the role table at its own adapter
+// name; the explicit stub keeps the deterministic embedded step;
+// otherwise the operator wiring builds a registry provider. The
+// returned built provider is non-nil only when RunExec constructed
+// it (the caller registers and closes it). Missing wiring is a
+// stable harness error (exit 1).
+func resolveExecProvider(ctx context.Context, opts ExecOptions, profile ProfileName, settings models.ModelSettings, runID string) (built providers.Provider, eff models.ModelSettings, err error) {
+	if opts.Provider != nil {
+		eff = settings
+		eff.Provider = opts.Provider.Name()
+		if eff.Model == "" {
+			eff.Model = "embedded"
+		}
+		return nil, eff, nil
+	}
+	if settings.Stub() {
+		eff = settings
+		if eff.Model == "" {
+			eff.Model = models.StubProvider
+		}
+		return nil, eff, nil
+	}
+	if verr := settings.Validate(); verr != nil {
+		return nil, models.ModelSettings{}, &CodedError{Code: ExitError, Err: verr}
+	}
+	if settings.Model == "" {
+		return nil, models.ModelSettings{}, &CodedError{Code: ExitError, Err: fmt.Errorf(
+			"cli: no model configured (set EXCALIBUR_MODEL, [models].model, or the operator credentials file)")}
+	}
+	// The eval profile never opens the vault: keys arrive by
+	// environment only (Section 23.2).
+	var resolve registry.SecretResolver
+	if profile != ProfileEval {
+		resolve = VaultSecretResolver(opts.Vault, runID)
+	}
+	p, berr := BuildProvider(ctx, settings, resolve)
+	if berr != nil {
+		return nil, models.ModelSettings{}, berr
+	}
+	return p, settings, nil
+}
+
 // NeedInputError parks a Work hook in waiting(user) with a question
 // for the delegating client to answer via reply.
 type NeedInputError struct {
@@ -544,13 +613,6 @@ func shortSummary(request string) string {
 		return request
 	}
 	return request[:117] + "..."
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func metricsPathFor(runDir string, profile ProfileName, logsDir string) string {

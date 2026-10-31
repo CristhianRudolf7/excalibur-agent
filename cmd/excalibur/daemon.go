@@ -12,11 +12,14 @@ import (
 	"syscall"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
@@ -62,7 +65,35 @@ func runDaemonStart(args []string) error {
 	orch := orchestrator.New(orchestrator.DefaultConfig(), orchStore, orchestrator.NoopJournal{})
 	ctrls := &daemon.OrchControl{Orch: orch, Store: orchStore}
 	notifier := master.NewNotifier(master.NotifierConfig{})
-	decider := daemon.NewModelDecider(nil, []string{"general"})
+
+	// Production model wiring (Sections 19.1, 19.2, 19.4): the
+	// intake decider and the memory embedder build from the layered
+	// config, environment, credentials file and secret:// vault refs
+	// through the providers registry. Unconfigured operators keep
+	// the deterministic seams (nil decider, keyless embedder) with
+	// a notice instead of failing to start; the eval profile never
+	// applies here. Master turns and daemon run engines keep their
+	// H9-owned model seams.
+	modelSettings, layerCfg, modelErr := cli.ResolveSettings(config.LoadOptions{})
+	if modelErr != nil {
+		return fmt.Errorf("daemon start: model wiring: %w", modelErr)
+	}
+	var modelGateway *models.Gateway
+	var choiceDec daemon.ChoiceDecider
+	if !modelSettings.Stub() && modelSettings.Configured() {
+		p, berr := cli.BuildProvider(ctx, modelSettings, nil)
+		if berr != nil {
+			return fmt.Errorf("daemon start: %w", berr)
+		}
+		defer func() { _ = p.Close() }()
+		modelGateway = cli.BuildGateway(modelSettings, layerCfg, p)
+		defer modelGateway.Close()
+		choiceDec = cli.BuildDecider(modelSettings, modelGateway)
+		fmt.Fprintf(os.Stderr, "daemon: models %s\n", modelSettings.Describe())
+	} else {
+		fmt.Fprintln(os.Stderr, "daemon: no model provider configured; intake and memory run deterministic")
+	}
+	decider := daemon.NewModelDecider(choiceDec, []string{"general"})
 	m := master.New(master.Config{Turns: master.DefaultTurnConfig()}, master.NewMemStore(), master.NewLexicon(), decider, ctrls, nil, notifier)
 	backend := daemon.NewDaemonBackend(m, ctrls, bus)
 
@@ -124,10 +155,17 @@ func runDaemonStart(args []string) error {
 
 	// Memory with the provider embedder only when configured; without
 	// keys it degrades to lexical/temporal/relational retrieval
-	// (Section 10.8) instead of failing to start.
+	// (Section 10.8) instead of failing to start. Embedding requests
+	// never carry reasoning effort.
 	var memSvc *memory.Service
 	if db != nil {
 		memSvc = memory.NewService(db)
+		if emb, eerr := cli.BuildEmbedder(modelSettings, nil); eerr != nil {
+			fmt.Fprintf(os.Stderr, "daemon: embeddings disabled: %v\n", eerr)
+		} else if emb != nil {
+			memSvc = memory.NewService(db, memory.WithEmbedder(emb))
+			fmt.Fprintf(os.Stderr, "daemon: embeddings via %s\n", emb.Model())
+		}
 	}
 
 	ix := skills.NewIndex(skills.Roots{}, skills.BuiltinFS())

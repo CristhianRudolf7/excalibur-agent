@@ -17,6 +17,7 @@ type Config struct {
 	Notifications NotificationsConfig `json:"notifications" toml:"notifications"`
 	Vault         VaultConfig         `json:"vault" toml:"vault"`
 	Resources     ResourcesConfig     `json:"resources" toml:"resources"`
+	Models        ModelsConfig        `json:"models" toml:"models"`
 }
 
 // MasterConfig governs the master turn and reception (Sections 5.3,
@@ -158,6 +159,60 @@ type VaultConfig struct {
 	Argon2SaltLen uint32 `json:"argon2_salt_len" toml:"argon2_salt_len"`
 	// PassphraseLockAfter auto-locks passphrase vaults (App. B: 12h).
 	PassphraseLockAfter time.Duration `json:"passphrase_lock_after" toml:"passphrase_lock_after"`
+}
+
+// ModelsConfig governs production model wiring (Sections 19.1, 19.2):
+// which provider and model serve every role, the reasoning effort
+// fixed per role, the embedding and decisions models, and where the
+// credentials live. Keys resolve in Section 20.1 order (vault, then
+// environment, then the explicit value here); the eval profile never
+// opens the vault and takes keys from the environment only
+// (Section 23.2). All fields are optional: empty means "resolve from
+// the next layer" (environment aliases, credentials file, defaults).
+type ModelsConfig struct {
+	// Provider is the registry kind (openai, anthropic, gemini,
+	// deepseek, openrouter, ollama, generic) or "stub" for the
+	// explicit deterministic stub. Empty means unconfigured.
+	Provider string `json:"provider" toml:"provider"`
+	// Model is the chat model id serving every role (single-model
+	// mode in eval; one configured model elsewhere).
+	Model string `json:"model" toml:"model"`
+	// BaseURL overrides the provider default endpoint (tests,
+	// proxies, compatible servers).
+	BaseURL string `json:"base_url" toml:"base_url"`
+	// ReasoningEffort is fixed per role (Section 19.2); empty means
+	// the operator default low.
+	ReasoningEffort string `json:"reasoning_effort" toml:"reasoning_effort"`
+	// EmbeddingModel names the embedding model; its operations never
+	// carry reasoning effort. Empty means text-embedding-3-small.
+	EmbeddingModel string `json:"embedding_model" toml:"embedding_model"`
+	// DecisionsModel names the decisions chat model; empty means
+	// gpt-6-luna.
+	DecisionsModel string `json:"decisions_model" toml:"decisions_model"`
+	// CredentialsFile points at an OpenAI-style operator JSON file
+	// (base_url, api_key, fallback_api_key, model,
+	// reasoning_effort, embedding_model, decisions_model). Empty
+	// means EXCALIBUR_CREDENTIALS_FILE. Production entry points
+	// also try the default operator path when neither is set.
+	CredentialsFile string `json:"credentials_file" toml:"credentials_file"`
+	// APIKey is the explicit credential: last resort after the vault
+	// hook and the environment.
+	APIKey string `json:"api_key" toml:"api_key"`
+	// APIKeyEnv names the environment variable holding the key.
+	// Empty means the kind defaults plus EXCALIBUR_API_KEY.
+	APIKeyEnv string `json:"api_key_env" toml:"api_key_env"`
+	// APIKeySecret names the vault secret (or secret:// ref) holding
+	// the key, resolved via the vault hook.
+	APIKeySecret string `json:"api_key_secret" toml:"api_key_secret"`
+	// FallbackKey is the explicit fallback credential, used only on
+	// quota/rate-limit errors with bounded retries (Section 19.5).
+	FallbackKey string `json:"fallback_api_key" toml:"fallback_api_key"`
+	// FallbackKeyEnv names the environment variable holding the
+	// fallback credential. Empty means EXCALIBUR_FALLBACK_API_KEY.
+	FallbackKeyEnv string `json:"fallback_api_key_env" toml:"fallback_api_key_env"`
+	// FallbackKeySecret names the vault secret holding the fallback
+	// credential.
+	FallbackKeySecret string `json:"fallback_api_key_secret" toml:"fallback_api_key_secret"`
 }
 
 // ResourcesConfig governs admission and watchdogs (Sections 3.2, 5.2).

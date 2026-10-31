@@ -126,7 +126,13 @@ func taskWait(args []string) error {
 		return err
 	}
 	if jsonEnabled(*asJSON) {
-		return printJSON(st)
+		if err := printJSON(st); err != nil {
+			return err
+		}
+		if code := cli.CodeForTaskState(st.State); code != 0 && terminalForWait(st) {
+			return &cli.CodedError{Code: code, Err: fmt.Errorf("%s", st.Summary)}
+		}
+		return nil
 	}
 	fmt.Fprintf(os.Stdout, "%s\n", taskLine(st))
 	if code := cli.CodeForTaskState(st.State); code != 0 && terminalForWait(st) {

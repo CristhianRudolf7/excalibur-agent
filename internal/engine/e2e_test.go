@@ -169,10 +169,16 @@ func TestEndToEndInteractiveProgram(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustState(t, w.run, types.RunCompleted)
-	if len(w.run.History) != 2 {
-		t.Fatalf("history = %d tool results, want 2", len(w.run.History))
+	// History pairs every assistant tool-call message with its tool
+	// results, so the next model request carries complete
+	// function_call/function_call_output pairs (Section 19.2).
+	if len(w.run.History) != 4 {
+		t.Fatalf("history = %d entries, want 4 (2 tool calls + 2 results)", len(w.run.History))
 	}
-	if w.run.History[0].Content != "project name?" || w.run.History[1].Content != "scaffolded myapp" {
+	if w.run.History[0].Role != providers.RoleAssistant || len(w.run.History[0].ToolCalls) != 1 {
+		t.Fatalf("history[0] must be the assistant tool call: %+v", w.run.History[0])
+	}
+	if w.run.History[1].Content != "project name?" || w.run.History[3].Content != "scaffolded myapp" {
 		t.Fatalf("history: %+v", w.run.History)
 	}
 	if got := len(w.fake.ChatRequests); got != 3 {

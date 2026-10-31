@@ -68,8 +68,19 @@ While iterating prefer `go test -race -p 2` for package-scoped runs.
 ## Milestones
 
 Status: H0–H13 implemented, each with its verification-table tests
-green. Per-section evidence lives in `docs/development/coverage.md`;
-close-out fixes are recorded in `docs/decisions/0034-w5-closure.md`.
+green, plus the W6 production model wiring: real providers build
+from layered config, environment, the operator credentials file and
+`secret://` vault refs through `internal/providers/registry`, and
+every entry point (`exec`, `task` background runs, `mcp`, `acp`,
+daemon intake decider, memory embeddings) runs through the
+`internal/models` gateway; `exec` fails with exit 1 when
+unconfigured and keeps the deterministic step only under explicit
+`EXCALIBUR_PROVIDER=stub`. Live checks sit behind `-tags live` and
+`EXCALIBUR_LIVE=1` with results in
+`docs/development/live-smoke.md`. Per-section evidence lives in
+`docs/development/coverage.md`; close-out fixes are recorded in
+`docs/decisions/0034-w5-closure.md` and the wiring decisions in
+`docs/decisions/0035-w6-live-wiring.md`.
 Do not regress any milestone: every change must keep its area's
 contract and backend tests passing (`go test ./... -race`).
 

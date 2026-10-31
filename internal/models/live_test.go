@@ -18,7 +18,6 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/openai"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
 type liveCredentials struct {
@@ -84,11 +83,6 @@ func TestLiveDecisionsFallback(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	defer a.Close()
-	gw := NewGateway(GatewayConfig{
-		Roles: map[types.ModelRole]RoleEntry{},
-	})
-	_ = gw
-	_ = effort
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	// One bounded noul question through the real decisions model.

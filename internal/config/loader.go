@@ -187,6 +187,11 @@ func deepMerge(dst, src map[string]any) {
 
 // applyEnv folds EXCALIBUR_SECTION__FIELD variables into merged.
 // Segments match the snake_case TOML keys case-insensitively.
+// Single-segment names (EXCALIBUR_PROVIDER, EXCALIBUR_MODEL,
+// EXCALIBUR_API_KEY, ...) are not config keys: every config key
+// lives under a section table, and a top-level string would collide
+// with the same-named tables. Those aliases resolve explicitly in
+// the model wiring (internal/models), so the loader skips them.
 func applyEnv(merged map[string]any, prefix string, env []string, disabled bool) {
 	if disabled {
 		return
@@ -201,6 +206,9 @@ func applyEnv(merged map[string]any, prefix string, env []string, disabled bool)
 			continue
 		}
 		parts := strings.Split(strings.ToLower(rest), "__")
+		if len(parts) < 2 {
+			continue
+		}
 		setPath(merged, parts, coerceEnv(parts, value, lookupPath(merged, parts)))
 	}
 }

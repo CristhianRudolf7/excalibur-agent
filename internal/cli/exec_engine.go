@@ -124,11 +124,13 @@ func taskDBOps(args json.RawMessage) []string {
 // wired catalog (Sections 7.3, 13.3, 13.4): leases, shared history,
 // LSP diagnostics, deferred tools through search_tools/call_tool,
 // skill tools, vault redaction and the journal write-ahead rule. The
-// scripted fake provider in tests (or the live provider in
-// production) answers model calls; no step is deterministic. Every
+// scripted fake provider in tests (or the registry-built live
+// provider in production, registered on gw with the Section 19.1
+// role table) answers model calls; no step is deterministic. Every
 // model turn and tool result is appended to the ATIF trajectory so
-// the Appendix F records show the real execution.
-func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.RunState, error) {
+// the Appendix F records show the real execution. It returns the
+// engine token usage for the metrics record.
+func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings models.ModelSettings, gw *models.Gateway) (types.RunState, providers.Usage, error) {
 	profile := opts.Profile
 	if profile == "" {
 		profile = ProfileDefault
@@ -142,26 +144,37 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.R
 		Delegated: profile == ProfileDelegate,
 	})
 	if err != nil {
-		return "", fmt.Errorf("cli: wire embedded catalog: %w", err)
+		return "", providers.Usage{}, fmt.Errorf("cli: wire embedded catalog: %w", err)
 	}
-	gw := models.NewGateway(models.GatewayConfig{
-		Roles: map[types.ModelRole]models.RoleEntry{
-			types.RoleExecutor: {Primary: models.ModelRef{Provider: opts.Provider.Name(), Model: "embedded"}},
-		},
-		Prices:       map[string]models.Price{"embedded": {}},
-		PriceVersion: "test",
-		MaxAttempts:  2,
-		BaseDelay:    1,
-	})
-	gw.Register(opts.Provider)
+	if gw == nil {
+		return "", providers.Usage{}, fmt.Errorf("cli: engine path needs a gateway")
+	}
 	baseRunner := engine.NewRegistryRunner(emb.Registry, emb.Exec)
 	runner := newProfileGatedRunner(profile, baseRunner)
 	if profile == ProfileEval {
 		pruneDeferredToProfile(emb.Catalog, runner.allowed)
 	}
+	// The L3 task layer carries the request: without it the model
+	// calls never see what to do (Section 6.5, 11.1). The fixed
+	// instructions pin the executable-verification rule (P3) for
+	// the embedded run.
+	projectContext := ""
+	if opts.ProjectDir != "" {
+		projectContext = "project directory: " + opts.ProjectDir + "\n" +
+			"Do the work in that directory (terminal workdir or absolute paths); " +
+			"verify files there."
+	}
 	snap := func(ctx context.Context, erun *engine.Run) (ctxcompiler.Snapshot, error) {
 		return ctxcompiler.Snapshot{
 			Role: "child", HarnessVersion: Version,
+			ProjectContext: projectContext,
+			Task: ctxcompiler.TaskView{
+				OriginalRequest: opts.Request,
+				FixedInstructions: []string{
+					"Complete the request with the available tools.",
+					"Verify the result by executing it (tests, compilers, scripts) before finishing.",
+				},
+			},
 			Volatile: ctxcompiler.Volatile{Now: time.Now().UTC()},
 		}, nil
 	}
@@ -186,11 +199,15 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.R
 		}
 		return out
 	}
+	effort := settings.ReasoningEffort
+	if effort == "" {
+		effort = models.DefaultDecisionsEffort
+	}
 	eng := engine.New(engine.Deps{
 		Models: gw,
 		Context: &engine.DefaultBuilder{
 			Config: ctxcompiler.DefaultConfig(), Counter: ctxcompiler.NewEstimator(0),
-			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: "low",
+			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: effort,
 		},
 		Tools:          runner,
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
@@ -213,20 +230,24 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.R
 	orch.AttachRunner(er)
 	defer orch.DetachRunner(er.RunID())
 	if err := eng.Admit(ctx, erun); err != nil {
-		return "", err
+		return "", providers.Usage{}, err
 	}
 	if _, err := rec.RunStarted(ctx, map[string]string{"task": opts.Request}); err != nil {
-		return "", err
+		return "", providers.Usage{}, err
 	}
 	if err := eng.Start(ctx, erun); err != nil {
-		return "", err
+		return "", providers.Usage{}, err
 	}
 	if err := eng.Run(ctx, erun); err != nil {
 		// An interrupt cancels the context without failing: the
 		// orchestrator owns the resulting state.
 		if ctx.Err() == nil {
-			return "", err
+			return "", providers.Usage{}, err
 		}
+	}
+	usage := providers.Usage{
+		Input:  int64(erun.Tracker.Used.InputTokens),
+		Output: int64(erun.Tracker.Used.OutputTokens),
 	}
 	rep := eng.Report(erun)
 	// Mirror the real trajectory into ATIF: one assistant step per
@@ -243,13 +264,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.R
 				Arguments: string(ev.ToolResult.CallID),
 			}},
 		}, "tool_call"); err != nil {
-			return "", err
+			return "", providers.Usage{}, err
 		}
 		if err := run.EmitStep(telemetry.ATIFStep{
 			Role:       "tool",
 			ToolResult: &telemetry.ATIFToolResult{CallID: ev.ToolResult.CallID, Name: ev.ToolResult.Name, Output: ev.Content},
 		}, "tool_result"); err != nil {
-			return "", err
+			return "", providers.Usage{}, err
 		}
 	}
 	summary := rep.Summary
@@ -257,7 +278,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun) (types.R
 		summary = "completed: " + shortSummary(opts.Request)
 	}
 	if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: summary}, "message"); err != nil {
-		return "", err
+		return "", providers.Usage{}, err
 	}
-	return erun.State(), nil
+	return erun.State(), usage, nil
 }

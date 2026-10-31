@@ -685,6 +685,18 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	}
 
 	if len(resp.Message.ToolCalls) > 0 {
+		// Record the assistant tool-call message before execution:
+		// the next model request must carry the function_call items
+		// its function_call_output items answer, or strict wires
+		// (Responses) reject the turn and the history loses the
+		// model's own words (Section 19.2).
+		run.mu.Lock()
+		seq := int64(len(run.History))
+		run.History = append(run.History, ctxcompiler.ActivityEvent{
+			Seq: seq, Role: providers.RoleAssistant, Content: resp.Message.Content,
+			ToolCalls: resp.Message.ToolCalls,
+		})
+		run.mu.Unlock()
 		return e.execTools(ctx, run, resp.Message.ToolCalls)
 	}
 

@@ -271,3 +271,17 @@ func (s *Store) Save() { Alpha() }
 	}
 	t.Logf("tree-sitter available: %v", TreeSitterAvailable())
 }
+
+func TestGoMalformedFallbackPreservesMethodKind(t *testing.T) {
+	pf := &ParsedFile{Rel: "broken.go", Lang: "go"}
+	if err := parseGoInto(pf, []byte("package p\nfunc (r *Receiver) Save() {\nfunc Load() {\n")); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, sym := range pf.Symbols {
+		got[sym.Name] = sym.SubKind
+	}
+	if got["Save"] != SymbolMethod || got["Load"] != SymbolFunc {
+		t.Fatalf("fallback symbol kinds = %v", got)
+	}
+}

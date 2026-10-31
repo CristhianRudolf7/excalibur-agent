@@ -79,6 +79,54 @@ func TestEnvAndOverridesBeatFiles(t *testing.T) {
 	}
 }
 
+// TestTopLevelAliasesSkipped covers the Section 19.2 alias rule:
+// single-segment EXCALIBUR_* names (EXCALIBUR_PROVIDER,
+// EXCALIBUR_MODEL, ...) are not config keys and must not collide
+// with the same-named section tables; the model wiring resolves
+// them explicitly.
+func TestTopLevelAliasesSkipped(t *testing.T) {
+	cfg, err := Load(LoadOptions{
+		SkipFiles: true,
+		Env: []string{
+			"EXCALIBUR_PROVIDER=stub",
+			"EXCALIBUR_MODEL=gizmo-1",
+			"EXCALIBUR_API_KEY=secret",
+			"EXCALIBUR_MODELS__MODEL=file-model",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Models.Model != "file-model" {
+		t.Fatalf("nested env applies: %q", cfg.Models.Model)
+	}
+}
+
+// TestModelsSectionLayers covers the Section 19.2 wiring source:
+// TOML file values merge, EXCALIBUR_MODELS__ env beats files, and
+// secrets stay opaque strings (never logged or validated here).
+func TestModelsSectionLayers(t *testing.T) {
+	root := t.TempDir()
+	user := filepath.Join(root, "user.toml")
+	writeTOML(t, user, "[models]\nprovider = \"openai\"\nmodel = \"gpt-6-luna\"\napi_key_secret = \"secret://provider-key\"\n")
+	cfg, err := Load(LoadOptions{
+		UserPath: user, NoEnv: false,
+		Env: []string{"EXCALIBUR_MODELS__MODEL=gizmo-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Models.Provider != "openai" {
+		t.Fatalf("file provider: got %q", cfg.Models.Provider)
+	}
+	if cfg.Models.Model != "gizmo-1" {
+		t.Fatalf("env beats file: got %q", cfg.Models.Model)
+	}
+	if cfg.Models.APIKeySecret != "secret://provider-key" {
+		t.Fatalf("secret ref: got %q", cfg.Models.APIKeySecret)
+	}
+}
+
 func TestDurationsParseFromTOMLAndEnv(t *testing.T) {
 	root := t.TempDir()
 	user := filepath.Join(root, "user.toml")

@@ -142,7 +142,7 @@ func goImportFallback(src string) []string {
 	return out
 }
 
-var goFuncFallback = regexp.MustCompile(`(?m)^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)`)
+var goFuncFallback = regexp.MustCompile(`(?m)^func\s+(?:(\([^)]*\))\s*)?([A-Za-z_][A-Za-z0-9_]*)`)
 var goTypeFallback = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
 
 // goDefFallback recovers definitions from broken Go files.
@@ -150,7 +150,11 @@ func goDefFallback(src string) []ParsedSymbol {
 	var out []ParsedSymbol
 	for i, line := range strings.Split(src, "\n") {
 		if m := goFuncFallback.FindStringSubmatch(line); m != nil {
-			out = append(out, ParsedSymbol{Name: m[1], SubKind: SymbolFunc, Line: i + 1, EndLine: i + 1})
+			sub := SymbolFunc
+			if strings.TrimSpace(m[1]) != "" {
+				sub = SymbolMethod
+			}
+			out = append(out, ParsedSymbol{Name: m[2], SubKind: sub, Line: i + 1, EndLine: i + 1})
 		} else if m := goTypeFallback.FindStringSubmatch(line); m != nil {
 			out = append(out, ParsedSymbol{Name: m[1], SubKind: SymbolType, Line: i + 1, EndLine: i + 1})
 		}

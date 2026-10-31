@@ -128,3 +128,13 @@ question protocol, file-based adoption, ACP subset).
   commands.
 - `scripts/bench/build.sh` produces the static musl binaries with
   sha256; `eval smoke` passes locally before any paid trial.
+- W6 production wiring: `RunExec` resolves the operator layers and
+  drives the engine loop through the registry-built provider and
+  the single-model gateway (task, MCP and ACP inherit it); the
+  explicit stub (`EXCALIBUR_PROVIDER=stub`) keeps the deterministic
+  step, unconfigured operators fail with exit 1
+  (`TestExecUnknownProviderFails`, `TestExecUnconfiguredFails`),
+  and engine usage folds into `metrics.json`. The L3 snapshot
+  carries the request and the project directory, and the engine
+  records assistant tool-call messages so follow-up turns keep
+  complete pairs. See `docs/development/live-smoke.md`.

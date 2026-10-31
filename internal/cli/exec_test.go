@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -322,9 +324,11 @@ func TestExecTimeoutPauses(t *testing.T) {
 }
 
 // TestExecEvalSingleModel covers the Section 23.8 single-model row:
-// the eval run records exactly the evaluated model.
+// the eval run records exactly the evaluated model. The stub stands
+// in explicitly (EXCALIBUR_PROVIDER=stub); unknown kinds fail at
+// startup instead of running silently.
 func TestExecEvalSingleModel(t *testing.T) {
-	t.Setenv("EXCALIBUR_PROVIDER", "acme")
+	t.Setenv("EXCALIBUR_PROVIDER", "stub")
 	t.Setenv("EXCALIBUR_MODEL", "gizmo-1")
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
@@ -344,7 +348,45 @@ func TestExecEvalSingleModel(t *testing.T) {
 	if err := json.Unmarshal(raw, &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap["model"] != "gizmo-1" || snap["provider"] != "acme" {
+	if snap["model"] != "gizmo-1" || snap["provider"] != "stub" {
 		t.Fatalf("metrics identity = %v", snap)
+	}
+}
+
+// TestExecUnknownProviderFails covers the production startup rule:
+// a configured-but-unknown provider kind fails fast with a harness
+// error (exit 1), it never runs a silent stub.
+func TestExecUnknownProviderFails(t *testing.T) {
+	t.Setenv("EXCALIBUR_PROVIDER", "acme")
+	t.Setenv("EXCALIBUR_MODEL", "gizmo-1")
+	t.Setenv("EXCALIBUR_CREDENTIALS_FILE", "/nonexistent-operator-credentials.json")
+	if _, err := RunExec(context.Background(), ExecOptions{
+		Request: "x", LogsDir: t.TempDir(), Profile: ProfileEval,
+	}); err == nil {
+		t.Fatal("unknown provider kind must fail")
+	} else if ExitCode(err) != ExitError {
+		t.Fatalf("unknown provider exit = %d, want %d", ExitCode(err), ExitError)
+	} else if !strings.Contains(err.Error(), `unknown provider kind "acme"`) {
+		t.Fatalf("error must name the kind: %v", err)
+	}
+}
+
+// TestExecUnconfiguredFails covers the production startup rule:
+// with no provider configured, exec fails with a clear error and a
+// stable exit code instead of silently running a stub.
+func TestExecUnconfiguredFails(t *testing.T) {
+	old := resolveSettings
+	resolveSettings = func() (models.ModelSettings, config.Config, error) {
+		return models.ModelSettings{}, config.Config{}, nil
+	}
+	defer func() { resolveSettings = old }()
+	if _, err := RunExec(context.Background(), ExecOptions{
+		Request: "x", LogsDir: t.TempDir(), Profile: ProfileDefault,
+	}); err == nil {
+		t.Fatal("unconfigured provider must fail")
+	} else if ExitCode(err) != ExitError {
+		t.Fatalf("unconfigured exit = %d, want %d", ExitCode(err), ExitError)
+	} else if !strings.Contains(err.Error(), "no model provider configured") {
+		t.Fatalf("error must say how to configure: %v", err)
 	}
 }
