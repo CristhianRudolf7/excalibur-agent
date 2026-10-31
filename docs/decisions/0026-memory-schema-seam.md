@@ -1,4 +1,4 @@
-# 0023 — Memory schema seam, local id prefixes, provider embeddings now
+# 0026 — Memory schema seam, local id prefixes, provider embeddings now
 
 Date: 2026-10-31. Area: memory (H11: Section 10).
 

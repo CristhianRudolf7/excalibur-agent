@@ -1,4 +1,4 @@
-# 0023: Decider wire shape and probability sources (Sections 19.3-19.4)
+# 0028: Decider wire shape and probability sources (Sections 19.3-19.4)
 
 Date: 2026-10-31. Area: `internal/models` (H12, milestone w3).
 

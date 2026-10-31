@@ -1,4 +1,4 @@
-# 0023 — Exec, delegation and benchmark wiring without new dependencies
+# 0025 — Exec, delegation and benchmark wiring without new dependencies
 
 Date: 2026-10-31. Status: accepted.
 

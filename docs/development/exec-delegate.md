@@ -13,7 +13,7 @@ skill, and `excalibur acp`.
 All logic lives in `internal/cli` (thin layers over the shared
 core); `cmd/excalibur` only parses flags, streams output and maps
 stable exit codes. No agent or provider logic lives in either place.
-See `docs/decisions/0023-exec-delegation-no-new-deps.md` for the
+See `docs/decisions/0025-exec-delegation-no-new-deps.md` for the
 scoping choices (stdlib only, embedded deterministic step, explicit
 question protocol, file-based adoption, ACP subset).
 

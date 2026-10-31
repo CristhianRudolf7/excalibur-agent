@@ -1,4 +1,4 @@
-# 0024 — Memory judgment calls: decider order, semantic floor, safeguards
+# 0027 — Memory judgment calls: decider order, semantic floor, safeguards
 
 Date: 2026-10-31. Area: memory (H11: Section 10).
 

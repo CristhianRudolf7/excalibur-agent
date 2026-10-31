@@ -167,5 +167,5 @@ MCP server, MCP install, ACP adapter), the client fragments in
 `integrations/clients/` and the bench scripts use the standard
 library only; the MCP stdio subset and the JSON-schema subset for
 `--output-schema` are hand-rolled (see
-`docs/decisions/0023-exec-delegation-no-new-deps.md`). `go.mod`
+`docs/decisions/0025-exec-delegation-no-new-deps.md`). `go.mod`
 unchanged.

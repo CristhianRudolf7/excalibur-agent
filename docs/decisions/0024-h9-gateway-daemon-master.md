@@ -1,4 +1,4 @@
-# 0023 — H9 gateway, daemon and master seams
+# 0024 — H9 gateway, daemon and master seams
 
 Date: 2026-10-31. Scope: milestone H9 (Sections 3.2, 3.5–3.7, 5, 6,
 15.5–15.8 via the H8 orchestrator, 17.3, 22.1, 26.11/26.13).

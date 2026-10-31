@@ -83,7 +83,7 @@ walkthrough 26.11 with its checks 26.12–26.13.
 
 ## Decisions
 
-- `docs/decisions/0023-h9-gateway-daemon-master.md`: what, why and
+- `docs/decisions/0024-h9-gateway-daemon-master.md`: what, why and
   the alternatives for the H9 seams.
 - `docs/decisions/dependencies.md`: `coder/websocket` v1.8.13 (ISC).
 
