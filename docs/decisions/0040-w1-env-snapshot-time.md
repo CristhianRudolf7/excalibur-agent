@@ -1,4 +1,4 @@
-# 0039 W1 environment snapshot and time management
+# 0040 W1 environment snapshot and time management
 
 Date: 2026-10-31. Workstream: `environment-and-time` (branch
 `agent-quality`).

@@ -270,6 +270,30 @@ type recordingToolRunner struct {
 	run  *ExecRun
 }
 
+// historyToolRunner appends one summary per tool call to the
+// embedded run-local history behind history_search, so the model can
+// retrieve earlier calls without a memory service (single-run scope).
+type historyToolRunner struct {
+	base engine.ToolRunner
+	log  *wireengine.HistoryLog
+}
+
+func (r *historyToolRunner) Definition(name string) (tools.Definition, error) {
+	return r.base.Definition(name)
+}
+
+func (r *historyToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, o tools.ExecuteOptions) (tools.Result, error) {
+	res, err := r.base.Execute(ctx, name, args, o)
+	if r.log != nil {
+		out := res.Output
+		if err != nil {
+			out = "error: " + err.Error()
+		}
+		r.log.Append(name, string(args), out)
+	}
+	return res, err
+}
+
 func (r *recordingToolRunner) Definition(name string) (tools.Definition, error) {
 	return r.base.Definition(name)
 }
@@ -369,7 +393,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		return "", providers.Usage{}, fmt.Errorf("cli: engine path needs a gateway")
 	}
 	baseRunner := engine.NewRegistryRunner(emb.Registry, emb.Exec)
-	runner := newProfileGatedRunner(profile, baseRunner)
+	var toolBase engine.ToolRunner = baseRunner
+	if emb.Surface != nil && emb.Surface.History != nil {
+		toolBase = &historyToolRunner{base: toolBase, log: emb.Surface.History}
+	}
+	runner := newProfileGatedRunner(profile, toolBase)
 	if profile == ProfileEval {
 		pruneDeferredToProfile(emb.Catalog, runner.allowed)
 	}

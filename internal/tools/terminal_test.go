@@ -193,13 +193,16 @@ func TestPipeEnvAndShellDetection(t *testing.T) {
 	}
 }
 
-func TestExecToolUnknownTarget(t *testing.T) {
+func TestExecToolLegacyTargetIgnored(t *testing.T) {
 	m := NewSessionManager(TerminalDeps{})
 	tool := &ExecTool{Sessions: m}
 	raw, _ := json.Marshal(map[string]string{"command": "echo hi", "target": "node:abc"})
 	res, _ := tool.Invoke(context.Background(), Invocation{Arguments: raw})
-	if res.Status != StatusInputError {
-		t.Fatalf("remote nodes are H13: %+v", res)
+	if res.Status != StatusOK || !strings.Contains(res.Output, "target \"node:abc\" ignored") {
+		t.Fatalf("legacy target must be ignored locally: %+v", res)
+	}
+	if !strings.Contains(res.Output, "exit: 0") {
+		t.Fatalf("exec must report the exit code up front: %q", res.Output)
 	}
 }
 

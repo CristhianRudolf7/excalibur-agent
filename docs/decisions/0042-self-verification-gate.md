@@ -1,4 +1,4 @@
-# 0039 Self-verification closing hooks (W1)
+# 0042 Self-verification closing hooks (W1)
 
 Date: 2026-10-31. Scope: `internal/tasks/**` (gate, criteria,
 evidence) and the finish path of `internal/engine` (completion and

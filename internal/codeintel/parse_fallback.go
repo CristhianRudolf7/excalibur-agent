@@ -121,7 +121,7 @@ func goImportFallback(src string) []string {
 	inBlock := false
 	for _, line := range strings.Split(src, "\n") {
 		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "import") {
+		if t == "import" || strings.HasPrefix(t, "import ") || strings.HasPrefix(t, "import\t") || strings.HasPrefix(t, "import(") {
 			if strings.Contains(t, "(") {
 				inBlock = true
 			} else if m := goImportLine.FindStringSubmatch(t[strings.Index(t, "import")+6:]); m != nil {

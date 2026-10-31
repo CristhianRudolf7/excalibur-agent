@@ -603,3 +603,83 @@ Research sources for this section:
 - SWE-agent docs (https://swe-agent.com/latest/) and OpenHands
   docs (https://docs.openhands.dev/): tool-surface and sandbox
   design reference for background only (connectors frozen here).
+
+## Tool surface for small models (`internal/tools`, `internal/wireengine`, `internal/cli/exec_engine.go`)
+
+Evidence (read-only trial records, 57 trials / 26% pass): ALL failures end
+as `completed` (the agent declares success while wrong); 17% of `exec`
+calls fail on a model-filled `target` (`container`, `dev`, `/app` …);
+`load_skill`, `search_skills`, `subagent`, `task_db`, `ack_directive`
+answer "not wired"; `search_tools` fails on `{}`; `call_tool` fails on the
+`input` alias and on `path` for `document_read`; `get_tool_output`
+receives live `sess-N` ids; `edit_file` wildcard/`""` fingerprints loop.
+
+What changed:
+
+- Tolerant argument parsing (`internal/tools/surface.go` `NormalizeArgs`,
+  wired into `Executor.Execute`/`ExecuteTuned`): common aliases (`cmd`,
+  `cwd`, `limit`→`k`, `input`→`arguments`, `q`→`query`, `op`→`action`,
+  `sid`→`session`, `path`→`pattern` …), scalar coercions (`"5"`→`5`,
+  `"true"`→`true`), bare-string calls (`"echo hi"` → exec), single
+  objects wrapped into `ops` arrays for `task_db`, model-internal keys
+  (`target`, `owner`) dropped to internal defaults. Every validation
+  failure appends a repair hint (`RepairHint`: expected shape, received
+  keys). Empty `search_tools` lists popular deferred tools instead of
+  erroring; empty `search_skills` lists the group; `call_tool` names
+  `search_tools` on a missing name.
+- Simplified model-visible `exec` schema: `command` (required), `workdir`,
+  `timeout_s`/`yield_ms`, `tty`, `background`; `env` kept valid (vault
+  `secret://` resolution depends on it) with shell-syntax guidance.
+  Legacy `target`/`owner` validate nowhere and are ignored at runtime
+  (embedded runs are always local) with a one-line note, turning the
+  17% failure class into successes.
+- Results built for small models: every `exec` result leads with
+  `exit:`/`duration:`/`session:`/`alive:` plus the `exec_io` poll/read
+  line; large outputs keep head+tail inline (8 KB) under the 40 KB
+  pipeline budget; the truncation marker names `get_tool_output` with
+  the exact ref; command-not-found appends package-manager guidance
+  from `DetectEnv`; missing files point at `write_file`/`glob`/`ls`.
+  Fixed a load-bearing wiring bug the enumeration test caught: the
+  pipeline stored truncated blobs in the executor store while
+  `get_tool_output` read its own store, so no blob ref ever resolved;
+  `BuildEmbedded` now points the tool at the executor store.
+- Shell-first design: `exec`/`call_tool`/`search_tools` descriptions
+  steer toward chained Unix commands in one call; file tools keep
+  rejecting genuinely broken edits (fingerprint mismatches still fail
+  with re-read guidance) but accept an explicit `"expected_fp": "*"`
+  wildcard as informed overwrite, and missing-file errors name the
+  creation path.
+- Embedded wiring (`internal/wireengine/embedded_surface.go`,
+  `WireEmbeddedSurface`, built by default in `BuildEmbedded`):
+  `task_db` plans against a run-scoped `MemoryStore` via
+  `tasks.ApplyBatch`; `subagent` delegates to an embedded
+  orchestrator with a master root agent (caller defaults to the run;
+  spawn carries a single-run scope note); `ack_directive` acks pending
+  root directives or reports none; `history_search` reads a run-local
+  `HistoryLog` fed by a new `historyToolRunner` in `exec_engine.go`;
+  `pin_observation`/`leave_continuation_note` keep run-local stores
+  with reader seams for the context workstream;   `search_skills`/
+  `load_skill` fall back to the embedded builtin index when no index is
+  passed. `task_db` op names are normalized (`create_requirement` →
+  `add_requirement`, `list` → `query`) and unknown ops name the valid
+  list. Wiring fills stub providers only, so the core prefix hash
+  never moves. `send_message` and other master/conversation tools stay
+  daemon-owned stubs (H9 owns them); the eval surface never exposes
+  them.
+- Coverage: `TestExecSurfaceEveryToolWorks` (`internal/cli`)
+  enumerates every eval-profile core tool and invokes it for real
+  (plus deferred reachability through `search_tools`/`call_tool`);
+  `TestEmbeddedSurfaceWired`/`Disabled` pin the wiring and the
+  ablation switch; `surface_test.go` pins aliases, hints, prefixes and
+  the wildcard.
+
+Ablation switches (`tools.SurfaceTuning`, env `EXCALIBUR_TOOL_*=0` to
+disable, default all ON; `Executor.Tune`, `EmbeddedOptions.Tune`,
+`EmbeddedOptions.Surface` for tests):
+
+- `EXCALIBUR_TOOL_TOLERANT_ARGS` — alias/coercion parsing + repair hints.
+- `EXCALIBUR_TOOL_SIMPLE_EXEC` — simplified exec schema, ignore target/owner.
+- `EXCALIBUR_TOOL_ACTIONABLE_ERRORS` — package-manager/missing-file hints.
+- `EXCALIBUR_TOOL_HEAD_TAIL` — head+tail inline results with retrieval refs.
+- `EXCALIBUR_TOOL_WIRE_EMBEDDED` — embedded task_db/subagent/ack/history/pin/note/skills wiring.
+- `EXCALIBUR_TOOL_SHELL_FIRST` — shell-first tool descriptions (kept file-edit strictness).

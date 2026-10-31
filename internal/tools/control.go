@@ -183,7 +183,7 @@ func (t *GetToolOutputTool) Invoke(_ context.Context, inv Invocation) (Result, e
 		}
 	}
 	if !ok {
-		return Result{Status: StatusInputError, Output: fmt.Sprintf("unknown blob ref %q", a.Ref)}, nil
+		return Result{Status: StatusInputError, Output: RetrievalHintForRef(a.Ref)}, nil
 	}
 	limit := a.Limit
 	if limit <= 0 {

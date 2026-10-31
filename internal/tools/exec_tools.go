@@ -12,13 +12,15 @@ import (
 var execSchema = schemaFor(map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"command":  map[string]any{"type": "string", "minLength": 1},
-		"workdir":  map[string]any{"type": "string"},
-		"tty":      map[string]any{"type": "boolean"},
-		"yield_ms": map[string]any{"type": "integer", "minimum": 250, "maximum": 30000},
-		"target":   map[string]any{"type": "string"},
-		"env":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-		"owner":    map[string]any{"type": "string"},
+		"command":    map[string]any{"type": "string", "minLength": 1, "description": "Shell command; chain steps with && and pipes in one call"},
+		"workdir":    map[string]any{"type": "string", "description": "Working directory; defaults to the task directory"},
+		"timeout_s":  map[string]any{"type": "number", "minimum": 0.25, "maximum": 300, "description": "Wait budget in seconds (yield_ms is the same knob in milliseconds)"},
+		"yield_ms":   map[string]any{"type": "integer", "minimum": 250, "maximum": 30000},
+		"tty":        map[string]any{"type": "boolean", "description": "Allocate a PTY for interactive programs"},
+		"background": map[string]any{"type": "boolean", "description": "Return immediately with the session id; poll with exec_io"},
+		// env stays valid for vault secret:// resolution in tool
+		// processes; prefer shell VAR=value syntax for plain values.
+		"env": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	},
 	"required":             []string{"command"},
 	"additionalProperties": false,
@@ -64,7 +66,7 @@ func (t *ExecTool) sessions() *SessionManager {
 
 func (t *ExecTool) Definition() Definition {
 	return Definition{
-		Name: "exec", Description: "Run a shell command by pipe or PTY; returns a session id while alive",
+		Name: "exec", Description: "Run a shell command and return its output. Shell-first: chain steps with && and pipes in one call instead of many calls; use workdir for the task directory and exec_io for live sessions",
 		InputSchema: execSchema, Effect: "exec", Idempotency: "non_idempotent",
 		Cancel: "graceful", Timeout: 300_000_000_000, OutputBudget: DefaultOutputBudget,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
@@ -75,19 +77,28 @@ func (t *ExecTool) Definition() Definition {
 
 func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
-		Command string   `json:"command"`
-		Workdir string   `json:"workdir"`
-		TTY     bool     `json:"tty"`
-		YieldMs int      `json:"yield_ms"`
-		Target  string   `json:"target"`
-		Env     []string `json:"env"`
-		Owner   string   `json:"owner"`
+		Command    string   `json:"command"`
+		Workdir    string   `json:"workdir"`
+		TTY        bool     `json:"tty"`
+		YieldMs    int      `json:"yield_ms"`
+		TimeoutS   float64  `json:"timeout_s"`
+		Background bool     `json:"background"`
+		Target     string   `json:"target"`
+		Env        []string `json:"env"`
+		Owner      string   `json:"owner"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
+	if strings.TrimSpace(a.Command) == "" {
+		return Result{Status: StatusInputError, Output: "command is required and must not be empty"}, nil
+	}
+	// Legacy internal keys stay internal defaults: embedded runs are
+	// always local, so any target is accepted and ignored instead of
+	// failing the call (the 17%-of-exec-calls failure class).
+	ignored := ""
 	if a.Target != "" && a.Target != "local" {
-		return Result{Status: StatusInputError, Output: fmt.Sprintf("unknown target %q (remote nodes land in H13)", a.Target)}, nil
+		ignored = fmt.Sprintf("note: target %q ignored (embedded runs locally)\n", a.Target)
 	}
 	env := a.Env
 	if t.SecretResolver != nil {
@@ -98,19 +109,42 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		env = resolved
 	}
 	yield := a.YieldMs
+	if a.TimeoutS > 0 {
+		yield = int(a.TimeoutS * 1000)
+	}
 	if yield == 0 {
 		yield = defaultYieldMs
+	}
+	if a.Background {
+		yield = minYieldMs
 	}
 	owner := a.Owner
 	if owner == "" {
 		owner = "default"
 	}
+	start := time.Now()
 	s, out, alive := t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, env)
+	dur := time.Since(start)
 	var b strings.Builder
-	fmt.Fprintf(&b, "session: %s  alive: %v\n", s.ID, alive)
-	b.WriteString(out)
-	if out != "" && !strings.HasSuffix(out, "\n") {
+	if code, exited := s.Exit(); exited && !alive {
+		fmt.Fprintf(&b, "exit: %d  duration: %.1fs  session: %s  alive: false\n", code, dur.Seconds(), s.ID)
+	} else if alive {
+		next := len(s.SnapshotFull())
+		fmt.Fprintf(&b, "exit: running  duration: %.1fs  session: %s  alive: true  next_offset: %d\n", dur.Seconds(), s.ID, next)
+		fmt.Fprintf(&b, "to poll: exec_io {\"action\":\"read\",\"session\":%q,\"offset\":%d}\n", string(s.ID), next)
+	} else {
+		fmt.Fprintf(&b, "exit: unknown  duration: %.1fs  session: %s  alive: false\n", dur.Seconds(), s.ID)
+	}
+	if ignored != "" {
+		b.WriteString(ignored)
+	}
+	headTail := headTailInline(out, 8000)
+	b.WriteString(headTail)
+	if out == "" || !strings.HasSuffix(headTail, "\n") {
 		b.WriteString("\n")
+	}
+	if hint := actionableExecHint(a.Command, out); hint != "" {
+		b.WriteString(hint)
 	}
 	return Result{Status: StatusOK, Output: b.String()}, nil
 }
@@ -260,6 +294,96 @@ func (t *ExecIOTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 		return []string{"session:" + a.Session}, nil
 	}
 	return []string{"session:*"}, nil
+}
+
+// headTailInline keeps the first and last quarters of out within a
+// small inline budget so the model sees the command head (what ran)
+// and tail (the freshest lines) without paying the full 40 KB
+// pipeline budget on every call. Larger outputs still page through
+// the pipeline blob (get_tool_output) and the live session (exec_io).
+func headTailInline(out string, budget int) string {
+	if len(out) <= budget || budget <= 0 {
+		return out
+	}
+	marker := fmt.Sprintf("\n…[middle %d bytes elided; full output above the pipeline budget pages via get_tool_output]…\n", len(out)-budget)
+	keep := budget - len(marker)
+	if keep <= 0 {
+		return out[:budget]
+	}
+	head := keep / 2
+	return out[:head] + marker + out[len(out)-(keep-head):]
+}
+
+// actionableExecHint turns a failed command into a next action:
+// missing binaries name the available package managers and detected
+// tools, missing directories name the fix. Empty when there is
+// nothing actionable to add.
+func actionableExecHint(command, out string) string {
+	lower := strings.ToLower(out)
+	if strings.Contains(lower, "command not found") || strings.Contains(lower, ": not found") {
+		missing := guessMissingCommand(command, out)
+		prof := DetectEnv()
+		managers := strings.Join(prof.PackageManagers, ", ")
+		if managers == "" {
+			managers = "none detected"
+		}
+		var have []string
+		for _, tool := range []string{"git", "python3", "node", "go", "rustc", "docker", "perl"} {
+			if prof.Tools[tool] {
+				have = append(have, tool)
+			}
+		}
+		hint := fmt.Sprintf("hint: command not found%s. Available package managers: %s.", missing, managers)
+		if len(have) > 0 {
+			hint += " Present: " + strings.Join(have, ", ") + "."
+		}
+		return hint + " Install it (one exec: install && verify with `command -v <bin>`), or rework the step to use a present tool.\n"
+	}
+	if strings.Contains(lower, "no such file or directory") {
+		return "hint: no such file or directory. Check the path with `ls` on its parent (use workdir for the task directory); create it with mkdir -p or write_file before retrying.\n"
+	}
+	if strings.Contains(lower, "permission denied") {
+		return "hint: permission denied. Check ownership with `ls -la`; prefer user-local paths over system directories.\n"
+	}
+	return ""
+}
+
+// guessMissingCommand extracts the missing binary name from common
+// shell diagnostics ("sh: 1: foo: not found", "bash: foo: command
+// not found").
+func guessMissingCommand(command, out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		// Forms: "<shell>: [lineno:] <bin>: command not found",
+		// "<shell>: [lineno:] <bin>: not found".
+		if idx := strings.Index(line, ": not found"); idx >= 0 {
+			before := strings.TrimSpace(line[:idx])
+			if i := strings.LastIndex(before, ":"); i >= 0 {
+				cand := strings.TrimSpace(before[i+1:])
+				if cand != "" && !strings.Contains(cand, " ") {
+					return ": " + cand
+				}
+			}
+		}
+		if idx := strings.Index(line, ": command not found"); idx >= 0 {
+			before := strings.TrimSpace(line[:idx])
+			if i := strings.LastIndex(before, ":"); i >= 0 {
+				cand := strings.TrimSpace(before[i+1:])
+				if cand != "" && !strings.Contains(cand, " ") {
+					return ": " + cand
+				}
+			}
+		}
+	}
+	// Fall back to the command's own first word.
+	if fields := strings.Fields(command); len(fields) > 0 {
+		base := fields[0]
+		if i := strings.LastIndex(base, "/"); i >= 0 {
+			base = base[i+1:]
+		}
+		return ": " + base
+	}
+	return ""
 }
 
 // resolveEnvSecrets resolves secret:// values in KEY=VALUE env entries

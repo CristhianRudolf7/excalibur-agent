@@ -36,8 +36,18 @@ type EmbeddedOptions struct {
 	// (Section 20.1). Nil keeps pattern-only redaction.
 	Vault *vault.Vault
 	// Skills is the skill index backing search_skills/load_skill
-	// (Section 12.4). Nil leaves the core stubs unwired.
+	// (Section 12.4). Nil builds the embedded builtin index so
+	// exec/eval runs always have skills instead of "not wired"
+	// errors; pass Skills: &skills.Index{} nowhere — an explicitly
+	// empty index still wires (and finds nothing).
 	Skills *skills.Index
+	// Surface carries prebuilt task-scoped stores for the embedded
+	// adapters (task_db, subagent, ack_directive, history, pins,
+	// notes). Nil builds task-scoped in-memory defaults.
+	Surface *SurfaceStores
+	// Tune overrides the tool-surface ablation switches. Nil reads
+	// EXCALIBUR_TOOL_* over the all-ON default.
+	Tune *tools.SurfaceTuning
 	// Codeintel backs the lsp and code_graph deferred tools.
 	// Nil leaves them unwired (their stubs report the owner).
 	Codeintel *codeintel.Deps
@@ -51,7 +61,8 @@ type EmbeddedOptions struct {
 
 // Embedded is one wired embedded catalog: the registry, the deferred
 // catalog with its fixed prefix, and the pipeline executor with vault
-// redaction installed.
+// redaction installed. Surface holds the task-scoped stores when the
+// embedded adapters are wired (nil when WireEmbedded is off).
 type Embedded struct {
 	Registry *tools.MapRegistry
 	Catalog  *tools.DeferredCatalog
@@ -59,6 +70,7 @@ type Embedded struct {
 	Files    *tools.FileDeps
 	History  *SharedHistory
 	Leases   *workspace.LeaseManager
+	Surface  *SurfaceStores
 	Prefix   string
 }
 
@@ -104,6 +116,15 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	prefix := cat.PrefixHash()
 	exec := tools.NewExecutor(reg)
 	exec.Redact = VaultRedactor(opts.Vault)
+	// The pipeline stores truncated full outputs in exec.Outputs, so
+	// get_tool_output must read from that same store: otherwise the
+	// blob ref in the truncation marker resolves nowhere and the
+	// model re-runs the command instead of paging.
+	if gto, err := reg.Get("get_tool_output"); err == nil {
+		if gt, ok := gto.(*tools.GetToolOutputTool); ok {
+			gt.Outputs = exec.Outputs
+		}
+	}
 	tools.WireSearchCall(reg, cat, exec)
 	tools.WireWebTools(reg, cat, &tools.WebDeps{})
 
@@ -145,15 +166,42 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	// Skill tools (Section 12.4): search_skills and load_skill live
 	// in the core prefix as stubs; wiring fills their providers so
 	// the prefix hash never moves and load_skill resolves the skill's
-	// deferred tools up front (Section 13.3).
-	WireSkills(reg, cat, opts.Skills)
+	// deferred tools up front (Section 13.3). A nil index falls back
+	// to the embedded builtin catalog so exec/eval always have
+	// skills; disable the fallback with the WireEmbedded switch.
+	tune := tools.DefaultSurfaceTuning()
+	if opts.Tune != nil {
+		tune = *opts.Tune
+	} else {
+		tune = tools.TuningFromEnv(tune)
+	}
+	exec.Tune = &tune
+	ix := opts.Skills
+	if ix == nil && tune.WireEmbedded {
+		ix = DefaultSkillsIndex()
+	}
+	WireSkills(reg, cat, ix)
+
+	// Task-scoped embedded surface (Section 13.2 core tools owned
+	// elsewhere): task_db, subagent, ack_directive, history_search,
+	// pin_observation and leave_continuation_note run against
+	// run-local stores instead of reporting "not wired".
+	var surface *SurfaceStores
+	if opts.Surface != nil {
+		surface = opts.Surface
+	} else if tune.WireEmbedded {
+		surface = EnsureSurfaceStores(opts.RunID)
+	}
+	if surface != nil {
+		WireEmbeddedSurface(reg, surface)
+	}
 
 	if got := cat.PrefixHash(); got != prefix {
 		return nil, prefixChangedError(prefix, got)
 	}
 	return &Embedded{
 		Registry: reg, Catalog: cat, Exec: exec,
-		Files: files, History: hist, Leases: leases, Prefix: prefix,
+		Files: files, History: hist, Leases: leases, Surface: surface, Prefix: prefix,
 	}, nil
 }
 

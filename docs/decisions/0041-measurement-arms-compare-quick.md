@@ -1,4 +1,4 @@
-# 0039 Measurement for agent quality: arms, compare, quick suite, resource peaks
+# 0041 Measurement for agent quality: arms, compare, quick suite, resource peaks
 
 Date: 2026-10-31. Workstream: w1-measurement. Scope: `internal/eval/**`
 (except the Harbor invocation core), the `bench` command's report side

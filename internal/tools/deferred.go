@@ -331,7 +331,7 @@ func tokenize(s string) []string {
 var searchToolsSchema = schemaFor(map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"query": map[string]any{"type": "string", "minLength": 1},
+		"query": map[string]any{"type": "string", "description": "Verb object domain, e.g. 'merge pdf pages'; empty lists popular deferred tools"},
 		"k":     map[string]any{"type": "integer", "minimum": 1, "maximum": 5},
 	},
 	"required":             []string{"query"},
@@ -371,12 +371,12 @@ func (t *SearchToolsTool) Invoke(_ context.Context, inv Invocation) (Result, err
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	if strings.TrimSpace(a.Query) == "" {
-		return Result{Status: StatusInputError, Output: "query is required"}, nil
-	}
 	cat := t.Catalog
 	if cat == nil {
 		return Result{Status: StatusToolError, Output: "deferred catalog not wired"}, nil
+	}
+	if strings.TrimSpace(a.Query) == "" {
+		return Result{Status: StatusOK, Output: popularDeferred(cat, a.K)}, nil
 	}
 	hits := cat.Search(a.Query, a.K)
 	if len(hits) == 0 {
@@ -397,6 +397,39 @@ func (t *SearchToolsTool) Invoke(_ context.Context, inv Invocation) (Result, err
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
 	return Result{Status: StatusOK, Output: string(raw)}, nil
+}
+
+// popularDeferred lists the first deferred tools alphabetically when
+// the model calls search_tools with an empty query (exploration)
+// instead of failing: a small model can pick from the list and refine
+// with verbs on the next call.
+func popularDeferred(cat *DeferredCatalog, k int) string {
+	if k <= 0 || k > 5 {
+		k = 5
+	}
+	names := cat.DeferredNames()
+	if len(names) > k {
+		names = names[:k]
+	}
+	type schemaOut struct {
+		Name        string          `json:"name"`
+		Description string          `json:"description"`
+		InputSchema json.RawMessage `json:"input_schema"`
+	}
+	out := make([]schemaOut, 0, len(names))
+	for _, n := range names {
+		t, err := cat.reg.Get(n)
+		if err != nil {
+			continue
+		}
+		def := t.Definition()
+		out = append(out, schemaOut{Name: def.Name, Description: def.Description, InputSchema: def.InputSchema})
+	}
+	raw, _ := json.MarshalIndent(map[string]any{
+		"note":  "empty query: showing deferred tools alphabetically; refine with a verb-object-domain query",
+		"tools": out,
+	}, "", "  ")
+	return string(raw)
 }
 
 func (t *SearchToolsTool) ResourceKeys(_ json.RawMessage) ([]string, error) {
@@ -429,7 +462,7 @@ func (t *CallToolTool) Invoke(ctx context.Context, inv Invocation) (Result, erro
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
 	if a.Name == "" {
-		return Result{Status: StatusInputError, Output: "name is required"}, nil
+		return Result{Status: StatusInputError, Output: "name is required: pick a deferred tool name from search_tools (empty query lists some), then call_tool {\"name\": \"<tool>\", \"arguments\": {...}}"}, nil
 	}
 	if a.Name == "search_tools" || a.Name == "call_tool" {
 		return Result{Status: StatusInputError, Output: "call_tool cannot invoke itself or search_tools"}, nil

@@ -109,6 +109,36 @@ func (s *Session) snapshot() (alive bool) {
 	return !s.exited
 }
 
+// Exit reports the process exit code when the session finished:
+// (code, true) after completion, (0, false) while still running.
+// Start failures surface as code 127 with the start error in the
+// output so callers can render exit/duration up front.
+func (s *Session) Exit() (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.exited {
+		return 0, false
+	}
+	if s.exitErr == nil {
+		return 0, true
+	}
+	if ee, ok := s.exitErr.(*exec.ExitError); ok {
+		return ee.ExitCode(), true
+	}
+	if strings.Contains(s.exitErr.Error(), "start error") {
+		return 127, true
+	}
+	return 1, true
+}
+
+// SnapshotFull returns the full buffered output for header
+// accounting (offsets shown to the model by exec/exec_io).
+func (s *Session) SnapshotFull() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.full.String()
+}
+
 // ReadSince returns output after offset with the new offset.
 func (s *Session) ReadSince(offset int) (string, int) {
 	s.mu.Lock()

@@ -43,10 +43,7 @@ func flagName(a string) (name, value string, ok bool) {
 	if len(a) < 2 || a[0] != '-' {
 		return "", "", false
 	}
-	s := a[1:]
-	if strings.HasPrefix(s, "-") {
-		s = s[1:]
-	}
+	s := strings.TrimPrefix(a[1:], "-")
 	if s == "" || strings.HasPrefix(s, "-") {
 		return "", "", false
 	}

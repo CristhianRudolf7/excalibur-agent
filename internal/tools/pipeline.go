@@ -26,7 +26,7 @@ const (
 	// DefaultToolTimeout applies when a definition leaves Timeout at 0.
 	DefaultToolTimeout = 60 * time.Second
 	// TruncationMarker separates kept head and tail.
-	TruncationMarker = "\n…[truncated %d bytes; full output in blob %s]…\n"
+	TruncationMarker = "\n…[truncated %d bytes; full output in blob %s; fetch with get_tool_output {\"ref\": \"%s\"}]…\n"
 )
 
 // OutputStore keeps full outputs behind a blob reference so
@@ -104,6 +104,10 @@ type Executor struct {
 	Journal  IntentHook
 	Now      func() time.Time
 	NewID    func() string
+	// Tune overrides the surface ablation switches. Nil means the
+	// all-ON default; production sets TuningFromEnv at the
+	// composition root (wireengine.BuildEmbedded).
+	Tune *SurfaceTuning
 }
 
 // NewExecutor returns an Executor with sane defaults.
@@ -122,6 +126,17 @@ func NewExecutor(reg Registry) *Executor {
 
 // Execute runs the named tool through the full pipeline.
 func (e *Executor) Execute(ctx context.Context, name string, rawArgs json.RawMessage, opts ExecuteOptions) (Result, error) {
+	tune := DefaultSurfaceTuning()
+	if e.Tune != nil {
+		tune = *e.Tune
+	}
+	return e.ExecuteTuned(ctx, name, rawArgs, opts, tune)
+}
+
+// ExecuteTuned runs the named tool through the full pipeline under
+// an explicit surface tuning (ablation switches for the agent-quality
+// workstream; production passes TuningFromEnv(DefaultSurfaceTuning())).
+func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.RawMessage, opts ExecuteOptions, tune SurfaceTuning) (Result, error) {
 	tool, err := e.Registry.Get(name)
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
@@ -129,8 +144,13 @@ func (e *Executor) Execute(ctx context.Context, name string, rawArgs json.RawMes
 	def := tool.Definition()
 
 	repaired := RepairJSON(rawArgs)
-	if err := ValidateAgainstSchema(repaired, def.InputSchema); err != nil {
-		return Result{Status: StatusInputError, Output: "invalid arguments: " + err.Error() + schemaHint(def.InputSchema)}, nil
+	normalized := NormalizeArgs(name, repaired, tune)
+	if err := ValidateAgainstSchema(normalized, def.InputSchema); err != nil {
+		out := "invalid arguments: " + err.Error() + schemaHint(def.InputSchema)
+		if tune.ActionableErrors {
+			out += "\n" + RepairHint(name, repaired)
+		}
+		return Result{Status: StatusInputError, Output: out}, nil
 	}
 
 	timeout := def.Timeout
@@ -141,7 +161,7 @@ func (e *Executor) Execute(ctx context.Context, name string, rawArgs json.RawMes
 		timeout = DefaultToolTimeout
 	}
 
-	inv := Invocation{Tool: name, Arguments: repaired, IdempotencyKey: opts.IdempotencyKey, Timeout: timeout}
+	inv := Invocation{Tool: name, Arguments: normalized, IdempotencyKey: opts.IdempotencyKey, Timeout: timeout}
 	if inv.IdempotencyKey == "" && def.Idempotency == types.IdemKeyed {
 		inv.IdempotencyKey = e.newKey()
 	}
@@ -316,7 +336,7 @@ func TruncateHeadTail(s string, budget int64, ref string) string {
 	if budget <= 0 || int64(len(s)) <= budget {
 		return s
 	}
-	marker := fmt.Sprintf(TruncationMarker, len(s), ref)
+	marker := fmt.Sprintf(TruncationMarker, len(s), ref, ref)
 	keep := int(budget)
 	if keep > len(s) {
 		keep = len(s)

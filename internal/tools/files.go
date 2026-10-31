@@ -219,7 +219,7 @@ func (t *ReadFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 	path := filepath.Clean(a.Path)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v", path, err)}, nil
+		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v. hint: to create it use write_file {\"path\": %q, \"content\": \"...\"}; to locate files use glob or grep", path, err, path)}, nil
 	}
 	fp := FingerprintOf(data)
 	if t.Deps != nil && t.Deps.Fingerprints != nil {
@@ -319,13 +319,19 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 			expected = fp
 		}
 	}
+	// An explicit "*" wildcard skips the fingerprint check with a
+	// note: informed overwrite beats a blind retry loop for small
+	// models, while genuine hash mismatches still reject.
+	skipFP := a.ExpectedFP == "*"
 	if _, err := os.Stat(path); err == nil {
-		if mi := fps.Check(path, expected); mi != nil {
-			out := (&FingerprintError{Info: *mi}).Error()
-			if mi.ShouldScale {
-				out += "\nscale: 3 consecutive mismatches; escalate to parent"
+		if !skipFP {
+			if mi := fps.Check(path, expected); mi != nil {
+				out := (&FingerprintError{Info: *mi}).Error()
+				if mi.ShouldScale {
+					out += "\nscale: 3 consecutive mismatches; escalate to parent"
+				}
+				return Result{Status: StatusToolError, Output: out}, nil
 			}
-			return Result{Status: StatusToolError, Output: out}, nil
 		}
 	}
 	// Record the preimage before any effect so a crash between intent
@@ -349,6 +355,9 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 		hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 	}
 	out := fmt.Sprintf("wrote %s (%d bytes) fp: %s", path, len(a.Content), fp)
+	if skipFP {
+		out += " (fingerprint check skipped by explicit \"*\")"
+	}
 	if diags != nil {
 		if d := diags.Diagnostics([]string{path}); d != "" {
 			out += "\ndiagnostics:\n" + d
@@ -422,16 +431,19 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 			expected = fp
 		}
 	}
-	if mi := fps.Check(path, expected); mi != nil {
-		out := (&FingerprintError{Info: *mi}).Error()
-		if mi.ShouldScale {
-			out += "\nscale: 3 consecutive mismatches; escalate to parent"
+	skipFP := a.ExpectedFP == "*"
+	if !skipFP {
+		if mi := fps.Check(path, expected); mi != nil {
+			out := (&FingerprintError{Info: *mi}).Error()
+			if mi.ShouldScale {
+				out += "\nscale: 3 consecutive mismatches; escalate to parent"
+			}
+			return Result{Status: StatusToolError, Output: out}, nil
 		}
-		return Result{Status: StatusToolError, Output: out}, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v", path, err)}, nil
+		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v. hint: to create it use write_file {\"path\": %q, \"content\": \"...\"}", path, err, path)}, nil
 	}
 	content := string(data)
 	off, _, ambiguous := FindMatch(content, a.OldText)
@@ -458,6 +470,9 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 		hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 	}
 	out := fmt.Sprintf("edited %s fp: %s", path, fp)
+	if skipFP {
+		out += " (fingerprint check skipped by explicit \"*\")"
+	}
 	if diags != nil {
 		if d := diags.Diagnostics([]string{path}); d != "" {
 			out += "\ndiagnostics:\n" + d

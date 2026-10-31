@@ -284,6 +284,13 @@ func TestGoImportFallbackAliased(t *testing.T) {
 		}
 	}
 }
+func TestGoImportFallbackDoesNotTreatIdentifiersAsImports(t *testing.T) {
+	got := goImportFallback("package p\nimported := true\nimportAlias := 1\nimport \"fmt\"\n")
+	if len(got) != 1 || got[0] != "fmt" {
+		t.Fatalf("imports = %v, want [fmt]", got)
+	}
+}
+
 func TestGoMalformedFallbackPreservesMethodKind(t *testing.T) {
 	pf := &ParsedFile{Rel: "broken.go", Lang: "go"}
 	if err := parseGoInto(pf, []byte("package p\nfunc (r *Receiver) Save() {\nfunc Load() {\n")); err != nil {

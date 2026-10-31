@@ -256,11 +256,17 @@ func TestExecEngineSkillsWiring(t *testing.T) {
 	fake := providerfake.New("e2e-skills")
 	args, _ := json.Marshal(map[string]string{"path": target, "content": "hello skills"})
 	loadArgs, _ := json.Marshal(map[string]string{"name": "shell-power-use", "section": "pitfalls"})
+	readArgs, _ := json.Marshal(map[string]string{"path": target})
 	fake.Responses = []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "load_skill", Arguments: loadArgs}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "write_file", Arguments: args}}}},
+		// The closing self-verification requires a fresh executable
+		// check after the last change before completed (Section
+		// 7.5): the agent reads the file back.
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c3", Name: "read_file", Arguments: readArgs}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
 	}
 	logs := t.TempDir()
