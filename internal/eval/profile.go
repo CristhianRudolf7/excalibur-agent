@@ -8,7 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
 )
 
 // EvalProfile is the frozen benchmark profile of Section 23.2. The
@@ -105,18 +106,11 @@ func CheckDataDir(dir string, override string) error {
 
 // BlockedBenchmarkSource reports whether a URL belongs to the benchmark
 // itself (repos, Harbor Hub, tbench.ai): consulting them is reward
-// hacking and is blocked and logged (Section 23.2).
+// hacking and is blocked and logged (Section 23.2). It delegates to
+// the shared capabilities blocklist so web tools and the eval gate
+// can never drift apart.
 func BlockedBenchmarkSource(url string) bool {
-	u := strings.ToLower(url)
-	for _, marker := range []string{
-		"terminal-bench", "harbor", "tbench.ai",
-		"github.com/harbor-framework",
-	} {
-		if strings.Contains(u, marker) {
-			return true
-		}
-	}
-	return false
+	return capabilities.BlockedBenchmarkSource(url)
 }
 
 // WebToolsVisible reports whether web tools stay enabled under the

@@ -37,18 +37,30 @@ commercial-use restriction:
 | Vector search | `github.com/asg017/sqlite-vec-go-bindings/cgo` | MIT/Apache-2.0 (verify) |
 | PTY | `github.com/creack/pty` | adopted (see above) |
 | MCP SDK | `github.com/modelcontextprotocol/go-sdk` | (verify) |
-| File watching | `github.com/fsnotify/fsnotify` | BSD-3-Clause (verify) |
+| File watching | `github.com/fsnotify/fsnotify` | adopted (see below) |
 | tree-sitter | `github.com/tree-sitter/go-tree-sitter` | MIT (verify) |
 | Linux syscalls | `golang.org/x/sys/unix` | adopted (see above) |
 | Vault crypto | `golang.org/x/crypto` | BSD-3-Clause (verify) |
 | System keyring | `github.com/zalando/go-keyring` | adopted (see above) |
 | Traces | `go.opentelemetry.io/otel` | Apache-2.0 (verify) |
 | Token counting | `github.com/pkoukk/tiktoken-go` | MIT (verify) |
-| YAML manifests | (TBD in H13) | (verify; must allow this use) |
+| YAML manifests | `gopkg.in/yaml.v3` for SKILL.md frontmatter (H8/H12, see below); extension manifests still TBD in H13 | MIT (verified for yaml.v3) |
 | Cron expressions | `github.com/robfig/cron/v3` | MIT (verify) |
 
 None of the above is adopted in wave 0. The YAML struct tags on the
 extension manifest are inert until H13 picks a parser.
+
+## Adopted in H8/H12 (agent w2-skills)
+
+| Dependency | Version | License (verified) | Use |
+|---|---|---|---|
+| `github.com/fsnotify/fsnotify` | v1.9.0 | BSD-3-Clause (LICENSE file in module cache) | Filesystem watcher for the skill index roots, Section 12.2 |
+| `gopkg.in/yaml.v3` | v3.0.1 | MIT (LICENSE file in module cache) | SKILL.md frontmatter parsing, Section 12.1 |
+
+Both are permissive, impose no copyleft or commercial-use
+restriction, and are pinned in `go.mod`. `fsnotify` builds on all
+three harness platforms, so the `GOOS=darwin`/`GOOS=windows` builds
+keep working; only the Linux backend is exercised in tests.
 
 ## H1 wave w1-providers-a (2026-10-31)
 
@@ -94,4 +106,30 @@ is pinned at v0.49.0 in the merged `go.mod` (minimum required by
 the `modernc.org/sqlite` tree) instead of the v0.35.0 adopted by
 `w1-platform`; still BSD-3-Clause, API-compatible for the
 platform backends.
+
+## Considered but not adopted in w2-agenda (H10/H13, Section 21)
+
+| Need | Candidate | License | Outcome |
+|---|---|---|---|
+| Cron expressions | `github.com/robfig/cron/v3` | MIT (would need verification at adoption) | Not adopted: `internal/agenda` ships its own 5/6-field parser (`cron.go`) for exact DST semantics (21.1) and to avoid a new dependency; see `docs/decisions/0014-agenda-cron-and-scope.md`. `go.mod` unchanged. |
+
+## Adopted in H7 (wave w2-codeintel, 2026-10-31)
+
+Verified against the module cache (license files shipped with each
+module). Both are permissive and impose no copyleft or
+commercial-use restriction.
+
+| Need | Library | Version | License (verified) |
+|---|---|---|---|
+| tree-sitter parsers (cgo) | `github.com/smacker/go-tree-sitter` | v0.0.0-20240827094217-dd81d9e9be82 | MIT (Maxim Sukharev) |
+| File watching | `github.com/fsnotify/fsnotify` | v1.10.1 | BSD-3-Clause (Go Authors / fsnotify Authors) |
+
+## Adopted in H10 (agent w2-vault, secrets vault Section 20.1)
+
+| Dependency | Version | License | Use |
+|---|---|---|---|
+| `golang.org/x/crypto` | v0.58.0 | BSD-3-Clause (Go Authors; LICENSE file in module cache) | XChaCha20-Poly1305 per-entry encryption and Argon2id passphrase KDF, Section 20.1. Pinned in `go.mod`; resolved by `go mod tidy` against the existing `golang.org/x/sys v0.49.0`. |
+
+Permissive license, no copyleft or commercial-use restriction; use
+reviewed against the project license policy before adoption.
 

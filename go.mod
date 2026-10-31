@@ -6,10 +6,14 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/creack/pty v1.1.24
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/klauspost/compress v1.20.3
 	github.com/mattn/go-sqlite3 v1.14.52
+	github.com/smacker/go-tree-sitter v0.0.0-20240827094217-dd81d9e9be82
 	github.com/zalando/go-keyring v0.2.6
+	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.61.1
 )
 

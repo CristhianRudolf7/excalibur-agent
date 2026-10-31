@@ -1,6 +1,8 @@
 // Package agents implements subagent profiles, identities and role
-// toolsets.
+// toolsets (Sections 13.2, 15.2, 15.9).
 //
-// Architecture reference: Section 15.2 (identity and profiles).
-// Implemented in milestone H8.
+// A profile is a template with default tools, model role, budgets and
+// context targets. The orchestrator clamps every delegation card to the
+// profile: a parent may reduce the toolset, never expand it. Custom
+// user agents are profiles with their own identity document.
 package agents
