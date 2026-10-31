@@ -50,6 +50,9 @@ type StartResult struct {
 // database in the task directory; status, wait and result read the
 // same files (Section 3.6: delegation works from H8, before H9).
 func Start(opts StartOptions) (*StartResult, error) {
+	if res, ok, err := tryGateStart(opts); ok || err != nil {
+		return res, err
+	}
 	profile, err := ParseProfile(opts.Profile)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -330,6 +333,9 @@ type TaskStatus struct {
 
 // Status returns the snapshot of one task.
 func Status(projectDir, id string) (*TaskStatus, error) {
+	if st, ok, err := tryGateStatus("task.status", projectDir, id, "", 0); ok || err != nil {
+		return st, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -349,6 +355,9 @@ func Status(projectDir, id string) (*TaskStatus, error) {
 // timeout expires (Section 3.6: wait returns the state; the caller
 // maps it to the exec exit code).
 func Wait(projectDir, id string, timeoutSecs int64) (*TaskStatus, error) {
+	if st, ok, err := tryGateStatus("task.wait", projectDir, id, "", timeoutSecs); ok || err != nil {
+		return st, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -394,6 +403,9 @@ type TaskResult struct {
 
 // Result returns the delivery report of one task.
 func Result(projectDir, id string) (*TaskResult, error) {
+	if res, ok, err := tryGateResult(projectDir, id); ok || err != nil {
+		return res, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -414,6 +426,9 @@ func Result(projectDir, id string) (*TaskResult, error) {
 // background. With no pending question the text is recorded as a
 // directive for the next step.
 func Reply(projectDir, id, text string) (*TaskStatus, error) {
+	if st, ok, err := tryGateStatus("task.reply", projectDir, id, text, 0); ok || err != nil {
+		return st, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -483,6 +498,9 @@ func Pause(projectDir, id string) (*TaskStatus, error) {
 
 // Resume resumes what pause paused (Section 15.8).
 func Resume(projectDir, id string) (*TaskStatus, error) {
+	if st, ok, err := tryGateStatus("task.resume", projectDir, id, "", 0); ok || err != nil {
+		return st, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -511,6 +529,18 @@ func Resume(projectDir, id string) (*TaskStatus, error) {
 }
 
 func control(projectDir, id string, state types.TaskState, reason, summary string) (*TaskStatus, error) {
+	method := "task.cancel"
+	switch state {
+	case types.TaskPaused:
+		method = "task.pause"
+	case types.TaskInProgress:
+		method = "task.resume"
+	}
+	_ = reason
+	_ = summary
+	if st, ok, err := tryGateStatus(method, projectDir, id, "", 0); ok || err != nil {
+		return st, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -553,6 +583,9 @@ func killChild(rec *TaskRecord) {
 
 // ListTasks lists tasks, optionally filtered by project.
 func ListTasks(projectDir string) ([]*TaskStatus, error) {
+	if out, ok, err := tryGateList(projectDir); ok || err != nil {
+		return out, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -574,6 +607,9 @@ func ListTasks(projectDir string) ([]*TaskStatus, error) {
 
 // TaskLogs returns the live event stream of a task as JSONL records.
 func TaskLogs(projectDir, id string) ([]map[string]any, error) {
+	if out, ok, err := tryGateLogs(projectDir, id); ok || err != nil {
+		return out, err
+	}
 	store, err := ResolveStore(projectDir)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}

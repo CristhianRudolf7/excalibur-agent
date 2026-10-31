@@ -44,6 +44,15 @@ var execIOSchema = schemaFor(map[string]any{
 // ExecTool implements exec: pipe or PTY launch with yield.
 type ExecTool struct {
 	Sessions *SessionManager
+	// SecretResolver resolves secret:// references in env entries
+	// inside the tool process (Section 20.1: env destination). It
+	// returns the resolved value or an error; nil skips resolution
+	// and passes env through unchanged. Resolved values are never
+	// logged: only the reference markers reach the journal.
+	SecretResolver func(ctx context.Context, ref string) (string, error)
+	// RunID, ToolName and Project scope the secret-policy check.
+	RunID   string
+	Project string
 }
 
 func (t *ExecTool) sessions() *SessionManager {
@@ -64,7 +73,7 @@ func (t *ExecTool) Definition() Definition {
 	}
 }
 
-func (t *ExecTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
+func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Command string   `json:"command"`
 		Workdir string   `json:"workdir"`
@@ -80,6 +89,14 @@ func (t *ExecTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
 	if a.Target != "" && a.Target != "local" {
 		return Result{Status: StatusInputError, Output: fmt.Sprintf("unknown target %q (remote nodes land in H13)", a.Target)}, nil
 	}
+	env := a.Env
+	if t.SecretResolver != nil {
+		resolved, err := resolveEnvSecrets(ctx, t.SecretResolver, env)
+		if err != nil {
+			return Result{Status: StatusToolError, Output: err.Error()}, nil
+		}
+		env = resolved
+	}
 	yield := a.YieldMs
 	if yield == 0 {
 		yield = defaultYieldMs
@@ -88,7 +105,7 @@ func (t *ExecTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
 	if owner == "" {
 		owner = "default"
 	}
-	s, out, alive := t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, a.Env)
+	s, out, alive := t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, env)
 	var b strings.Builder
 	fmt.Fprintf(&b, "session: %s  alive: %v\n", s.ID, alive)
 	b.WriteString(out)
@@ -243,6 +260,44 @@ func (t *ExecIOTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 		return []string{"session:" + a.Session}, nil
 	}
 	return []string{"session:*"}, nil
+}
+
+// resolveEnvSecrets resolves secret:// values in KEY=VALUE env entries
+// inside the tool process. Entries without a secret reference pass
+// through unchanged; the journal keeps the references, never values.
+func resolveEnvSecrets(ctx context.Context, resolve func(context.Context, string) (string, error), env []string) ([]string, error) {
+	if len(env) == 0 {
+		return env, nil
+	}
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, val, hasEq := splitEnv(entry)
+		if !hasEq || !isSecretRef(val) {
+			out = append(out, entry)
+			continue
+		}
+		resolved, err := resolve(ctx, val)
+		if err != nil {
+			return nil, fmt.Errorf("exec: cannot resolve secret for %s: %w", key, err)
+		}
+		out = append(out, key+"="+resolved)
+	}
+	return out, nil
+}
+
+func splitEnv(entry string) (key, val string, hasEq bool) {
+	for i := 0; i < len(entry); i++ {
+		if entry[i] == '=' {
+			return entry[:i], entry[i+1:], true
+		}
+	}
+	return entry, "", false
+}
+
+// isSecretRef reports whether s is a vault secret reference.
+func isSecretRef(s string) bool {
+	t := strings.TrimSpace(s)
+	return strings.HasPrefix(t, "secret://") || (strings.HasPrefix(t, "secret:") && len(t) > len("secret:"))
 }
 
 var _ = sort.Strings

@@ -91,6 +91,11 @@ type PlanningStore interface {
 	AddCriterion(c types.Criterion) error
 	GetCriterion(id types.CriterionID) (types.Criterion, error)
 	UpdateCriterion(c types.Criterion, wantVersion int) error
+	// CriterionVersion reports the optimistic-concurrency version of
+	// a criterion, whose shared struct carries no version column.
+	// New rows start at 1. The task_db batch consults it so check
+	// and apply agree without mutating.
+	CriterionVersion(id types.CriterionID) (int, error)
 	ListCriteria(req types.RequirementID) []types.Criterion
 	// Checks.
 	AddCheck(c types.Check) error
@@ -590,6 +595,19 @@ func (m *MemoryStore) GetCriterion(id types.CriterionID) (types.Criterion, error
 		return types.Criterion{}, fmt.Errorf("tasks: unknown criterion %q", id)
 	}
 	return c, nil
+}
+
+// CriterionVersion implements PlanningStore.
+func (m *MemoryStore) CriterionVersion(id types.CriterionID) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.criteria[id]; !ok {
+		return 0, fmt.Errorf("tasks: unknown criterion %q", id)
+	}
+	if v := m.criterionVers[id]; v != 0 {
+		return v, nil
+	}
+	return 1, nil
 }
 
 // UpdateCriterion implements PlanningStore with optimistic

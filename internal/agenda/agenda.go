@@ -90,6 +90,16 @@ func (a *Agenda) RemoveSchedule(id string) error {
 	return nil
 }
 
+// SaveReminder creates or updates a reminder, waking the timer. The
+// master turn files user reminders through here; Tick delivers them.
+func (a *Agenda) SaveReminder(r *Reminder) error {
+	if err := a.reminders.SaveReminder(r); err != nil {
+		return err
+	}
+	a.wake()
+	return nil
+}
+
 // SafeMode reports whether launches are held.
 func (a *Agenda) SafeMode() bool {
 	a.mu.Lock()

@@ -136,6 +136,10 @@ type TriggerEngine struct {
 	// hits records firing times per rule for rate limiting.
 	hits map[string][]time.Time
 	log  []TriggerHit
+	// persist is the optional SQL mirror (AttachTriggerStore):
+	// rule changes and firings write through, RestoreTriggers
+	// reloads after a restart.
+	persist *SQLTriggerStore
 }
 
 // NewTriggerEngine returns an empty engine.
@@ -147,6 +151,11 @@ func NewTriggerEngine() *TriggerEngine {
 func (e *TriggerEngine) AddRule(r *TriggerRule) error {
 	if err := r.Validate(); err != nil {
 		return err
+	}
+	if e.persist != nil {
+		if err := e.persist.SaveRule(r); err != nil {
+			return err
+		}
 	}
 	for i, old := range e.rules {
 		if old.ID == r.ID {
@@ -162,6 +171,11 @@ func (e *TriggerEngine) AddRule(r *TriggerRule) error {
 
 // RemoveRule deletes a rule.
 func (e *TriggerEngine) RemoveRule(id string) error {
+	if e.persist != nil {
+		if err := e.persist.DeleteRule(id); err != nil {
+			return err
+		}
+	}
 	for i, r := range e.rules {
 		if r.ID == id {
 			e.rules = append(e.rules[:i], e.rules[i+1:]...)
@@ -216,6 +230,9 @@ func (e *TriggerEngine) Ingest(ev Event, now time.Time) []TriggerHit {
 		hit := TriggerHit{RuleID: r.ID, EventID: ev.ID, Action: r.Action, Target: r.Target, At: now.UTC()}
 		e.hits[r.ID] = append(e.hits[r.ID], now)
 		e.log = append(e.log, hit)
+		if e.persist != nil {
+			_ = e.persist.RecordHit(r.ID, ev.ID, now)
+		}
 		out = append(out, hit)
 	}
 	return out

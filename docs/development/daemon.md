@@ -85,15 +85,93 @@ walkthrough 26.11 with its checks 26.12–26.13.
 
 - `docs/decisions/0024-h9-gateway-daemon-master.md`: what, why and
   the alternatives for the H9 seams.
+- `docs/decisions/0030-daemon-wiring.md`: cross-milestone wiring
+  (agenda, orchestrator, capabilities, memory review, decider,
+  boot, CLI/MCP/ACP through the gate).
 - `docs/decisions/dependencies.md`: `coder/websocket` v1.8.13 (ISC).
+  The wiring wave adds no dependencies.
+
+## Wiring (wave 4)
+
+Every gate family resolves to a real package through
+`DaemonBackend.AttachServices`; nil hooks keep the embedded
+`MemoryBackend` for embedded profiles and unit tests.
+
+- **Agenda** (`internal/daemon/launch.go`, `internal/agenda`):
+  `OrchestratorLauncher` (fires spawn coordinator children,
+  reminders post Section 5.4 notices), `DaemonTriggerLauncher`
+  (task/flow/notify/session per trigger action),
+  `QuestionConfirmer` (confirm nodes become answerable
+  `question.answer` questions, 15 min default, decline on nil
+  store), SQLite stores + `EnsureSQLSchema`, `Agenda.CatchUp`
+  (boot catch-up with safe-mode deferral), `TriggerPump` with the
+  six §21.3 normalizers (mail, channel, webhook, file, calendar,
+  capability completion).
+- **Decider at Table 2.1** (`internal/daemon/deciders.go`):
+  `ModelDecider` (triage type/scope/durable/clarify with
+  abstention and deterministic fallback),
+  `MemoryJudge` (ambiguous-band admission), `SkillScorer`
+  (skills vector leg), `JudgeStuck` (step ≥ 30, every 10, p ≥ 0.9,
+  note-only), `JudgeNotify`, `RerankTools` (13.3).
+- **Orchestrator under the master** (`internal/daemon/services.go`):
+  `OrchestratorRunStore` + `EngineReconciler` + `EngineRunner`
+  (supervision-tree Runner with directive/notes interrupts),
+  `MemoryReviewLoop` (10.6/21.9, yields to activity),
+  `RAMWatchdog` (platform sampler → `WatchdogTick`),
+  `TaskService` (task.* as orchestrator runs, visible to master).
+- **Gate families** (`internal/daemon/routes.go`, `caps.go`,
+  `files.go`, `config.go`, `tasks.go`): task.*, files.list
+  (.gitignore + heavy dirs + agent_touched), project.*, memory.*
+  (scoped retrieve, authoritative correct, provenance), skills.*
+  (search/load over the builtin index), capability.* (registry +
+  MCP lazy dial), vault.* (values only in the dedicated call),
+  question.answer, metrics.query, config.*, plan.* (conflict until
+  a plan store lands).
+- **Daemon lifecycle** (`daemon.go`, `safe.go`, `addrfile.go`):
+  full `Boot` at `Start` (structured crash history unified with
+  the JSONL trail, quarantine mirrored), services start/stop,
+  addr-file rendezvous (`EXCALIBUR_DAEMON_ADDR` override),
+  `Backend()` exposes the composed backend,
+  `conversation.history` reads the master store.
+- **CLI/MCP/ACP** (`internal/cli/daemonroute.go`,
+  `cmd/excalibur/daemon.go`, `routed.go`): `task *` daemon-first
+  with embedded fallback on unknown/down, `daemon start|stop`
+  (pid file), routed `chat/status/tasks/projects/memory/skills/
+  plan` families, `VaultEntryParams.Value` for the dedicated
+  secure call.
+
+## Backend tests (wiring)
+
+- `internal/daemon`: launcher spawn/notice rows, confirmer
+  yes/no/nil rows, triage bands + deterministic fallback,
+  admission/stuck/notify/rerank rows, full gate-family routing
+  (task/memory/skills/capability/project/files/vault/question/
+  metrics/config), WebSocket event fan-out through the bridge,
+  boot-with-adapters (long outage parks paused, single notice),
+  review-loop tick.
+- `internal/cli`: daemon-first task flow against a live in-process
+  daemon (start/status/wait/result/list/logs/reply/cancel).
+- `internal/agenda`: SQL store round-trips (schedules, reminders,
+  triggers, fire_id idempotency, pending), CatchUp live vs
+  safe-mode, trigger pump dispatch + dedup.
+- `internal/capabilities`: registry round-trip, hot-add,
+  browser flow.
+- `internal/workspace`: `LoadIgnore` + `History.Paths` for the
+  files.list filters.
+- `tests/`: walkthroughs 26.1–26.11 through the real gateway
+  (receipt idempotency, conversion, project fan-out + cancel
+  cascade, scope isolation, leases, redirect, power-cut boot,
+  eval profile, memory contradiction, pressure/outage, master
+  control).
 
 ## Deferred
 
-- SQLite-backed gate stores (client_messages, messages, blobs
-  refcounts) — the seams exist (`Backend`, `BlobStore`); the porters
-  land with the storage milestone integration.
-- Real channel adapters (Telegram/voice) behind `ChannelSender` and
-  the voice hook; agenda wiring for reminders/schedules.
-- `excalibur daemon start|stop` CLI and MCP server delegation call
-  sites: owned by the CLI/MCP milestones; the `CallDaemon` seam is
-  ready for them.
+- Real channel adapters (Telegram/voice) behind `ChannelSender`;
+  SQLite-backed gate message stores (client_messages, messages)
+  beyond the master in-RAM store — the seams exist (`Backend`,
+  `BlobStore`, `ConversationStore.MessageIDs`).
+- Live search/vision/TTS/model backends (still `live`-tagged
+  stand-ins per §14.13); plan approve/deny (no plan store yet —
+  the gate returns the conflict); skills.install from staged
+  dirs; worktree-backed daemon tasks; full recursive .gitignore
+  walk (one level + heavy-dir collapsing for now).

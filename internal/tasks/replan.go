@@ -108,7 +108,7 @@ func ComputeAffected(store PlanningStore, planID string, req ReplanRequest, item
 // keep the plan invariant (every requirement with at least one
 // criterion, every criterion with a method). Previous versions stay
 // queryable via PlanVersions.
-func ApplyReplan(store *MemoryStore, planID string, req ReplanRequest, diff ReplanDiff, itemReqs map[string][]string, runOfItem map[string]string, scopeChanged bool) (ReplanResult, error) {
+func ApplyReplan(store PlanningStore, planID string, req ReplanRequest, diff ReplanDiff, itemReqs map[string][]string, runOfItem map[string]string, scopeChanged bool) (ReplanResult, error) {
 	items := map[string]PlanItem{}
 	for _, it := range store.ListPlanItems(planID) {
 		items[it.ID] = it

@@ -55,10 +55,12 @@ func ModeFor(req ModeRequest) WorkMode {
 }
 
 // ModeStore keeps a per-project mode override. The zero value uses
-// ModeFor everywhere.
+// ModeFor everywhere. OpenModeStore returns a store with every saved
+// override loaded from SQLite for production.
 type ModeStore struct {
 	mu        sync.RWMutex
 	overrides map[string]WorkMode
+	sql       *SQLModeStore
 }
 
 // SetOverride pins the mode of one project.
@@ -67,11 +69,17 @@ func (s *ModeStore) SetOverride(projectID string, mode WorkMode) error {
 		return fmt.Errorf("workspace: bad work mode %q", mode)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.overrides == nil {
 		s.overrides = map[string]WorkMode{}
 	}
 	s.overrides[projectID] = mode
+	sql := s.sql
+	s.mu.Unlock()
+	if sql != nil {
+		if err := sql.save(projectID, mode); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

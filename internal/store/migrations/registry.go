@@ -62,21 +62,26 @@ func (r *Registry) Validate() error {
 }
 
 // Main returns the registry for excalibur.db: v1 conversation and
-// work, v2 agents, v3 memory with FTS5, v4 agenda, files and vectors.
+// work, v2 agents, v3 memory with FTS5, v4 agenda, files and vectors,
+// v5 wiring tables for the SQL repositories plus additive columns on
+// shared tables.
 func Main() *Registry {
 	r := New()
 	_ = r.Register(store.Migration{Version: 1, Name: "conversation-work", Up: upV1})
 	_ = r.Register(store.Migration{Version: 2, Name: "agents-runs", Up: upV2})
 	_ = r.Register(store.Migration{Version: 3, Name: "memory-fts", Up: upV3})
 	_ = r.Register(store.Migration{Version: 4, Name: "agenda-files-vec", Up: upV4})
+	_ = r.Register(store.Migration{Version: 5, Name: "wiring-tables", Up: upV5})
 	return r
 }
 
 // Telemetry returns the registry for telemetry.db: events and daily
-// aggregates (Section 4.2; detail belongs to milestone H10).
+// aggregates (Section 4.2; detail belongs to milestone H10) plus v2
+// task metrics and exported spans for Section 22 queries.
 func Telemetry() *Registry {
 	r := New()
 	_ = r.Register(store.Migration{Version: 1, Name: "telemetry-base", Up: upTelemetry})
+	_ = r.Register(store.Migration{Version: 2, Name: "telemetry-metrics-spans", Up: upTelemetryV2})
 	return r
 }
 

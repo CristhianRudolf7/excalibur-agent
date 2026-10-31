@@ -12,7 +12,6 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 )
 
@@ -22,6 +21,9 @@ type Config struct {
 	Listen string
 	// DataDir holds crash history, lock file and blobs.
 	DataDir string
+	// RuntimeDir holds the addr rendezvous file for CLI/MCP/ACP
+	// discovery. Empty disables publication (embedded default).
+	RuntimeDir string
 	// ReservedCPUs stays free for the interactive path (Appendix B: 2).
 	ReservedCPUs int
 	// RAMThresholdBytes trips the RAM watchdog (Section 5.2); zero
@@ -43,9 +45,32 @@ type Deps struct {
 	Master *master.Master
 	Orch   *orchestrator.Orchestrator
 	Bus    *telemetry.Bus
+	// Backend is the composed gate backend served by Gate. Backend()
+	// exposes it for delegation checks; nil keeps the gate behavior
+	// the server was built with.
+	Backend *DaemonBackend
+	// Services is the assembled daemon stack (agenda, triggers,
+	// capabilities, memory, review loop, watchdog). Start launches
+	// its loops; Stop parks them.
+	Services *Services
 	// Adoption reconciles non-terminal runs at boot (Section 17.3).
 	// Nil keeps runs untouched (embedded/test default).
 	Adoption Adoption
+	// BootStore, when set, runs the full Section 17.3 Boot with the
+	// reconciler and agenda catch-up instead of the narrow Adoption
+	// pass above.
+	BootStore RunStore
+	// Reconciler rebuilds one run from its journal at boot. Nil
+	// skips per-run reconciliation (decisions still park runs).
+	Reconciler RunReconciler
+	// AgendaBoot recalculates missed firings at boot (17.4). Nil
+	// skips agenda catch-up.
+	AgendaBoot AgendaCatchUp
+	// DownSince anchors agenda catch-up; zero means now.
+	DownSince time.Time
+	// OnBoot receives the boot report for the single master notice
+	// (17.3 step 6). Nil drops it.
+	OnBoot func(*BootReport)
 	// Crashed runs when a writer goroutine fails: the daemon exits
 	// cleanly and lets the supervisor restart it (Section 3.2).
 	Crashed func(owner string)
@@ -113,8 +138,9 @@ func (d *Daemon) Quarantined(runID string) bool {
 }
 
 // Start boots the daemon: crash-history check (safe mode), boot
-// adoption, orchestrator loop, gate serve and watchdog. It returns
-// once the gate listens.
+// adoption, orchestrator loop, services loops (agenda, triggers,
+// review, watchdog), gate serve and watchdog. It returns once the
+// gate listens.
 func (d *Daemon) Start(ctx context.Context) (string, error) {
 	d.mu.Lock()
 	if d.running {
@@ -131,14 +157,46 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 		}
 	}
 	d.checkCrashHistory(time.Now())
-	adopted, err := d.adopt(ctx, time.Now())
-	if err != nil {
-		return "", err
+	now := time.Now()
+	cl := d.crashLog()
+	if cl != nil {
+		// Structured history is the boot authority: 30 quiet minutes
+		// exit safe mode, and quarantine survives restarts. The JSONL
+		// trail stays as the audit log.
+		if _, err := cl.MaybeExitSafeMode(now); err == nil {
+			d.mu.Lock()
+			if cl.InSafeMode() {
+				d.safeMode = true
+			}
+			for _, q := range cl.Quarantined() {
+				d.quarant[q] = true
+			}
+			d.mu.Unlock()
+		}
 	}
-	_ = adopted
+	if d.dep.BootStore != nil {
+		downSince := d.dep.DownSince
+		if downSince.IsZero() {
+			downSince = now
+		}
+		rep, err := Boot(ctx, d.dep.BootStore, d.dep.Reconciler, d.dep.AgendaBoot, cl, now, downSince)
+		if err != nil {
+			return "", err
+		}
+		if d.dep.OnBoot != nil {
+			d.dep.OnBoot(rep)
+		}
+	} else {
+		adopted, err := d.adopt(ctx, now)
+		if err != nil {
+			return "", err
+		}
+		_ = adopted
+	}
 	if d.dep.Orch != nil {
 		d.dep.Orch.Start(ctx)
 	}
+	d.startServices(ctx)
 	if d.dep.Gate != nil {
 		addr, err := d.dep.Gate.Start()
 		if err != nil {
@@ -147,15 +205,43 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 		d.mu.Lock()
 		d.addr = addr
 		d.mu.Unlock()
+		if d.cfg.RuntimeDir != "" {
+			_ = WriteAddrFile(d.cfg.RuntimeDir, addr)
+		}
 	}
 	d.mu.Lock()
 	d.running = true
 	d.mu.Unlock()
 	d.recordStart()
-	safego.Go("daemon-watchdog", nil, func() {
-		d.watchdog(ctx)
-	})
 	return d.Addr(), nil
+}
+
+// crashLog returns the structured crash history beside the
+// databases, or nil without a data dir (embedded/test default).
+func (d *Daemon) crashLog() *CrashLog {
+	if d.cfg.DataDir == "" {
+		return nil
+	}
+	return NewCrashLog(d.cfg.DataDir)
+}
+
+// startServices launches the assembled service loops: the agenda
+// timer, the trigger pump sources, the memory review loop and the
+// RAM watchdog. Nil services are skipped.
+func (d *Daemon) startServices(ctx context.Context) {
+	svc := d.dep.Services
+	if svc == nil {
+		return
+	}
+	if svc.Agenda != nil {
+		svc.Agenda.Start()
+	}
+	if svc.Review != nil {
+		svc.Review.Start(ctx, svc.ReviewScopes)
+	}
+	if svc.Dog != nil {
+		svc.Dog.Start(ctx)
+	}
 }
 
 // Stop performs the controlled shutdown: intake stops first (the gate
@@ -174,6 +260,12 @@ func (d *Daemon) Stop(ctx context.Context) error {
 	if d.dep.Orch != nil {
 		d.dep.Orch.Stop()
 	}
+	if svc := d.dep.Services; svc != nil && svc.Agenda != nil {
+		svc.Agenda.Stop()
+	}
+	if d.cfg.RuntimeDir != "" {
+		RemoveAddrFile(d.cfg.RuntimeDir)
+	}
 	d.mu.Lock()
 	d.running = false
 	d.mu.Unlock()
@@ -187,23 +279,5 @@ func (d *Daemon) Running() bool {
 	return d.running
 }
 
-// watchdog samples RSS and pauses low-priority runs past the
-// threshold; it re-admits below 80% for 60 s (Section 5.2). The
-// orchestrator owns the policy; this loop only keeps the daemon side
-// alive for future wiring and exits on ctx or Stop.
-func (d *Daemon) watchdog(ctx context.Context) {
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-d.stop:
-			return
-		case <-t.C:
-		}
-	}
-}
-
-// Backend exposes the gate backend seam for delegation checks.
-func (d *Daemon) Backend() *gateway.MemoryBackend { return nil }
+// Backend exposes the composed gate backend for delegation checks.
+func (d *Daemon) Backend() *DaemonBackend { return d.dep.Backend }

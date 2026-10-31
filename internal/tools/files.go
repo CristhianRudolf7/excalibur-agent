@@ -106,11 +106,23 @@ type DiagnosticProvider interface {
 	Diagnostics(paths []string) string
 }
 
+// FileHistoryStore is the history collaborator of the file tools:
+// preimage/postimage blobs plus the version list (Sections 13.4,
+// 13.7). *MemoryHistory is the in-process implementation; the
+// workspace-backed history in the wiring layer implements the same
+// interface so edits land in one shared history (Section 13.7).
+type FileHistoryStore interface {
+	PutBlob(data []byte) string
+	Blob(ref string) ([]byte, bool)
+	Append(v FileVersion)
+	Versions(path string) []FileVersion
+}
+
 // FileDeps bundles the collaborators of the file tools.
 type FileDeps struct {
 	Fingerprints *FingerprintStore
 	Leases       LeaseManager
-	History      *MemoryHistory
+	History      FileHistoryStore
 	Diagnostics  DiagnosticProvider
 	RunID        string
 	Now          func() time.Time
@@ -280,7 +292,7 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 	deps := t.Deps
 	fps := NewFingerprintStore()
 	var leases LeaseManager
-	var hist *MemoryHistory
+	var hist FileHistoryStore
 	var diags DiagnosticProvider
 	var runID string
 	if deps != nil {
@@ -383,7 +395,7 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 	deps := t.Deps
 	fps := NewFingerprintStore()
 	var leases LeaseManager
-	var hist *MemoryHistory
+	var hist FileHistoryStore
 	var diags DiagnosticProvider
 	var runID string
 	if deps != nil {
@@ -527,7 +539,7 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 	deps := t.Deps
 	fps := NewFingerprintStore()
 	var leases LeaseManager
-	var hist *MemoryHistory
+	var hist FileHistoryStore
 	var diags DiagnosticProvider
 	var runID string
 	if deps != nil {

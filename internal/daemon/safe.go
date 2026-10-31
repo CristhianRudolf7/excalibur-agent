@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -83,6 +84,22 @@ func (d *Daemon) RecordCrash(at time.Time, runID, step string) {
 	}
 	defer func() { _ = f.Close() }()
 	_ = json.NewEncoder(f).Encode(map[string]any{"type": "crash", "at": at.UTC(), "run": runID, "step": step})
+	// Mirror into the structured history so Boot quarantine and safe
+	// mode survive restarts (best effort: the JSONL above stays the
+	// audit trail even when this fails).
+	if cl := d.crashLog(); cl != nil {
+		if sm, cerr := cl.RecordCrash(at); cerr == nil && sm {
+			d.mu.Lock()
+			d.safeMode = true
+			d.mu.Unlock()
+		}
+		stepN, _ := strconv.Atoi(step)
+		if q, cerr := cl.RecordStepCrash(runID, stepN, at); cerr == nil && q && runID != "" {
+			d.mu.Lock()
+			d.quarant[runID] = true
+			d.mu.Unlock()
+		}
+	}
 }
 
 // likelyCauseLocked reports whether runID/step matches the last
@@ -152,6 +169,9 @@ func (d *Daemon) LeaveSafeMode() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.safeMode = false
+	if cl := d.crashLog(); cl != nil {
+		_ = cl.ClearSafeMode()
+	}
 }
 
 // ReleaseQuarantine clears the hold on one run by explicit order.
@@ -159,6 +179,9 @@ func (d *Daemon) ReleaseQuarantine(runID string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.quarant, runID)
+	if cl := d.crashLog(); cl != nil {
+		_ = cl.ReleaseQuarantine(runID)
+	}
 }
 
 func splitLines(raw []byte) [][]byte {

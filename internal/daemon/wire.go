@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -160,11 +159,15 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // DaemonBackend routes the gate methods to the master (conversation),
 // the H8 orchestrator (runs) and the embedded memory backend for the
 // task delegation, files and passthrough families (Section 3.6).
+// AttachServices installs the real daemon-side backends; without them
+// every family degrades to the embedded backend.
 type DaemonBackend struct {
 	Master *master.Master
 	Ctrls  *OrchControl
 	Bus    *telemetry.Bus
 	embed  *gateway.MemoryBackend
+	// Services holds the real backends; nil keeps embedded behavior.
+	Services *daemonServices
 }
 
 // NewDaemonBackend returns the composed backend.
@@ -187,9 +190,30 @@ func (b *DaemonBackend) ConversationSend(ctx context.Context, clientID, clientMs
 	return id, false, nil
 }
 
-// ConversationHistory implements gateway.Backend.
-func (b *DaemonBackend) ConversationHistory(ctx context.Context, conversationID string, before string, limit int) ([]gateway.StoredMessage, error) {
-	return b.embed.ConversationHistory(ctx, conversationID, before, limit)
+// ConversationHistory implements gateway.Backend: master intake owns
+// persistence (Section 6.1), so history reads the master store when
+// attached and the embedded backend otherwise.
+func (b *DaemonBackend) ConversationHistory(_ context.Context, conversationID string, before string, limit int) ([]gateway.StoredMessage, error) {
+	if b.Master != nil {
+		var out []gateway.StoredMessage
+		for _, h := range b.Master.History(conversationID, 0) {
+			if before != "" && string(h.ID) >= before {
+				continue
+			}
+			out = append(out, gateway.StoredMessage{
+				ID: h.ID, ConversationID: types.ConversationID(conversationID),
+				Role: h.Role, Text: h.Text,
+			})
+		}
+		if limit > 0 && len(out) > limit {
+			out = out[len(out)-limit:]
+		}
+		if out == nil {
+			out = []gateway.StoredMessage{}
+		}
+		return out, nil
+	}
+	return b.embed.ConversationHistory(context.Background(), conversationID, before, limit)
 }
 
 // RunControl implements gateway.Backend over the orchestrator.
@@ -221,22 +245,6 @@ func (b *DaemonBackend) RunList(_ context.Context) ([]api.RunStatusResult, error
 		return b.embed.RunList(context.Background())
 	}
 	return b.Ctrls.ListRuns(), nil
-}
-
-// TaskOp implements gateway.Backend: delegation through the daemon
-// when active (Section 3.6).
-func (b *DaemonBackend) TaskOp(ctx context.Context, method string, params json.RawMessage) (any, error) {
-	return b.embed.TaskOp(ctx, method, params)
-}
-
-// FilesList implements gateway.Backend.
-func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParams) (any, error) {
-	return b.embed.FilesList(ctx, params)
-}
-
-// Passthrough implements gateway.Backend.
-func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
-	return b.embed.Passthrough(ctx, method, params)
 }
 
 // Bridge forwards orchestrator bus events to the gate bus and posts

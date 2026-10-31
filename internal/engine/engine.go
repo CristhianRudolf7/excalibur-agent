@@ -92,6 +92,14 @@ type Deps struct {
 	Expert  ExpertConsult
 	Clock   func() time.Time
 	NewKey  func() string
+	// LeaseHeartbeat renews the run's file leases while it is
+	// running or waiting on a tool or subagents (Section 16.2),
+	// including during long tools. Nil disables heartbeats.
+	LeaseHeartbeat func(runID string)
+	// LeaseRelease frees the run's file leases when it parks
+	// (paused, blocked, waiting on the user) or terminates, so
+	// files are never immobilized (Section 16.2). Nil disables.
+	LeaseRelease func(runID string)
 }
 
 // Directive is a pending instruction for the run (15.7). Any
@@ -156,6 +164,27 @@ type Run struct {
 	directives []Directive
 	progress   tasks.ProgressState
 	progressFn func(*Run) tasks.ProgressState
+
+	// Live tracking for the orchestrator Runner snapshot (Section
+	// 15.6): the in-flight model call and tool, plus directive acks.
+	// Guarded by mu like the rest of the run state.
+	waitingModel   bool
+	toolName       string
+	toolArgs       string
+	toolKeys       []string
+	toolStarted    time.Time
+	toolTimeout    time.Duration
+	toolCancel     types.CancelMode
+	toolLiveTail   string
+	toolNonBlock   bool
+	ackedDirects   map[string]bool
+	instrSeen      int
+	lastProgress   string
+	lastReportStep int
+	lastPlanStep   int
+	lastPlanAt     time.Time
+	interrupted    bool
+	toolOnlyStop   bool
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -228,11 +257,103 @@ func (r *Run) transition(to types.RunState) error {
 	return nil
 }
 
+// SetWaitingModel records whether a model call is in flight. The
+// Runner snapshot reads it for status and watchdogs (15.6).
+func (r *Run) SetWaitingModel(waiting bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.waitingModel = waiting
+}
+
+// SetCurrentTool records the in-flight tool for the snapshot. Keys
+// are the Section 15.7 impact-area resource keys.
+func (r *Run) SetCurrentTool(name, args string, keys []string, timeout time.Duration, cancel types.CancelMode) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolName = name
+	r.toolArgs = args
+	r.toolKeys = append([]string(nil), keys...)
+	r.toolStarted = time.Now().UTC()
+	r.toolTimeout = timeout
+	r.toolCancel = cancel
+}
+
+// SetLiveTail records the queued live-output tail for status.
+func (r *Run) SetLiveTail(tail string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolLiveTail = tail
+}
+
+// ClearCurrentTool forgets the in-flight tool when it settles.
+func (r *Run) ClearCurrentTool() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolName = ""
+	r.toolArgs = ""
+	r.toolKeys = nil
+	r.toolLiveTail = ""
+	r.toolNonBlock = false
+}
+
+// MarkDirectiveAcked records that a directive was applied at a safe
+// point, for the 15.5 ack tracking in the snapshot.
+func (r *Run) MarkDirectiveAcked(id string, step int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.ackedDirects == nil {
+		r.ackedDirects = map[string]bool{}
+	}
+	r.ackedDirects[id] = true
+	r.instrSeen = step
+}
+
+// SetProgressNote records narrative progress for the 15.6 snapshot.
+func (r *Run) SetProgressNote(note string, step int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastProgress = note
+	r.lastReportStep = step
+}
+
+// RequestInterruptFlags records an orchestrator interrupt (15.8):
+// full stops the loop after the current step, toolOnly only stops
+// the in-flight tool and lets the run decide how to continue.
+func (r *Run) RequestInterruptFlags(toolOnly bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.interrupted = true
+	if toolOnly {
+		r.toolOnlyStop = true
+	}
+}
+
+// consumeInterrupt returns and clears the pending interrupt flags.
+func (r *Run) consumeInterrupt() (full, toolOnly bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	full, toolOnly = r.interrupted, r.toolOnlyStop
+	r.interrupted, r.toolOnlyStop = false, false
+	return full, toolOnly
+}
+
+// interruptedNow reports whether a full interrupt is pending without
+// clearing it, so a canceled step can exit without failing the run.
+func (r *Run) interruptedNow() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.interrupted
+}
+
 // Engine runs the 7.3 loop for one run at a time.
 type Engine struct {
 	deps     Deps
 	journals map[string]*journal.Recorder
 	mu       sync.Mutex
+	// stepCancels holds the current step cancel per run so
+	// RequestInterrupt can stop the in-flight model call or tool
+	// without waiting for its timeout (Sections 7.2, 15.8).
+	stepCancels map[string]context.CancelFunc
 }
 
 // New returns an Engine with defaulted helpers.
@@ -247,7 +368,22 @@ func New(d Deps) *Engine {
 			return hex.EncodeToString(b[:])
 		}
 	}
-	return &Engine{deps: d, journals: map[string]*journal.Recorder{}}
+	return &Engine{deps: d, journals: map[string]*journal.Recorder{}, stepCancels: map[string]context.CancelFunc{}}
+}
+
+// RequestInterrupt asks the engine to stop run: it cancels the
+// in-flight model call and the current step's tools. With toolOnly
+// the run stays running and decides how to continue; otherwise the
+// loop exits promptly without failing and the orchestrator owns the
+// resulting pause or cancel (Sections 7.2, 15.8).
+func (e *Engine) RequestInterrupt(run *Run, toolOnly bool) {
+	run.RequestInterruptFlags(toolOnly)
+	e.mu.Lock()
+	cancel := e.stepCancels[run.ID]
+	e.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // AttachJournal binds a journal store to a run for write-ahead
@@ -392,17 +528,28 @@ func (e *Engine) DeliverDirective(ctx context.Context, run *Run, d Directive) er
 // (7.3): each is journaled as applied and folded into a volatile
 // note. Cancellation and pause arrive as state changes from the
 // orchestrator, never through here.
-func (e *Engine) processSignals(ctx context.Context, run *Run) {
+func (e *Engine) processSignals(ctx context.Context, run *Run) (stop bool) {
 	run.mu.Lock()
 	pending := append([]Directive(nil), run.directives...)
 	run.directives = nil
+	step := run.Steps
 	run.mu.Unlock()
 	for _, d := range pending {
 		if rec := e.recorder(run.ID); rec != nil {
 			_, _ = rec.Directive(ctx, true, map[string]string{"id": d.ID, "text": d.Text})
 		}
+		run.MarkDirectiveAcked(d.ID, step)
 		run.InjectNote("directive " + d.ID + ": " + d.Text)
 	}
+	if full, toolOnly := run.consumeInterrupt(); full || toolOnly {
+		if full && !toolOnly {
+			return true
+		}
+		if toolOnly {
+			run.InjectNote("tool interrupted by the user; run decides how to continue")
+		}
+	}
+	return false
 }
 
 func (e *Engine) gateCheck(run *Run) tasks.GateReport {
@@ -418,20 +565,48 @@ func (e *Engine) gateCheck(run *Run) tasks.GateReport {
 // Run executes the 7.3 loop until the run leaves running: completion,
 // honest stop, pause, block, cancel or failure. Waiting runs return
 // immediately without calling the model: only a wake event resumes
-// them (7.2).
+// them (7.2). Each step runs under its own cancellable context so an
+// orchestrator interrupt (15.8) stops the in-flight model call or
+// tool without failing the run: a full interrupt exits the loop
+// gracefully and the orchestrator owns the resulting state, while a
+// tool-only interrupt injects a note and the run decides how to
+// continue.
 func (e *Engine) Run(ctx context.Context, run *Run) error {
 	for {
 		if err := ctx.Err(); err != nil {
+			if run.interruptedNow() {
+				run.consumeInterrupt()
+				return nil
+			}
 			return err
 		}
-		e.processSignals(ctx, run)
+		if e.processSignals(ctx, run) {
+			if e.deps.LeaseRelease != nil {
+				e.deps.LeaseRelease(run.ID)
+			}
+			return nil
+		}
+		if e.deps.LeaseHeartbeat != nil {
+			e.deps.LeaseHeartbeat(run.ID)
+		}
 		run.mu.Lock()
 		state := run.state
 		run.mu.Unlock()
 		if state != types.RunRunning {
 			return nil
 		}
-		stop, err := e.step(ctx, run)
+		stepCtx, cancel := context.WithCancel(ctx)
+		e.mu.Lock()
+		if e.stepCancels == nil {
+			e.stepCancels = map[string]context.CancelFunc{}
+		}
+		e.stepCancels[run.ID] = cancel
+		e.mu.Unlock()
+		stop, err := e.step(stepCtx, run)
+		cancel()
+		e.mu.Lock()
+		delete(e.stepCancels, run.ID)
+		e.mu.Unlock()
 		if err != nil {
 			return err
 		}
@@ -459,14 +634,29 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 
 	req, compiled, err := e.deps.Context.BuildRequest(ctx, run, closing)
 	if err != nil {
+		if ctx.Err() != nil && run.interruptedNow() {
+			run.consumeInterrupt()
+			return true, nil
+		}
 		return true, e.fail(ctx, run, "context build: "+err.Error())
 	}
 	if rec := e.recorder(run.ID); rec != nil {
 		_, _ = rec.ModelRequest(ctx, journal.HashRequest(prefixHash(compiled)))
 	}
 
+	run.SetWaitingModel(true)
 	resp, meta, err := e.deps.Models.Chat(ctx, run.Profile.Role, req)
+	run.SetWaitingModel(false)
 	if err != nil {
+		if ctx.Err() != nil && run.interruptedNow() {
+			full, toolOnly := run.consumeInterrupt()
+			if toolOnly {
+				run.InjectNote("tool interrupted by the user; run decides how to continue")
+				return false, nil
+			}
+			_ = full
+			return true, nil
+		}
 		return true, e.fail(ctx, run, "model call: "+err.Error())
 	}
 	run.mu.Lock()
@@ -524,6 +714,9 @@ func (e *Engine) pauseBudget(ctx context.Context, run *Run) {
 	run.mu.Unlock()
 	run.InjectNote("budget exhausted: " + joinList(exhausted))
 	e.recordState(ctx, run, from, types.RunPaused, "budget")
+	if e.deps.LeaseRelease != nil {
+		e.deps.LeaseRelease(run.ID)
+	}
 }
 
 // fail moves the run to failed with its cause.
@@ -533,6 +726,9 @@ func (e *Engine) fail(ctx context.Context, run *Run, cause string) error {
 	_ = run.transition(types.RunFailed)
 	run.mu.Unlock()
 	e.recordState(ctx, run, from, types.RunFailed, cause)
+	if e.deps.LeaseRelease != nil {
+		e.deps.LeaseRelease(run.ID)
+	}
 	return fmt.Errorf("engine: run %s failed: %s", run.ID, cause)
 }
 
@@ -593,6 +789,9 @@ func (e *Engine) complete(ctx context.Context, run *Run, to types.RunState, reas
 		return nil
 	}
 	e.recordState(ctx, run, from, to, reason)
+	if e.deps.LeaseRelease != nil && to.IsTerminal() {
+		e.deps.LeaseRelease(run.ID)
+	}
 	return nil
 }
 
@@ -680,6 +879,9 @@ func (e *Engine) onDetection(ctx context.Context, run *Run, d tasks.Detection) (
 		run.blockReason = types.BlockLoop
 		run.mu.Unlock()
 		e.recordState(ctx, run, from, types.RunBlocked, "loop: "+d.Note)
+		if e.deps.LeaseRelease != nil {
+			e.deps.LeaseRelease(run.ID)
+		}
 		return true, nil
 	default:
 		return false, nil

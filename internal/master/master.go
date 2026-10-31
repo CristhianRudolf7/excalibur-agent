@@ -21,6 +21,9 @@ type ConversationStore interface {
 	SetActiveScope(conv string, scope string)
 	LookupClientMsg(clientID, clientMsgID string) (types.MessageID, bool)
 	RecordClientMsg(clientID, clientMsgID string, msgID types.MessageID)
+	// MessageIDs returns the assigned ids of one conversation oldest
+	// first for the gate history family.
+	MessageIDs(conv string, limit int) []types.MessageID
 }
 
 // MemStore is the in-process ConversationStore for tests.
@@ -61,6 +64,17 @@ func (m *MemStore) History(conv string, limit int) []Normalized {
 		rows = rows[len(rows)-limit:]
 	}
 	return append([]Normalized(nil), rows...)
+}
+
+// MessageIDs implements ConversationStore.
+func (m *MemStore) MessageIDs(conv string, limit int) []types.MessageID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := m.ids[conv]
+	if limit > 0 && len(ids) > limit {
+		ids = ids[len(ids)-limit:]
+	}
+	return append([]types.MessageID(nil), ids...)
 }
 
 // ActiveScope implements ConversationStore.
@@ -149,6 +163,33 @@ func New(cfg Config, store ConversationStore, lex *Lexicon, dec Decider, control
 		m.events = append(m.events, e)
 	})
 	return m
+}
+
+// History returns one conversation's persisted messages oldest first
+// for the gate conversation.history family. Intake persists only
+// client messages (Section 6.1); assistant turns render from live
+// turn state, not from this store.
+type HistoryMessage struct {
+	ID             types.MessageID
+	ConversationID string
+	Role           string
+	Text           string
+}
+
+// History implements the gate history read over the conversation
+// store. A nil limit returns everything.
+func (m *Master) History(conv string, limit int) []HistoryMessage {
+	rows := m.store.History(conv, limit)
+	ids := m.store.MessageIDs(conv, limit)
+	out := make([]HistoryMessage, 0, len(rows))
+	for i, n := range rows {
+		var id types.MessageID
+		if i < len(ids) {
+			id = ids[i]
+		}
+		out = append(out, HistoryMessage{ID: id, ConversationID: conv, Role: "user", Text: n.Text})
+	}
+	return out
 }
 
 // Lexicon exposes the mention index for registration flows.

@@ -15,8 +15,11 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 )
 
 // Version identifies the binary in ATIF metadata and reports.
@@ -83,6 +86,20 @@ type ExecOptions struct {
 	// deterministic step. Tests use it to simulate tool effects,
 	// questions and failures.
 	Work func(ctx context.Context, run *ExecRun) error
+	// Provider, when non-nil, drives the real embedded engine loop
+	// (Section 7.3) with the full wired catalog instead of the
+	// deterministic stub: the scripted fake provider in tests, the
+	// live gateway provider in production. Nil keeps the
+	// deterministic step for the rows that never call a model.
+	Provider providers.Provider
+	// Vault wires secret resolution and output redaction
+	// (Section 20.1) into the engine path. Nil keeps pattern-only
+	// redaction. The eval profile never passes a vault: keys arrive
+	// by environment (Section 23.2).
+	Vault *vault.Vault
+	// JournalStore persists the engine write-ahead journal for the
+	// run. Nil uses an in-memory store.
+	JournalStore journal.Store
 }
 
 // ExecRun is the live handle passed to the Work hook.
@@ -451,6 +468,27 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 				return finalize(types.RunWaiting, "user", "waiting for user input", q.Question)
 			}
 			return finalize(types.RunFailed, "work", fmt.Sprintf("failed: %v", err), "")
+		}
+	} else if opts.Provider != nil {
+		st, err := runEnginePath(ctx, opts, run)
+		if err != nil {
+			var q *NeedInputError
+			if errors.As(err, &q) {
+				return finalize(types.RunWaiting, "user", "waiting for user input", q.Question)
+			}
+			return finalize(types.RunFailed, "work", fmt.Sprintf("failed: %v", err), "")
+		}
+		if st != "" && st != types.RunCompleted {
+			reason := ""
+			summary := string(st)
+			if st == types.RunBlocked {
+				reason = "missing_data"
+				summary = "blocked: " + shortSummary(request)
+			} else if st == types.RunFailed {
+				reason = "work"
+				summary = fmt.Sprintf("failed: %s", shortSummary(request))
+			}
+			return finalize(st, reason, summary, "")
 		}
 	} else {
 		toolArgs, _ := json.Marshal(map[string]string{"request": request})

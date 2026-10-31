@@ -85,7 +85,7 @@ func ApprovePlan(store PlanningStore, planID string, comments []string) ([]strin
 // plan version, keeping the previous one queryable. Items,
 // requirements, criteria, checks and dependencies apply only when
 // the whole snapshot validates (Section 8.4).
-func ApplyProposal(store *MemoryStore, planID string, snap PlanSnapshot, apply func(*MemoryStore) error) error {
+func ApplyProposal(store PlanningStore, planID string, snap PlanSnapshot, apply func(PlanningStore) error) error {
 	if errs := ValidatePlan(snap); len(errs) > 0 {
 		return &ProposalError{Reasons: errs}
 	}

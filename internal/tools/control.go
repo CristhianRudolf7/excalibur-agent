@@ -147,7 +147,7 @@ func parseTime(s string, loc *time.Location) (time.Time, error) {
 // GetToolOutputTool implements get_tool_output over the OutputStore.
 type GetToolOutputTool struct {
 	Outputs OutputStore
-	History *MemoryHistory
+	History FileHistoryStore
 }
 
 func (t *GetToolOutputTool) store() OutputStore {

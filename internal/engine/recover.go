@@ -66,7 +66,7 @@ type RecoverProber struct {
 
 // Probe implements journal.Prober: only tools declaring the probe
 // count; anything else reports not-found without error.
-func (p RecoverProber) Probe(ctx context.Context, name string, args []byte) (bool, error) {
+func (p RecoverProber) Probe(ctx context.Context, name string, args json.RawMessage) (bool, error) {
 	t, ok := p.Tools[name]
 	if !ok {
 		return false, nil

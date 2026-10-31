@@ -13,15 +13,15 @@ func TestRegistriesValidate(t *testing.T) {
 	if err := main.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if main.Latest() != 4 {
-		t.Fatalf("main latest = %d, want 4", main.Latest())
+	if main.Latest() != 5 {
+		t.Fatalf("main latest = %d, want 5", main.Latest())
 	}
 	tele := Telemetry()
 	if err := tele.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if tele.Latest() != 1 {
-		t.Fatalf("telemetry latest = %d, want 1", tele.Latest())
+	if tele.Latest() != 2 {
+		t.Fatalf("telemetry latest = %d, want 2", tele.Latest())
 	}
 	seen := map[string]bool{}
 	for _, m := range main.Ordered() {

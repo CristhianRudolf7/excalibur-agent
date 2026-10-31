@@ -71,6 +71,9 @@ type LeaseManager struct {
 	fileLock  platform.FileLock
 	osHeld    map[string]platform.Release
 	runStates map[string]types.RunState
+	// leaseSQL is the optional SQL mirror (AttachLeaseStore): grants
+	// write through, RestoreLeases reloads live rows.
+	leaseSQL *SQLLeaseStore
 }
 
 // LeaseOption tunes a LeaseManager.
@@ -145,6 +148,7 @@ func (m *LeaseManager) AcquireContext(ctx context.Context, path, holder, activit
 		if !ok || !m.now().Before(e.expires) {
 			m.leases[canon] = leaseEntry{holder: holder, activity: activity, expires: m.now().Add(m.expireIn)}
 			m.mu.Unlock()
+			m.persistLease(canon, holder)
 			return func() {
 				m.Release(canon, holder)
 				if osRel != nil {
@@ -247,9 +251,16 @@ func (m *LeaseManager) Holding(path string) (LeaseSnapshot, bool) {
 func (m *LeaseManager) Release(path, holder string) {
 	canon := filepath.Clean(path)
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if e, ok := m.leases[canon]; ok && e.holder == holder {
+	_, ok := m.leases[canon]
+	if e, has := m.leases[canon]; has && e.holder == holder {
 		delete(m.leases, canon)
+	} else {
+		ok = false
+	}
+	sql := m.leaseSQL
+	m.mu.Unlock()
+	if ok && sql != nil {
+		_ = sql.ReleaseRow(canon, holder)
 	}
 }
 
@@ -257,13 +268,17 @@ func (m *LeaseManager) Release(path, holder string) {
 // or human-paced wait (Section 16.2).
 func (m *LeaseManager) ReleaseAll(holder string) int {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	n := 0
 	for p, e := range m.leases {
 		if e.holder == holder {
 			delete(m.leases, p)
 			n++
 		}
+	}
+	sql := m.leaseSQL
+	m.mu.Unlock()
+	if n > 0 && sql != nil {
+		_, _ = sql.ReleaseHolder(holder)
 	}
 	return n
 }
@@ -274,14 +289,20 @@ func (m *LeaseManager) ReleaseAll(holder string) int {
 // (Section 16.2). It returns the renewed count.
 func (m *LeaseManager) Heartbeat(holder string) int {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	n := 0
+	var latest time.Time
 	for p, e := range m.leases {
 		if e.holder == holder {
 			e.expires = m.now().Add(m.expireIn)
 			m.leases[p] = e
+			latest = e.expires
 			n++
 		}
+	}
+	sql := m.leaseSQL
+	m.mu.Unlock()
+	if n > 0 && sql != nil {
+		_, _ = sql.HeartbeatRow(holder, latest)
 	}
 	return n
 }
@@ -332,7 +353,6 @@ func (m *LeaseManager) Snapshot() []LeaseSnapshot {
 // call it after advancing the clock.
 func (m *LeaseManager) Expire() int {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	now := m.now()
 	n := 0
 	for p, e := range m.leases {
@@ -340,6 +360,11 @@ func (m *LeaseManager) Expire() int {
 			delete(m.leases, p)
 			n++
 		}
+	}
+	sql := m.leaseSQL
+	m.mu.Unlock()
+	if n > 0 && sql != nil {
+		_, _ = sql.ExpireRows(now)
 	}
 	return n
 }

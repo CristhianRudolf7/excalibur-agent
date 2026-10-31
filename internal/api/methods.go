@@ -288,6 +288,7 @@ type CapabilityInvokeParams struct {
 type VaultEntryParams struct {
 	Name         string            `json:"name"`
 	Type         string            `json:"type"`
+	Value        string            `json:"value,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	Scopes       []string          `json:"scopes,omitempty"`
 	AllowedTools []string          `json:"allowed_tools,omitempty"`

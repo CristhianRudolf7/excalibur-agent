@@ -65,8 +65,8 @@ func commands() map[string]command {
 		"install": {summary: "Install MCP client fragments or delegate skill", run: installMCP},
 	}
 	daemonSub := map[string]command{
-		"start": {summary: "Start the daemon", run: notImpl("daemon start")},
-		"stop":  {summary: "Stop the daemon", run: notImpl("daemon stop")},
+		"start": {summary: "Start the daemon", run: runDaemonStart},
+		"stop":  {summary: "Stop the daemon", run: runDaemonStop},
 	}
 	vaultSub := map[string]command{
 		"set":      {summary: "Create or update a secret (value via tty/stdin only)", run: notImpl("vault set")},
@@ -99,17 +99,17 @@ func commands() map[string]command {
 		"report": {summary: "Render an evaluation report (Section 23.7)", run: runEvalReport},
 	}
 	planSub := map[string]command{
-		"approve": {summary: "Approve a pending macro plan", run: notImpl("plan approve")},
-		"deny":    {summary: "Reject a pending macro plan", run: notImpl("plan deny")},
+		"approve": {summary: "Approve a pending macro plan", run: runPlanApprove},
+		"deny":    {summary: "Reject a pending macro plan with a reason", run: runPlanDeny},
 	}
 	return map[string]command{
-		"chat":     {summary: "Open a conversation turn with the master", run: notImpl("chat")},
+		"chat":     {summary: "Open a conversation turn with the master", run: runChat},
 		"exec":     {summary: "Run a request non-interactively (Section 6.5)", run: runExecCmd},
-		"status":   {summary: "Deterministic status snapshot", run: notImpl("status")},
-		"tasks":    {summary: "List tasks", run: notImpl("tasks")},
-		"projects": {summary: "Manage registered projects", run: notImpl("projects")},
-		"memory":   {summary: "Query memory", run: notImpl("memory")},
-		"skills":   {summary: "Search and load skills", run: notImpl("skills")},
+		"status":   {summary: "Deterministic status snapshot", run: runStatusCmd},
+		"tasks":    {summary: "List tasks", run: runTasksCmd},
+		"projects": {summary: "Manage registered projects", run: runProjectsCmd},
+		"memory":   {summary: "Query memory", run: runMemoryCmd},
+		"skills":   {summary: "Search and load skills", run: runSkillsCmd},
 		"ext":      {summary: "Manage extensions (Section 14.12)", sub: extSub},
 		"vault":    {summary: "Manage the secrets vault (Section 20.1)", sub: vaultSub},
 		"eval":     {summary: "Run evaluations (Section 23)", sub: evalSub},

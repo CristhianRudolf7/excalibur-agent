@@ -68,6 +68,9 @@ type WorktreeManager struct {
 	// <DataDir>/worktrees/<project>/<child>.
 	DataDir string
 	Git     GitRunner
+	// index is the optional SQL crash-recovery trail
+	// (AttachWorktreeIndex): creations record, removals forget.
+	index *SQLWorktreeIndex
 }
 
 // childDir returns the worktree path of a child.
@@ -138,6 +141,10 @@ func (m *WorktreeManager) CreateChild(projectRoot, projectID, taskID, childID, i
 	if _, err := m.git().Run(projectRoot, "worktree", "add", path, branch); err != nil {
 		return "", "", err
 	}
+	if m.index != nil {
+		base, _ := m.BaseCommit(projectRoot)
+		_ = m.index.Record(projectID, childID, path, branch, base)
+	}
 	return branch, path, nil
 }
 
@@ -146,6 +153,9 @@ func (m *WorktreeManager) RemoveChild(projectRoot, projectID, childID string) er
 	path := m.childDir(projectID, childID)
 	_, _ = m.git().Run(projectRoot, "worktree", "remove", "--force", path)
 	_ = os.RemoveAll(path)
+	if m.index != nil {
+		_ = m.index.Forget(projectID, childID)
+	}
 	return nil
 }
 
@@ -221,6 +231,9 @@ type IntegrationQueue struct {
 	tests       TestFunc
 	resolve     ResolveFunc
 	now         func() time.Time
+	// persist is the optional SQL mirror (AttachQueueStore):
+	// enqueues and outcomes write through, RestoreQueue reloads.
+	persist *SQLQueueStore
 }
 
 // NewIntegrationQueue returns a queue for one task.
@@ -248,9 +261,9 @@ func (q *IntegrationQueue) WithQueueResolve(fn ResolveFunc) *IntegrationQueue {
 // Enqueue adds a child branch to the tail of the queue.
 func (q *IntegrationQueue) Enqueue(childID, branch string) {
 	q.mu.Lock()
-	defer q.mu.Unlock()
 	for _, it := range q.items {
 		if it.Branch == branch {
+			q.mu.Unlock()
 			return
 		}
 	}
@@ -258,7 +271,10 @@ func (q *IntegrationQueue) Enqueue(childID, branch string) {
 	if q.now != nil {
 		now = q.now()
 	}
-	q.items = append(q.items, &QueueItem{Branch: branch, ChildID: childID, Enqueued: now, Status: QueuePending})
+	it := &QueueItem{Branch: branch, ChildID: childID, Enqueued: now, Status: QueuePending}
+	q.items = append(q.items, it)
+	q.mu.Unlock()
+	q.persistEnqueue(it)
 }
 
 // Pending returns the queued branches in order.
@@ -316,6 +332,7 @@ func (q *IntegrationQueue) ProcessNext(ctx context.Context) (bool, IntegrationRe
 	item.Report = rep.Detail
 	item.Attempted = true
 	q.mu.Unlock()
+	q.persistOutcome(item)
 	return true, rep, err
 }
 

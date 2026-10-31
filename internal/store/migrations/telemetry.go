@@ -40,3 +40,35 @@ func upTelemetry(ctx context.Context, ex store.Execer) error {
 		)`,
 	})
 }
+
+// upTelemetryV2 adds the Section 22 query tables: one row per task
+// run with its exported metrics snapshot, and one row per exported
+// span (the GenAI-convention attributes travel as JSON).
+func upTelemetryV2(ctx context.Context, ex store.Execer) error {
+	return execAll(ctx, ex, []string{
+		`CREATE TABLE IF NOT EXISTS task_metrics(
+			task_id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL DEFAULT '',
+			snapshot_json TEXT NOT NULL DEFAULT '{}',
+			cost_usd REAL NOT NULL DEFAULT 0,
+			final_state TEXT NOT NULL DEFAULT '',
+			updated_ms INTEGER NOT NULL DEFAULT (strftime('%s','now')*1000)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_task_metrics_run ON task_metrics(run_id)`,
+		`CREATE TABLE IF NOT EXISTS spans(
+			trace_id TEXT NOT NULL,
+			span_id TEXT NOT NULL,
+			parent_id TEXT NOT NULL DEFAULT '',
+			run_id TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			kind TEXT NOT NULL DEFAULT '',
+			started_ms INTEGER NOT NULL DEFAULT 0,
+			ended_ms INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL DEFAULT '',
+			attrs_json TEXT NOT NULL DEFAULT '{}',
+			PRIMARY KEY(trace_id, span_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_spans_run ON spans(run_id, started_ms)`,
+		`CREATE INDEX IF NOT EXISTS idx_spans_trace ON spans(trace_id, started_ms)`,
+	})
+}

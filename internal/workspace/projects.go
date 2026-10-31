@@ -93,6 +93,9 @@ type Registry struct {
 	mu       sync.RWMutex
 	projects map[types.ProjectID]*Project
 	now      func() time.Time
+	// persist is the optional SQL mirror (AttachProjectStore):
+	// mutations write through, RestoreProjects reloads it.
+	persist *SQLProjectStore
 }
 
 // NewRegistry returns an empty project registry.
@@ -134,6 +137,11 @@ func (r *Registry) Register(p Project) (*Project, error) {
 	cp := p
 	cp.CreatedAt = now
 	cp.UpdatedAt = now
+	if r.persist != nil {
+		if err := r.persist.Register(cp); err != nil {
+			return nil, err
+		}
+	}
 	r.projects[cp.ID] = &cp
 	return &cp, nil
 }
@@ -175,6 +183,11 @@ func (r *Registry) Update(p Project) (*Project, error) {
 	}
 	p.CreatedAt = cur.CreatedAt
 	p.UpdatedAt = now
+	if r.persist != nil {
+		if err := r.persist.Update(p); err != nil {
+			return nil, err
+		}
+	}
 	r.projects[p.ID] = &p
 	return &p, nil
 }
@@ -192,6 +205,11 @@ func (r *Registry) Archive(id types.ProjectID) error {
 		p.UpdatedAt = r.now()
 	} else {
 		p.UpdatedAt = time.Now()
+	}
+	if r.persist != nil {
+		if err := r.persist.Archive(id, p.UpdatedAt); err != nil {
+			return err
+		}
 	}
 	return nil
 }

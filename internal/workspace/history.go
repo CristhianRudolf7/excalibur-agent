@@ -97,6 +97,42 @@ func (h *History) Record(path string, pre, post []byte, runID, toolCall string) 
 	return id
 }
 
+// RecordWithID appends a version with an explicit id and timestamp.
+// It is the mirror entry point for the shared edit history: the file
+// tools generate the version id, and both history stores keep it so
+// file_history and revert_edit observe the same edits (Section 13.7).
+// A duplicate id is ignored, keeping the mirror idempotent.
+func (h *History) RecordWithID(id, path string, pre, post []byte, runID, toolCall string, at time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.byID == nil {
+		h.byID = map[string]int{}
+	}
+	if h.blobs == nil {
+		h.blobs = map[string][]byte{}
+	}
+	if _, ok := h.byID[id]; ok {
+		return
+	}
+	if at.IsZero() {
+		if h.now != nil {
+			at = h.now()
+		} else {
+			at = time.Now()
+		}
+	}
+	preRef := blobRefOf(pre)
+	postRef := blobRefOf(post)
+	h.blobs[preRef] = append([]byte(nil), pre...)
+	h.blobs[postRef] = append([]byte(nil), post...)
+	v := FileVersion{ID: id, Path: filepath.Clean(path), Preimage: preRef, Postimage: postRef, RunID: runID, ToolCall: toolCall, At: at}
+	h.byID[id] = len(h.vers)
+	h.vers = append(h.vers, v)
+	if h.counter < uint64(len(h.vers)) {
+		h.counter = uint64(len(h.vers))
+	}
+}
+
 // Versions lists the versions of path oldest first.
 func (h *History) Versions(path string) []FileVersion {
 	h.mu.Lock()

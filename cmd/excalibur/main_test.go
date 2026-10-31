@@ -22,13 +22,27 @@ func TestRunUnknown(t *testing.T) {
 
 func TestRunNotImplemented(t *testing.T) {
 	cases := [][]string{
-		{"daemon", "start"},
 		{"vault", "lock"},
-		{"status"},
 	}
 	for _, args := range cases {
 		if code := run(args); code != ExitNotImplemented {
 			t.Fatalf("run(%v) exit = %d, want %d", args, code, ExitNotImplemented)
+		}
+	}
+	// Routed families fail cleanly (ExitError) without a daemon,
+	// never as not-implemented: the backend is the gate.
+	routed := [][]string{
+		{"chat", "hello"},
+		{"status"},
+		{"tasks"},
+		{"projects"},
+		{"memory", "what did we decide"},
+		{"skills", "write tests"},
+		{"plan", "approve", "p1"},
+	}
+	for _, args := range routed {
+		if code := run(args); code == ExitNotImplemented {
+			t.Fatalf("run(%v) exit = %d, routed commands must not be not-implemented", args, code)
 		}
 	}
 }

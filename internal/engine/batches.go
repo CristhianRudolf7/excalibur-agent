@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
@@ -221,6 +222,7 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 		key = e.deps.NewKey()
 	}
 	rec := e.recorder(run.ID)
+	def, derr := e.deps.Tools.Definition(tc.Name)
 	if rec != nil {
 		effect, idem := e.effectOf(tc.Name)
 		_, _ = rec.ToolIntent(ctx, journal.ToolIntentPayload{
@@ -228,12 +230,36 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 			IdempotencyKey: key, Effect: effect, Idempotency: idem,
 		})
 	}
+	// Snapshot tracking: the single-tool view reports the latest
+	// in-flight call; parallel siblings union their keys via the
+	// batch wrapper in execBatch. Per-call tracking here keeps the
+	// sequential path exact.
+	timeout := time.Duration(0)
+	cancel := types.CancelImmediate
+	keys := []string(nil)
+	if derr == nil {
+		timeout = def.Timeout
+		cancel = def.Cancel
+		if tool, gerr := e.toolForKeys(tc.Name); gerr == nil && tool != nil {
+			if k, kerr := tool.ResourceKeys(tc.Arguments); kerr == nil {
+				keys = k
+			}
+		}
+	}
+	run.SetCurrentTool(tc.Name, string(tc.Arguments), keys, timeout, cancel)
+	defer run.ClearCurrentTool()
 	var res tools.Result
 	for attempt := 0; ; attempt++ {
 		var err error
 		res, err = e.deps.Tools.Execute(ctx, tc.Name, tc.Arguments, tools.ExecuteOptions{IdempotencyKey: key})
 		if err != nil {
 			res = tools.Result{Status: tools.StatusToolError, Output: err.Error()}
+		}
+		if ctx.Err() != nil && (res.Status == tools.StatusCanceled || res.Status == tools.StatusTimeout) {
+			// An orchestrator interrupt canceled the tool: report
+			// it as canceled without retrying; the Run loop
+			// decides how to continue from the flags.
+			break
 		}
 		if !res.Transient || attempt >= 2 {
 			break
@@ -245,7 +271,20 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 			IdempotencyKey: key, Transient: res.Transient,
 		})
 	}
+	if tail := liveTailOf(res); tail != "" {
+		run.SetLiveTail(tail)
+	}
 	return res
+}
+
+// liveTailOf keeps the last bounded tail of a tool output for the
+// status snapshot without retaining the whole blob.
+func liveTailOf(res tools.Result) string {
+	const keep = 512
+	if len(res.Output) <= keep {
+		return res.Output
+	}
+	return res.Output[len(res.Output)-keep:]
 }
 
 func (e *Engine) effectOf(name string) (types.EffectClass, types.IdempotencyClass) {
