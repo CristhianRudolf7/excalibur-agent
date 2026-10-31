@@ -8,7 +8,7 @@ agent-created tools (13.9), capability contract fakes (14.1) and the
 
 Architecture reference: Sections 13.3, 13.9, 13.10 (remaining rows),
 14.1, 14.3, 14.4, 14.7, 23.2 (benchmark-source blocklist) and 23.5.
-Appendix B values used verbatim. See `docs/decisions/0014` for the
+Appendix B values used verbatim. See `docs/decisions/0016-deferred-tools-harness-fakes.md` for the
 wave decisions.
 
 ## Contract

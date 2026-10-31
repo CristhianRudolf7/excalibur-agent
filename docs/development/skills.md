@@ -88,7 +88,7 @@ milestones' tests) implements Sections 12.1-12.5 and 12.8:
   test double for search/suggest/load/render.
 
 Interpretations recorded in
-`docs/decisions/0014-skills-index-interpretations.md`: initial
+`docs/decisions/0020-skills-index-interpretations.md`: initial
 state from frontmatter, staged directory names are meaningless at
 install, unknown tools warn instead of rejecting at install,
 first-line truncation on tiny windows, lexical-only suggestion

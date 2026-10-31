@@ -1,4 +1,4 @@
-# 0014 — Orchestrator: explicit profile on the delegation card
+# 0018 — Orchestrator: explicit profile on the delegation card
 
 Date: 2026-10-31. Status: accepted.
 

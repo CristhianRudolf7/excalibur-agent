@@ -16,9 +16,9 @@ All logic lives in `internal/orchestrator` plus `internal/agents`
 storage milestone (H2) behind the same interface. The engine seam is
 `orchestrator.Runner`, implemented in tests by
 `internal/orchestrator/fake`; see
-`docs/decisions/0015-orchestrator-engine-seam.md`. The card carries
+`docs/decisions/0019-orchestrator-engine-seam.md`. The card carries
 an explicit profile field; see
-`docs/decisions/0014-orchestrator-delegation-card-profile.md`.
+`docs/decisions/0018-orchestrator-delegation-card-profile.md`.
 
 ## Contract
 

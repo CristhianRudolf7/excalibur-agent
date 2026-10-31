@@ -11,7 +11,7 @@ import (
 
 // ExpectedCatalogNames lists every tool name from Sections 13.2 and
 // 13.3. The verification table says 98; the tables enumerate 99 (see
-// docs/decisions/0014). Validation covers the enumerated set.
+// docs/decisions/0016-deferred-tools-harness-fakes.md). Validation covers the enumerated set.
 func ExpectedCatalogNames() []string {
 	return []string{
 		// 13.2 core (33).

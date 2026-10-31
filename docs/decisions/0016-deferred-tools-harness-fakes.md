@@ -1,4 +1,4 @@
-# 0014 Deferred Tools, Harness Media/Web, and Capability Fakes
+# 0016 Deferred Tools, Harness Media/Web, and Capability Fakes
 
 Date: 2026-10-31. Wave: w2-deferred-tools (milestone H7).
 

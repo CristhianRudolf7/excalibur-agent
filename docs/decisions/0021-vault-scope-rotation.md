@@ -1,4 +1,4 @@
-# 0013: Vault scope and rotation decisions (Section 20.1)
+# 0021: Vault scope and rotation decisions (Section 20.1)
 
 ## Scope default semantics
 

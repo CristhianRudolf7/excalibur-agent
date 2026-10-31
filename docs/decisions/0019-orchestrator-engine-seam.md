@@ -1,4 +1,4 @@
-# 0015 — Orchestrator engine seam and embedded-mode serialization
+# 0019 — Orchestrator engine seam and embedded-mode serialization
 
 Date: 2026-10-31. Status: accepted.
 

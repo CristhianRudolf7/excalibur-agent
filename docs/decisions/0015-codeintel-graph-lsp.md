@@ -1,4 +1,4 @@
-# 0014 — Code graph, tree-sitter backend and LSP client choices
+# 0015 — Code graph, tree-sitter backend and LSP client choices
 
 Date: 2026-10-31. Area: codeintel (H7: Sections 10.10, 13.8, 14.12, 18.2).
 

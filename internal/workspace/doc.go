@@ -1,7 +1,7 @@
-// Package workspace implements project registration, scopes, write
-// leases, worktrees and the integration queue.
-//
-// Architecture reference: Section 9 (projects and scopes), Section 16
-// (edit concurrency and integration). Implemented in milestones H7
-// (leases, worktrees) and H9 (projects, scopes).
+// Package workspace implements project registration and scopes
+// (Section 9), work modes, write leases, work partitioning, worktrees
+// and the integration queue (Section 16), plus the local edit history,
+// three-way revert and shadow snapshots behind the Section 13.7 tools
+// (file_history, revert_edit, workspace_snapshot, worktree,
+// integration_queue).
 package workspace

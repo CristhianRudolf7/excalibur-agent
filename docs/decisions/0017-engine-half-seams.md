@@ -1,4 +1,4 @@
-# Decision 0014: engine-half seams (journal replay, verifying state, key reuse)
+# Decision 0017: engine-half seams (journal replay, verifying state, key reuse)
 
 Date: 2026-10-31. Milestone H3 (engine half: `internal/journal`,
 `internal/engine`, single-model `internal/models` gateway).

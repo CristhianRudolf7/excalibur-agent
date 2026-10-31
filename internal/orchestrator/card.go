@@ -14,7 +14,7 @@ import (
 // Profile is the orchestrator's additive field: the Section 15.4
 // table implies the profile through the toolset, but the identity
 // (15.2) needs it named, so the card carries it explicitly. See
-// docs/decisions/0014-orchestrator-delegation-card-profile.md.
+// docs/decisions/0018-orchestrator-delegation-card-profile.md.
 type DelegationCard struct {
 	// Name and Description form the Section 15.2 identity.
 	Name        string

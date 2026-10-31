@@ -62,6 +62,12 @@ restriction, and are pinned in `go.mod`. `fsnotify` builds on all
 three harness platforms, so the `GOOS=darwin`/`GOOS=windows` builds
 keep working; only the Linux backend is exercised in tests.
 
+Integrator note (wave-2 merge): `w2-codeintel` adopted
+`github.com/fsnotify/fsnotify` v1.10.1 while `w2-skills` adopted
+v1.9.0; the merged `go.mod` pins v1.10.1 (same BSD-3-Clause
+license, API-compatible for both the skill-index watcher and the
+codeintel indexer).
+
 ## H1 wave w1-providers-a (2026-10-31)
 
 No new dependencies: the OpenAI-wire adapters (`openaiwire`,
