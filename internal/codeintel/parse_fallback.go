@@ -113,7 +113,7 @@ func goCalls(body *ast.BlockStmt) (calls, refs []string) {
 	return calls, nil
 }
 
-var goImportLine = regexp.MustCompile(`(?m)^\s*(?:"([^"]+)"|` + "`([^`]+)`" + `)\s*(?://.*)?$`)
+var goImportLine = regexp.MustCompile(`(?m)^\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*|\.|_)\s+)?(?:"([^"]+)"|` + "`([^`]+)`" + `)\s*(?://.*)?$`)
 
 // goImportFallback recovers import paths from broken Go files.
 func goImportFallback(src string) []string {

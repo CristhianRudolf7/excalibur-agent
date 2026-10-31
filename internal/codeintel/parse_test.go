@@ -272,6 +272,18 @@ func (s *Store) Save() { Alpha() }
 	t.Logf("tree-sitter available: %v", TreeSitterAvailable())
 }
 
+func TestGoImportFallbackAliased(t *testing.T) {
+	got := goImportFallback("package p\nimport alias \"example.com/alias\"\nimport . \"example.com/dot\"\nimport (\n blank \"example.com/blank\" // comment\n \"example.com/plain\"\n)\n")
+	want := []string{"example.com/alias", "example.com/dot", "example.com/blank", "example.com/plain"}
+	if len(got) != len(want) {
+		t.Fatalf("imports = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("imports = %v, want %v", got, want)
+		}
+	}
+}
 func TestGoMalformedFallbackPreservesMethodKind(t *testing.T) {
 	pf := &ParsedFile{Rel: "broken.go", Lang: "go"}
 	if err := parseGoInto(pf, []byte("package p\nfunc (r *Receiver) Save() {\nfunc Load() {\n")); err != nil {
