@@ -93,8 +93,8 @@ func commands() map[string]command {
 		"doctor":  {summary: "Report validation, health and versions", run: notImpl("ext doctor")},
 	}
 	evalSub := map[string]command{
-		"smoke":  {summary: "Run the smoke evaluation", run: notImpl("eval smoke")},
-		"report": {summary: "Render an evaluation report", run: notImpl("eval report")},
+		"smoke":  {summary: "Run the smoke evaluation (Section 23.2)", run: runEvalSmoke},
+		"report": {summary: "Render an evaluation report (Section 23.7)", run: runEvalReport},
 	}
 	planSub := map[string]command{
 		"approve": {summary: "Approve a pending macro plan", run: notImpl("plan approve")},

@@ -59,7 +59,20 @@ type ChatRequest struct {
 	MaxTokens       int              `json:"max_tokens,omitempty"`
 	ReasoningEffort string           `json:"reasoning_effort,omitempty"`
 	ToolChoice      string           `json:"tool_choice,omitempty"`
+	// CacheTTL selects the prompt-cache time-to-live on providers
+	// with explicit cache control (Anthropic, Section 11.6): either
+	// CacheTTL5m or CacheTTL1h. Empty means the adapter default
+	// (CacheTTL5m). Providers with implicit caching ignore it.
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
+
+// Supported CacheTTL values for ChatRequest (Section 11.6): a 5-minute
+// TTL for machine-paced runs and a 1-hour TTL for the master and
+// human-paced conversations.
+const (
+	CacheTTL5m = "5m"
+	CacheTTL1h = "1h"
+)
 
 // Usage counts tokens per call. Input includes cached tokens; cache
 // read/write are subsets of input, following the ATIF and OpenTelemetry
