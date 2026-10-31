@@ -450,7 +450,7 @@ func lexCondition(s string) ([]condTok, error) {
 	for i < len(s) {
 		c := s[i]
 		switch {
-		case c == ' ' || c == '\t':
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
 			i++
 		case c == '(' || c == ')' || c == ',':
 			out = append(out, condTok{kind: "paren", val: string(c)})
@@ -481,15 +481,39 @@ func lexCondition(s string) ([]condTok, error) {
 				i++
 			}
 		case c == '"' || c == '\'':
-			j := i + 1
-			for j < len(s) && s[j] != c {
-				j++
+			quote := c
+			i++
+			var value strings.Builder
+			closed := false
+			for i < len(s) {
+				if s[i] == quote {
+					i++
+					closed = true
+					break
+				}
+				if s[i] == '\\' {
+					i++
+					if i >= len(s) {
+						break
+					}
+					// Escaping the quote and backslash are unambiguous; preserve
+					// other backslashes literally (e.g. Windows paths).
+					if s[i] == quote || s[i] == '\\' {
+						value.WriteByte(s[i])
+					} else {
+						value.WriteByte('\\')
+						value.WriteByte(s[i])
+					}
+					i++
+					continue
+				}
+				value.WriteByte(s[i])
+				i++
 			}
-			if j >= len(s) {
+			if !closed {
 				return nil, fmt.Errorf("agenda: bad condition: unterminated string")
 			}
-			out = append(out, condTok{kind: "string", val: s[i+1 : j]})
-			i = j + 1
+			out = append(out, condTok{kind: "string", val: value.String()})
 		case isCondDigit(c) || (c == '-' && i+1 < len(s) && isCondDigit(s[i+1])):
 			j := i + 1
 			for j < len(s) && (isCondDigit(s[j]) || s[j] == '.') {

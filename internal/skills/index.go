@@ -68,6 +68,11 @@ type Entry struct {
 	Display      Display
 	Headings     []string
 	Body         string
+	// Refs names the references/ files shipped with the skill
+	// (Section 12.5 depth material): SKILL.md links them by name
+	// and load_skill serves them on demand without embedding them
+	// in the prompt.
+	Refs []string
 }
 
 // Conflict records a shadowing: two roots held the same skill name
@@ -222,6 +227,58 @@ func (ix *Index) readCandidate(c candidate) ([]byte, error) {
 	return os.ReadFile(filepath.Join(c.dir, "SKILL.md"))
 }
 
+// listRefs names the references/ files shipped with candidate c, in
+// sorted order. A missing references directory means no depth
+// material; only regular files are listed (no recursion).
+func (ix *Index) listRefs(c candidate) []string {
+	var names []string
+	if c.root == RootBuiltin {
+		if ix.builtin == nil {
+			return nil
+		}
+		ents, err := fs.ReadDir(ix.builtin, c.dir+"/references")
+		if err != nil {
+			return nil
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				continue
+			}
+			n := e.Name()
+			if strings.HasPrefix(n, ".") {
+				continue
+			}
+			names = append(names, n)
+		}
+	} else {
+		ents, err := os.ReadDir(filepath.Join(c.dir, "references"))
+		if err != nil {
+			return nil
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				continue
+			}
+			n := e.Name()
+			if strings.HasPrefix(n, ".") {
+				continue
+			}
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// readRef loads one references/ file of an indexed entry. e must
+// come from entries (its Path/Root locate the file).
+func (ix *Index) readRef(e *Entry, ref string) ([]byte, error) {
+	if e.Root == RootBuiltin {
+		return fs.ReadFile(ix.builtin, e.Path+"/references/"+ref)
+	}
+	return os.ReadFile(filepath.Join(e.Path, "references", ref))
+}
+
 // Scan (re)builds the index from every root. Later changes are
 // picked up by the watcher (watch.go) or by calling Scan again:
 // a changed content hash invalidates the entry, revalidates it
@@ -289,6 +346,7 @@ func (ix *Index) Scan() error {
 			Display:      fm.Metadata.Excalibur.Display,
 			Headings:     append([]string(nil), winner.file.Headings...),
 			Body:         winner.file.Body,
+			Refs:         ix.listRefs(winner.c),
 		}
 		entries[name] = e
 		// Diagnostics of the winner stay visible even though the
@@ -432,5 +490,6 @@ func (e *Entry) clone() *Entry {
 	c.Requires.Bin = append([]string(nil), e.Requires.Bin...)
 	c.Requires.Env = append([]string(nil), e.Requires.Env...)
 	c.Headings = append([]string(nil), e.Headings...)
+	c.Refs = append([]string(nil), e.Refs...)
 	return &c
 }

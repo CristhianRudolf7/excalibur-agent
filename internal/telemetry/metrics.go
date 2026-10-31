@@ -220,6 +220,10 @@ func (m *TaskMetrics) ObserveWait(d time.Duration) {
 // sampler. Child peaks stay untouched: they arrive from the cgroup v2
 // memory.peak counter via ObserveResources, so harness RAM and
 // container RAM never mix (Section 22.2).
+//
+// NOTE: cpuSecs here must be a per-interval DELTA (the Sampler feeds
+// deltas); cumulative /proc counters must go through
+// ObserveDaemonPeak instead, which keeps the max.
 func (m *TaskMetrics) ObserveDaemon(rssBytes uint64, cpuSecs float64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -227,6 +231,24 @@ func (m *TaskMetrics) ObserveDaemon(rssBytes uint64, cpuSecs float64) {
 		m.DaemonRSSTotalBytes = rssBytes
 	}
 	m.CPUSeconds += cpuSecs
+}
+
+// ObserveDaemonPeak records one cumulative resource observation (for
+// example a direct /proc sample): RSS keeps the max and CPU keeps the
+// max of the cumulative process time. It exists because the exec
+// sampler reads cumulative utime+stime counters, which must never be
+// summed across ticks (summing cumulative counters inflates CPU).
+// Short and killed trials, which may see a single sample, still
+// record an honest peak instead of zero (Appendix F minimums).
+func (m *TaskMetrics) ObserveDaemonPeak(rssBytes uint64, cpuTotalSecs float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if rssBytes > m.DaemonRSSTotalBytes {
+		m.DaemonRSSTotalBytes = rssBytes
+	}
+	if cpuTotalSecs > m.CPUSeconds {
+		m.CPUSeconds = cpuTotalSecs
+	}
 }
 
 // ObserveResources records one resource sample: daemon RSS and child peaks.

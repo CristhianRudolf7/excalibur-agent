@@ -771,6 +771,14 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		metrics.Finish("failed")
 		return &CodedError{Code: ExitError, Err: fmt.Errorf("cli: invalid ATIF: %w", err)}
 	}
+	// Live resource peak for paths where the engine sampler never ran
+	// (stub, forced outcome, early failure): feed the cumulative /proc
+	// sample as a peak so metrics.json never records a zero peak.
+	// Cumulative counters keep the max via ObserveDaemonPeak — never
+	// the sum.
+	if sample, err := newResourceSampler().Sample(os.Getpid()); err == nil {
+		metrics.ObserveDaemonPeak(sample.RSSBytes, sample.CPUSeconds)
+	}
 	metrics.Finish(string(state))
 	snap := metrics.Snapshot()
 	dest := metricsPathFor(runDir, profile, logsDir)
@@ -798,7 +806,22 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		_ = run.Recorder.RecordTransition(string(state)+":running", string(state), outcome.Reason)
 		_ = run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: snap.Usage.Input + snap.Usage.Output, CostUSD: snap.CostUSD, WallSecs: snap.WallSeconds, Note: "final"})
 		_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: state == types.RunCompleted, Note: outcome.Summary})
-		_ = run.Recorder.RecordResource(eval.ResourceSample{HarnessRSS: snap.DaemonRSSTotalBytes, CPUSeconds: snap.CPUSeconds, Processes: 1, OOMEvents: snap.ChildOOMKills, Note: "final"})
+		// Final resource sample: the metrics peak wins, but when the
+		// engine sampler never ran (stub path, early failure) the
+		// snapshot holds zeros, so take a live sample rather than
+		// recording a zero peak. Inside a task container the harness
+		// process is the container workload, so its peak is the
+		// container signal (Appendix F minimums).
+		finalRSS, finalCPU := snap.DaemonRSSTotalBytes, snap.CPUSeconds
+		if sample, err := newResourceSampler().Sample(os.Getpid()); err == nil {
+			if sample.RSSBytes > finalRSS {
+				finalRSS = sample.RSSBytes
+			}
+			if sample.CPUSeconds > finalCPU {
+				finalCPU = sample.CPUSeconds
+			}
+		}
+		_ = run.Recorder.RecordResource(eval.ResourceSample{HarnessRSS: finalRSS, CPUSeconds: finalCPU, Processes: 1, OOMEvents: snap.ChildOOMKills, Note: "final"})
 		_ = run.Recorder.RecordJournal(0, "run_finished", string(state), string(state))
 		_ = run.Recorder.RecordMask(0, 0, "final")
 		_ = run.Recorder.RecordCompaction(0, 0, 0, "final")

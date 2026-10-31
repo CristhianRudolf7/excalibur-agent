@@ -15,6 +15,24 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 )
 
+// stringSliceFlag collects repeatable --set key=value flags.
+type stringSliceFlag []string
+
+func (s *stringSliceFlag) String() string { return strings.Join(*s, ",") }
+
+func (s *stringSliceFlag) Set(v string) error {
+	*s = append(*s, v)
+	return nil
+}
+
+func sortStrings(xs []string) {
+	for i := 1; i < len(xs); i++ {
+		for j := i; j > 0 && xs[j] < xs[j-1]; j-- {
+			xs[j], xs[j-1] = xs[j-1], xs[j]
+		}
+	}
+}
+
 // version identifies the binary in manifests and ATIF metadata. The
 // release build overrides it with -ldflags -X main.version=....
 var version = "dev"
@@ -62,7 +80,12 @@ func redact(s string) string {
 // variables and are never printed, logged or written to any artifact.
 func runBench(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags]")
+		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags] | excalibur bench compare <runA> <runB> [flags]")
+	}
+	// Compare is dataset-independent: it pairs two finished run
+	// directories (bench jobs or eval quick dirs).
+	if strings.ToLower(args[0]) == "compare" {
+		return runBenchCompare(args[1:])
 	}
 	ds := strings.ToLower(args[0])
 	var dataset eval.BenchDataset
@@ -215,39 +238,50 @@ func runBenchReport(dataset eval.BenchDataset, args []string) error {
 // loadBenchTrials reads the run-level trials.jsonl index when present,
 // falling back to trial.json files (eval report shape).
 func loadBenchTrials(runDir string) ([]eval.TrialOutcome, error) {
-	indexPath := filepath.Join(runDir, "trials.jsonl")
-	if raw, err := os.ReadFile(indexPath); err == nil {
-		var out []eval.TrialOutcome
-		for _, line := range strings.Split(string(raw), "\n") {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			var row eval.BenchTrialIndex
-			if err := json.Unmarshal([]byte(line), &row); err != nil {
-				return nil, fmt.Errorf("bench report: parse trials.jsonl: %w", err)
-			}
-			out = append(out, eval.TrialOutcome{
-				TrialID: row.Trial, TaskID: row.Task, Reward: row.Reward,
-				Failed:       row.FailCategory == eval.FailHarness || row.FailCategory == eval.FailCrash,
-				FailCategory: row.FailCategory,
-				InputTokens:  row.InputTokens, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite,
-				OutputTokens: row.OutputTokens, CostUSD: row.CostUSD,
-				WallSeconds: row.WallSecs, ModelSeconds: row.ModelSecs, ToolSeconds: row.ToolSecs,
-				ChildPeakBytes: row.PeakRSS, HarnessPeakBytes: row.HarnessPeakRSS,
-				CPUSeconds:   row.CPUSeconds,
-				ModelRetries: row.ModelRetries, ToolRetries: row.ToolRetries,
-				ModelCalls: row.ModelCalls, ToolCalls: row.ToolCallSum,
-				Subagents: row.Subagents, Compactions: row.Compactions,
-				MaskBatches: row.MaskBatches, LoopsDetected: row.LoopsCaught,
-				GateAttempts: row.GateAttempts, Interruptions: row.Interruptions,
-			})
-		}
-		if len(out) > 0 {
-			return out, nil
-		}
+	return eval.LoadRunTrials(runDir)
+}
+
+// runBenchCompare implements `excalibur bench compare <runA> <runB>`:
+// the paired per-task comparison of Section 23.7 with the acceptance
+// rule, over bench jobs or eval quick dirs alike.
+func runBenchCompare(args []string) error {
+	fs := flag.NewFlagSet("bench compare", flag.ContinueOnError)
+	out := fs.String("out", "", "directory for compare.json and compare.md (default: <runB>)")
+	k := fs.Int("k", 5, "pass@k horizon")
+	reps := fs.Int("reps", 10000, "bootstrap resamples")
+	seed := fs.Int64("seed", 7, "bootstrap seed (deterministic)")
+	bar := fs.Float64("bar", eval.DefaultPracticalBar, "practical acceptance bar (fraction, default 0.03)")
+	rest, err := parseCmd(fs, args)
+	if err != nil {
+		return err
 	}
-	return eval.LoadTrials(runDir)
+	if len(rest) != 2 {
+		return fmt.Errorf("usage: excalibur bench compare <runA> <runB> [--out DIR] [--k N] [--reps N] [--seed N] [--bar F]")
+	}
+	rep, err := eval.CompareRuns(rest[0], rest[1], *k, *reps, *seed, *bar)
+	if err != nil {
+		return fmt.Errorf("bench compare: %w", err)
+	}
+	dest := *out
+	if dest == "" {
+		dest = rest[1]
+	}
+	if err := eval.WriteCompareReport(dest, rep); err != nil {
+		return fmt.Errorf("bench compare: %w", err)
+	}
+	md := eval.RenderCompareMarkdown(rep)
+	if err := os.WriteFile(filepath.Join(dest, "compare.md"), []byte(md), 0o644); err != nil {
+		return fmt.Errorf("bench compare: %w", err)
+	}
+	fmt.Fprintf(os.Stdout, "%s: paired=%d success A=%.3f [%.3f, %.3f] B=%.3f [%.3f, %.3f] diff=%+.3f [%+.3f, %+.3f] pass@%d A=%.3f B=%.3f cost/success A=$%.4f B=$%.4f\n",
+		rep.Verdict, len(rep.PairedTasks),
+		rep.SuccessA.Mean, rep.SuccessA.Low, rep.SuccessA.High,
+		rep.SuccessB.Mean, rep.SuccessB.Low, rep.SuccessB.High,
+		rep.Diff.Mean, rep.Diff.Low, rep.Diff.High,
+		rep.K, rep.PassAtKA, rep.PassAtKB,
+		rep.CostPerSuccessA, rep.CostPerSuccessB)
+	fmt.Fprintf(os.Stdout, "compare in %s/compare.json and compare.md\n", dest)
+	return nil
 }
 
 func runBenchRun(dataset eval.BenchDataset, args []string) error {
@@ -257,6 +291,9 @@ func runBenchRun(dataset eval.BenchDataset, args []string) error {
 	model := fs.String("model", "", "model id")
 	effort := fs.String("effort", "", "reasoning effort (low, medium, ...)")
 	baseURL := fs.String("base-url", "", "inference base URL override")
+	armName := fs.String("arm", "", "named harness configuration (recorded in the manifest and profile hash)")
+	switches := stringSliceFlag{}
+	fs.Var(&switches, "set", "mechanism switch key=value (repeatable; forwarded as container env, recorded in manifest)")
 	tasks := fs.String("tasks", "", "comma-separated task subset (Harbor include names)")
 	concurrency := fs.Int("concurrency", 2, "concurrent trials (-n)")
 	k := fs.Int("k", 5, "attempts per task (-k, default 5)")
@@ -268,6 +305,13 @@ func runBenchRun(dataset eval.BenchDataset, args []string) error {
 	dryRun := fs.Bool("dry-run", false, "print the Harbor command without running")
 	if _, err := parseCmd(fs, args); err != nil {
 		return err
+	}
+	if err := eval.ValidateArm(*armName); err != nil {
+		return fmt.Errorf("bench: %w", err)
+	}
+	switchMap, err := eval.ParseSwitches(switches)
+	if err != nil {
+		return fmt.Errorf("bench: %w", err)
 	}
 	ref := benchDatasetRef(dataset)
 	creds, err := loadBenchCreds(*credsFile)
@@ -381,6 +425,22 @@ func runBenchRun(dataset eval.BenchDataset, args []string) error {
 	if fallbackKey != "" {
 		harborArgs = append(harborArgs, "--ae", "EXCALIBUR_FALLBACK_API_KEY="+fallbackKey)
 	}
+	// Named arm: every mechanism switch travels to the trial
+	// container verbatim as environment (additive: no switch means no
+	// extra --ae entry and byte-identical behavior to pre-arm runs).
+	// The arm name itself travels too so trial records stay
+	// self-describing even outside the manifest.
+	switchKeys := make([]string, 0, len(switchMap))
+	for key := range switchMap {
+		switchKeys = append(switchKeys, key)
+	}
+	sortStrings(switchKeys)
+	if *armName != "" {
+		harborArgs = append(harborArgs, "--ae", "EXCALIBUR_ARM="+*armName)
+	}
+	for _, key := range switchKeys {
+		harborArgs = append(harborArgs, "--ae", key+"="+switchMap[key])
+	}
 	if *jobName != "" {
 		harborArgs = append(harborArgs, "--job-name", *jobName)
 	}
@@ -403,16 +463,29 @@ func runBenchRun(dataset eval.BenchDataset, args []string) error {
 		pythonPath += string(os.PathListSeparator) + prev
 	}
 	env = appendEnv(env, "PYTHONPATH="+pythonPath)
-	// Never print keys: log a redacted preview only.
+	// Never print keys: log a redacted preview only. Any --ae entry
+	// whose key looks like a credential only ever prints redacted;
+	// mechanism switches stay verbatim so arms are auditable.
 	redacted := make([]string, len(harborArgs))
 	copy(redacted, harborArgs)
 	for i, a := range redacted {
-		if strings.HasPrefix(a, "EXCALIBUR_API_KEY=") || strings.HasPrefix(a, "EXCALIBUR_FALLBACK_API_KEY=") {
-			redacted[i] = strings.SplitN(a, "=", 2)[0] + "=" + redact(strings.SplitN(a, "=", 2)[1])
+		if idx := strings.Index(a, "="); idx >= 0 {
+			key := a[:idx]
+			upper := strings.ToUpper(key)
+			if strings.Contains(upper, "API_KEY") || strings.Contains(upper, "SECRET") ||
+				strings.Contains(upper, "TOKEN") || strings.Contains(upper, "PASSWORD") {
+				redacted[i] = key + "=" + redact(a[idx+1:])
+			}
 		}
 	}
 	fmt.Fprintf(os.Stdout, "dataset=%s digest=%s model=%s effort=%s k=%d binary=%s sha256=%s\n",
 		ref.HarborDataset, ref.Digest, harborModel, effEffort, *k, binPath, binSHA)
+	if *armName != "" || len(switchMap) > 0 {
+		fmt.Fprintf(os.Stdout, "arm=%s switches=%d profile_hash=%s arm_profile_hash=%s\n",
+			*armName, len(switchMap),
+			eval.DefaultEvalProfile().Hash(),
+			eval.ArmProfileHash(eval.DefaultEvalProfile().Hash(), *armName, switchMap))
+	}
 	fmt.Fprintf(os.Stdout, "harbor %s\n", strings.Join(redacted, " "))
 	if *dryRun {
 		return nil
@@ -432,7 +505,7 @@ func runBenchRun(dataset eval.BenchDataset, args []string) error {
 	}
 	// Post-run: write the run manifest and trials index next to the
 	// Harbor job dir, then collect verifier outputs beside our records.
-	if err := finalizeBenchRun(*jobsDir, *jobName, dataset, ref, effProv, effModel, effEffort, *k, binSHA); err != nil {
+	if err := finalizeBenchRun(*jobsDir, *jobName, dataset, ref, effProv, effModel, effEffort, *k, binSHA, *armName, switchMap); err != nil {
 		fmt.Fprintf(os.Stderr, "bench: finalize: %v\n", err)
 	}
 	return nil
@@ -538,7 +611,7 @@ func verifyDatasetDigest(ref eval.DatasetRef) error {
 // trial it collects Harbor's verifier reward/output and trial logs
 // next to the excalibur records and classifies the failure category
 // per Appendix F.
-func finalizeBenchRun(jobsDir, jobName string, dataset eval.BenchDataset, ref eval.DatasetRef, provider, model, effort string, k int, binSHA string) error {
+func finalizeBenchRun(jobsDir, jobName string, dataset eval.BenchDataset, ref eval.DatasetRef, provider, model, effort string, k int, binSHA, arm string, switches map[string]string) error {
 	dir := jobsDir
 	if jobName != "" {
 		dir = filepath.Join(jobsDir, jobName)
@@ -580,6 +653,10 @@ func finalizeBenchRun(jobsDir, jobName string, dataset eval.BenchDataset, ref ev
 		K:               k,
 		Budgets:         map[string]string{"model": "task-default", "timeout": "task-default (no multiplier)"},
 		Machine:         eval.MachineCharacteristics(),
+		Arm:             arm,
+		Switches:        switches,
+		ProfileHash:     eval.DefaultEvalProfile().Hash(),
+		ArmProfileHash:  eval.ArmProfileHash(eval.DefaultEvalProfile().Hash(), arm, switches),
 	}
 	// started_at best-effort: manifest write time.
 	manifest.StartedAt = nowUTC()

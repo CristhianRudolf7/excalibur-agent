@@ -12,10 +12,13 @@ import (
 
 // Schemas for the skill tools (Section 13.2). search_skills and
 // load_skill are read-only, idempotent and fast, so the master
-// may use them too (Section 13.3).
+// may use them too (Section 13.3). The query of search_skills is
+// optional (empty lists the group) and load_skill accepts optional
+// section/ref selectors, so small models that under-specify calls
+// get guidance instead of errors.
 var (
-	searchSkillsSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"group":{"type":"string"}},"required":["query"],"additionalProperties":false}`)
-	loadSkillSchema    = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1}},"required":["name"],"additionalProperties":false}`)
+	searchSkillsSchema = json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"},"group":{"type":"string"}},"additionalProperties":false}`)
+	loadSkillSchema    = json.RawMessage(`{"type":"object","properties":{"name":{"type":"string","minLength":1},"section":{"type":"string"},"ref":{"type":"string"}},"required":["name"],"additionalProperties":false}`)
 )
 
 // SearchSkillsTool implements search_skills: search skills by text
@@ -28,7 +31,7 @@ type SearchSkillsTool struct {
 // Definition implements tools.Tool.
 func (t *SearchSkillsTool) Definition() tools.Definition {
 	return tools.Definition{
-		Name: "search_skills", Description: "Search skills by text and group; returns name, description, group and path",
+		Name: "search_skills", Description: "Search skills by text and group; empty query lists the group; returns name, description, group and path",
 		InputSchema: searchSkillsSchema,
 		Effect:      "read_only", Idempotency: "idempotent",
 		Timeout: 60 * time.Second, OutputBudget: tools.DefaultOutputBudget,
@@ -76,7 +79,7 @@ type LoadSkillTool struct {
 // Definition implements tools.Tool.
 func (t *LoadSkillTool) Definition() tools.Definition {
 	return tools.Definition{
-		Name: "load_skill", Description: "Load a SKILL.md body and resolve its deferred tools",
+		Name: "load_skill", Description: "Load a SKILL.md body and resolve its deferred tools; optional section loads one headed section, optional ref loads one references/ file",
 		InputSchema: loadSkillSchema,
 		Effect:      "read_only", Idempotency: "idempotent",
 		Timeout: 60 * time.Second, OutputBudget: tools.DefaultOutputBudget,
@@ -88,7 +91,9 @@ func (t *LoadSkillTool) Definition() tools.Definition {
 // Invoke implements tools.Tool.
 func (t *LoadSkillTool) Invoke(_ context.Context, inv tools.Invocation) (tools.Result, error) {
 	var a struct {
-		Name string `json:"name"`
+		Name    string `json:"name"`
+		Section string `json:"section"`
+		Ref     string `json:"ref"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
@@ -96,15 +101,40 @@ func (t *LoadSkillTool) Invoke(_ context.Context, inv tools.Invocation) (tools.R
 	if a.Name == "" {
 		return tools.Result{Status: tools.StatusInputError, Output: "name is required"}, nil
 	}
-	loaded, err := t.Index.Load(a.Name)
+	var loaded Loaded
+	var err error
+	switch {
+	case a.Section != "":
+		loaded, err = t.Index.LoadSection(a.Name, a.Section)
+	case a.Ref != "":
+		loaded, err = t.Index.LoadRef(a.Name, a.Ref)
+	default:
+		loaded, err = t.Index.Load(a.Name)
+	}
 	if err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s (group %s, version %s)\n\n", loaded.Name, loaded.Group, loaded.Version)
+	locator := ""
+	switch {
+	case loaded.Section != "":
+		locator = ", section " + loaded.Section
+	case loaded.RefName != "":
+		locator = ", ref " + loaded.RefName
+	}
+	fmt.Fprintf(&b, "# %s (group %s, version %s%s)\n\n", loaded.Name, loaded.Group, loaded.Version, locator)
 	b.WriteString(loaded.Body)
 	if !strings.HasSuffix(loaded.Body, "\n") {
 		b.WriteString("\n")
+	}
+	// When serving a slice, point at the rest: a small model that
+	// landed on one section or reference can reach the others with
+	// another cheap call instead of loading the whole file.
+	if loaded.Section != "" && len(loaded.Sections) > 1 {
+		fmt.Fprintf(&b, "\nOther sections of %s: %s (load with section=...).\n", loaded.Name, strings.Join(loaded.Sections, "; "))
+	}
+	if loaded.RefName == "" && len(loaded.Refs) > 0 {
+		fmt.Fprintf(&b, "\nDepth references of %s: %s (load with ref=...).\n", loaded.Name, strings.Join(loaded.Refs, ", "))
 	}
 	if len(loaded.Requires.Bin) > 0 || len(loaded.Requires.Env) > 0 {
 		b.WriteString("\nRequires:")

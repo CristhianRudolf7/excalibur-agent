@@ -38,6 +38,16 @@ type Config struct {
 	ParentTargetMax int
 	// SuggestedSkillsMax caps suggested skills per task (11.1: 3).
 	SuggestedSkillsMax int
+	// MethodPrompt renders the L0 working-method block (agent
+	// quality). True by default; false restores the legacy L0.
+	MethodPrompt bool
+	// FamilyAdapt selects the per-family prompt variant from
+	// Snapshot.ModelID (agent quality). True by default; false
+	// renders the family-independent method for every model.
+	FamilyAdapt bool
+	// WorkingNotesMax caps the pinned working-notes lines rendered
+	// in L3 (agent quality); 0 disables the section.
+	WorkingNotesMax int
 	// SkillCatalogFraction caps the L1 catalog share of the window;
 	// SkillCatalogMax caps it absolutely (12.3: 2% or 4K tokens).
 	SkillCatalogFraction float64
@@ -63,6 +73,9 @@ func DefaultConfig() Config {
 		ChildTargetMax:              32000,
 		ParentTargetMax:             48000,
 		SuggestedSkillsMax:          3,
+		MethodPrompt:                true,
+		FamilyAdapt:                 true,
+		WorkingNotesMax:             12,
 		SkillCatalogFraction:        0.02,
 		SkillCatalogMax:             4000,
 		EstimateMargin:              0.10,
@@ -85,6 +98,7 @@ func (c Config) Validate() error {
 		{c.ChildTargetMax > 0, "child_target_max"},
 		{c.ParentTargetMax > 0, "parent_target_max"},
 		{c.SuggestedSkillsMax > 0, "suggested_skills_max"},
+		{c.WorkingNotesMax >= 0, "working_notes_max"},
 		{c.SkillCatalogFraction > 0 && c.SkillCatalogFraction < 1, "skill_catalog_fraction"},
 		{c.SkillCatalogMax > 0, "skill_catalog_max"},
 		{c.EstimateMargin >= 0 && c.EstimateMargin < 1, "estimate_margin"},

@@ -32,10 +32,25 @@ type DefaultBuilder struct {
 	// role so the cache never breaks (19.2).
 	MaxTokens       int
 	ReasoningEffort string
+	// ModelID is the resolved model id for family adaptation
+	// (agent quality): it only selects the L0 prompt variant. Empty
+	// means the tuned GPT default. Whoever resolves the model for
+	// the run sets it; reasoning effort handling is untouched.
+	ModelID string
+	// Quality gates the agent-quality prompt mechanisms (working
+	// method, family adaptation, working notes). Nil means
+	// production defaults with the EXCALIBUR_Q_* overlay.
+	Quality *QualityConfig
+	// Budget, when non-nil, fills Volatile.BudgetState with the
+	// compact remaining-budget line (18.4, L5) whenever the snapshot
+	// leaves it empty. A snapshot-carried value always wins, so
+	// callers can pin or test the line without the hook.
+	Budget func(run *Run) string
 }
 
 // BuildRequest implements RequestBuilder.
 func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing bool) (providers.ChatRequest, ctxcompiler.Compiled, error) {
+	q := effectiveQuality(b.Quality)
 	snap, err := b.Snapshot(ctx, run)
 	if err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
@@ -48,11 +63,35 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if len(notes) > 0 {
 		snap.Volatile.GateReports = append(append([]string(nil), snap.Volatile.GateReports...), notes...)
 	}
+	// Agent quality: family adaptation from the resolved model id,
+	// and the pinned working notes into L3. Both are switch-gated
+	// and leave the cache-stable prefix alone inside a run.
+	if snap.ModelID == "" {
+		snap.ModelID = b.ModelID
+	}
+	if q.WorkingNotes {
+		if pinned := run.notesCopy(); len(pinned) > 0 {
+			snap.Task.WorkingNotes = append(append([]string(nil), snap.Task.WorkingNotes...), pinned...)
+		}
+	}
+	if snap.Volatile.BudgetState == "" && b.Budget != nil {
+		snap.Volatile.BudgetState = b.Budget(run)
+	}
 	counter := b.Counter
 	if counter == nil {
 		counter = ctxcompiler.NewEstimator(0)
 	}
-	compiled, err := ctxcompiler.Compile(b.Config, snap, counter)
+	cfg := b.Config
+	if !q.WorkingMethod {
+		cfg.MethodPrompt = false
+	}
+	if !q.FamilyAdapt {
+		cfg.FamilyAdapt = false
+	}
+	if !q.WorkingNotes {
+		cfg.WorkingNotesMax = 0
+	}
+	compiled, err := ctxcompiler.Compile(cfg, snap, counter)
 	if err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
 	}

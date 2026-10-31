@@ -52,7 +52,7 @@ func PinnedDatasets() map[BenchDataset]DatasetRef {
 }
 
 // RunManifest is the run-directory manifest (Appendix F minimums plus
-// machine characteristics and the frozen conditions).
+// machine characteristics, the frozen conditions and the named arm).
 type RunManifest struct {
 	ExcaliburCommit  string            `json:"excalibur_commit"`
 	BinarySHA256     string            `json:"binary_sha256"`
@@ -70,6 +70,19 @@ type RunManifest struct {
 	TimeoutChanged   bool              `json:"timeout_changed"`
 	ResourcesChanged bool              `json:"resources_changed"`
 	Uploaded         bool              `json:"uploaded"`
+	// Arm names the harness configuration under test (Section 23.1:
+	// one arm per ablation leg). Empty means the default arm: frozen
+	// profile, every mechanism switch at its default.
+	Arm string `json:"arm,omitempty"`
+	// Switches are the mechanism switches declared with --set
+	// key=value, forwarded verbatim as container environment and
+	// recorded here for ablation reporting.
+	Switches map[string]string `json:"switches,omitempty"`
+	// ProfileHash is the frozen eval profile hash; ArmProfileHash
+	// binds it to the arm and switches (identical to ProfileHash on
+	// the default arm, so pre-arm runs stay comparable).
+	ProfileHash    string `json:"profile_hash,omitempty"`
+	ArmProfileHash string `json:"arm_profile_hash,omitempty"`
 }
 
 // MachineCharacteristics describes the host (Appendix F: machine

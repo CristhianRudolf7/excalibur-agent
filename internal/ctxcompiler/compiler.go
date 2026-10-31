@@ -105,17 +105,23 @@ type SkillView struct {
 }
 
 // TaskView is the L3 input: the literal original request, the fixed
-// instructions, compact requirements/criteria, the micro plan,
-// retrieved memories, suggested skills and the delegation card.
+// instructions, compact requirements/criteria, the micro plan, the
+// pinned working notes, retrieved memories, suggested skills and the
+// delegation card.
 type TaskView struct {
 	OriginalRequest   string
 	FixedInstructions []string
 	Requirements      []RequirementView
 	Criteria          []CriterionView
 	Plan              []PlanItemView
-	Memories          []MemoryHit
-	SuggestedSkills   []SkillView
-	Delegation        string
+	// WorkingNotes are pinned key facts (paths, decisions,
+	// failures) kept verbatim in L3 so small models do not lose
+	// them as L4 grows. Rendered most-recent-last, capped by
+	// Config.WorkingNotesMax.
+	WorkingNotes    []string
+	Memories        []MemoryHit
+	SuggestedSkills []SkillView
+	Delegation      string
 }
 
 // ActivityEvent is one append-only L4 entry: a message, a tool call
@@ -168,6 +174,10 @@ type Snapshot struct {
 	CoreTools []CoreTool
 	// AgentProfile is the agent (or chosen persona) core.
 	AgentProfile string
+	// ModelID is the resolved model id for family adaptation
+	// (agent quality): it only selects the L0 prompt variant, it is
+	// never rendered, so same-family models share the L0 prefix.
+	ModelID string
 	// SkillCatalog is the pre-grouped L1 catalog text owned by the
 	// skill index (12.3); the compiler renders it verbatim.
 	SkillCatalog string
@@ -216,7 +226,7 @@ func Compile(cfg Config, snap Snapshot, counter Counter) (Compiled, error) {
 		counter = NewEstimator(0)
 	}
 	var out Compiled
-	out.Layers[LayerCore] = renderCore(snap)
+	out.Layers[LayerCore] = renderCore(cfg, snap)
 	out.Layers[LayerIdentity] = renderIdentity(snap)
 	out.Layers[LayerScope] = renderScope(snap)
 	out.Layers[LayerTask] = renderTask(cfg, snap)
@@ -230,7 +240,7 @@ func Compile(cfg Config, snap Snapshot, counter Counter) (Compiled, error) {
 	return out, nil
 }
 
-func renderCore(snap Snapshot) string {
+func renderCore(cfg Config, snap Snapshot) string {
 	tools := append([]CoreTool(nil), snap.CoreTools...)
 	sort.SliceStable(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
 	var b strings.Builder
@@ -239,6 +249,13 @@ func renderCore(snap Snapshot) string {
 	b.WriteString("tools:\n")
 	for _, t := range tools {
 		b.WriteString("- " + t.Name + ": " + t.Description + "\n")
+	}
+	// The working method rides the stable L0 prefix so every call
+	// of the run carries it without churning the cache (agent
+	// quality; Section 19 roles for the family variant).
+	if cfg.MethodPrompt {
+		b.WriteString("method:\n")
+		b.WriteString(MethodBlock(DetectFamily(snap.ModelID), cfg.FamilyAdapt))
 	}
 	return b.String()
 }
@@ -326,6 +343,15 @@ func renderTask(cfg Config, snap Snapshot) string {
 	for _, p := range plan {
 		b.WriteString("- " + p.Code + " [" + p.State + "] " + p.Title + "\n")
 	}
+	// Pinned working notes: key facts the engine keeps verbatim so
+	// small models do not lose them as L4 grows. Most-recent-last,
+	// capped; empty renders nothing so legacy bytes are unchanged.
+	if notes := tailNotes(t.WorkingNotes, cfg.WorkingNotesMax); len(notes) > 0 {
+		b.WriteString("working notes:\n")
+		for _, n := range notes {
+			b.WriteString("- " + n + "\n")
+		}
+	}
 	b.WriteString("memories:\n")
 	for _, m := range t.Memories {
 		b.WriteString("- " + m.Text + "\n")
@@ -411,6 +437,18 @@ func renderVolatile(snap Snapshot) string {
 	writeList("recovery", v.RecoveryNotices)
 	writeList("master jobs", v.MasterJobs)
 	return b.String()
+}
+
+// tailNotes returns the working notes to render: at most max most
+// recent entries in original order. Non-positive max disables.
+func tailNotes(notes []string, max int) []string {
+	if max <= 0 || len(notes) == 0 {
+		return nil
+	}
+	if len(notes) <= max {
+		return notes
+	}
+	return notes[len(notes)-max:]
 }
 
 // FormatDelta renders a context delta: task-level changes travel as

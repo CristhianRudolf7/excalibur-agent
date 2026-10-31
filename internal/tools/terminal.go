@@ -626,16 +626,50 @@ func (m *SessionManager) evictIfNeeded(owner string) {
 	}
 }
 
+// NonInteractiveEnvSwitch gates the extra non-interactive defaults
+// (Section 13.5: avoid pagers, credential prompts and installer
+// confirmations). Default ON for the ablation protocol.
+const NonInteractiveEnvSwitch = "EXCALIBUR_NONINTERACTIVE_ENV"
+
+// nonInteractiveEnvEnabled reports whether the extra defaults apply.
+func nonInteractiveEnvEnabled() bool {
+	v, ok := os.LookupEnv(NonInteractiveEnvSwitch)
+	if !ok || len(v) == 0 {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
 // pipeEnv forces non-interactive pager settings (Section 13.5).
 func pipeEnv(extra []string) []string {
 	base := os.Environ()
 	over := map[string]string{"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "dumb", "NO_COLOR": "1"}
+	if nonInteractiveEnvEnabled() {
+		// Never prompt: git credentials, apt confirmations and
+		// listchanges pagers would hang a background session
+		// waiting on a TTY that never answers.
+		over["GIT_TERMINAL_PROMPT"] = "0"
+		over["DEBIAN_FRONTEND"] = "noninteractive"
+		over["APT_LISTCHANGES_FRONTEND"] = "none"
+		over["NEEDRESTART_MODE"] = "a"
+	}
 	return mergeEnv(base, over, extra)
 }
 
 func ptyEnv(extra []string) []string {
 	base := os.Environ()
 	over := map[string]string{"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "xterm-256color"}
+	if nonInteractiveEnvEnabled() {
+		over["GIT_TERMINAL_PROMPT"] = "0"
+		over["DEBIAN_FRONTEND"] = "noninteractive"
+		over["APT_LISTCHANGES_FRONTEND"] = "none"
+		over["NEEDRESTART_MODE"] = "a"
+	}
 	return mergeEnv(base, over, extra)
 }
 

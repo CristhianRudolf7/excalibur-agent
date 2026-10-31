@@ -102,6 +102,7 @@ func commands() map[string]command {
 	}
 	evalSub := map[string]command{
 		"smoke":  {summary: "Run the smoke evaluation (Section 23.2)", run: runEvalSmoke},
+		"quick":  {summary: "Run the own quick task suite for cheap arm regressions", run: runEvalQuick},
 		"report": {summary: "Render an evaluation report (Section 23.7)", run: runEvalReport},
 	}
 	planSub := map[string]command{

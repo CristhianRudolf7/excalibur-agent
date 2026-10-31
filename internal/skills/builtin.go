@@ -5,7 +5,7 @@ import (
 	"io/fs"
 )
 
-//go:embed builtin/*/*/SKILL.md
+//go:embed builtin
 var builtinFS embed.FS
 
 // BuiltinFS is the embedded catalog of built-in skill files,

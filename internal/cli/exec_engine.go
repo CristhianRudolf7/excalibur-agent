@@ -6,18 +6,23 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/envsnap"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -99,6 +104,52 @@ func pruneDeferredToProfile(cat *tools.DeferredCatalog, allowed map[string]bool)
 			cat.UnmarkDeferred(name)
 		}
 	}
+}
+
+// compactSkillsCatalog reports whether exec renders the L1 skill
+// catalog in compact (names-only) form: EXCALIBUR_SKILLS_COMPACT=1
+// or =true. The default full form matches the Section 12.3 grouped
+// catalog contract.
+func compactSkillsCatalog() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_SKILLS_COMPACT")))
+	return v == "1" || v == "true"
+}
+
+// skillNames projects suggested skills to their names for events.
+func skillNames(sugs []ctxcompiler.SkillView) []string {
+	out := make([]string, 0, len(sugs))
+	for _, s := range sugs {
+		out = append(out, s.Name)
+	}
+	return out
+}
+
+// writeSkillsRecord persists the skills-library ablation record for
+// the run (mode, catalog hash, suggestions) next to the other trial
+// artifacts. A missing dir skips the write; failures never fail the
+// run.
+func writeSkillsRecord(dir string, mode skills.LibraryMode, compact bool, ix *skills.Index, sugs []ctxcompiler.SkillView) {
+	if dir == "" || ix == nil {
+		return
+	}
+	type suggestion struct {
+		Name string `json:"name"`
+		Why  string `json:"why"`
+	}
+	rec := map[string]any{
+		"mode": string(mode), "compact": compact,
+		"catalog_hash": ix.CatalogHash(), "catalog_skills": len(ix.Names()),
+	}
+	list := make([]suggestion, 0, len(sugs))
+	for _, s := range sugs {
+		list = append(list, suggestion{Name: s.Name, Why: s.Why})
+	}
+	rec["suggested"] = list
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dir+"/skills.json", append(buf, '\n'), 0o644)
 }
 
 // taskDBOps extracts the op names of a task_db batch call so the eval
@@ -275,9 +326,41 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if store == nil {
 		store = journal.NewMemStore()
 	}
+	// Skills library (Section 12, internal/skills owns the
+	// catalog, ranking and the EXCALIBUR_SKILLS switch): off keeps
+	// the historical behavior (no index, skill-tool stubs unwired),
+	// on wires the L1 catalog with working search_skills/load_skill
+	// but no injected suggestions, and auto (default) adds the
+	// task-start auto-suggest from the instruction plus
+	// project/PATH environment signals. Everything lands in the
+	// records (skills.json, skills_wired event) for the ablation.
+	skillsMode := skills.LibraryModeFromEnv(nil)
+	skillsCompact := compactSkillsCatalog()
+	var skillsIndex *skills.Index
+	var skillCatalog string
+	var suggestedSkills []ctxcompiler.SkillView
+	if skillsMode.CatalogEnabled() {
+		skillsIndex = skills.NewBuiltinIndex()
+		if err := skillsIndex.Scan(); err != nil {
+			return "", providers.Usage{}, fmt.Errorf("cli: scan skills catalog: %w", err)
+		}
+		skillCatalog = skillsIndex.RenderCatalogForMode(skills.CatalogConfig{
+			WindowTokens: 200000, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
+		}, skillsMode)
+		env := skills.CollectEnvSignals(opts.ProjectDir, exec.LookPath)
+		for _, s := range skillsIndex.SuggestWithEnvForMode(opts.Request, env, settings.Model, ctxcompiler.DefaultConfig().SuggestedSkillsMax, skillsMode) {
+			suggestedSkills = append(suggestedSkills, ctxcompiler.SkillView{Name: s.Name, Why: s.Why})
+		}
+		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsIndex, suggestedSkills)
+		_ = run.EmitEvent("skills_wired", map[string]any{
+			"mode": string(skillsMode), "compact": skillsCompact,
+			"catalog_hash": skillsIndex.CatalogHash(), "suggested": skillNames(suggestedSkills),
+		})
+	}
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
 		RunID: string(run.RunID), Project: opts.ProjectDir, Vault: opts.Vault,
 		Delegated: profile == ProfileDelegate,
+		Skills:    skillsIndex,
 	})
 	if err != nil {
 		return "", providers.Usage{}, fmt.Errorf("cli: wire embedded catalog: %w", err)
@@ -292,24 +375,56 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	// The L3 task layer carries the request: without it the model
 	// calls never see what to do (Section 6.5, 11.1). The fixed
-	// instructions pin the executable-verification rule (P3) for
-	// the embedded run.
+	// instructions pin the executable-verification rule (P3) for the
+	// embedded run.
 	projectContext := ""
 	if opts.ProjectDir != "" {
 		projectContext = "project directory: " + opts.ProjectDir + "\n" +
 			"Do the work in that directory (terminal workdir or absolute paths); " +
 			"verify files there."
 	}
+	// Proactive environment snapshot (Section 13.5, Meta-Harness):
+	// collected once per run and rendered into the stable L2 scope
+	// layer, so the model stops spending tool calls discovering the
+	// environment. Disabled by EXCALIBUR_ENV_SNAPSHOT=0.
+	envCfg := envsnap.ConfigFromEnv(envsnap.Config{
+		Workdir: opts.ProjectDir, ProbeHost: probeHost(settings.BaseURL),
+	})
+	envProvider := envsnap.NewCached(envCfg)
+	if envCfg.Enabled {
+		_ = envProvider.Snapshot(ctx)
+		if rendered := envProvider.RenderCompact(); rendered != "" {
+			if projectContext != "" {
+				projectContext = rendered + "\n" + projectContext
+			} else {
+				projectContext = rendered
+			}
+		}
+	}
+	fixedInstructions := []string{
+		"Complete the request with the available tools.",
+		"Verify the result by executing it (tests, compilers, scripts) before finishing.",
+	}
+	// Time and session discipline (Sections 7.3, 13.5): the hook
+	// below shows the remaining budget on every call; these lines
+	// teach the model to spend it well. Gated by
+	// EXCALIBUR_TIME_BUDGET with the rest of the time plumbing.
+	timeBudget := engine.TimeBudgetEnabled()
+	if timeBudget {
+		fixedInstructions = append(fixedInstructions,
+			"Budget your time: every step shows the remaining budget; when little remains, stop starting new work, verify what exists and report.",
+			"Run long builds, servers and watchers in background terminal sessions and poll them with exec_io wait_for instead of busy-polling; never wait on interactive prompts: prefer non-interactive flags (-y, --no-input, --yes) and avoid pagers or editors.",
+		)
+	}
 	snap := func(ctx context.Context, erun *engine.Run) (ctxcompiler.Snapshot, error) {
 		return ctxcompiler.Snapshot{
 			Role: "child", HarnessVersion: Version,
 			ProjectContext: projectContext,
+			SkillCatalog:   skillCatalog,
 			Task: ctxcompiler.TaskView{
-				OriginalRequest: opts.Request,
-				FixedInstructions: []string{
-					"Complete the request with the available tools.",
-					"Verify the result by executing it (tests, compilers, scripts) before finishing.",
-				},
+				OriginalRequest:   opts.Request,
+				FixedInstructions: fixedInstructions,
+				SuggestedSkills:   suggestedSkills,
 			},
 			Volatile: ctxcompiler.Volatile{Now: time.Now().UTC()},
 		}, nil
@@ -351,15 +466,40 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		Context: &engine.DefaultBuilder{
 			Config: ctxcompiler.DefaultConfig(), Counter: ctxcompiler.NewEstimator(0),
 			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: effort,
+			// Remaining-budget line in L5 (Section 18.4): compact
+			// steps/tools/time/cost left, every call. Empty when
+			// nothing is capped, so uncapped runs add no bytes.
+			Budget: func(erun *engine.Run) string {
+				if !engine.TimeBudgetEnabled() {
+					return ""
+				}
+				return erun.BudgetLine(time.Now().UTC())
+			},
 		},
 		Tools:          toolRunner,
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
 		LeaseRelease:   wireengine.LeaseReleaseHook(emb.Leases),
 	})
+	// Effective wall budget (Sections 7.3, 18.4, 23.2): the explicit
+	// --timeout first, else 90% of the Harbor/operator override, so
+	// the tracker trips closing mode below 10% and pauses with the
+	// budget motive at zero instead of dying on the context edge.
 	erun := engine.NewRun(string(run.RunID), string(run.TaskID), engine.Profile{
 		Name: "child", Role: types.RoleExecutor, ContextRole: "child",
 		Limit: tasks.Limit{MaxSteps: 25},
 	})
+	if maxSecs := engine.ResolveMaxSeconds(opts.TimeoutSecs); maxSecs > 0 {
+		erun.Profile.Limit.MaxSeconds = maxSecs
+		erun.Tracker.Limit.MaxSeconds = maxSecs
+		// An operator-derived budget (no explicit flag) still bounds
+		// the wall clock: the context enforces the edge while the
+		// tracker owns closing mode and the honest paused report.
+		if opts.TimeoutSecs == 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(maxSecs)*time.Second)
+			defer cancel()
+		}
+	}
 	if opts.MaxSteps > 0 {
 		erun.Profile.Limit.MaxSteps = opts.MaxSteps
 		erun.Tracker.Limit.MaxSteps = opts.MaxSteps
@@ -373,11 +513,30 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	orch.AttachRunner(er)
 	defer orch.DetachRunner(er.RunID())
 	// Resource sampler: harness RSS/CPU/processes/OOM every 5 s,
-	// incremental into resources.jsonl (Appendix F).
+	// incremental into resources.jsonl (Appendix F), with every sample
+	// also feeding the task metrics as a peak (cumulative /proc CPU
+	// counters keep the max, never the sum). The first sample is taken
+	// synchronously so short trials still record a peak instead of
+	// zero; inside a task container the harness IS the container
+	// workload, so its peak is the container signal.
 	stopSampler := make(chan struct{})
 	if run.Recorder != nil {
 		sampler := newResourceSampler()
 		pid := os.Getpid()
+		observe := func() {
+			sample, err := sampler.Sample(pid)
+			if err != nil {
+				return
+			}
+			if run.Metrics != nil {
+				run.Metrics.ObserveDaemonPeak(sample.RSSBytes, sample.CPUSeconds)
+			}
+			_ = run.Recorder.RecordResource(eval.ResourceSample{
+				HarnessRSS: sample.RSSBytes, CPUSeconds: sample.CPUSeconds,
+				Processes: sample.Processes, OOMEvents: sample.OOMKills,
+			})
+		}
+		observe()
 		safego.Go("bench-sampler", nil, func() {
 			ticker := time.NewTicker(5 * time.Second)
 			defer ticker.Stop()
@@ -386,14 +545,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				case <-stopSampler:
 					return
 				case <-ticker.C:
-					sample, err := sampler.Sample(pid)
-					if err != nil {
-						continue
-					}
-					_ = run.Recorder.RecordResource(eval.ResourceSample{
-						HarnessRSS: sample.RSSBytes, CPUSeconds: sample.CPUSeconds,
-						Processes: sample.Processes, OOMEvents: sample.OOMKills,
-					})
+					observe()
 				}
 			}
 		})
@@ -477,11 +629,16 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		// engine state: at least one event each keeps killed-trial
 		// analysis honest about whether they ever fired.
 		_ = run.Recorder.RecordCompaction(0, len(erun.History), 0, "engine history length")
-		// Final resource sample with runtime memory.
+		// Final resource sample with runtime memory. The live sample
+		// also feeds the metrics peak so the final metrics.json row
+		// carries the observed peak even when no tick ever fired.
 		var mem runtime.MemStats
 		runtime.ReadMemStats(&mem)
 		sampler := newResourceSampler()
 		if sample, err := sampler.Sample(os.Getpid()); err == nil {
+			if run.Metrics != nil {
+				run.Metrics.ObserveDaemonPeak(sample.RSSBytes, sample.CPUSeconds)
+			}
 			_ = run.Recorder.RecordResource(eval.ResourceSample{
 				HarnessRSS: sample.RSSBytes, CPUSeconds: sample.CPUSeconds,
 				Processes: sample.Processes, OOMEvents: sample.OOMKills,
@@ -500,4 +657,20 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		return "", providers.Usage{}, err
 	}
 	return erun.State(), usage, nil
+}
+
+// probeHost extracts the host:port dialed by the env snapshot's
+// reachability probe from the provider base URL. Empty when the
+// endpoint is unknown, which records reachability as unknown rather
+// than guessing. No request is ever sent; the probe only dials TCP.
+func probeHost(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }

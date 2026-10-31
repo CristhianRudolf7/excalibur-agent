@@ -92,6 +92,25 @@ type Deps struct {
 	Expert  ExpertConsult
 	Clock   func() time.Time
 	NewKey  func() string
+	// Quality gates the agent-quality loop mechanisms (working
+	// method, family adaptation, working notes, loop nudges, finish
+	// guard). Nil means production defaults with the EXCALIBUR_Q_*
+	// environment overlay; see quality.go.
+	Quality *QualityConfig
+	// FinishGuard overrides the default thin-work finish guard.
+	// Nil installs the default, which only fires when no gate is
+	// wired. The verification workstream plugs real criteria here.
+	FinishGuard FinishGuardFunc
+	// ErrorHint suggests a recovery for one failed tool call; the
+	// note is injected volatilely (at most one per step). Nil means
+	// no per-error hint. The tool-surface workstream plugs precise
+	// per-tool hints here.
+	ErrorHint ErrorHintFunc
+	// SelfVerify overrides the environment-backed self-verification
+	// switches (tasks.DefaultSelfVerifyConfig). Nil selects the
+	// defaults so every closing mechanism stays measurable on and
+	// off without a rebuild.
+	SelfVerify *tasks.SelfVerifyConfig
 	// LeaseHeartbeat renews the run's file leases while it is
 	// running or waiting on a tool or subagents (Section 16.2),
 	// including during long tools. Nil disables heartbeats.
@@ -158,8 +177,13 @@ type Run struct {
 	Contrast     *tasks.ContrastResult
 	Summary      string
 	Files        []string
-	StartedAt    time.Time
-	HeartbeatAt  time.Time
+	// Request is the literal original instruction, stashed from the
+	// compiled task layer on the first step so the closing hooks can
+	// extract checkable criteria and contrast the deliverable
+	// without any driver changes.
+	Request     string
+	StartedAt   time.Time
+	HeartbeatAt time.Time
 
 	directives []Directive
 	progress   tasks.ProgressState
@@ -185,6 +209,18 @@ type Run struct {
 	lastPlanAt     time.Time
 	interrupted    bool
 	toolOnlyStop   bool
+	// Notes is the pinned working-notes block (agent quality):
+	// key facts (paths, failures, loop patterns) kept verbatim so
+	// small models do not lose them as history grows. Rendered
+	// into L3 by the builder, most-recent-last, capped by
+	// QualityConfig.MaxNotes.
+	Notes []string
+	// GuardTrips counts finish-guard nudges consumed by this run.
+	GuardTrips int
+	// drafts caches the extracted checkable criteria for the closing
+	// hooks; refined marks the single model refine pass as done.
+	drafts  []tasks.DraftCriterion
+	refined bool
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -245,6 +281,36 @@ func (r *Run) SetProgressFunc(fn func(*Run) tasks.ProgressState) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.progressFn = fn
+}
+
+// addFact appends one pinned working note, dropping exact
+// duplicates and keeping at most max entries (oldest first out).
+// Callers hold no lock.
+func (r *Run) addFact(fact string, max int) {
+	if fact == "" {
+		return
+	}
+	if max <= 0 {
+		max = 24
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, n := range r.Notes {
+		if n == fact {
+			return
+		}
+	}
+	r.Notes = append(r.Notes, fact)
+	for len(r.Notes) > max {
+		r.Notes = r.Notes[1:]
+	}
+}
+
+// notesCopy returns the pinned working notes. Callers hold no lock.
+func (r *Run) notesCopy() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.Notes...)
 }
 
 // transition moves the run state, enforcing the 7.2 diagram. Callers
@@ -368,6 +434,12 @@ func New(d Deps) *Engine {
 			return hex.EncodeToString(b[:])
 		}
 	}
+	if d.Quality == nil {
+		q := DefaultQualityConfig()
+		d.Quality = &q
+	}
+	resolved := d.Quality.WithEnv()
+	d.Quality = &resolved
 	return &Engine{deps: d, journals: map[string]*journal.Recorder{}, stepCancels: map[string]context.CancelFunc{}}
 }
 
@@ -640,6 +712,10 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		}
 		return true, e.fail(ctx, run, "context build: "+err.Error())
 	}
+	// Stash the literal instruction for the closing hooks: the task
+	// layer renders request:\n... verbatim, so verification and
+	// contrast need no driver changes.
+	run.stashRequest(compiled.LayerText(ctxcompiler.LayerTask))
 	if rec := e.recorder(run.ID); rec != nil {
 		_, _ = rec.ModelRequest(ctx, journal.HashRequest(prefixHash(compiled)))
 	}
@@ -700,7 +776,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		return e.execTools(ctx, run, resp.Message.ToolCalls)
 	}
 
-	return e.finishTurn(ctx, run)
+	return e.finishTurn(ctx, run, resp.Message.Content)
 }
 
 // checkBudgets folds elapsed time into the usage before evaluating.
@@ -746,11 +822,22 @@ func (e *Engine) fail(ctx context.Context, run *Run, cause string) error {
 
 // finishTurn evaluates the gate when the model answers without tools
 // (7.3): the run moves running -> verifying while the deterministic
-// gate runs. On success it completes; otherwise the compact note is
+// gate runs. The mandatory self-verification phase merges in next:
+// fresh executable evidence, contrast of the deliverable against the
+// literal instruction, and the independent-verdict duty on big
+// tasks. On success it completes; otherwise the compact note is
 // injected, the run returns to executing and the agent continues.
 // After GateAttempts failures the run ends in its honest state, never
 // claiming success without evidence.
-func (e *Engine) finishTurn(ctx context.Context, run *Run) (bool, error) {
+//
+// Before the gate, the finish guard (agent quality) sends runs with
+// no verified work and no wired gate back to work with a verification
+// reminder, so thin answers cannot slip through an unwired gate.
+func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bool, error) {
+	if cont, note := e.guardFinish(run); cont {
+		run.InjectNote(note)
+		return false, nil
+	}
 	run.mu.Lock()
 	from := run.state
 	if from == types.RunRunning {
@@ -762,6 +849,7 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run) (bool, error) {
 	run.mu.Unlock()
 	e.recordState(ctx, run, from, types.RunVerifying, "gate")
 	rep := e.gateCheck(run)
+	rep = e.selfVerify(ctx, run, rep, finalText)
 	run.mu.Lock()
 	run.LastGate = rep
 	attempts := run.GateAttempts
@@ -778,7 +866,7 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run) (bool, error) {
 		_ = run.transition(types.RunRunning)
 		run.mu.Unlock()
 		e.recordState(ctx, run, back, types.RunRunning, "gate retry")
-		run.InjectNote("missing: " + tasks.CompactNote(rep))
+		run.InjectNote(verificationNote(rep))
 		return false, nil
 	}
 	return true, e.complete(ctx, run, tasks.HonestState(rep), tasks.CompactNote(rep))
@@ -857,7 +945,35 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			return stop, err
 		}
 	}
+	e.harvestBatch(run, batch, results)
 	return false, nil
+}
+
+// harvestBatch pins one working note per tool outcome (paths,
+// failures) and injects at most one error-hint note per step (agent
+// quality). Both are bounded and switch-gated.
+func (e *Engine) harvestBatch(run *Run, batch []providers.ToolCall, results []tools.Result) {
+	q := e.quality()
+	if q.WorkingNotes {
+		for i, tc := range batch {
+			fact := factForToolCall(tc.Name, string(tc.Arguments), results[i])
+			run.addFact(fact, q.MaxNotes)
+		}
+	}
+	if !q.LoopNudges || e.deps.ErrorHint == nil {
+		return
+	}
+	for i, tc := range batch {
+		if results[i].Status == tools.StatusOK {
+			continue
+		}
+		hint := e.deps.ErrorHint(tc.Name, string(tc.Arguments), toolErrorOf(results[i]))
+		if hint == "" {
+			continue
+		}
+		run.InjectNote("recovery hint for " + tc.Name + ": " + truncOneLine(hint, 300))
+		return
+	}
 }
 
 func toolErrorOf(res tools.Result) string {
@@ -869,20 +985,30 @@ func toolErrorOf(res tools.Result) string {
 
 // onDetection applies the staged loop response (18.3): a corrective
 // note first, an expert consult or strategy switch second, blocked
-// with a report third.
+// with a report third. Notes are actionable nudges with a recovery
+// strategy (agent quality); every detection is also pinned to the
+// working notes so the pattern survives context growth.
 func (e *Engine) onDetection(ctx context.Context, run *Run, d tasks.Detection) (bool, error) {
+	q := e.quality()
+	pin := func(note string) {
+		if q.WorkingNotes {
+			run.addFact("loop pattern: "+truncOneLine(d.Note, 140), q.MaxNotes)
+		}
+	}
 	switch d.Action {
 	case tasks.ActionNote:
-		run.InjectNote("loop: " + d.Note)
+		run.InjectNote(nudgeFor(q, d, ""))
+		pin(d.Note)
 		return false, nil
 	case tasks.ActionEscalate:
-		note := "loop escalated: " + d.Note
+		diag := ""
 		if e.deps.Expert != nil {
-			if diag, err := e.deps.Expert(ctx, run, d); err == nil && diag != "" {
-				note = "expert: " + diag
+			if expert, err := e.deps.Expert(ctx, run, d); err == nil && expert != "" {
+				diag = expert
 			}
 		}
-		run.InjectNote(note)
+		run.InjectNote(escalateNote(q, d, diag))
+		pin(d.Note)
 		return false, nil
 	case tasks.ActionBlock:
 		run.mu.Lock()

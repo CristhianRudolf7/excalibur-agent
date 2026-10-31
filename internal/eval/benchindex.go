@@ -55,7 +55,7 @@ func IndexTrial(trialDir string) (BenchTrialIndex, error) {
 	snap, hasSnap := readTrialSnapshot(exDir)
 	modelAgg := aggregateModelCalls(exDir)
 	toolAgg := aggregateToolCalls(exDir)
-	resources := lastResourceSample(exDir)
+	resources := peakResourceSample(exDir)
 
 	row.FailCategory = classifyIndexFailure(trialDir, doc, exDir, row.Reward)
 	fillIndexUsage(&row, doc, snap, hasSnap, modelAgg, toolAgg)
@@ -298,18 +298,40 @@ func aggregateToolCalls(exDir string) toolAgg {
 	return agg
 }
 
-// lastResourceSample returns the final resources.jsonl sample, which
-// carries the harness RSS/CPU observed at the end of the trial.
-func lastResourceSample(exDir string) ResourceSample {
-	var last ResourceSample
+// peakResourceSample folds every resources.jsonl row into peak
+// counters. Peaks keep the MAX across rows and the metrics snapshot:
+// the recorder appends a closing "final" row after the engine's own
+// final row, so the last row may hold zeros while mid-run rows carry
+// the real peak (taking the last row hid the peak entirely and
+// indexed 0). Zero rows never clear a real peak; an all-zero record
+// stays honestly zero (a trial that never reached the sampler).
+func peakResourceSample(exDir string) ResourceSample {
+	var peak ResourceSample
 	for _, line := range readJSONLLines(filepath.Join(exDir, "resources.jsonl")) {
 		var s ResourceSample
 		if err := json.Unmarshal([]byte(line), &s); err != nil {
 			continue
 		}
-		last = s
+		if s.HarnessRSS > peak.HarnessRSS {
+			peak.HarnessRSS = s.HarnessRSS
+		}
+		if s.CPUSeconds > peak.CPUSeconds {
+			peak.CPUSeconds = s.CPUSeconds
+		}
+		if s.ChildPeakRSS > peak.ChildPeakRSS {
+			peak.ChildPeakRSS = s.ChildPeakRSS
+		}
+		if s.Processes > peak.Processes {
+			peak.Processes = s.Processes
+		}
+		if s.OOMEvents > peak.OOMEvents {
+			peak.OOMEvents = s.OOMEvents
+		}
+		if peak.At.IsZero() || (!s.At.IsZero() && s.At.After(peak.At)) {
+			peak.At = s.At
+		}
 	}
-	return last
+	return peak
 }
 
 // readJSONLLines reads non-empty lines, tolerating torn tail writes
@@ -412,8 +434,13 @@ func sumByTool(m map[string]int64) int64 {
 }
 
 // fillIndexTimes fills the wall/model/tool time split and the RAM
-// and CPU peaks. RAM peaks take the max of the harness and
-// container readings so a zero source never hides a real peak.
+// and CPU peaks. RAM peaks take the max of the harness snapshot, the
+// container (child) snapshot and every resources.jsonl row peak, so a
+// zero source never hides a real peak. Inside a task container the
+// harness process is the container workload: HarnessPeakRSS and
+// PeakRSS converge on the same observed max (kept separate per
+// Section 22.2 for the external route, where they differ). CPU keeps
+// the max of the cumulative counters.
 func fillIndexTimes(row *BenchTrialIndex, doc trialResultDoc, snap telemetry.Snapshot, hasSnap bool, m modelAgg, t toolAgg, res ResourceSample) {
 	if hasSnap {
 		row.WallSecs = snap.WallSeconds
@@ -446,13 +473,16 @@ func fillIndexTimes(row *BenchTrialIndex, doc trialResultDoc, snap telemetry.Sna
 	if res.HarnessRSS > harness {
 		harness = res.HarnessRSS
 	}
+	if res.ChildPeakRSS > child {
+		child = res.ChildPeakRSS
+	}
 	row.HarnessPeakRSS = harness
 	row.PeakRSS = child
 	if harness > row.PeakRSS {
 		row.PeakRSS = harness
 	}
 	row.CPUSeconds = cpu
-	if row.CPUSeconds == 0 {
+	if row.CPUSeconds == 0 || res.CPUSeconds > row.CPUSeconds {
 		row.CPUSeconds = res.CPUSeconds
 	}
 }

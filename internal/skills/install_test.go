@@ -33,11 +33,14 @@ func TestBuiltinCatalogValid(t *testing.T) {
 	// Every group of Section 12.5 is represented.
 	wantGroups := map[string]int{
 		"planning": 7, "verification": 2, "communication": 5, "delegation": 2,
-		"memory": 3, "debugging": 3, "testing": 2,
-		"software-engineering": 29, "design": 14, "security": 11, "google-cloud": 6,
-		"personal-assistant": 8, "research": 7, "browser": 16, "documents": 12,
+		"memory": 3, "debugging": 4, "testing": 2,
+		"software-engineering": 31, "design": 14, "security": 13, "google-cloud": 6,
+		"personal-assistant": 8, "research": 7, "browser": 16, "documents": 13,
 		"diagrams": 16, "automation": 3, "creative-tools": 13,
-		"science": 17, "marketing": 7, "compliance": 5, "finance": 5,
+		"science": 20, "marketing": 7, "compliance": 5, "finance": 5,
+		"terminal": 9, "packaging": 7, "build": 6, "languages": 12,
+		"networking": 5, "containers": 2, "databases": 3, "data": 4,
+		"ml": 4, "media": 2,
 	}
 	counts := map[string]int{}
 	for _, e := range ix.All() {

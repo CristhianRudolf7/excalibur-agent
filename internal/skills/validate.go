@@ -35,6 +35,9 @@ const (
 	CodeBadState       = "bad_state"
 	CodeBadTool        = "bad_tool"
 	CodeEmptyBody      = "empty_body"
+	CodeBadSection     = "bad_section"
+	CodeBadRef         = "bad_reference"
+	CodeLibraryOff     = "library_off"
 )
 
 // validName reports whether name follows Section 12.1: 1-64

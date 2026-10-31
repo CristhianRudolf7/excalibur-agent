@@ -6,33 +6,32 @@ import (
 )
 
 // parseCmd parses command flags regardless of position: flags may
-// come before or after positional arguments
-// (e.g. `task wait T45 --timeout 300`, as the delegate skill shows).
-// A `--` separator forces everything after it to be positional, so a
-// petition starting with `-` still works
-// (`exec -- --weird request`).
+// come before or after positional arguments. A `--` separator makes
+// everything after it positional.
 func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
 	var flagArgs, posArgs []string
-	i := 0
-	for i < len(args) {
+	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
 			posArgs = append(posArgs, args[i+1:]...)
 			break
 		}
-		if name, value, ok := flagName(a); ok && fs.Lookup(name) != nil {
-			flagArgs = append(flagArgs, a)
-			if !ok || value == "" {
-				if !isBoolFlag(fs.Lookup(name).Value) && i+1 < len(args) {
-					flagArgs = append(flagArgs, args[i+1])
-					i++
-				}
-			}
-			i++
+		name, _, isFlag := flagName(a)
+		f := fs.Lookup(name)
+		if !isFlag || f == nil {
+			posArgs = append(posArgs, a)
 			continue
 		}
-		posArgs = append(posArgs, a)
-		i++
+		flagArgs = append(flagArgs, a)
+		// Consume a value for non-boolean flags, but not another recognized
+		// flag. This preserves missing-value errors and positional values.
+		if !strings.Contains(a, "=") && !isBoolFlag(f.Value) && i+1 < len(args) {
+			nextName, _, nextIsFlag := flagName(args[i+1])
+			if args[i+1] != "--" && (!nextIsFlag || fs.Lookup(nextName) == nil) {
+				i++
+				flagArgs = append(flagArgs, args[i])
+			}
+		}
 	}
 	if err := fs.Parse(flagArgs); err != nil {
 		return nil, err
@@ -44,8 +43,11 @@ func flagName(a string) (name, value string, ok bool) {
 	if len(a) < 2 || a[0] != '-' {
 		return "", "", false
 	}
-	s := strings.TrimLeft(a, "-")
-	if s == "" {
+	s := a[1:]
+	if strings.HasPrefix(s, "-") {
+		s = s[1:]
+	}
+	if s == "" || strings.HasPrefix(s, "-") {
 		return "", "", false
 	}
 	if idx := strings.Index(s, "="); idx >= 0 {

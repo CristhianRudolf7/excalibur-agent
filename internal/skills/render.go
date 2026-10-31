@@ -35,11 +35,15 @@ func CatalogBudget(windowTokens int) int {
 }
 
 // CatalogConfig tunes RenderCatalog. Counter converts rendered text
-// to tokens; nil means EstimateTokens.
+// to tokens; nil means EstimateTokens. Compact lists skill names
+// without descriptions for fully listed groups: fewer tokens per
+// skill for small models that load details on demand with
+// load_skill. The grouped shape and budget policy are unchanged.
 type CatalogConfig struct {
 	WindowTokens int
 	Pertinent    []string
 	Counter      func(string) int
+	Compact      bool
 }
 
 // DefaultPertinentForRole maps a caller role/task kind to the
@@ -51,7 +55,8 @@ type CatalogConfig struct {
 func DefaultPertinentForRole(kind string) []string {
 	switch kind {
 	case "programming":
-		return []string{"planning", "software-engineering", "debugging", "testing", "verification"}
+		return []string{"planning", "software-engineering", "debugging", "testing", "verification",
+			"terminal", "build", "packaging", "languages", "networking", "containers", "databases", "data", "ml"}
 	case "conversation":
 		return []string{"communication", "memory", "personal-assistant"}
 	default:
@@ -160,7 +165,11 @@ func (ix *Index) RenderCatalog(cfg CatalogConfig) string {
 		var gb strings.Builder
 		fmt.Fprintf(&gb, "[%s] %s (%s): %d skills\n", grp.ID, grp.NameEN, grp.Origin, len(list))
 		for _, e := range list {
-			fmt.Fprintf(&gb, "- %s: %s\n", e.Name, ShortDescription(e.Description))
+			if cfg.Compact {
+				fmt.Fprintf(&gb, "- %s\n", e.Name)
+			} else {
+				fmt.Fprintf(&gb, "- %s: %s\n", e.Name, ShortDescription(e.Description))
+			}
 		}
 		if emit(gb.String()) {
 			full[g] = true

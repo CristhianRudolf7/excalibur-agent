@@ -17,9 +17,15 @@ import (
 
 func scriptedWriteThenDone(target, content string) []providers.ChatResponse {
 	args, _ := json.Marshal(map[string]string{"path": target, "content": content})
+	readArgs, _ := json.Marshal(map[string]string{"path": target})
 	return []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "write_file", Arguments: args}}}},
+		// The closing self-verification requires a fresh executable
+		// check after the last change before completed (Section
+		// 7.5): the agent reads the file back.
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "read_file", Arguments: readArgs}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "wrote " + target}},
 	}
 }
@@ -49,8 +55,8 @@ func TestExecEnginePathEndToEnd(t *testing.T) {
 	if err != nil || string(data) != "hello embedded" {
 		t.Fatalf("file = %q, err = %v", data, err)
 	}
-	if len(fake.ChatRequests) != 2 {
-		t.Fatalf("model calls = %d, want 2 (one tool turn, one final)", len(fake.ChatRequests))
+	if len(fake.ChatRequests) != 3 {
+		t.Fatalf("model calls = %d, want 3 (tool turn, verification turn, final)", len(fake.ChatRequests))
 	}
 	// The tool definitions ride the prefix in fixed order so the
 	// input cache is stable across steps.
@@ -90,6 +96,11 @@ func TestExecEngineEvalSurfaceClamp(t *testing.T) {
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "send_message", Arguments: json.RawMessage(`{}`)}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "task_db", Arguments: badTaskDB}}}},
+		// The closing self-verification blocks completed while the
+		// last result is a rejection: the scripted model recovers
+		// with an in-surface check before finishing.
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c3", Name: "exec", Arguments: json.RawMessage(`{"command":"true"}`)}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done within surface"}},
 	}
 	logs := t.TempDir()
@@ -230,5 +241,73 @@ func TestExecEnginePathDeferredCallTool(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "file_history") {
 		t.Fatalf("ATIF must show the deferred tool result, got %s", raw)
+	}
+}
+
+// TestExecEngineSkillsWiring covers the skills-library seam end to
+// end with a scripted provider: the L1 catalog and task-start
+// suggestions ride the first model call, load_skill resolves through
+// the wired index, and the skills.json ablation record lands in the
+// run directory.
+func TestExecEngineSkillsWiring(t *testing.T) {
+	t.Setenv("EXCALIBUR_SKILLS", "auto")
+	dir := t.TempDir()
+	target := filepath.Join(dir, "hello.txt")
+	fake := providerfake.New("e2e-skills")
+	args, _ := json.Marshal(map[string]string{"path": target, "content": "hello skills"})
+	loadArgs, _ := json.Marshal(map[string]string{"name": "shell-power-use", "section": "pitfalls"})
+	fake.Responses = []providers.ChatResponse{
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "load_skill", Arguments: loadArgs}}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "write_file", Arguments: args}}}},
+		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
+	}
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{
+		Request: "debug the failing python test and write hello", LogsDir: logs,
+		Profile: ProfileEval, ProjectDir: dir, Provider: fake,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.State != types.RunCompleted {
+		t.Fatalf("state = %q, want completed", out.State)
+	}
+	// The L1 catalog rides the first model call as a system message.
+	catalogSeen := false
+	for _, msg := range fake.ChatRequests[0].Messages {
+		if strings.Contains(string(msg.Role)+" "+msg.Content, "shell-power-use") {
+			catalogSeen = true
+		}
+	}
+	if !catalogSeen {
+		t.Fatal("first model call must carry the L1 skill catalog")
+	}
+	// load_skill resolves through the wired index, not the stub.
+	raw, err := os.ReadFile(out.ATIFPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "Unquoted variables") {
+		t.Fatal("ATIF must show the loaded skill section")
+	}
+	// The ablation record pins mode, catalog hash and suggestions.
+	skillsRaw, err := os.ReadFile(filepath.Join(out.Dir, "skills.json"))
+	if err != nil {
+		t.Fatalf("skills.json missing: %v", err)
+	}
+	var rec struct {
+		Mode      string `json:"mode"`
+		Catalog   string `json:"catalog_hash"`
+		Suggested []struct {
+			Name string `json:"name"`
+		} `json:"suggested"`
+	}
+	if err := json.Unmarshal(skillsRaw, &rec); err != nil {
+		t.Fatalf("skills.json invalid: %v", err)
+	}
+	if rec.Mode != "auto" || rec.Catalog == "" || len(rec.Suggested) == 0 {
+		t.Fatalf("skills.json must record mode/catalog/suggestions, got %+v", rec)
 	}
 }

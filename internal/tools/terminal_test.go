@@ -162,6 +162,28 @@ func TestPipeEnvAndShellDetection(t *testing.T) {
 	if found["PAGER"] != "cat" || found["GIT_PAGER"] != "cat" {
 		t.Fatalf("pager env: %v", found)
 	}
+	// Non-interactive defaults: nothing may prompt on a headless
+	// session (Section 13.5).
+	for k, want := range map[string]string{
+		"GIT_TERMINAL_PROMPT": "0", "DEBIAN_FRONTEND": "noninteractive",
+	} {
+		if found[k] != want {
+			t.Fatalf("%s = %q, want %q", k, found[k], want)
+		}
+	}
+	t.Setenv(NonInteractiveEnvSwitch, "0")
+	off := map[string]string{}
+	for _, kv := range pipeEnv(nil) {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			off[k] = v
+		}
+	}
+	if _, ok := off["GIT_TERMINAL_PROMPT"]; ok {
+		t.Fatal("switch off must restore plain pager-only env")
+	}
+	if off["PAGER"] != "cat" {
+		t.Fatal("pager defaults stay even with the switch off")
+	}
 	if sh := DetectShell(); sh == "" {
 		t.Fatal("shell detection must return something")
 	}
