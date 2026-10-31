@@ -1,0 +1,21 @@
+{
+  "version": 0,
+  "description": "Excalibur typed bus events. Exported from internal/api EventTypes; do not edit by hand without updating the registry.",
+  "events": [
+    { "type": "message.created", "payload": "MessageEvent", "summary": "A message was persisted." },
+    { "type": "run.state_changed", "payload": "RunProgressEvent", "summary": "A run changed state." },
+    { "type": "run.progress", "payload": "RunProgressEvent", "summary": "Run progress update." },
+    { "type": "plan.approval_requested", "payload": "PlanApprovalEvent", "summary": "A macro plan needs approval." },
+    { "type": "question.asked", "payload": "QuestionEvent", "summary": "A question needs an answer." },
+    { "type": "notice.posted", "payload": "NoticeEvent", "summary": "A notice was posted." },
+    { "type": "metric.recorded", "payload": "MetricEvent", "summary": "A metric sample was recorded." },
+    { "type": "tool.called", "payload": "ToolCallEvent", "summary": "A tool call started." },
+    { "type": "tool.completed", "payload": "ToolCallEvent", "summary": "A tool call finished." },
+    { "type": "memory.written", "payload": "MemoryEvent", "summary": "A memory was written." },
+    { "type": "compaction.completed", "payload": "CompactionEvent", "summary": "Context compaction completed." },
+    { "type": "loop.detected", "payload": "LoopEvent", "summary": "The loop detector fired." },
+    { "type": "directive.sent", "payload": "DirectiveEvent", "summary": "A directive was sent." },
+    { "type": "file.edited", "payload": "FileEditEvent", "summary": "A file was edited, with diff." },
+    { "type": "error.occurred", "payload": "ErrorEvent", "summary": "An error occurred." }
+  ]
+}
