@@ -31,6 +31,11 @@ verification harness. No milestone behavior is implemented yet; see
 - `store/` — skill/tool catalog, examples, installer.
 - `tests/` — integration tests and benchmark suites.
 
+## Development
+
+See [Adding functionality safely](docs/development/extending.md) for extension
+contracts, registration paths, store limitations and pre-merge checks.
+
 ## Verification
 
 ```sh
