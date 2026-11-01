@@ -218,6 +218,7 @@ type finishState struct {
 	verifierRefusals int
 	advisory         []string
 	snapshot         *tasks.InputSnapshot
+	inputCopyDir     string
 	snapshotTaken    bool
 }
 

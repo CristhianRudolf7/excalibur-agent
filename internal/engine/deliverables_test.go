@@ -232,7 +232,7 @@ func TestSoftWarningExampleValueEmbedded(t *testing.T) {
 // it warns that it may overwrite the deliverable.
 func TestSoftWarningBaselineOverwrite(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "baseline_packer.py")
+	script := filepath.Join(dir, "baseline_writer.py")
 	if err := os.WriteFile(script, []byte("open('out.bin', 'w').write('x')\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -243,9 +243,9 @@ func TestSoftWarningBaselineOverwrite(t *testing.T) {
 	files := []deliverable{{Path: filepath.Join(dir, "out.bin"), Base: "out.bin"}}
 	history := hist(
 		tasks.HistoryTool{Name: "write_file", Args: `{"path":"` + files[0].Path + `","content":"x"}`, Output: "ok"},
-		tasks.HistoryTool{Name: "exec", Args: `{"command":"python3 baseline_packer.py"}`, Output: "exit: 0"},
+		tasks.HistoryTool{Name: "exec", Args: `{"command":"python3 baseline_writer.py"}`, Output: "exit: 0"},
 	)
-	if got := baselineOverwriteWarnings(snap, files, history); len(got) != 1 || !strings.Contains(got[0], "baseline_packer.py") {
+	if got := baselineOverwriteWarnings(snap, files, history); len(got) != 1 || !strings.Contains(got[0], "baseline_writer.py") {
 		t.Fatalf("baseline run after the last edit must warn, got %v", got)
 	}
 }
@@ -437,5 +437,60 @@ func TestDeliverablesExcludeAgentScratchPaths(t *testing.T) {
 	t.Setenv("EXCALIBUR_INSTRUCTION_DELIVERABLES", "0")
 	if got := e.deliverables(run, run.Request, history); len(got) != 3 {
 		t.Fatalf("compatibility switch must restore write inference: %+v", got)
+	}
+}
+
+func TestInputCopiesInFinishChecklist(t *testing.T) {
+	for _, kind := range []string{"modified", "vanished", "requested modification", "switch off"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INPUT_SNAPSHOT", "on")
+			t.Setenv("EXCALIBUR_INPUT_COPIES", "on")
+			if kind == "switch off" {
+				t.Setenv("EXCALIBUR_INPUT_COPIES", "off")
+			}
+			dir := t.TempDir()
+			path := filepath.Join(dir, "provided.txt")
+			if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+			run := explicitRun()
+			run.Workdir = dir
+			run.Request = "Summarise " + path + "."
+			run.SetInputCopyDir(filepath.Join(t.TempDir(), "originals"))
+			e.startInputSnapshot(run)
+			if kind == "vanished" {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(path, []byte("changed"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "requested modification" {
+				run.Request = "Modify " + path + "."
+			}
+			checklist := e.confirmationText(run)
+			copy := run.fin.snapshot.Entries[path].OriginalCopy
+			if kind == "requested modification" || kind == "switch off" {
+				if strings.Contains(checklist, "original copy:") {
+					t.Fatalf("unexpected restore warning: %s", checklist)
+				}
+				return
+			}
+			want := "original copy: " + copy + " (restore with cp -a " + copy + " " + path + ")"
+			if copy == "" || !strings.Contains(checklist, want) {
+				t.Fatalf("missing restore hint %q: %s", want, checklist)
+			}
+			raw, err := os.ReadFile(copy)
+			if err != nil || string(raw) != "original" {
+				t.Fatalf("original bytes: %q %v", raw, err)
+			}
+		})
+	}
+}
+
+func TestRestoreHintQuotesShellPaths(t *testing.T) {
+	if got := shellRestorePath("/tmp/input file's.txt"); got != `'/tmp/input file'"'"'s.txt'` {
+		t.Fatalf("unsafe restore path: %s", got)
 	}
 }

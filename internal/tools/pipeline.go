@@ -203,6 +203,9 @@ func (e *Executor) Execute(ctx context.Context, name string, rawArgs json.RawMes
 // an explicit surface tuning (ablation switches for the agent-quality
 // workstream; production passes TuningFromEnv(DefaultSurfaceTuning())).
 func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.RawMessage, opts ExecuteOptions, tune SurfaceTuning) (Result, error) {
+	if SkillToolDisabled(name) {
+		return Result{Status: StatusInputError, Output: "skills library is disabled (EXCALIBUR_SKILLS=off)"}, nil
+	}
 	tool, err := e.Registry.Get(name)
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil

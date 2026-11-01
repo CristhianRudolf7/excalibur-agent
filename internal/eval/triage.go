@@ -777,7 +777,7 @@ func detectDomain(instruction string, tools []parsedTool) string {
 		blob += " " + strings.ToLower(p.command)
 	}
 	switch {
-	case strings.Contains(blob, "rscript"), strings.Contains(blob, ".r "), strings.Contains(blob, ".r\n"), strings.Contains(blob, "/ars"), regexp.MustCompile(`\.r\b`).MatchString(blob):
+	case strings.Contains(blob, "rscript"), strings.Contains(blob, ".r "), strings.Contains(blob, ".r\n"), regexp.MustCompile(`\.r\b`).MatchString(blob):
 		return "R"
 	case strings.Contains(blob, "python"), strings.Contains(blob, ".py"):
 		return "python"

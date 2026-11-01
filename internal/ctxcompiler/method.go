@@ -117,13 +117,13 @@ const workingMethodSteps = `working method:
 // EXCALIBUR_METHOD_V2. Each line is short and general: provided
 // inputs, success paths, unseen instances, measurement, handoffs
 // between steps, services, sources and the task's own tools.
-const workingMethodEvidence = `9. Copy provided data first (cp -a) as originals. Edit inputs/tests only if asked.
+const workingMethodEvidence = `9. Copy provided data first (cp -a) as originals. Change inputs/tests only if asked.
 10. Test the success path too; include failures.
 11. Never hard-code examples; vary inputs; use an independent reference.
-12. Measure the way the instruction measures: same metric, repeats and margin; state the value.
-13. Pass values between steps through files or pipes; never retype numbers, keys or hashes.
-14. Run a script you wrote on the real input after its last edit; compile/--help are not tests.
-15. Keep required services running: detach and log; probe the port in a new shell.
+12. Measure the way the instruction measures: same metric, repeats, margin; state it.
+13. Pass values between steps through files or pipes; do not retype values.
+14. Run a script you wrote on the real input after its last edit; compile/--help do not test it.
+15. Keep required services running: detach, log, probe from a new shell.
 16. If a source is unreachable, try mirrors or local copies. An impossible claim needs the failing command and output.
 17. Use only the task's own files and tools; avoid harness logs and host internals.
 `
@@ -142,15 +142,19 @@ func WorkingMethod() string {
 	if !MethodV2Enabled() {
 		return workingMethodSteps + workingMethodRules
 	}
+	restriction := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_METHOD_NO_OUTSIDE_CODE") {
+		restriction = "If the instruction forbids outside code or dependencies, do not download or copy them; build from the tools you have.\n"
+	}
 	dataCheck := ""
 	if envFlagDefaultOn(nil, "EXCALIBUR_METHOD_DATA_FORMAT") {
 		dataCheck = "Before computing on a data file, check its format (separators, decimal commas, units, header) and print a few parsed values next to the raw text.\n"
 	}
 	broadCheck := ""
 	if envFlagDefaultOn(nil, "EXCALIBUR_BROAD_REVERIFICATION") {
-		broadCheck = "When asked to remove or replace every occurrence of something, verify at the end with a broad pattern search over all files, not only the exact values you already changed.\n"
+		broadCheck = "After removing or replacing every occurrence, run a broad pattern search over all files.\n"
 	}
-	return workingMethodSteps + workingMethodEvidence + dataCheck + broadCheck +
+	return workingMethodSteps + workingMethodEvidence + dataCheck + broadCheck + restriction +
 		"Rules: do not stop early; use tools. Use pinned working notes instead of re-reading large outputs."
 }
 

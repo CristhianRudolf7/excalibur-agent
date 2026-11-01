@@ -101,3 +101,82 @@ func TestInputSnapshotRootsWithoutSnapshot(t *testing.T) {
 		t.Fatalf("missing root: %v %v", snap, err)
 	}
 }
+
+func TestInputSnapshotPreservesPrivateBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sub", "input.txt")
+	writeFile(t, path, "original bytes")
+	copyDir := filepath.Join(t.TempDir(), "originals")
+	snap, err := TakeInputSnapshotWithCopies(dir, InputSnapshotHashBudget, copyDir)
+	if err != nil || snap == nil {
+		t.Fatalf("snapshot: %v %v", snap, err)
+	}
+	copy := snap.Entries[path].OriginalCopy
+	if copy == "" {
+		t.Fatal("missing original byte copy")
+	}
+	writeFile(t, path, "modified")
+	content, err := os.ReadFile(copy)
+	if err != nil || string(content) != "original bytes" {
+		t.Fatalf("modified source damaged copy: %q %v", content, err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(copy)
+	if err != nil || string(content) != "original bytes" {
+		t.Fatalf("deleted source lost copy: %q %v", content, err)
+	}
+	info, err := os.Stat(copyDir)
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("private copy directory: %v %v", info, err)
+	}
+}
+
+func TestInputSnapshotSkipsOversizedTreeCopies(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "small.txt"), "small")
+	large := filepath.Join(dir, "large.dat")
+	f, err := os.Create(large)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = f.Truncate(InputSnapshotCopyBudget)
+	_ = f.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "copies")
+	snap, err := TakeInputSnapshotWithCopies(dir, 0, dest)
+	if err != nil || snap == nil || len(snap.Entries) != 2 {
+		t.Fatalf("metadata still required: %+v %v", snap, err)
+	}
+	for _, entry := range snap.Entries {
+		if entry.OriginalCopy != "" {
+			t.Fatal("oversized tree was partially copied")
+		}
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Fatalf("oversized copy destination exists: %v", err)
+	}
+}
+
+func TestInputSnapshotCopySkipsBuildCacheAndOutsideSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside")
+	writeFile(t, outside, "outside")
+	for _, name := range []string{"build", ".cache", "node_modules"} {
+		writeFile(t, filepath.Join(dir, name, "skip"), "ignored")
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(dir, "private", "copies")
+	writeFile(t, filepath.Join(dest, "old"), "old snapshot")
+	path := filepath.Join(dir, "input")
+	writeFile(t, path, "input")
+	snap, err := TakeInputSnapshotWithCopies(dir, 1000, dest)
+	if err != nil || snap == nil || len(snap.Entries) != 1 || snap.Entries[path].OriginalCopy == "" {
+		t.Fatalf("unexpected entries: %+v %v", snap, err)
+	}
+}

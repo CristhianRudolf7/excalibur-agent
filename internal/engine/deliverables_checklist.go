@@ -141,6 +141,9 @@ func (e *Engine) confirmationText(run *Run) string {
 	var b strings.Builder
 	b.WriteString("finish checks passed.")
 	items := checklistItems(request, checklistMaxItems)
+	if switchOn("EXCALIBUR_CHECKLIST_EXAMPLES") {
+		items = append(items, instructionExamples(request)...)
+	}
 	if switchOn("EXCALIBUR_BROAD_REVERIFICATION") && broadOccurrenceRe.MatchString(request) && broadRemovalRe.MatchString(request) {
 		// Advisory confirmation only: this never refuses a finish by itself.
 		items = append(items, broadVerificationItem)

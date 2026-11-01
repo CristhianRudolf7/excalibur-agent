@@ -61,7 +61,7 @@ func writeJSONL(t *testing.T, path string, rows []any) {
 // failed final state, one errored model call, zero usage.
 func harnessTrial(t *testing.T, dir string) {
 	t.Helper()
-	writeTrialDoc(t, dir, "terminal-bench/dna-insert", "dna-insert__X", 0, "")
+	writeTrialDoc(t, dir, "task-a", "task-a__X", 0, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestIndexTrialHarnessError(t *testing.T) {
 // the verifier scored 0.
 func verifierTrial(t *testing.T, dir string) {
 	t.Helper()
-	writeTrialDoc(t, dir, "terminal-bench/write-compressor", "write-compressor__Y", 0, "")
+	writeTrialDoc(t, dir, "task-b", "task-b__Y", 0, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)

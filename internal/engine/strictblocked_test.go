@@ -51,18 +51,15 @@ func TestStrictBlockedSwitchDefaults(t *testing.T) {
 	}
 }
 
-// Validation failures while time remains are refused with a structured
-// recovery prompt. This reproduces the measured premature blocked
-// (21-22/74 runs end blocked after a single failed validation with
-// most of the time unused; only 1 passed).
+// Validation failures while time remains require another repair attempt.
 func TestStrictBlockedRefusesValidationFailure(t *testing.T) {
 	t.Setenv(StrictBlockedSwitch, "on")
 	history := []tasks.HistoryTool{
-		{Name: "exec", Args: `{"command":"Rscript -e 'source(\"/app/ars.R\"); print(test())'"}`, Output: "Error: hull fails for normal points", IsError: true},
-		{Name: "exec", Args: `{"command":"Rscript -e 'print(.ars_hull(...))'"}`, Output: "Error: degenerate", IsError: true},
+		{Name: "exec", Args: `{"command":"Rscript -e 'source(\"/app/statistics.R\"); print(test())'"}`, Output: "Error: calculation fails for ordinary input", IsError: true},
+		{Name: "exec", Args: `{"command":"Rscript -e 'print(.compute_statistic(...))'"}`, Output: "Error: degenerate", IsError: true},
 	}
 	e, run := strictRunWithHistory(history, 3600)
-	reason := "Created the requested R source and attempted runtime verification, but the ARS hull implementation fails for normal-distribution support points. No valid result or sample files were generated."
+	reason := "Created the requested R source and attempted runtime verification, but the statistics implementation fails for ordinary input values. No valid result or sample files were generated."
 	refusal := e.strictBlockedRefusal(run, reason)
 	if refusal == "" {
 		t.Fatal("validation-failure blocked must be refused while time remains")
@@ -160,28 +157,24 @@ func TestStrictBlockedSwitchOff(t *testing.T) {
 	}
 }
 
-// W10 regression from v9-default qemu-alpine-ssh: the agent started
-// QEMU, waited, killed it itself (`kill 366`), then called `finish`
-// status=blocked claiming the VM and SSH were unavailable. The old
-// policy accepted with 0 refusals because the reason carried no
-// validation keywords. It must be refused: self-caused
-// unavailability is never external.
-func TestStrictBlockedRefusesSelfStoppedQemu(t *testing.T) {
+// Stopping a required VM service is self-caused unavailability and cannot
+// justify an external-blocker claim.
+func TestStrictBlockedRefusesSelfStoppedVM(t *testing.T) {
 	t.Setenv(StrictBlockedSwitch, "on")
 	history := []tasks.HistoryTool{
-		{Name: "exec", Args: `{"command":"qemu-system-x86_64 -machine accel=tcg -m 512 -cdrom /app/alpine.iso -boot d -nographic -monitor none -serial stdio -netdev user,id=n1,hostfwd=tcp::2222-:22 -device e1000,netdev=n1"}`, Output: "exit: running session: sess-3 alive: true", IsError: false},
+		{Name: "exec", Args: `{"command":"qemu-system-x86_64 -machine accel=tcg -m 512 -cdrom /app/guest.iso -boot d -nographic -monitor none -serial stdio -netdev user,id=n1,hostfwd=tcp::2222-:22 -device e1000,netdev=n1"}`, Output: "exit: running session: sess-3 alive: true", IsError: false},
 		{Name: "exec", Args: `{"command":"ps -eo pid,args | grep '[q]emu-system'"}`, Output: "366 qemu-system-x86_64 -machine accel=tcg", IsError: false},
 		{Name: "exec", Args: `{"command":"kill 366; sleep 1;"}`, Output: "exit: 0", IsError: false},
 	}
 	e, run := strictRunWithHistory(history, 3600)
-	reason := "Alpine live ISO only reached its boot prompt and port 2222 was not serving SSH (connection timed out); QEMU was stopped, so the requested persistent VM and password-authenticated shell are not available."
+	reason := "The guest ISO only reached its boot prompt and port 2222 was not serving SSH (connection timed out); QEMU was stopped, so the requested persistent VM and password-authenticated shell are not available."
 	if refusal := e.strictBlockedRefusal(run, reason); refusal == "" {
-		t.Fatal("self-stopped QEMU blocked must be refused (was accepted with 0 refusals)")
+		t.Fatal("self-stopped VM blocked must be refused (was accepted with 0 refusals)")
 	} else if !strings.Contains(strings.ToLower(refusal), "strict blocked") {
 		t.Fatalf("refusal must name strict blocked, got: %s", refusal)
 	}
 	if !isSelfCausedUnavailability(reason, history) {
-		t.Fatal("qemu shape must be detected as self-caused")
+		t.Fatal("VM service must be detected as self-caused")
 	}
 }
 

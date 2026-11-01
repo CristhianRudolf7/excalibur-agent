@@ -34,8 +34,8 @@ func TestExtractInstallPaths(t *testing.T) {
 	if keys["/app/povray-2.2"] == "" {
 		t.Fatalf("missing /app/povray-2.2 in %+v", reqs)
 	}
-	if got := keys["/usr/local/bin/povray"]; got != "" {
-		t.Fatalf("path outside allowed roots became a requirement: %q (in %+v)", got, reqs)
+	if got := keys["/usr/local/bin/povray"]; got != ArtifactExecutable {
+		t.Fatalf("installed executable missing: %q (in %+v)", got, reqs)
 	}
 }
 
@@ -353,7 +353,7 @@ func TestLiveSessionsLifecycle(t *testing.T) {
 
 func TestBackgroundBlocksUnverifiedServer(t *testing.T) {
 	history := []HistoryTool{
-		{Name: "exec", Args: "pypi-server", Output: "session: sess-5 alive: true next_offset: 0"},
+		{Name: "exec", Args: "package-service", Output: "session: sess-5 alive: true next_offset: 0"},
 	}
 	req := "Set up a pypi server on port 8080 locally."
 	if got := CheckBackgroundSessions(history, req, "done"); len(got) != 1 || !strings.Contains(got[0], "unverified") {

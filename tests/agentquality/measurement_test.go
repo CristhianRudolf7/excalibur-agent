@@ -114,7 +114,7 @@ func TestQuickCompareLoop(t *testing.T) {
 // peak followed by a zero final row indexes the peak, not zero.
 func TestResourcePeakIndexed(t *testing.T) {
 	dir := t.TempDir()
-	result := `{"task_name":"terminal-bench/x","trial_name":"x__1",` +
+	result := `{"task_name":"task-a","trial_name":"x__1",` +
 		`"verifier_result":{"rewards":{"reward":1}},` +
 		`"agent_execution":{"started_at":"2026-10-31T19:05:01Z","finished_at":"2026-10-31T19:05:04Z"}}`
 	if err := os.WriteFile(filepath.Join(dir, "result.json"), []byte(result), 0o644); err != nil {

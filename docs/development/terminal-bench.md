@@ -29,7 +29,7 @@ All commands run from the repository root.
   `-k 5` default, no timeout/resource changes, no upload unless
   `--upload`):
   `excalibur bench tb21 run --credentials-file CREDS.json
-  --tasks terminal-bench/write-compressor,terminal-bench/log-summary-date-ranges
+  --tasks task-a,task-b
   --k 1 --concurrency 1 --jobs-dir jobs/tb21-test [--dry-run]`
   Provider/model/effort come from flags (`--provider --model --effort
   --base-url`) or fall back to the credentials file. `--tasks` maps to
@@ -89,8 +89,7 @@ adapter; transient provider errors retry through the gateway
 ## Live verification (2026-10-31)
 
 Static build + `eval smoke` pass. Two TB21 tasks with k=1 and
-`gpt-6-luna` (effort `low`): `terminal-bench/write-compressor` and
-`terminal-bench/log-summary-date-ranges`. Both trials produced complete
+`gpt-6-luna` (effort `low`). Both trials produced complete
 records and a valid report with zero Harbor exceptions; both failed on
 the verifier (reward 0), which is a task outcome, not a harness error.
 Job dir (ephemeral `/tmp`): `manifest.json`, `trials.jsonl`,

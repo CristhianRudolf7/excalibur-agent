@@ -35,25 +35,25 @@ func TestDetectMissingFromRecordedOutputs(t *testing.T) {
 		wantNil bool
 	}{
 		{
-			name:    "python3 missing (adaptive-rejection-sampler)",
+			name:    "python3 missing (statistics script)",
 			command: "python3 -c 1",
 			output:  "/usr/bin/bash: line 1: python3: command not found\nNORMAL: FAIL (missing value)",
 			kind:    KindCommand, dep: "python3",
 		},
 		{
-			name:    "file missing (extract-elf)",
+			name:    "file missing (binary inspection)",
 			command: "file /app/a.out",
 			output:  "session: sess-2 alive: false\n/usr/bin/bash: line 1: file: command not found\nhint: command not found: file.",
 			kind:    KindCommand, dep: "file",
 		},
 		{
-			name:    "ps missing (pypi-server)",
+			name:    "ps missing (package service)",
 			command: "ps aux",
 			output:  "session: sess-7 alive: false\n/usr/bin/bash: line 1: ps: command not found",
 			kind:    KindCommand, dep: "ps",
 		},
 		{
-			name:    "ss missing (qemu-alpine-ssh)",
+			name:    "ss missing (VM service)",
 			command: "ss -tln",
 			output:  "/bin/bash: line 1: ss: command not found\nhint: command not found: ss.",
 			kind:    KindCommand, dep: "ss",
@@ -65,13 +65,13 @@ func TestDetectMissingFromRecordedOutputs(t *testing.T) {
 			kind:    KindPythonMod, dep: "chess",
 		},
 		{
-			name:    "cv2 module missing (sam-cell-seg)",
+			name:    "cv2 module missing (image processing)",
 			command: "python3 seg.py",
 			output:  "Traceback (most recent call last):\n  File \"seg.py\", line 6, in <module>\n    import cv2\nModuleNotFoundError: No module named 'cv2'\n",
 			kind:    KindPythonMod, dep: "cv2",
 		},
 		{
-			name:    "lapack shared lib (train-fasttext)",
+			name:    "lapack shared lib (model training)",
 			command: "./train",
 			output:  "ImportError: liblapack.so.3: cannot open shared object file: No such file or directory",
 			kind:    KindSharedLib, dep: "liblapack.so.3",

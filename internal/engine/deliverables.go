@@ -645,7 +645,11 @@ func (e *Engine) softFinishWarnings(run *Run, request string, history []tasks.Hi
 	}
 	if InputSnapshotEnabled() && snap != nil {
 		for _, c := range snap.Changes(func(p string) bool { return asksToModify(request, p) }) {
-			out = append(out, "provided file "+c.Path+" was "+c.Kind+" and the instruction does not ask to change it: restore it or confirm the change is intended")
+			warning := "provided file " + c.Path + " was " + c.Kind + " and the instruction does not ask to change it: restore it or confirm the change is intended"
+			if copy := snap.Entries[c.Path].OriginalCopy; copy != "" {
+				warning += "; original copy: " + copy + " (restore with cp -a " + shellRestorePath(copy) + " " + shellRestorePath(c.Path) + ")"
+			}
+			out = append(out, warning)
 		}
 	}
 	if DeliverableChecksEnabled() {
@@ -819,8 +823,12 @@ func (e *Engine) startInputSnapshot(run *Run) {
 	}
 	run.fin.snapshotTaken = true
 	workdir := run.Workdir
+	copyDir := run.fin.inputCopyDir
 	run.mu.Unlock()
-	snap, err := tasks.TakeInputSnapshot(workdir, tasks.InputSnapshotHashBudget)
+	if !switchOn("EXCALIBUR_INPUT_COPIES") {
+		copyDir = ""
+	}
+	snap, err := tasks.TakeInputSnapshotWithCopies(workdir, tasks.InputSnapshotHashBudget, copyDir)
 	if err != nil || snap == nil {
 		return
 	}
@@ -859,4 +867,23 @@ func (e *Engine) finishRequirements(run *Run, request string) []tasks.ArtifactRe
 func verificationEntryReason(h tasks.HistoryTool) string {
 	_, detail := execFailed(h)
 	return "the last verification failed: `" + truncOneLine(execCommand(h.Args), 120) + "` (" + detail + "; output: " + lastOutputLines(h.Output, 3, 300) + "). Fix the cause, re-run the check, and only then call finish."
+}
+
+// SetInputCopyDir sets the private run-state destination before Start. Exec
+// wiring supplies it; other engine callers retain metadata-only snapshots
+// unless they explicitly supply their own persistent state directory.
+func (r *Run) SetInputCopyDir(dir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fin.inputCopyDir = dir
+}
+
+// shellRestorePath keeps simple paths readable and quotes all shell syntax.
+func shellRestorePath(path string) string {
+	for _, c := range path {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("/._-", c)) {
+			return "'" + strings.ReplaceAll(path, "'", `'"'"'`) + "'"
+		}
+	}
+	return path
 }

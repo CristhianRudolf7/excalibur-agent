@@ -399,7 +399,7 @@ func TestWorkingMethodDataFormatCheck(t *testing.T) {
 func TestWorkingMethodBroadReverification(t *testing.T) {
 	t.Setenv(ctxcompiler.EnvMethodV2, "on")
 	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "")
-	want := "When asked to remove or replace every occurrence of something, verify at the end with a broad pattern search over all files, not only the exact values you already changed."
+	want := "After removing or replacing every occurrence, run a broad pattern search over all files."
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing broad verification instruction")
 	}
@@ -409,5 +409,21 @@ func TestWorkingMethodBroadReverification(t *testing.T) {
 	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "off")
 	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("broad verification switch off")
+	}
+}
+
+func TestWorkingMethodNoOutsideCode(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "on")
+	t.Setenv("EXCALIBUR_METHOD_NO_OUTSIDE_CODE", "")
+	want := "If the instruction forbids outside code or dependencies, do not download or copy them; build from the tools you have."
+	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("missing instruction restriction")
+	}
+	if len(ctxcompiler.WorkingMethod()) > 2600 {
+		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
+	}
+	t.Setenv("EXCALIBUR_METHOD_NO_OUTSIDE_CODE", "off")
+	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("restriction switch off")
 	}
 }

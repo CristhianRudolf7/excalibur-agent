@@ -8,7 +8,7 @@
 # tb21` entry point and forwards to the binary.
 #
 # Usage: scripts/bench/run.sh <tb21|tb40> <provider/model> [k] [--upload] [-- extra bench flags]
-# Example: scripts/bench/run.sh tb21 openai/gpt-6-luna 1 -- --credentials-file ~/.config/excalibur/credentials/openai.json --tasks terminal-bench/write-compressor
+# Example: scripts/bench/run.sh tb21 openai/gpt-6-luna 1 -- --credentials-file ~/.config/excalibur/credentials/openai.json --tasks task-b
 set -euo pipefail
 
 if [[ $# -lt 2 ]]; then

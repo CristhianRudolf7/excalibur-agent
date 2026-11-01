@@ -70,3 +70,15 @@ func TestNonEvalSurfacesKeepLegacyCore(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillsOffEffectiveSurface(t *testing.T) {
+	t.Setenv("EXCALIBUR_SKILLS", "off")
+	for _, profile := range []ProfileName{ProfileEval, ProfileDefault, ProfileDelegate} {
+		core, deferred := EffectiveTools(profile)
+		for _, name := range []string{"search_skills", "load_skill"} {
+			if containsTool(core, name) || containsTool(deferred, name) {
+				t.Fatalf("%s exposes %s with skills off", profile, name)
+			}
+		}
+	}
+}

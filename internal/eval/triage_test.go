@@ -357,7 +357,7 @@ func TestTriageMisunderstood(t *testing.T) {
 	run := t.TempDir()
 	writeTriageTrial(t, run, triageFixture{
 		task: "t/mis", trial: "mis__A", reward: "0",
-		instruction: "Write your R implementation to /app/ars.R and include a test function.",
+		instruction: "Write your R implementation to /app/statistics.R and include a test function.",
 		finalState:  "completed",
 		tools: []ToolCall{
 			triageTool(1, "ls /app", 0, false, "session: sess-1 alive: false\ndata.csv"),

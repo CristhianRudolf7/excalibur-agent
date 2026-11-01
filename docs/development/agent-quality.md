@@ -786,7 +786,7 @@ deterministic guess), and per-cause distribution drift.
   instruction) cover timeout, environment/tooling-missing,
   tool-misuse/harness-friction, loop detector, bare repetition,
   incomplete (shallow), wrong-solution-declared-done,
-   misunderstood-instruction (required `/app/ars.R` never touched),
+   misunderstood-instruction (required `/app/statistics.R` never touched),
    knowledge-gap with domain (`python`), exit-0 failure bodies (a
    traceback recorded with `exit_code` 0 still triages as
    environment/tooling-missing), pass skipping, no-reward skipping
@@ -2621,7 +2621,7 @@ benchmark failures or derives prompts from task contents.
   OK), wall binds and closes with honest `time` reason and closing
   copy, one-time closing note through the real step loop.
 - `internal/engine/strictblocked_test.go`: switch defaults, refusal of
-  the recorded ARS-style validation failure with the three-approaches
+  the generic statistics validation failure with the three-approaches
   recovery shape, acceptance of network-after-retries / permission /
   missing-plus-failed-install / operator-missing-data / no-time-left,
   switch-off acceptance, end-to-end refusal counting
@@ -2778,10 +2778,8 @@ override, Darwin and Windows cross builds, and the no-bare-go check.
 ## W10: run-end services and strict blocked closure (Sections 7.3, 13.5)
 
 Owner: w10-run-end-services workstream (branch `w10-run-end-services`).
-Implements the director's three run-end fixes from read-only v9-default
-records (never task contents): pypi-server lost at run end, qemu blocked
-with 0 refusals after self-kill, extract-elf blocked on missing
-reference. Decision: `docs/decisions/0060-w10-run-end-services.md`.
+Preserves required background services and refuses external-blocker claims
+caused by stopping a required service or missing a reference implementation. Decision: `docs/decisions/0060-w10-run-end-services.md`.
 Connectors untouched.
 
 ### Mechanisms (all default ON)
@@ -2838,9 +2836,7 @@ evaluation and auditing (Section 23.2, Appendix F).
   records the survivor) and prompt teaching (`keep_running`, killing
   rule).
 - `internal/engine/strictblocked_test.go`: W10 regressions
-  `TestStrictBlockedRefusesSelfStoppedQemu` (v9 qemu shape, 0-refusal
-  hole) and `TestStrictBlockedRefusesMissingReference` (v9 extract-elf
-  shape); closing (`TestStrictBlockedAcceptsWhenNoTimeRemains`) now
+  `TestStrictBlockedRefusesSelfStoppedVM` (self-stopped VM service) and `TestStrictBlockedRefusesMissingReference` (missing reference claim); closing (`TestStrictBlockedAcceptsWhenNoTimeRemains`) now
   refuses blocked and requires completed.
 - Existing suites unchanged and green (see final verification below).
 ## W11: Verification of generalisation and explicit output properties
@@ -4916,3 +4912,56 @@ requests, blocked-claim evidence and actionable refusal hints. This prevents a
 rejected repeat of a successful verification command from failing the next
 finish. `TestFinishVerificationExcludesUnexecutedRepeat` checks this path and
 confirms the original refusal remains in the model/audit history.
+
+## Skills-off enforcement (Sections 13.2–13.4)
+
+The existing `EXCALIBUR_SKILLS=off` switch removes `search_skills` and
+`load_skill` from the core and deferred discovery surfaces and refuses
+direct calls and calls through `call_tool`. Unset retains the existing
+assistant defaults. Tests cover all CLI profiles, discovery, direct execution,
+and wrapped execution.
+
+## Instruction restrictions in the working method (Section 7.3)
+
+`EXCALIBUR_METHOD_NO_OUTSIDE_CODE` (default ON) adds a concise rule to the
+v2 method: when the instruction forbids outside code or dependencies,
+do not download or copy them; build from available tools. This is guidance.
+The method still fits the 2,600-character budget; the v1 ablation golden
+is unchanged. The existing broad-search rule is shortened without changing
+its meaning.
+
+## Recoverable provided inputs (Sections 7.5–7.6)
+
+`EXCALIBUR_INPUT_COPIES` (default ON) extends the existing run-start input
+snapshot with original bytes under the run's private `input-originals`
+directory (mode 0700). Copying requires `EXCALIBUR_INPUT_SNAPSHOT` and a
+run-state destination. Exec supplies that destination; embedded engine callers
+can supply it with `SetInputCopyDir`.
+
+Eligible trees totaling at most 64 MB are copied. Larger trees and walks
+reaching the file-count bound retain metadata only. Build/cache directories,
+symlinks, and the copy destination are excluded. Reads are confined to the
+workdir. Copies are retained with run state. Changed or deleted inputs that
+the instruction did not ask to modify get an advisory original-copy path and
+a shell-quoted `cp -a` restore command in the finish checklist.
+
+## Literal instruction examples (Sections 7.5–7.6)
+
+With `EXCALIBUR_CHECKLIST_EXAMPLES` (default ON), the confirmation checklist
+includes up to five deduplicated literal input/output pairs from function
+equalities, prose examples, arrows, or labelled fenced input/output blocks.
+Each asks for reproduction and at least one input outside the examples.
+These are advisory reminders: they add no refusal condition and the normal
+second finish can complete without machine-readable example evidence.
+
+## Explicit installed deliverables (Sections 7.5–7.6)
+
+`EXCALIBUR_INSTALLED_DELIVERABLES` (default ON) extends strict artifact
+extraction to named paths under /usr/local/bin, /usr/local/lib,
+/usr/local/share, and /opt. The instruction must name the path and ask to
+create, install, place, or build it. Mere mentions, examples and negated
+installation instructions do not cause checks. All such paths must exist;
+paths containing /bin/ must be executable files. Libraries and shared data
+need no execute bit. Basenames inside installed paths do not create duplicate
+workdir-relative requirements. Existing artifact-gate/profile controls remain
+in force; disabling the switch restores the previous root set.

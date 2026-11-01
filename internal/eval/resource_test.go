@@ -47,7 +47,7 @@ func writeZeroSnapshot(t *testing.T, exDir string) {
 // trailing zero final row cannot hide it.
 func TestIndexTrialPeakResources(t *testing.T) {
 	dir := t.TempDir()
-	writeTrialDoc(t, dir, "terminal-bench/x", "x__1", 1, "")
+	writeTrialDoc(t, dir, "task-a", "x__1", 1, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestIndexTrialPeakResources(t *testing.T) {
 // sampler keeps honest zeros instead of gaps.
 func TestIndexTrialAllZeroStaysZero(t *testing.T) {
 	dir := t.TempDir()
-	writeTrialDoc(t, dir, "terminal-bench/x", "x__1", 0, "")
+	writeTrialDoc(t, dir, "task-a", "x__1", 0, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -96,7 +96,7 @@ func TestIndexTrialAllZeroStaysZero(t *testing.T) {
 // wins.
 func TestIndexTrialSnapshotPeakWins(t *testing.T) {
 	dir := t.TempDir()
-	writeTrialDoc(t, dir, "terminal-bench/x", "x__1", 1, "")
+	writeTrialDoc(t, dir, "task-a", "x__1", 1, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -125,7 +125,7 @@ func TestIndexTrialSnapshotPeakWins(t *testing.T) {
 // ChildPeakRSS flow into the container peak.
 func TestIndexTrialChildPeak(t *testing.T) {
 	dir := t.TempDir()
-	writeTrialDoc(t, dir, "terminal-bench/x", "x__1", 1, "")
+	writeTrialDoc(t, dir, "task-a", "x__1", 1, "")
 	exDir := filepath.Join(dir, "agent", "excalibur")
 	if err := os.MkdirAll(exDir, 0o755); err != nil {
 		t.Fatal(err)

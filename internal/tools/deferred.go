@@ -102,7 +102,9 @@ func (c *DeferredCatalog) CoreNames() []string {
 	defer c.mu.RUnlock()
 	out := make([]string, 0, len(c.core))
 	for n := range c.core {
-		out = append(out, n)
+		if !SkillToolDisabled(n) {
+			out = append(out, n)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -114,7 +116,9 @@ func (c *DeferredCatalog) DeferredNames() []string {
 	defer c.mu.RUnlock()
 	out := make([]string, 0, len(c.deferred))
 	for n := range c.deferred {
-		out = append(out, n)
+		if !SkillToolDisabled(n) {
+			out = append(out, n)
+		}
 	}
 	sort.Strings(out)
 	return out
@@ -130,7 +134,9 @@ func (c *DeferredCatalog) coreDefinitions() []Definition {
 	c.mu.RLock()
 	names := make([]string, 0, len(c.core))
 	for n := range c.core {
-		names = append(names, n)
+		if !SkillToolDisabled(n) {
+			names = append(names, n)
+		}
 	}
 	c.mu.RUnlock()
 	sort.Strings(names)
@@ -204,7 +210,9 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 	c.mu.RLock()
 	names := make([]string, 0, len(c.deferred))
 	for n := range c.deferred {
-		names = append(names, n)
+		if !SkillToolDisabled(n) {
+			names = append(names, n)
+		}
 	}
 	c.mu.RUnlock()
 	sort.Strings(names)
@@ -486,6 +494,9 @@ func (t *CallToolTool) Invoke(ctx context.Context, inv Invocation) (Result, erro
 	}
 	if a.Name == "" {
 		return Result{Status: StatusInputError, Output: "name is required: call_tool {\"name\": \"<tool>\", \"arguments\": {...}}; the name may also sit inside arguments"}, nil
+	}
+	if SkillToolDisabled(a.Name) {
+		return Result{Status: StatusInputError, Output: "skills library is disabled (EXCALIBUR_SKILLS=off)"}, nil
 	}
 	if a.Name == "call_tool" || (a.Name == "search_tools" && !FrictionRepairEnabled()) {
 		return Result{Status: StatusInputError, Output: "call_tool cannot invoke itself or search_tools"}, nil

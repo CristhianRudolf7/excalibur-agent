@@ -205,9 +205,16 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 	if text == "" {
 		return nil
 	}
+	sentences := splitSentences(text)
 	seen := map[string]bool{}
 	var out []ArtifactRequirement
 	add := func(kind ArtifactKind, path string, port int, url, detail, source string, expect []string) {
+		if DeliverableChecksEnabled() && installedDeliverablesEnabled() && installedDeliverablePath(path) {
+			sentence := sentenceWith(sentences, path)
+			if !installedCreateRe.MatchString(sentence) || installedNegationRe.MatchString(sentence) || isExampleUse(sentence, path) {
+				return
+			}
+		}
 		if DeliverableChecksEnabled() && filepath.IsAbs(path) && len(StrictAbsolutePaths(path, workdir)) == 0 {
 			return
 		}
@@ -226,7 +233,6 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 			Detail: detail, Source: source,
 		})
 	}
-	sentences := splitSentences(text)
 	// Absolute paths first: the strongest, most checkable items.
 	absPaths := absPathRe.FindAllString(text, -1)
 	if DeliverableChecksEnabled() {
@@ -292,7 +298,13 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 	// Bare file names with known extensions: only when quoted or in
 	// an imperative, non-negated sentence, so prose examples and
 	// as-is descriptions never count.
-	for _, f := range bareFileRe.FindAllString(text, -1) {
+	for _, loc := range bareFileRe.FindAllStringIndex(text, -1) {
+		f := text[loc[0]:loc[1]]
+		// A basename inside a newly supported installed path is not a
+		// second, workdir-relative deliverable.
+		if installedDeliverablesEnabled() && installedPathFragment(text, loc[0], loc[1]) {
+			continue
+		}
 		if isBarePatternToken(f) {
 			continue
 		}
@@ -385,6 +397,9 @@ func StrictAbsolutePaths(text, workdir string) []string {
 // underKnownRoot reports whether an absolute path is under one of the
 // deliverable roots or under the run workdir.
 func underKnownRoot(p, workdir string) bool {
+	if installedDeliverablesEnabled() && installedDeliverablePath(p) {
+		return true
+	}
 	if w := strings.TrimRight(workdir, "/"); w != "" && (p == w || strings.HasPrefix(p, w+"/")) {
 		return true
 	}
@@ -505,6 +520,12 @@ func isBarePatternToken(tok string) bool {
 // classifyPath decides whether a required path is an executable, an
 // output, or a plain path from its sentence and location.
 func classifyPath(sentence, path string) ArtifactKind {
+	if DeliverableChecksEnabled() && installedDeliverablesEnabled() && installedDeliverablePath(path) {
+		if strings.Contains(filepath.Clean(path), "/bin/") {
+			return ArtifactExecutable
+		}
+		return ArtifactPath
+	}
 	lower := strings.ToLower(sentence)
 	pl := strings.ToLower(path)
 	if hasAny(lower, executableSignals) || strings.Contains(pl, "/bin/") ||
@@ -515,6 +536,39 @@ func classifyPath(sentence, path string) ArtifactKind {
 		return ArtifactOutput
 	}
 	return ArtifactPath
+}
+
+// Installed destinations require a named path and a create/install action.
+// Mere mentions remain inputs or context rather than finish requirements.
+var installedCreateRe = regexp.MustCompile(`(?i)\b(create|install|place|build|put|write|save|compile|produce|generate|make|(?:must|should|will|to)\s+be\s+(?:created|installed|placed|built|put|written|saved|compiled|produced|generated|made))\b`)
+var installedNegationRe = regexp.MustCompile(`(?i)\b(do not|don't|never|must not|should not|need not|already)\b`)
+
+func installedDeliverablesEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_INSTALLED_DELIVERABLES"))) {
+	case "off", "0", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+func installedDeliverablePath(path string) bool {
+	path = filepath.Clean(path)
+	for _, root := range []string{"/usr/local/bin", "/usr/local/lib", "/usr/local/share", "/opt"} {
+		if strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func installedPathFragment(text string, start, end int) bool {
+	for _, loc := range absPathRe.FindAllStringIndex(text, -1) {
+		if loc[0] <= start && end <= loc[1] && installedDeliverablePath(strings.TrimRight(text[loc[0]:loc[1]], ".,;:")) {
+			return true
+		}
+	}
+	return false
 }
 
 // looksLikeFileToken reports whether a quoted span names a file
@@ -634,7 +688,8 @@ func CheckArtifactFiles(reqs []ArtifactRequirement, history []HistoryTool, workd
 					"required artifact missing: "+r.Path+" — create it as stated ("+shortSource(r.Source)+")")
 				continue
 			}
-			if r.Kind == ArtifactExecutable && !fs.IsDir && !fs.Executable {
+			installedDirectory := installedDeliverablesEnabled() && installedDeliverablePath(r.Path) && fs.IsDir
+			if r.Kind == ArtifactExecutable && (installedDirectory || (!fs.IsDir && !fs.Executable)) {
 				pendings = append(pendings,
 					"required artifact not executable: "+r.Path+" — install it so it runs ("+shortSource(r.Source)+")")
 				continue

@@ -32,7 +32,7 @@ func writeTrialFiles(t *testing.T, root, name string, files map[string]string) s
 func harborResult(t *testing.T, name string, reward float64, excType, excMsg string) string {
 	t.Helper()
 	doc := map[string]any{
-		"task_name":       "terminal-bench/" + name,
+		"task_name":       "synthetic/" + name,
 		"trial_name":      name,
 		"verifier_result": map[string]any{"rewards": map[string]float64{"reward": reward}},
 	}

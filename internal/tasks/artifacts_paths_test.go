@@ -20,7 +20,7 @@ func TestStrictAbsolutePaths(t *testing.T) {
 		{"date shaped under root", "Log to /tmp/2025/02/14/run.log", "", nil},
 		{"date value after a name", "the row for data/2025/02/14 is kept", "", nil},
 		{"url is not a path", "Fetch https://example.com/app/data and save /app/x.bin", "", []string{"/app/x.bin"}},
-		{"unknown root", "Install the tool at /usr/local/bin/tool", "", nil},
+		{"installed root", "Install the tool at /usr/local/bin/tool", "", []string{"/usr/local/bin/tool"}},
 		{"workdir outside roots", "Create /work/project/out.txt", "/work/project", []string{"/work/project/out.txt"}},
 		{"workdir prefix is not a directory match", "Create /work/projectx/out.txt", "/work/project", nil},
 	}

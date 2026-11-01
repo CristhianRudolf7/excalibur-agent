@@ -966,6 +966,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		return "", providers.Usage{}, "", err
 	}
 	erun.SetPromptFinishRecordDir(filepath.Dir(run.ATIF.Path()))
+	erun.SetInputCopyDir(filepath.Join(run.Dir, "input-originals"))
 	if err := eng.Start(ctx, erun); err != nil {
 		close(stopSampler)
 		return "", providers.Usage{}, "", err

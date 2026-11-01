@@ -24,6 +24,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/registry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 )
@@ -308,7 +309,7 @@ func EffectiveTools(profile ProfileName) (core, deferred []string) {
 	if profile == ProfileDefault {
 		core = append(core, "send_message", "question_answer")
 	}
-	return core, deferred
+	return tools.WithoutDisabledSkills(core), tools.WithoutDisabledSkills(deferred)
 }
 
 // ToolsHash pins the exposed catalog for a profile.
