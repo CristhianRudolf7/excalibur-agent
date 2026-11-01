@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sort"
 	"strings"
 
@@ -48,8 +49,14 @@ type responsesRequest struct {
 	Reasoning       *respReasoning `json:"reasoning,omitempty"`
 	MaxOutputTokens int            `json:"max_output_tokens,omitempty"`
 	PromptCacheKey  string         `json:"prompt_cache_key,omitempty"`
+	ServiceTier     string         `json:"service_tier,omitempty"`
 	Stream          bool           `json:"stream"`
 }
+
+// ServiceTierEnv selects the OpenAI processing tier ("flex", "default",
+// "priority"...). Unset sends no service_tier, so the account default
+// applies.
+const ServiceTierEnv = "EXCALIBUR_SERVICE_TIER"
 
 // respUsage is the Responses usage payload.
 type respUsage struct {
@@ -257,6 +264,7 @@ func (c *respClient) buildBody(req providers.ChatRequest, stream bool) (*respons
 	if c.promptCacheKey != "" {
 		out.PromptCacheKey = c.promptCacheKey
 	}
+	out.ServiceTier = strings.TrimSpace(os.Getenv(ServiceTierEnv))
 	return out, nil
 }
 
