@@ -576,6 +576,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		Name: "child", Role: types.RoleExecutor, ContextRole: "child",
 		Limit: tasks.Limit{MaxSteps: 25},
 	})
+	// Resolve relative artifact paths against the run project
+	// directory for the required-artifact completion gate.
+	erun.Workdir = opts.ProjectDir
 	if maxSecs := engine.ResolveMaxSeconds(opts.TimeoutSecs); maxSecs > 0 {
 		erun.Profile.Limit.MaxSeconds = maxSecs
 		erun.Tracker.Limit.MaxSeconds = maxSecs

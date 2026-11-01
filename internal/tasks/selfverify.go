@@ -69,6 +69,20 @@ type SelfVerifyConfig struct {
 	// deterministic drafts. The deterministic drafts always apply;
 	// refine only improves their wording.
 	EnableRefine bool
+	// EnableStrong is the master switch for strong verification
+	// (strongverify.go): the exercise-the-deliverable check and the
+	// independent verifier pass. Off restores the W1 self-verification
+	// behavior exactly.
+	EnableStrong bool
+	// EnableStrongExercise requires passing checks after the last
+	// change that actually exercise each produced artifact (run,
+	// import, query, parse and validate) instead of merely
+	// observing it.
+	EnableStrongExercise bool
+	// EnableStrongVerifier runs the independent verifier pass (one
+	// cheap verifier-role call per finish attempt) when the
+	// deterministic checks would otherwise let the run complete.
+	EnableStrongVerifier bool
 	// MinFreshChecks is how many successful verification calls must
 	// follow the last change before the run may complete.
 	MinFreshChecks int
@@ -89,16 +103,19 @@ type SelfVerifyConfig struct {
 // integers for counts).
 func DefaultSelfVerifyConfig() SelfVerifyConfig {
 	cfg := SelfVerifyConfig{
-		Enable:             true,
-		EnableExtraction:   true,
-		EnableVerification: true,
-		EnableContrast:     true,
-		EnableIndependent:  true,
-		EnableRefine:       true,
-		MinFreshChecks:     1,
-		MaxReturns:         GateAttempts,
-		MaxDrafts:          6,
-		BigTaskSteps:       20,
+		Enable:               true,
+		EnableExtraction:     true,
+		EnableVerification:   true,
+		EnableContrast:       true,
+		EnableIndependent:    true,
+		EnableRefine:         true,
+		EnableStrong:         true,
+		EnableStrongExercise: true,
+		EnableStrongVerifier: true,
+		MinFreshChecks:       1,
+		MaxReturns:           GateAttempts,
+		MaxDrafts:            6,
+		BigTaskSteps:         20,
 	}
 	cfg.Enable = envBool("EXCALIBUR_SELFVERIFY", cfg.Enable)
 	cfg.EnableExtraction = envBool("EXCALIBUR_SELFVERIFY_EXTRACTION", cfg.EnableExtraction)
@@ -106,6 +123,9 @@ func DefaultSelfVerifyConfig() SelfVerifyConfig {
 	cfg.EnableContrast = envBool("EXCALIBUR_SELFVERIFY_CONTRAST", cfg.EnableContrast)
 	cfg.EnableIndependent = envBool("EXCALIBUR_SELFVERIFY_INDEPENDENT", cfg.EnableIndependent)
 	cfg.EnableRefine = envBool("EXCALIBUR_SELFVERIFY_REFINE", cfg.EnableRefine)
+	cfg.EnableStrong = envBool("EXCALIBUR_STRONG_VERIFY", cfg.EnableStrong)
+	cfg.EnableStrongExercise = envBool("EXCALIBUR_STRONG_VERIFY_EXERCISE", cfg.EnableStrongExercise)
+	cfg.EnableStrongVerifier = envBool("EXCALIBUR_STRONG_VERIFY_VERIFIER", cfg.EnableStrongVerifier)
 	cfg.MinFreshChecks = envInt("EXCALIBUR_SELFVERIFY_MIN_CHECKS", cfg.MinFreshChecks)
 	cfg.MaxReturns = envInt("EXCALIBUR_SELFVERIFY_MAX_RETURNS", cfg.MaxReturns)
 	cfg.MaxDrafts = envInt("EXCALIBUR_SELFVERIFY_MAX_DRAFTS", cfg.MaxDrafts)
@@ -218,7 +238,7 @@ func ExtractDraftCriteria(request string, maxDrafts int) []DraftCriterion {
 	for _, p := range absPathRe.FindAllString(text, -1) {
 		clean := strings.TrimRight(p, ".,;:")
 		add("path "+clean+" exists with the expected content",
-			types.CriterionCommand, "test -e "+shellQuote(clean)+" && ls -l "+shellQuote(clean),
+			types.CriterionCommand, exerciseCheckFor(clean),
 			clean, "path "+clean)
 	}
 	for _, m := range relPathRe.FindAllStringSubmatch(text, -1) {
@@ -227,7 +247,7 @@ func ExtractDraftCriteria(request string, maxDrafts int) []DraftCriterion {
 		}
 		p := strings.TrimRight(m[1], ".,;:")
 		add("path "+p+" exists with the expected content",
-			types.CriterionCommand, "test -e "+shellQuote(p)+" && ls -l "+shellQuote(p),
+			types.CriterionCommand, exerciseCheckFor(p),
 			p, "path "+p)
 	}
 	// Quoted spans that name a file or command.
@@ -249,7 +269,7 @@ func ExtractDraftCriteria(request string, maxDrafts int) []DraftCriterion {
 	// Bare file names with known extensions.
 	for _, f := range bareFileRe.FindAllString(text, -1) {
 		add("file "+f+" exists with the expected content",
-			types.CriterionCommand, "test -s "+shellQuote(f)+" && ls -l "+shellQuote(f),
+			types.CriterionCommand, exerciseCheckFor(f),
 			f, "file "+f)
 	}
 	// Output formats tied to an output verb in the same sentence.
@@ -362,6 +382,39 @@ func shellQuote(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
+}
+
+// scriptRunners maps artifact extensions to the interpreter that
+// exercises them. The mapping is general engineering knowledge (no
+// task, product or benchmark); unknown artifacts keep the existence
+// probe so the suggestion is always runnable.
+var scriptRunners = []struct{ ext, runner string }{
+	{".py", "python3"},
+	{".js", "node"},
+	{".mjs", "node"},
+	{".cjs", "node"},
+	{".ts", "node"},
+	{".sh", "bash"},
+	{".bash", "bash"},
+	{".r", "Rscript"},
+	{".rb", "ruby"},
+	{".php", "php"},
+	{".pl", "perl"},
+	{".jl", "julia"},
+}
+
+// exerciseCheckFor suggests how to exercise an artifact path: run
+// script files with their interpreter (with representative inputs to
+// be filled in by the agent), otherwise probe existence. Running the
+// deliverable outranks merely observing it (Section 18.1).
+func exerciseCheckFor(path string) string {
+	lower := strings.ToLower(path)
+	for _, sr := range scriptRunners {
+		if strings.HasSuffix(lower, sr.ext) {
+			return sr.runner + " " + shellQuote(path)
+		}
+	}
+	return "test -s " + shellQuote(path) + " && ls -l " + shellQuote(path)
 }
 
 // RefinePrompt builds the single model pass over the deterministic
@@ -723,6 +776,14 @@ func ApplySelfVerify(cfg SelfVerifyConfig, gate GateReport, in GateInput, req Se
 					"request parts with no produced artifact: "+strings.Join(capped, "; "))
 			}
 		}
+	}
+	// Strong verification extends (never replaces) the phase above:
+	// the deliverable must be exercised, not merely observed, after
+	// the last change. The independent verifier pass itself runs in
+	// the engine closing hook (verify_hooks.go), which has the model
+	// endpoint; the gate stays tool-free.
+	if cfg.EnableStrong && cfg.EnableStrongExercise && needsVerification(in, req, drafts) {
+		out.Pendings = append(out.Pendings, CheckStrongExercise(req.History, drafts, cfg.MinFreshChecks)...)
 	}
 	out.OK = len(out.Pendings) == 0
 	if len(drafts) > 0 {

@@ -1339,6 +1339,278 @@ history, and prefix tokens per model call.
   same instinct mid-loop), SWE-agent (short prompt, explicit test
   running), Aider (architect/editor split behind expert escalation).
 
+## W3: required-artifact completion gate (Sections 7.3, 7.5)
+
+Owner: required-artifacts workstream. Packages: `internal/tasks`
+(`artifacts.go`, engine-independent) plus the closing seam of
+`internal/engine` (`verify_hooks.go` `applyArtifacts`, `Run.Workdir`,
+`Deps.Artifacts/ArtifactStat/ArtifactRead`) and one workdir line in
+`internal/cli/exec_engine.go`. The connectors are untouched: no
+change to `internal/providers`, the model gateway wire protocol
+(`internal/models`, `internal/gateway`), `internal/api`,
+`packages/contracts`, `integrations/**`, MCP/ACP servers, or the
+`bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, current version)
+
+From the triage of 44 failed evaluation trials (all-on run,
+2026-10-31; tool errors down to ~0, failures now dominated by
+discipline and verification problems):
+
+- 12 failures name files/paths/outputs in the instruction
+  (backticked absolute paths, "put the function in a file called
+  X", "install to Y") that the agent never created, then declare
+  done.
+- 2 more declare done while a background server/process the agent
+  started is still starting (alive session, no verification).
+- The Section 7.5 gate passes vacuously where no criteria are
+  recorded, and the self-verification contrast only checks history
+  mentions, never the filesystem: a wrong-location write, an empty
+  file or a non-executable install slips through.
+
+### Mechanism (default ON)
+
+`internal/tasks/artifacts.go` (stdlib plus the package's existing
+sentence/regex helpers only; no model calls, no network, no tool
+execution):
+
+1. Extraction: a deterministic pass over the literal instruction
+   pulls out required artifacts — absolute and relative paths,
+   file names, executables (`install to`, `compile`, `/bin/`
+   locations), ports (`port 8080`, `:8080`), URLs
+   (`http://localhost:8080/simple`), and output files with their
+   stated content (a CSV header when the instruction names it).
+   Example prose never counts: candidates after `for example`,
+   `e.g.`, `such as`, pattern descriptions
+   (`YYYY-MM-DD_<source>.log`), glob/bracket fragments
+   (`[src][dst]`), and negated or as-is mentions are skipped; bare
+   file names count only when quoted or in an imperative sentence.
+2. Filesystem gate: every path-like requirement must exist
+   (workdir-resolved for relative paths); outputs must be
+   non-empty; executables must carry an execute bit; outputs with
+   stated content must contain it. Ports/URLs pass only when the
+   agent's own successful tool history exercised them (curl, client
+   install, `exec_io` poll).
+3. Background gate: a session that is still alive at finish blocks
+   unless the instruction wants a persistent service (or the final
+   report declares it intentionally persistent) AND the history
+   shows the agent verified it. Unverified sessions ask for
+   verify-then-stop; verified-but-undeclared sessions ask to stop
+   or declare.
+
+The engine seam (`applyArtifacts` in `verify_hooks.go`) merges the
+pendings into the gate report before the honest-state logic, so
+returns stay bounded by the Section 7.3 gate attempts and end
+honest (`completed_with_pending`), never `completed`. `exec` sets
+`Run.Workdir` to the project directory for relative resolution;
+absolute paths are used as-is. Filesystem access is injected
+(`Deps.ArtifactStat/ArtifactRead`, OS defaults) so tests run on
+fakes.
+
+### Switch
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_ARTIFACT_GATE` | `on`/`1`/`true`/`yes` enables | `on` | `off` restores the pre-gate behavior (history contrast only, no filesystem or session checks) |
+
+`EXCALIBUR_ARTIFACT_MAX` overrides the extraction cap (default 8).
+Measure `off` vs `on` on the same task set; watch success rate, the
+share of failures ending `completed` vs `completed_with_pending`,
+gate returns per run, and false blocks (trials blocked on artifacts
+the instruction only mentioned as examples).
+
+### Research sources for this section
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8→66.5 on TB2 with the model fixed. Adopted: onboarding the
+  instruction's stated file paths as exact conformance targets
+  ("task specs that mention file paths should be followed
+  exactly"), the `PreCompletionChecklistMiddleware` exit
+  interception (our finish-path merge), and loop-detection notes
+  for doom loops. Nothing derived from any benchmark's tasks,
+  tests or solutions; only general harness behaviour.
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, abstract
+  in the shared reference base): harness code (what to store,
+  retrieve, present) moves results more than weights, with larger
+  gains on weaker models. Motivates the deterministic,
+  model-call-free extractor over prompt growth.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited from the
+  architecture refs): systematic harness search with standard
+  evaluation and auditing records (Section 23.2, Appendix F) as the
+  objective — the gate's pendings and `gate_attempts.jsonl` are
+  that signal for this lever.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop;
+  kept as the neutral baseline shape. Our gate never learns task
+  answers; it only re-checks the agent's own artifacts.
+- Open-source harnesses (general engineering knowledge, no task
+  material used): SWE-agent / mini-swe-agent (submit only after
+  tests pass — our fresh-evidence plus filesystem rule),
+  OpenHands (loop detection on repeated calls+errors),
+  Codex/OpenCode `tool_choice: none` closing shape (bounded
+  returns, honest terminal states), Aider (architect/editor
+  split behind the expert-escalation pattern).
+
+## W3: stronger verification before finishing (Sections 7.5, 8.7, 18.1)
+
+Owner: strong-verification workstream. Packages: `internal/tasks`
+(`strongverify.go` extends `selfverify.go`; the gate stays
+tool-free) and the finish path of `internal/engine`
+(`verify_hooks.go` closing hook only). The connectors are untouched:
+no change to `internal/providers`, the model gateway wire protocol
+(`internal/models`, `internal/gateway`), `internal/api`,
+`packages/contracts`, `integrations/**`, MCP/ACP servers, or the
+`bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, current version)
+
+Automatic triage of 44 failed evaluation trials of the current
+agent-quality build (tool errors down to ~0; failures now dominated
+by discipline and verification):
+
+- 13 `wrong-solution-declared-done`: the agent declares success with
+  wrong results (for example an illegal move written to a file;
+  generated artifacts never validated against the requested outputs).
+- The W1 self-verification phase is gameable: any passing tool result
+  counts as fresh evidence, so `ls -l` after a write satisfies it
+  without ever running the deliverable; runs whose artifacts are
+  created by `exec` itself (redirections, builds, downloads, with no
+  `write_file` marker) pass vacuously.
+
+### Mechanisms (all default ON)
+
+`internal/tasks/strongverify.go`, wired into `ApplySelfVerify` and
+the engine closing hook (`selfVerify` runs it only when the
+deterministic checks would otherwise let the run complete):
+
+1. Exercise the deliverable (deterministic): after the last change —
+   a write tool or an `exec` whose arguments show a mutation
+   (redirection into a file, move/copy, build, install, download;
+   null-sink and stderr merges excluded) — the history must hold
+   passing checks that actually exercise each produced artifact: run
+   the program/CLI with representative inputs, import the module and
+   call it, query the service, or parse the output file and check
+   the stated format. Mere observations (`ls`, `test -e`, bare
+   `cat`, `read_file`) and writes never count, however successful.
+   Every command draft's artifact must be named by at least one
+   exercising call (full key, basename, or module-stem word such as
+   `import filter`); every stated output-format draft must be parsed
+   or validated by one (not just mentioned in prose). Gaps return
+   the agent to work with the suggested checks. Count and
+   constraint drafts keep Section 18.1 inspection semantics: the
+   contrast check and the independent verifier judge them, since no
+   deterministic rule can tell a real semantic check from a
+   coincidental keyword mention.
+2. Independent verifier (one cheap verifier-role call per finish
+   attempt): a fresh small context — literal instruction, drafts,
+   commands run, short evidence lines, change diff, final-answer
+   excerpt, never executor reasoning — asks for the verifier's own
+   small checks plus a per-draft PASS/FAIL verdict with reasons. The
+   prompt forbids looking for, naming, or running any hidden test
+   suite or grading script: the verdict judges ONLY the instruction
+   text. A FAIL verdict appends `independent verifier disagreement:
+   ...` and returns the agent to work; anything else (pass, model
+   error, unparseable reply) falls back to the deterministic outcome
+   so the verifier can never block on format alone. Attempts stay
+   bounded by the same gate attempts as every other pending
+   (`GateAttempts`); disagreement ends in the honest `blocked` state
+   per Section 7.3. The daemon big-task path keeps its Section 8.7
+   orchestrator-spawned subagent: the embedded pass stands down when
+   the gate input already requires that verdict, and stays silent
+   when there are no drafts (nothing checkable, no extra call).
+3. Suggested checks now exercise by default: path/file draft
+   suggestions run script artifacts with their interpreter
+   (`python3`, `node`, `bash`, `Rscript`, ...) instead of only
+   probing existence; unknown artifacts keep the existence probe.
+
+### Switches
+
+| Switch | Mechanism | Off restores |
+|---|---|---|
+| `EXCALIBUR_STRONG_VERIFY` | Master switch for both mechanisms below | W1 self-verification behavior exactly |
+| `EXCALIBUR_STRONG_VERIFY_EXERCISE` | Deterministic exercise-the-deliverable layer | Freshness-only checks (`ls` counts again) |
+| `EXCALIBUR_STRONG_VERIFY_VERIFIER` | Independent verifier pass on finish | Deterministic pass completes the run |
+
+`EXCALIBUR_STRONG_VERIFY` accepts `1/true/yes/on` and
+`0/false/no/off`; unset keeps the configured default (all ON).
+
+### Contract and backend tests
+
+- `internal/tasks/strongverify_test.go`: exercising-call table (run,
+  import, test suites, direct exec, curl, jq, grep-checks, builds
+  count; `ls`/`test -e`/`stat`/bare `cat`/`echo`/`read_file`/writes/
+  failures/empty/still-running do not), shallow-after-write blocked,
+  exec-mutation hole closed (legacy vacuous pass documented, strong
+  blocks, validating run passes), format-draft validation required,
+  import-stem coverage, master-off legacy restore, prompt carries
+  instruction+drafts+commands with the hidden-tests ban and no
+  executor reasoning, verdict parser (pass/fail/gibberish-fallback/
+  bare-FAIL), env overrides, runner suggestions.
+- `internal/engine/strongverify_test.go`: finish blocks a bare `ls`
+  after a write (note demands exercising, bounded 2 calls);
+  verifier disagreement returns to work with reasons then ends
+  `blocked` after two rounds (4 calls: final+verifier each);
+  gibberish verifier reply falls back to pass; daemon-owned verdict
+  spends no extra call; master off restores shallow completion.
+- Updated to the new contract: `verify_test.go` passing and refine
+  cases now include the verifier call (final+verifier, final+refine+
+  verifier); no other suite changed — full `go test ./... -race`
+  green, cross builds (`GOOS=darwin/windows`) green, no bare `go`.
+
+### Measurement
+
+- Ablate each switch off/on over the same task set (Appendix F):
+  success rate, share of failures ending `completed` (wrong success
+  should move to `completed_with_pending`/`blocked` with pendings
+  naming the gap), verification returns per run, extra cost (at most
+  one verifier call per passing finish attempt, none when no drafts).
+- Records to inspect: `gate_attempts.jsonl` (pendings naming
+  `not exercised` / `independent verifier disagreement`),
+  `metrics.json` (`gate_attempts`), the ATIF trajectory (the
+  injected `self-verify before finishing` note), `tool_calls.jsonl`
+  (an exercising run/import/query/parse after the last change).
+
+### Research sources
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8→66.5 on TB2 with the model fixed. Adopted: the
+  build-verify-fix loop with a `PreCompletionChecklistMiddleware`
+  that intercepts the exit and forces a verification pass against
+  the task spec; testing over self-reading ("agents confirm their
+  code looks ok and stop"); time-budget warnings. Our exercise
+  layer is the deterministic half of that checklist (the check must
+  run the deliverable, not just observe it); the verifier pass is
+  the checklist's second opinion. No task content used.
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what
+  to store, retrieve, present) moves results as much as weights,
+  with larger gains on weaker models. Motivates keeping the
+  verifier context small and fresh (instruction + artifacts only)
+  instead of growing the prompt.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not
+  fetched): same direction — systematic harness search with
+  standard evaluation and auditing records (Section 23.2, Appendix
+  F) as the objective signal; pendings text stays greppable so the
+  triage loop can mine it.
+- Architecture evidence refs: [E][JudgeBench] (a cheap model is
+  never the only judge of code — the deterministic exercise layer
+  carries the gate, the verifier only adds disagreement reasons),
+  [E][MuseCode-SDK] (a checker that rejects "done" claims without
+  proof — the exercise rule), [E][Selección] (candidate selection
+  by test execution, never by a judge — the verifier writes checks,
+  it does not grade prose).
+- Open-source harnesses (general engineering knowledge, no task
+  material used): SWE-agent/mini-swe-agent submit-only-after-tests
+  discipline (informs the fresh-evidence-after-last-change rule);
+  OpenHands loop detection on repeated calls+errors; Codex/OpenCode
+  `tool_choice: none` closing shape (verifier speaks last, inside
+  the existing closing hook, without changing the tool protocol);
+  Aider architect/editor split (verifier never sees executor
+  reasoning).
+
 Documentation describes standard evaluation and auditing records
 (Section 23.2, Appendix F); nothing here tunes the agent against
 benchmark failures or derives prompts from task contents.
@@ -1400,3 +1672,25 @@ benchmark failures or derives prompts from task contents.
   tools deferred/pipeline, cli exec surface enumeration (hidden
    tools stay executable), wireengine prefix stability.
 
+- `internal/tasks/artifacts_test.go`: extraction across many
+  instruction styles (install paths with executable kind,
+  called-file without import-usage leakage, move-file with example
+  moves skipped, server port+URL, CSV output with header,
+  pattern/example prose skipped, relative and bare files,
+  imperative-only bare names, dedupe and cap, out-of-range ports);
+  filesystem checks (missing, empty, unexecutable, content
+  mismatch, workdir-relative resolution, pending cap); port/URL
+  history evidence; live-session lifecycle (close settles,
+  earlier-alive still blocks); verified persistent servers pass
+  (instruction intent or final declaration); the off switch and
+  the legacy empty-input passthrough; env overrides.
+- `internal/engine/artifact_verify_test.go`: missing file blocks
+  and returns bounded (2 model calls, honest pendings naming the
+  artifact); existing file passes; switch off passes missing;
+  unexecutable install blocks while `chmod +x` passes; an earlier
+  live session blocks even when the last result settled; closed
+  sessions pass; an untouched port blocks.
+- Existing suites unchanged and green: self-verification
+  (`selfverify_test.go`), engine lifecycle/e2e/crash
+    (`go test -race ./internal/engine/`), CLI exec surface
+   (`internal/cli`).

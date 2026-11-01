@@ -113,6 +113,15 @@ type Deps struct {
 	// defaults so every closing mechanism stays measurable on and
 	// off without a rebuild.
 	SelfVerify *tasks.SelfVerifyConfig
+	// Artifacts overrides the environment-backed required-artifact
+	// gate (tasks.DefaultArtifactConfig): missing/empty/unexecutable
+	// files, unverified ports/URLs, live background sessions. Nil
+	// selects the defaults (gate on).
+	Artifacts *tasks.ArtifactConfig
+	// ArtifactStat and ArtifactRead inject the filesystem for the
+	// artifact gate; nil selects the live OS implementations.
+	ArtifactStat tasks.StatFunc
+	ArtifactRead tasks.ReadFunc
 	// LeaseHeartbeat renews the run's file leases while it is
 	// running or waiting on a tool or subagents (Section 16.2),
 	// including during long tools. Nil disables heartbeats.
@@ -183,7 +192,11 @@ type Run struct {
 	// compiled task layer on the first step so the closing hooks can
 	// extract checkable criteria and contrast the deliverable
 	// without any driver changes.
-	Request     string
+	Request string
+	// Workdir resolves relative artifact paths for the
+	// required-artifact gate; absolute requirement paths are used
+	// as-is. Embedded drivers set it to the run project directory.
+	Workdir     string
 	StartedAt   time.Time
 	HeartbeatAt time.Time
 

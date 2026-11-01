@@ -29,14 +29,11 @@ func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
 			continue
 		}
 		flagArgs = append(flagArgs, a)
-		// Consume a value for non-boolean flags, but not another recognized
-		// flag. This preserves missing-value errors and positional values.
-		if !strings.Contains(a, "=") && !isBoolFlag(f.Value) && i+1 < len(args) {
-			nextName, _, nextIsFlag := flagName(args[i+1])
-			if args[i+1] != "--" && (!nextIsFlag || fs.Lookup(nextName) == nil) {
-				i++
-				flagArgs = append(flagArgs, args[i])
-			}
+		// Match flag.FlagSet's value handling: non-boolean flags consume the
+		// next token even when it begins with a dash (for example, -1).
+		if !strings.Contains(a, "=") && !isBoolFlag(f.Value) && i+1 < len(args) && args[i+1] != "--" {
+			i++
+			flagArgs = append(flagArgs, args[i])
 		}
 	}
 	if err := fs.Parse(flagArgs); err != nil {

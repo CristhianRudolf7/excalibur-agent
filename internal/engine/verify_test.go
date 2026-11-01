@@ -20,6 +20,16 @@ func verifyConfig() *tasks.SelfVerifyConfig {
 	return &cfg
 }
 
+// artifactOff pins the required-artifact gate off for the legacy
+// self-verification tests below: they use fake /app paths that exist
+// only in scripted history, never on the test filesystem. Gate-on
+// behavior with real files lives in artifact_verify_test.go.
+func artifactOff() *tasks.ArtifactConfig {
+	cfg := tasks.DefaultArtifactConfig()
+	cfg.Enable = false
+	return &cfg
+}
+
 func writeHistory(path string) []ctxcompiler.ActivityEvent {
 	return []ctxcompiler.ActivityEvent{
 		{Seq: 0, Role: providers.RoleAssistant, Content: "",
@@ -59,11 +69,17 @@ func TestFinishTurnBlocksUnverifiedWrite(t *testing.T) {
 	}
 }
 
+func verifierPassResp() providers.ChatResponse {
+	return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant,
+		Content: "CHECKS:\n- python3 /app/filter.py hello\nD1: PASS - ran with input, output confirms behavior\nVERDICT: PASS\nREASONS: none"}}
+}
+
 func TestFinishTurnPassesWhenVerified(t *testing.T) {
 	ctx := context.Background()
-	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("created /app/filter.py and verified the import")}}
+	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("created /app/filter.py and verified the import"), verifierPassResp()}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
+	e.deps.Artifacts = artifactOff()
 	run := testRun(Profile{})
 	run.Request = "Create /app/filter.py."
 	history := writeHistory("/app/filter.py")
@@ -79,8 +95,9 @@ func TestFinishTurnPassesWhenVerified(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustState(t, run, types.RunCompleted)
-	if model.calls() != 1 {
-		t.Fatalf("verified work finishes on the first final, got %d calls", model.calls())
+	// One executor final plus the independent verifier pass.
+	if model.calls() != 2 {
+		t.Fatalf("verified work finishes with final plus verifier, got %d calls", model.calls())
 	}
 }
 
@@ -136,10 +153,12 @@ func TestFinishTurnRefineImprovesDrafts(t *testing.T) {
 		finalResp("created /app/x.py and verified"),
 		{Message: providers.Message{Role: providers.RoleAssistant,
 			Content: "command | file /app/x.py exists | test -s /app/x.py"}},
+		verifierPassResp(),
 	}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	cfg := tasks.DefaultSelfVerifyConfig()
 	e.deps.SelfVerify = &cfg
+	e.deps.Artifacts = artifactOff()
 	run := testRun(Profile{})
 	run.Request = "Create /app/x.py."
 	run.History = []ctxcompiler.ActivityEvent{
@@ -148,7 +167,7 @@ func TestFinishTurnRefineImprovesDrafts(t *testing.T) {
 		{Seq: 1, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: "wrote /app/x.py"}},
 		{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"test -s /app/x.py"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/x.py"}`)}},
 		{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/x.py ok"}},
 	}
@@ -157,6 +176,10 @@ func TestFinishTurnRefineImprovesDrafts(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustState(t, run, types.RunCompleted)
+	// Final, refine pass, and the independent verifier pass.
+	if model.calls() != 3 {
+		t.Fatalf("refine plus verifier need 3 model calls, got %d", model.calls())
+	}
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	if !run.refined || len(run.drafts) == 0 || run.drafts[0].Source != "refined" {

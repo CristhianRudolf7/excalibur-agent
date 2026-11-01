@@ -6,3 +6,5 @@
 .excalibur/
 /.worktrees/
 .oc-logs/
+__pycache__/
+*.pyc

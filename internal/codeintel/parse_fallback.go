@@ -148,8 +148,8 @@ func goImportFallback(src string) []string {
 	return out
 }
 
-var goFuncFallback = regexp.MustCompile(`(?m)^func\s+(?:(\([^)]*\))\s*)?([A-Za-z_][A-Za-z0-9_]*)`)
-var goTypeFallback = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+var goFuncFallback = regexp.MustCompile(`(?m)^[ \t]*func[ \t]+(?:(\([^)]*\))[ \t]*)?([A-Za-z_][A-Za-z0-9_]*)`)
+var goTypeFallback = regexp.MustCompile(`(?m)^[ \t]*type[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
 
 // goDefFallback recovers definitions from broken Go files.
 func goDefFallback(src string) []ParsedSymbol {

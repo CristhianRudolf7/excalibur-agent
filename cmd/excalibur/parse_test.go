@@ -16,6 +16,7 @@ func TestParseCmd(t *testing.T) {
 		wantBool    bool
 	}{
 		{name: "flag after positional", args: []string{"T45", "--timeout", "300"}, wantArgs: []string{"T45"}, wantName: "default", wantTimeout: 300},
+		{name: "negative value", args: []string{"--timeout", "-3", "request"}, wantArgs: []string{"request"}, wantName: "default", wantTimeout: -3},
 		{name: "empty value does not consume positional", args: []string{"--name=", "request"}, wantArgs: []string{"request"}, wantName: ""},
 		{name: "separator keeps flags positional", args: []string{"--verbose", "--", "--name", "request"}, wantArgs: []string{"--name", "request"}, wantName: "default", wantBool: true},
 		{name: "single dash flag", args: []string{"-name", "request"}, wantArgs: []string{}, wantName: "request"},

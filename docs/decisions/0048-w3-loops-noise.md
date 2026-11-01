@@ -1,4 +1,4 @@
-# 0047 — W3 loop breaker and tool noise: recovery prompt, repeat block, prefix pruning
+# 0048 — W3 loop breaker and tool noise: recovery prompt, repeat block, prefix pruning
 
 Status: accepted.
 
