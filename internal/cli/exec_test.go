@@ -258,8 +258,8 @@ func TestExecEvalGuards(t *testing.T) {
 	}
 }
 
-// TestExecCancelAndTimeout covers interruption (130) and budget/time
-// pauses (4) of the Section 6.5 table.
+// TestExecCancelAndTimeout covers interruption records (decision 0060)
+// and ordinary budget pauses of the Section 6.5 table.
 func TestExecCancelAndTimeout(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -267,7 +267,7 @@ func TestExecCancelAndTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.State != types.RunCanceled || out.ExitCode != ExitCanceled {
+	if out.State != stoppedByTimeout || out.ExitCode != ExitPaused {
 		t.Fatalf("canceled ctx = %q/%d", out.State, out.ExitCode)
 	}
 	exhausted := 0.0
@@ -344,7 +344,7 @@ func TestExecPartialArtifactsOnFailure(t *testing.T) {
 }
 
 // TestExecTimeoutPauses covers the Section 6.5 time bound: an expired
-// deadline pauses the run (code 4), it never fails it.
+// deadline records stopped_by_timeout (code 4), it never fails it.
 func TestExecTimeoutPauses(t *testing.T) {
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "slow work", LogsDir: t.TempDir(), TimeoutSecs: 1,
@@ -356,8 +356,8 @@ func TestExecTimeoutPauses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.State != types.RunPaused || out.ExitCode != ExitPaused {
-		t.Fatalf("timeout = %q/%d, want paused/4", out.State, out.ExitCode)
+	if out.State != stoppedByTimeout || out.ExitCode != ExitPaused {
+		t.Fatalf("timeout = %q/%d, want stopped_by_timeout/4", out.State, out.ExitCode)
 	}
 }
 

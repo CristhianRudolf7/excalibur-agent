@@ -83,6 +83,8 @@ type SelfVerifyConfig struct {
 	// cheap verifier-role call per finish attempt) when the
 	// deterministic checks would otherwise let the run complete.
 	EnableStrongVerifier bool
+	// EnableGeneralizeChecks requires fresh-input and explicit-property evidence.
+	EnableGeneralizeChecks bool
 	// MinFreshChecks is how many successful verification calls must
 	// follow the last change before the run may complete.
 	MinFreshChecks int
@@ -103,19 +105,20 @@ type SelfVerifyConfig struct {
 // integers for counts).
 func DefaultSelfVerifyConfig() SelfVerifyConfig {
 	cfg := SelfVerifyConfig{
-		Enable:               true,
-		EnableExtraction:     true,
-		EnableVerification:   true,
-		EnableContrast:       true,
-		EnableIndependent:    true,
-		EnableRefine:         true,
-		EnableStrong:         true,
-		EnableStrongExercise: true,
-		EnableStrongVerifier: true,
-		MinFreshChecks:       1,
-		MaxReturns:           GateAttempts,
-		MaxDrafts:            6,
-		BigTaskSteps:         20,
+		Enable:                 true,
+		EnableExtraction:       true,
+		EnableVerification:     true,
+		EnableContrast:         true,
+		EnableIndependent:      true,
+		EnableRefine:           true,
+		EnableStrong:           true,
+		EnableStrongExercise:   true,
+		EnableStrongVerifier:   true,
+		EnableGeneralizeChecks: true,
+		MinFreshChecks:         1,
+		MaxReturns:             GateAttempts,
+		MaxDrafts:              6,
+		BigTaskSteps:           20,
 	}
 	cfg.Enable = envBool("EXCALIBUR_SELFVERIFY", cfg.Enable)
 	cfg.EnableExtraction = envBool("EXCALIBUR_SELFVERIFY_EXTRACTION", cfg.EnableExtraction)
@@ -126,6 +129,7 @@ func DefaultSelfVerifyConfig() SelfVerifyConfig {
 	cfg.EnableStrong = envBool("EXCALIBUR_STRONG_VERIFY", cfg.EnableStrong)
 	cfg.EnableStrongExercise = envBool("EXCALIBUR_STRONG_VERIFY_EXERCISE", cfg.EnableStrongExercise)
 	cfg.EnableStrongVerifier = envBool("EXCALIBUR_STRONG_VERIFY_VERIFIER", cfg.EnableStrongVerifier)
+	cfg.EnableGeneralizeChecks = envBool("EXCALIBUR_GENERALIZE_CHECKS", cfg.EnableGeneralizeChecks)
 	cfg.MinFreshChecks = envInt("EXCALIBUR_SELFVERIFY_MIN_CHECKS", cfg.MinFreshChecks)
 	cfg.MaxReturns = envInt("EXCALIBUR_SELFVERIFY_MAX_RETURNS", cfg.MaxReturns)
 	cfg.MaxDrafts = envInt("EXCALIBUR_SELFVERIFY_MAX_DRAFTS", cfg.MaxDrafts)

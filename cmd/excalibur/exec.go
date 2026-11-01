@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 )
@@ -78,7 +84,31 @@ func runExecCmd(args []string) error {
 		}
 		opts.Profile = p
 	}
-	outcome, err := cli.RunExec(noSignalContext(), opts)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if wall := cli.EffectiveBudgetsFor(opts, opts.Profile).WallSecs; wall > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(wall)*time.Second)
+		defer cancel()
+	}
+	done := make(chan struct{})
+	defer close(done)
+	safego.Go("exec-shutdown", nil, func() {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+		}
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-done:
+			return
+		case <-timer.C:
+			os.Exit(cli.ExitPaused)
+		}
+	})
+	outcome, err := cli.RunExec(ctx, opts)
 	if err != nil {
 		return err
 	}

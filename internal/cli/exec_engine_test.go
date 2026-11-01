@@ -181,6 +181,23 @@ func TestProfileGatedRunnerUnits(t *testing.T) {
 	if err := gate.check("exec", nil); err != nil {
 		t.Fatalf("eval must allow exec: %v", err)
 	}
+	for _, args := range []string{
+		`{"name":"send_message","arguments":{}}`,
+		`{"arguments":{"name":"send_message"}}`,
+		`{"name":"task_db","arguments":{"ops":[{"op":"register_project"}]}}`,
+	} {
+		if err := gate.check("call_tool", json.RawMessage(args)); err == nil {
+			t.Fatalf("wrapped hidden operation allowed: %s", args)
+		}
+	}
+	if err := gate.check("call_tool", json.RawMessage(`{"name":"exec_io","arguments":{"action":"list"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("EXCALIBUR_TOOL_TOLERANT_ARGS", "off")
+	t.Setenv("EXCALIBUR_TOOL_SIMPLE_EXEC", "off")
+	if err := gate.check("call_tool", json.RawMessage(`{"arguments":{"name":"send_message"}}`)); err == nil {
+		t.Fatal("disabled normalization bypasses profile")
+	}
 	open := newProfileGatedRunner(ProfileDefault, base)
 	if err := open.check("send_message", nil); err != nil {
 		t.Fatalf("default must not gate: %v", err)

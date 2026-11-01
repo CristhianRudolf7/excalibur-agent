@@ -146,8 +146,9 @@ func parseTime(s string, loc *time.Location) (time.Time, error) {
 
 // GetToolOutputTool implements get_tool_output over the OutputStore.
 type GetToolOutputTool struct {
-	Outputs OutputStore
-	History FileHistoryStore
+	Sessions *SessionManager
+	Outputs  OutputStore
+	History  FileHistoryStore
 }
 
 func (t *GetToolOutputTool) store() OutputStore {
@@ -159,7 +160,7 @@ func (t *GetToolOutputTool) store() OutputStore {
 
 func (t *GetToolOutputTool) Definition() Definition {
 	return Definition{
-		Name: "get_tool_output", Description: "Retrieve the full output of a truncated or masked tool call",
+		Name: "get_tool_output", Description: "Retrieve stored tool output or a terminal session by ref; supports byte offset and limit",
 		InputSchema: getToolOutputSchema, Effect: "read_only", Idempotency: "pure",
 		Cancel: "immediate", Timeout: 10_000_000_000, OutputBudget: DefaultOutputBudget, Fast: true,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
@@ -176,7 +177,16 @@ func (t *GetToolOutputTool) Invoke(_ context.Context, inv Invocation) (Result, e
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
+	if a.Offset < 0 {
+		return Result{Status: StatusInputError, Output: "offset must be nonnegative"}, nil
+	}
 	full, ok := t.store().Get(a.Ref)
+	if !ok && t.Sessions != nil && FrictionRepairEnabled() {
+		if _, exists := t.Sessions.Get(SessionID(a.Ref)); exists {
+			full, _, _, _ = t.Sessions.Read(SessionID(a.Ref), 0)
+			ok = true
+		}
+	}
 	if !ok && t.History != nil {
 		if b, ok2 := t.History.Blob(a.Ref); ok2 {
 			full, ok = string(b), true

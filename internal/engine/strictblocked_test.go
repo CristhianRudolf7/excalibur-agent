@@ -126,7 +126,9 @@ func TestStrictBlockedAcceptsOperatorMissingData(t *testing.T) {
 	}
 }
 
-// No time remaining: even validation failures may block honestly.
+// Closing mode (no time remains): blocked is never accepted (W10
+// run-end fix). Near the time limit the run must end with `finish`
+// status=completed and the best deliverable in place, never blocked.
 func TestStrictBlockedAcceptsWhenNoTimeRemains(t *testing.T) {
 	t.Setenv(StrictBlockedSwitch, "on")
 	history := []tasks.HistoryTool{
@@ -135,8 +137,10 @@ func TestStrictBlockedAcceptsWhenNoTimeRemains(t *testing.T) {
 	e, run := strictRunWithHistory(history, 100)
 	run.HeartbeatAt = run.StartedAt.Add(100 * time.Second)
 	reason := "implementation fails validation: make test FAIL"
-	if refusal := e.strictBlockedRefusal(run, reason); refusal != "" {
-		t.Fatalf("no time left must accept blocked, got: %s", refusal)
+	if refusal := e.strictBlockedRefusal(run, reason); refusal == "" {
+		t.Fatal("closing mode must refuse blocked (must complete with best deliverable)")
+	} else if !strings.Contains(strings.ToLower(refusal), "closing mode") {
+		t.Fatalf("closing refusal must name closing mode, got: %s", refusal)
 	}
 }
 
@@ -150,6 +154,52 @@ func TestStrictBlockedSwitchOff(t *testing.T) {
 	reason := "implementation fails validation: make test FAIL"
 	if refusal := e.strictBlockedRefusal(run, reason); refusal != "" {
 		t.Fatalf("switch off must accept, got: %s", refusal)
+	}
+}
+
+// W10 regression from v9-default qemu-alpine-ssh: the agent started
+// QEMU, waited, killed it itself (`kill 366`), then called `finish`
+// status=blocked claiming the VM and SSH were unavailable. The old
+// policy accepted with 0 refusals because the reason carried no
+// validation keywords. It must be refused: self-caused
+// unavailability is never external.
+func TestStrictBlockedRefusesSelfStoppedQemu(t *testing.T) {
+	t.Setenv(StrictBlockedSwitch, "on")
+	history := []tasks.HistoryTool{
+		{Name: "exec", Args: `{"command":"qemu-system-x86_64 -machine accel=tcg -m 512 -cdrom /app/alpine.iso -boot d -nographic -monitor none -serial stdio -netdev user,id=n1,hostfwd=tcp::2222-:22 -device e1000,netdev=n1"}`, Output: "exit: running session: sess-3 alive: true", IsError: false},
+		{Name: "exec", Args: `{"command":"ps -eo pid,args | grep '[q]emu-system'"}`, Output: "366 qemu-system-x86_64 -machine accel=tcg", IsError: false},
+		{Name: "exec", Args: `{"command":"kill 366; sleep 1;"}`, Output: "exit: 0", IsError: false},
+	}
+	e, run := strictRunWithHistory(history, 3600)
+	reason := "Alpine live ISO only reached its boot prompt and port 2222 was not serving SSH (connection timed out); QEMU was stopped, so the requested persistent VM and password-authenticated shell are not available."
+	if refusal := e.strictBlockedRefusal(run, reason); refusal == "" {
+		t.Fatal("self-stopped QEMU blocked must be refused (was accepted with 0 refusals)")
+	} else if !strings.Contains(strings.ToLower(refusal), "strict blocked") {
+		t.Fatalf("refusal must name strict blocked, got: %s", refusal)
+	}
+	if !isSelfCausedUnavailability(reason, history) {
+		t.Fatal("qemu shape must be detected as self-caused")
+	}
+}
+
+// W10 regression from v9-default extract-elf: after dozens of
+// successful verifications the agent called `finish` status=blocked
+// claiming the "reference solution/address map" was missing. The
+// reference is the hidden verifier, never a task input, so the claim
+// must be refused while time remains.
+func TestStrictBlockedRefusesMissingReference(t *testing.T) {
+	t.Setenv(StrictBlockedSwitch, "on")
+	history := []tasks.HistoryTool{
+		{Name: "exec", Args: `{"command":"node extract.js /app/a.out > out.json"}`, Output: "PASS entries=700", IsError: false},
+		{Name: "exec", Args: `{"command":"node --check /app/extract.js"}`, Output: "exit: 0", IsError: false},
+	}
+	e, run := strictRunWithHistory(history, 3600)
+	reason := "The reference solution/address map required to check exact values and calculate 75% coverage is not present in the provided files or accessible task environment."
+	if refusal := e.strictBlockedRefusal(run, reason); refusal == "" {
+		t.Fatal("missing-reference blocked must be refused while time remains")
+	}
+	if !isReferenceMissingClaim(reason) {
+		t.Fatal("reference shape must be detected")
 	}
 }
 

@@ -200,6 +200,7 @@ type Run struct {
 	GateAttempts int
 	GateInput    tasks.GateInput
 	LastGate     tasks.GateReport
+	refusals     *refusalState
 	Volatile     []string
 	RecoveryNote string
 	History      []ctxcompiler.ActivityEvent
@@ -278,8 +279,14 @@ type Run struct {
 	GuardTrips int
 	// drafts caches the extracted checkable criteria for the closing
 	// hooks; refined marks the single model refine pass as done.
-	drafts  []tasks.DraftCriterion
-	refined bool
+	drafts                      []tasks.DraftCriterion
+	refined                     bool
+	firstAllChecksPassAt        time.Time
+	promptFinishSeen            int
+	promptFinishSignatures      map[[32]byte]bool
+	promptFinishArtifactVersion string
+	repeatedVerification        int
+	promptFinishRecordDir       string
 	// lhMilestones is the explicit milestone plan for large tasks
 	// (long horizon): ordered checkable phases kept in task state.
 	// Guarded by mu like the rest of the run state.
@@ -873,6 +880,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	explicit := e.explicitFinishRequired(run)
 	builderClosing := closing && !explicit
 
+	e.promptFinishCheck(run)
 	req, compiled, err := e.deps.Context.BuildRequest(ctx, run, builderClosing)
 	if err != nil {
 		if ctx.Err() != nil && run.interruptedNow() {
@@ -950,8 +958,9 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			run.mu.Unlock()
 			if len(resp.Message.ToolCalls) > 1 {
 				run.recordFinishAttempt(string(resp.Message.ToolCalls[0].Arguments), resp.Message.Content)
-				run.recordFinishRefusal("finish refused: `finish` must be called alone, with no other tool calls in the same turn.")
-				run.InjectNote("finish refused: `finish` must be called alone, with no other tool calls in the same turn.")
+				reason := e.refuseFinish(ctx, run, []string{"`finish` must be called alone, with no other tool calls in the same turn."})
+				run.recordFinishRefusal(reason)
+				run.InjectNote(reason)
 				return false, nil
 			}
 			return e.execFinishBatch(ctx, run, resp.Message.ToolCalls[0], resp.Message.Content)

@@ -557,6 +557,11 @@ func promoteCallToolName(obj map[string]any, trimmed string) {
 				if s, ok := getStrTolerant(v); ok && strings.TrimSpace(s) != "" {
 					obj["name"] = strings.ToLower(strings.TrimSpace(s))
 					delete(sub, k)
+					if FrictionRepairEnabled() && len(sub) == 1 {
+						if nested, ok := sub["arguments"].(map[string]any); ok {
+							obj["arguments"] = nested
+						}
+					}
 					return
 				}
 			}
@@ -681,13 +686,13 @@ func RepairHint(name string, raw json.RawMessage) string {
 		"grep":                    `grep needs {"pattern": "<regex>"}; optional paths[], literal:true for fixed strings.`,
 		"glob":                    `glob needs {"pattern": "<**/*.go>"}; optional dir.`,
 		"search_tools":            `search_tools needs {"query": "<verb object domain>"}; an empty query lists popular deferred tools.`,
-		"call_tool":               `call_tool needs {"name": "<deferred tool>", "arguments": {...}}, e.g. {"name":"lsp","arguments":{"path":"x"}}. The name may also sit inside arguments, or the call may wrap as {"toolname": {...}}. Discover names with search_tools first (an empty query lists some).`,
+		"call_tool":               `call_tool needs {"name": "<registered tool>", "arguments": {...}}, e.g. {"name":"lsp","arguments":{"path":"x"}}. The name may also sit inside arguments, or the call may wrap as {"toolname": {...}}. Core tools are directly available; discover deferred names with search_tools (an empty query lists some).`,
 		"search_skills":           `search_skills needs {"query": "<text>"}; an empty query lists all skills.`,
 		"load_skill":              `load_skill needs {"name": "<skill>"}; list names with search_skills first.`,
 		"task_db":                 `task_db needs {"ops": [{"op": "<create_task|add_requirement|add_criterion|record_evidence|query|...>", ...}]}. Query first: {"ops":[{"op":"query","entity":"criteria"}]}.`,
 		"subagent":                `subagent needs {"action": "<spawn|status|message|redirect|pause|resume|interrupt|cancel>", ...}; caller defaults to this run. Spawn runs record-only in single-run scope: prefer doing the work directly.`,
 		"ack_directive":           `ack_directive needs nothing when no directives are pending; otherwise {"directive": "<msg-id>", "note": "<how it applies>"}.`,
-		"get_tool_output":         `get_tool_output needs {"ref": "<blob-sha256:...>"}; for live terminal output use exec_io read with the sess-N id instead.`,
+		"get_tool_output":         `get_tool_output needs {"ref": "<blob-sha256:... or sess-N>", "offset":0, "limit":8000}.`,
 		"history_search":          `history_search accepts {"text": "<substring>", "tool": "<name>", "k": 20}.`,
 		"pin_observation":         `pin_observation needs {"observation": "<text>"} (id also accepted for observation).`,
 		"leave_continuation_note": `leave_continuation_note needs {"note": "<next step>"} (text also accepted).`,
@@ -725,3 +730,6 @@ func RetrievalHintForRef(ref string) string {
 	}
 	return fmt.Sprintf("unknown blob ref %q: list recent blobs with get_tool_output paging or re-run the producing command", ref)
 }
+
+// FrictionRepairEnabled controls compatible tool routing repairs.
+func FrictionRepairEnabled() bool { return !off("EXCALIBUR_TOOL_FRICTION_REPAIR") }

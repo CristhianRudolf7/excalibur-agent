@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -75,6 +76,20 @@ func (g *profileGatedRunner) check(name string, args json.RawMessage) error {
 		// in the profile table is still outside the surface.
 		return fmt.Errorf("cli: tool %q is not in the eval profile surface", name)
 	}
+	if name == "call_tool" {
+		// Check the superset of repairable shapes even when argument
+		// normalization is disabled: CallToolTool can promote names directly.
+		normalized := tools.NormalizeArgs(name, args, tools.DefaultSurfaceTuning())
+		var call struct {
+			Name      string          `json:"name"`
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		if json.Unmarshal(normalized, &call) == nil && call.Name != "" && call.Name != "call_tool" {
+			if err := g.check(call.Name, call.Arguments); err != nil {
+				return err
+			}
+		}
+	}
 	if name == "task_db" {
 		for _, op := range taskDBOps(args) {
 			if err := EvalToolAllowed(name, op); err != nil {
@@ -103,9 +118,8 @@ func (g *profileGatedRunner) Execute(ctx context.Context, name string, args json
 
 // pruneDeferredToProfile drops every deferred mark outside the
 // profile surface before the first model call (Section 23.2).
-// search_tools only indexes deferred entries, and call_tool refuses
-// anything not marked deferred, so unmarked tools are unreachable
-// through both. Direct calls stay blocked by the runner gate.
+// search_tools only indexes deferred entries. The runner gate also
+// checks call_tool targets so hidden tools stay outside the profile.
 func pruneDeferredToProfile(cat *tools.DeferredCatalog, allowed map[string]bool) {
 	for _, name := range cat.DeferredNames() {
 		if !allowed[name] {
@@ -627,14 +641,22 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// EXCALIBUR_TIME_BUDGET_ONLY (default ON in eval).
 	if engine.TimeBudgetOnlyEnabled(profile == ProfileEval) {
 		fixedInstructions = append(fixedInstructions,
-			"Closing mode: when time is almost exhausted, leave the best deliverable in place, verify what exists quickly, and call `finish` with evidence now. Do not start new work. Never end paused except on the hard wall clock.",
+			"Closing mode: when time is almost exhausted, leave the best deliverable in place, verify what exists quickly, and call `finish` with status completed and evidence now. Do not start new work. Never end blocked in closing; never end paused except on the hard wall clock.",
 		)
 	}
-	// Strict blocked policy (W8): `finish status=blocked` needs
-	// deterministic external evidence while time remains.
+	// Strict blocked policy (W8 plus W10 run-end fixes):
+	// `finish status=blocked` needs deterministic external evidence
+	// while time remains; closing mode never blocks.
 	if engine.StrictBlockedEnabled() {
 		fixedInstructions = append(fixedInstructions,
-			"Blocked policy: call `finish` with status blocked only for external impossibilities (required network resource unreachable/404 after retries, required file/tool provably absent and not installable, explicit permission denial). Validation failures are never a valid blocked reason while time remains: fix and verify instead.",
+			"Blocked policy: call `finish` with status blocked only for external impossibilities (required network resource unreachable/404 after retries, required file/tool provably absent and not installable, explicit permission denial). Validation failures are never a valid blocked reason while time remains: fix and verify instead. Missing reference solutions, coverage targets or verifier maps are never valid blocked reasons. Killing or stopping a process the task requires is a failure, not a blocked reason: restart it, verify it serves, and keep working. In closing mode (time almost exhausted) never declare blocked: leave the best deliverable in place and call `finish` with status completed and evidence.",
+		)
+	}
+	// Run-end services (W10): background sessions detach and survive.
+	// Gated by EXCALIBUR_DETACH_BACKGROUND (default ON).
+	if tools.DetachBackgroundEnabled() {
+		fixedInstructions = append(fixedInstructions,
+			"Run-end services: background:true sessions detach into their own session and keep running after the run ends (stdin from /dev/null, output to a log under /tmp). Services the instruction requires (servers, indexes, databases, VMs, daemons) must be left running and verified (curl the port, run the client check) before finishing; declare keep_running in the finish evidence. Stop only temporary helpers with exec_io close/signal. Never kill a required service to finish faster.",
 		)
 	}
 	// Long-horizon persistence (EXCALIBUR_LONG_HORIZON, default on):
@@ -646,7 +668,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		fixedInstructions = append(fixedInstructions,
 			"Work long tasks to completion: every step shows a pacing line (elapsed, steps/time left, milestone progress); pace yourself against it and do not finish while significant budget remains and evidence is thin.",
 			"Follow the milestone plan in order when one is given (explore, implement each item, verify end to end, report); verify each milestone with an executable check before moving on.",
-			"Run long commands with background:true and poll with exec_io wait_for/read; never finish while a session is still alive and unverified — poll it, verify the service, then stop it or declare it intentionally persistent.",
+			"Run long commands with background:true and poll with exec_io wait_for/read; never finish while a session is still alive and unverified — poll it, verify the service, then stop it or declare it intentionally persistent (keep_running). Required services stay running after the run; killing them is a failure.",
 		)
 	}
 	snap := func(ctx context.Context, erun *engine.Run) (ctxcompiler.Snapshot, error) {
@@ -878,6 +900,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		close(stopSampler)
 		return "", providers.Usage{}, "", err
 	}
+	erun.SetPromptFinishRecordDir(filepath.Dir(run.ATIF.Path()))
 	if err := eng.Start(ctx, erun); err != nil {
 		close(stopSampler)
 		return "", providers.Usage{}, "", err
@@ -986,6 +1009,19 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		"enabled": explicitFinish, "finish_calls": erun.FinishCalls,
 		"refusals": erun.FinishRefusals, "confirmed": erun.Finish != nil,
 	})
+	// Run-end surviving services (W10): detached background processes
+	// (pid, command, log) that outlive the agent, next to the other
+	// trial artifacts.
+	if emb.Sessions != nil {
+		surviving := emb.Sessions.Surviving()
+		writeServicesRecord(run.Dir, surviving, tools.DetachBackgroundEnabled())
+		_ = run.EmitEvent("services", map[string]any{
+			"detach_background": tools.DetachBackgroundEnabled(),
+			"count":             len(surviving),
+		})
+	} else {
+		writeServicesRecord(run.Dir, nil, tools.DetachBackgroundEnabled())
+	}
 	summary := rep.Summary
 	if summary == "" {
 		if explicitFinish {
@@ -1030,15 +1066,17 @@ func writeExplicitFinishRecord(dir string, enabled bool, erun *engine.Run) {
 		closingNoted, safetyNoted = erun.ClosingNotedForRecord()
 	}
 	rec := map[string]any{
-		"enabled":           enabled,
-		"time_budget_only":  timeOnly,
-		"strict_blocked":    engine.StrictBlockedEnabled(),
-		"strict_refusals":   strictRefusals,
-		"closing_noted":     closingNoted,
-		"safety_cap_noted":  safetyNoted,
-		"time_only_closing": closingNoted,
+		"enabled":             enabled,
+		"actionable_refusals": engine.ActionableRefusalsEnabled(),
+		"time_budget_only":    timeOnly,
+		"strict_blocked":      engine.StrictBlockedEnabled(),
+		"strict_refusals":     strictRefusals,
+		"closing_noted":       closingNoted,
+		"safety_cap_noted":    safetyNoted,
+		"time_only_closing":   closingNoted,
 	}
 	if erun != nil {
+		rec["refusal_items"] = erun.RefusalRecords()
 		rec["finish_calls"] = erun.FinishCalls
 		rec["refusals"] = erun.FinishRefusals
 		rec["strict_blocked_refusals"] = erun.StrictBlockedRefusals
@@ -1065,6 +1103,29 @@ func writeExplicitFinishRecord(dir string, enabled bool, erun *engine.Run) {
 		return
 	}
 	_ = os.WriteFile(dir+"/explicit_finish.json", append(buf, '\n'), 0o644)
+}
+
+// writeServicesRecord persists the run-end surviving services (W10):
+// detached background processes (pid, command, log path) that outlive
+// the agent's exit. A missing dir skips the write; failures never fail
+// the run.
+func writeServicesRecord(dir string, surviving []tools.SurvivingProcess, detachEnabled bool) {
+	if dir == "" {
+		return
+	}
+	rec := map[string]any{
+		"detach_background": detachEnabled,
+		"surviving":         surviving,
+		"count":             len(surviving),
+	}
+	if rec["surviving"] == nil {
+		rec["surviving"] = []tools.SurvivingProcess{}
+	}
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dir+"/services.json", append(buf, '\n'), 0o644)
 }
 
 // probeHost extracts the host:port dialed by the env snapshot's

@@ -437,7 +437,7 @@ func (t *SearchToolsTool) ResourceKeys(_ json.RawMessage) ([]string, error) {
 }
 
 // CallToolTool implements call_tool: validated invocation of one
-// deferred tool through the standard pipeline (Section 13.4).
+// registered tool through the standard pipeline (Section 13.4).
 type CallToolTool struct {
 	Catalog  *DeferredCatalog
 	Executor *Executor
@@ -445,7 +445,7 @@ type CallToolTool struct {
 
 func (t *CallToolTool) Definition() Definition {
 	return Definition{
-		Name: "call_tool", Description: "Invoke a deferred tool by name with validated arguments, e.g. {\"name\":\"lsp\",\"arguments\":{\"path\":\"x\"}}; the name may also sit inside arguments",
+		Name: "call_tool", Description: "Invoke a tool by name with validated arguments, e.g. {\"name\":\"lsp\",\"arguments\":{\"path\":\"x\"}}; the name may also sit inside arguments",
 		InputSchema: callToolSchema, Effect: "exec", Idempotency: "keyed",
 		Cancel: "cooperative", Timeout: 120_000_000_000, OutputBudget: DefaultOutputBudget, Fast: false,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
@@ -465,12 +465,12 @@ func (t *CallToolTool) Invoke(ctx context.Context, inv Invocation) (Result, erro
 		a.Name, a.Arguments = promoteInvokedName(a.Arguments)
 	}
 	if a.Name == "" {
-		return Result{Status: StatusInputError, Output: "name is required: pick a deferred tool name from search_tools (empty query lists some), then call_tool {\"name\": \"<tool>\", \"arguments\": {...}}; the name may also sit inside arguments"}, nil
+		return Result{Status: StatusInputError, Output: "name is required: call_tool {\"name\": \"<tool>\", \"arguments\": {...}}; the name may also sit inside arguments"}, nil
 	}
-	if a.Name == "search_tools" || a.Name == "call_tool" {
+	if a.Name == "call_tool" || (a.Name == "search_tools" && !FrictionRepairEnabled()) {
 		return Result{Status: StatusInputError, Output: "call_tool cannot invoke itself or search_tools"}, nil
 	}
-	if t.Catalog != nil && !t.Catalog.IsDeferred(a.Name) {
+	if t.Catalog != nil && !t.Catalog.IsDeferred(a.Name) && !FrictionRepairEnabled() {
 		return Result{Status: StatusInputError, Output: fmt.Sprintf("tool %q is not deferred; call it directly", a.Name)}, nil
 	}
 	args := a.Arguments
@@ -519,6 +519,11 @@ func promoteInvokedName(args json.RawMessage) (string, json.RawMessage) {
 		case "name", "tool", "tool_name":
 			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 				delete(sub, k)
+				if FrictionRepairEnabled() && len(sub) == 1 {
+					if nested, ok := sub["arguments"].(map[string]any); ok {
+						sub = nested
+					}
+				}
 				raw, _ := json.Marshal(sub)
 				if raw == nil {
 					raw = json.RawMessage(`{}`)

@@ -3,6 +3,7 @@ package orchestrator_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
@@ -158,5 +159,36 @@ func TestSubagentIdempotency(t *testing.T) {
 	kids := f.o.Tree(f.parent.ID)
 	if len(kids) != 2 {
 		t.Fatalf("idempotent replay must not spawn twice, tree has %d", len(kids))
+	}
+}
+
+func TestSubagentInferredActions(t *testing.T) {
+	f := newFixture(t)
+	tool := &orchestrator.SubagentTool{Orch: f.o}
+	caller := string(f.parent.ID)
+	res := toolCall(t, tool, map[string]any{"caller": caller, "card": map[string]any{
+		"name": "inferred", "description": "test", "profile": "implementer", "goal": "g", "deliverable": "d", "scope": "project:p1", "done_criteria": []string{"done"}, "report_contract": "summary",
+	}}, "")
+	if res.Status != tools.StatusOK {
+		t.Fatal(res)
+	}
+	var spawned struct {
+		RunID string `json:"run_id"`
+	}
+	if err := json.Unmarshal([]byte(res.Output), &spawned); err != nil {
+		t.Fatal(err)
+	}
+	res = toolCall(t, tool, map[string]any{"caller": caller, "run": spawned.RunID}, "")
+	if res.Status != tools.StatusOK {
+		t.Fatal(res)
+	}
+	res = toolCall(t, tool, map[string]any{"caller": caller, "action": "status"}, "")
+	if !strings.Contains(res.Output, `"run":"run_..."`) {
+		t.Fatal(res)
+	}
+	t.Setenv("EXCALIBUR_TOOL_FRICTION_REPAIR", "off")
+	res = toolCall(t, tool, map[string]any{"caller": caller, "run": spawned.RunID}, "")
+	if res.Status == tools.StatusOK {
+		t.Fatal(res)
 	}
 }

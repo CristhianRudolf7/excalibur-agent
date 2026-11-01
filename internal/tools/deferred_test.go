@@ -212,11 +212,11 @@ func TestCallToolValidation(t *testing.T) {
 	if res.Status != StatusInputError && res.Status != StatusToolError {
 		t.Fatalf("unknown tool should fail validation, got %+v", res)
 	}
-	// Core tool through call_tool is rejected.
+	// Core tools use the same executor through call_tool.
 	raw2, _ := json.Marshal(map[string]any{"name": "grep", "arguments": map[string]any{"pattern": "x"}})
 	res2, _ := call.Invoke(context.Background(), Invocation{Arguments: raw2})
-	if res2.Status != StatusInputError {
-		t.Fatalf("core tool via call_tool must be input_error, got %+v", res2)
+	if res2.Status != StatusOK {
+		t.Fatalf("core tool via call_tool must execute, got %+v", res2)
 	}
 	// Schema violation surfaces as input_error with the schema part.
 	raw3, _ := json.Marshal(map[string]any{"name": "file_convert", "arguments": map[string]any{}})

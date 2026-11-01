@@ -1,6 +1,7 @@
 package eval
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -144,18 +146,19 @@ func (r *TrialRecorder) RecordModelCall(m ModelCall) error {
 
 // ToolCall is one JSONL line in tool_calls.jsonl.
 type ToolCall struct {
-	At           time.Time `json:"at"`
-	Seq          int       `json:"seq"`
-	Tool         string    `json:"tool"`
-	Arguments    string    `json:"arguments"`
-	ExitCode     int       `json:"exit_code"`
-	DurationSec  float64   `json:"duration_secs"`
-	StdoutInline string    `json:"stdout_inline,omitempty"`
-	StderrInline string    `json:"stderr_inline,omitempty"`
-	OutputHash   string    `json:"output_hash,omitempty"`
-	OutputPath   string    `json:"output_path,omitempty"`
-	Truncated    bool      `json:"truncated"`
-	IsError      bool      `json:"is_error"`
+	At            time.Time `json:"at"`
+	Seq           int       `json:"seq"`
+	Tool          string    `json:"tool"`
+	Arguments     string    `json:"arguments"`
+	ExitCode      int       `json:"exit_code"`
+	DurationSec   float64   `json:"duration_secs"`
+	StdoutInline  string    `json:"stdout_inline,omitempty"`
+	StderrInline  string    `json:"stderr_inline,omitempty"`
+	OutputHash    string    `json:"output_hash,omitempty"`
+	OutputPath    string    `json:"output_path,omitempty"`
+	Truncated     bool      `json:"truncated"`
+	IsError       bool      `json:"is_error"`
+	FrictionError string    `json:"friction_error,omitempty"`
 	// Attempt tags the best-of-N attempt index that produced this
 	// call (Section 18.2 fan-out merge). Zero means the single-run
 	// path or a legacy row without a tag.
@@ -187,6 +190,7 @@ func (r *TrialRecorder) RecordToolCall(t ToolCall, fullOutput string) error {
 			t.StdoutInline = fullOutput
 		}
 	}
+	t.FrictionError = classifyFriction(t, t.StdoutInline+t.StderrInline)
 	return r.append("tool_calls.jsonl", t)
 }
 
@@ -358,13 +362,67 @@ func (r *TrialRecorder) WriteEnvironment(e Environment) error {
 
 // FinalState is written once at the end to final.json.
 type FinalState struct {
-	At       time.Time `json:"at"`
-	State    string    `json:"state"`
-	Reason   string    `json:"reason,omitempty"`
-	ExitCode int       `json:"exit_code"`
+	At                 time.Time      `json:"at"`
+	State              string         `json:"state"`
+	Reason             string         `json:"reason,omitempty"`
+	ExitCode           int            `json:"exit_code"`
+	FrictionErrors     map[string]int `json:"friction_errors"`
+	FrictionErrorCount int            `json:"friction_error_count"`
 }
 
 // WriteFinal writes final.json.
 func (r *TrialRecorder) WriteFinal(state, reason string, code int) error {
-	return r.writeFile("final.json", FinalState{At: time.Now().UTC(), State: state, Reason: reason, ExitCode: code})
+	counts := map[string]int{}
+	total := 0
+	raw, err := os.ReadFile(filepath.Join(r.dir, "tool_calls.jsonl"))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		var call ToolCall
+		if json.Unmarshal(line, &call) != nil {
+			continue
+		}
+		kind := call.FrictionError
+		if kind == "" {
+			kind = classifyFriction(call, call.StdoutInline+call.StderrInline)
+		}
+		if kind != "" {
+			counts[kind]++
+			total++
+		}
+	}
+	return r.writeFile("final.json", FinalState{At: time.Now().UTC(), State: state, Reason: reason, ExitCode: code, FrictionErrors: counts, FrictionErrorCount: total})
+}
+
+// classifyFriction excludes command failures: these categories describe tool protocol mistakes.
+func classifyFriction(call ToolCall, output string) string {
+	if !call.IsError {
+		return ""
+	}
+	switch call.Tool {
+	case "call_tool":
+		if strings.Contains(output, "not deferred") {
+			return "call_core_tool"
+		}
+		if strings.Contains(output, "name is required") || strings.Contains(output, `missing required property "name"`) {
+			return "missing_tool_name"
+		}
+	case "subagent":
+		if strings.Contains(output, "action is required") || strings.Contains(output, `missing required property "action"`) {
+			return "missing_subagent_action"
+		}
+		if strings.Contains(output, "run is required") {
+			return "missing_subagent_run"
+		}
+	case "get_tool_output":
+		if strings.Contains(output, "unknown blob ref") && strings.Contains(output, "sess-") {
+			return "session_as_blob"
+		}
+	case "search_tools":
+		if strings.Contains(output, "query is required") || strings.Contains(output, `missing required property "query"`) {
+			return "missing_tool_query"
+		}
+	}
+	return ""
 }

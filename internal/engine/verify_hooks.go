@@ -19,8 +19,10 @@ package engine
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -146,10 +148,9 @@ func markRefined(run *Run, drafts []tasks.DraftCriterion) {
 // lines, change diff, final answer excerpt — never executor
 // reasoning) goes to one cheap verifier-role call that writes its
 // own small checks and returns per-draft pass/fail with reasons. A
-// FAIL returns the agent to work with the reasons; anything else
-// (pass, model error, unparseable reply) falls back to the
-// deterministic outcome so the verifier can never block on format
-// alone. The daemon big-task path owns its Section 8.7 subagent
+// FAIL returns the agent to work with the reasons. With generalisation
+// checks enabled, missing coverage or a model error also returns to work;
+// disabling that extension restores the original permissive fallback. The daemon big-task path owns its Section 8.7 subagent
 // spawn from the orchestrator, so this embedded equivalent stands
 // down when the gate input already requires that verdict.
 func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.SelfVerifyConfig, drafts []tasks.DraftCriterion, history []tasks.HistoryTool, finalText string) (bool, []string) {
@@ -166,21 +167,41 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	if verifierOwned {
 		return true, nil
 	}
-	// Nothing checkable, nothing to judge: without drafts the
-	// deterministic phase already decided, and the verifier would
-	// spend a model call with no items to pass or fail.
+	// Generated-input review must also cover methods whose instruction has
+	// no path, format keyword or other deterministically extracted draft.
+	// Existing executable evidence supplies the review seam in that case;
+	// the verifier judges applicability from the literal request.
 	if len(drafts) == 0 {
-		return true, nil
+		review := false
+		if cfg.EnableGeneralizeChecks && tasks.HasGeneralizableInstruction(request) {
+			for _, h := range history {
+				if tasks.IsExercisingCall(h) {
+					review = true
+					break
+				}
+			}
+		}
+		if !review {
+			return true, nil
+		}
 	}
 	small := tasks.BuildVerifierContext(request, drafts, history, 20)
-	prompt := tasks.StrongVerifierPrompt(small, history, finalText)
+	prompt := tasks.StrongVerifierPromptWithConfig(cfg, small, history, finalText)
+	maxTokens := 512
+	if cfg.EnableGeneralizeChecks {
+		maxTokens = 1536
+	}
 	resp, meta, err := e.deps.Models.Chat(ctx, types.RoleVerifier, providers.ChatRequest{
 		Messages: []providers.Message{
 			{Role: providers.RoleUser, Content: prompt},
 		},
-		MaxTokens: 512,
+		MaxTokens: maxTokens,
 	})
 	if err != nil {
+		if cfg.EnableGeneralizeChecks {
+			e.recordGeneralization(ctx, run, "", []string{"verifier unavailable"})
+			return false, []string{"generalisation verifier unavailable; retry verification"}
+		}
 		return true, nil
 	}
 	run.mu.Lock()
@@ -189,6 +210,13 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		CostUSD: meta.CostUSD,
 	})
 	run.mu.Unlock()
+	if cfg.EnableGeneralizeChecks {
+		pending := tasks.GeneralizationPendings(resp.Message.Content)
+		e.recordGeneralization(ctx, run, resp.Message.Content, pending)
+		if len(pending) > 0 {
+			return false, pending
+		}
+	}
 	verdict := tasks.ParseStrongVerdict(resp.Message.Content, drafts)
 	if !verdict.Explicit || verdict.Pass {
 		return true, nil
@@ -224,6 +252,16 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 		run.drafts = append([]tasks.DraftCriterion(nil), drafts...)
 		run.mu.Unlock()
 	}
+	filtered := make([]tasks.DraftCriterion, 0, len(drafts))
+	for _, d := range drafts {
+		if !run.requirementDropped(d.ID) {
+			filtered = append(filtered, d)
+		}
+	}
+	if len(drafts) > 0 && len(filtered) == 0 {
+		cfg.EnableExtraction = false
+	}
+	drafts = filtered
 	_ = level
 	merged, kept := tasks.ApplySelfVerify(cfg, gate, in, tasks.SelfVerifyRequest{
 		Request:   request,
@@ -251,6 +289,14 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	workdir := run.Workdir
 	run.mu.Unlock()
 	merged = e.applyArtifacts(run, merged, historyTools(history), request, finalText, workdir)
+	if PromptFinishEnabled() && merged.OK && len(kept) > 0 {
+		run.mu.Lock()
+		if run.firstAllChecksPassAt.IsZero() {
+			run.firstAllChecksPassAt = time.Now().UTC()
+			run.writePromptFinishRecordLocked()
+		}
+		run.mu.Unlock()
+	}
 	return merged
 }
 
@@ -265,14 +311,27 @@ func (e *Engine) applyArtifacts(run *Run, gate tasks.GateReport, history []tasks
 	if !cfg.Enable {
 		return gate
 	}
-	pendings := tasks.ApplyArtifactGate(cfg, tasks.ArtifactRequest{
-		Request:   request,
-		History:   history,
-		FinalText: finalText,
-		Workdir:   workdir,
-		Stat:      e.deps.ArtifactStat,
-		Read:      e.deps.ArtifactRead,
-	})
+	if !ActionableRefusalsEnabled() {
+		pendings := tasks.ApplyArtifactGate(cfg, tasks.ArtifactRequest{Request: request, History: history, FinalText: finalText, Workdir: workdir, Stat: e.deps.ArtifactStat, Read: e.deps.ArtifactRead})
+		if len(pendings) > 0 {
+			gate.Pendings = append(gate.Pendings, pendings...)
+			gate.OK = false
+		}
+		return gate
+	}
+	reqs := tasks.ExtractArtifactRequirements(request, cfg.MaxArtifacts)
+	kept := make([]tasks.ArtifactRequirement, 0, len(reqs))
+	for _, a := range reqs {
+		if !run.requirementDropped(a.ID) {
+			kept = append(kept, a)
+		}
+	}
+	// Check each item separately to preserve all unmet items beyond the legacy cap.
+	var pendings []string
+	for _, a := range kept {
+		pendings = append(pendings, tasks.CheckArtifactFiles([]tasks.ArtifactRequirement{a}, history, workdir, e.deps.ArtifactStat, e.deps.ArtifactRead)...)
+	}
+	pendings = append(pendings, tasks.CheckBackgroundSessions(history, request, finalText)...)
 	if len(pendings) == 0 {
 		return gate
 	}
@@ -290,4 +349,16 @@ func verificationNote(rep tasks.GateReport) string {
 		return ""
 	}
 	return tasks.VerificationNote(rep.Pendings)
+}
+
+// recordGeneralization preserves the independent coverage report for auditing.
+// This observational entry has no replayable effects or recovery transitions.
+func (e *Engine) recordGeneralization(ctx context.Context, run *Run, report string, pending []string) {
+	if rec := e.recorder(run.ID); rec != nil {
+		_, _ = rec.Record(ctx, journal.EntryType("generalization_check"), journal.MarshalPayload(struct {
+			Enabled bool     `json:"enabled"`
+			Report  string   `json:"report"`
+			Pending []string `json:"pending,omitempty"`
+		}{true, report, pending}), "", "", "")
+	}
 }

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
@@ -20,6 +21,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/registry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
@@ -50,8 +52,8 @@ type ExecOptions struct {
 	BudgetUSD *float64
 	// MaxSteps caps engine steps; negative is an invalid flag.
 	MaxSteps int
-	// TimeoutSecs bounds wall time; expiry pauses the run (Section
-	// 6.5: paused by budget or time, code 4).
+	// TimeoutSecs bounds wall time; expiry records stopped_by_timeout
+	// with exit code 4 (Section 6.5; decision 0063).
 	TimeoutSecs int64
 	// Profile selects default, delegate or eval. Empty is default.
 	Profile ProfileName
@@ -442,6 +444,11 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	// safety caps. Recorded in profile.json (so profile.sha256 moves
 	// with them) and in budgets.json for the ablation.
 	effBudgets := EffectiveBudgetsFor(opts, profile)
+	if effBudgets.WallSecs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(effBudgets.WallSecs)*time.Second)
+		defer cancel()
+	}
 
 	if err := writeRunProfile(runDir, profile, profileCfg, opts.ProfileOverride, effBudgets); err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
@@ -550,13 +557,54 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		return nil, &CodedError{Code: ExitError, Err: err}
 	}
 
+	// The watchdog persists a thread-safe snapshot even if a tool ignores cancellation.
+	var finalMu sync.Mutex
+	finished := false
+	stopFinal := make(chan struct{})
+	finalDone := make(chan struct{})
+	safego.Go("exec-final-records", nil, func() {
+		defer close(finalDone)
+		select {
+		case <-stopFinal:
+			return
+		case <-ctx.Done():
+		}
+		finalMu.Lock()
+		defer finalMu.Unlock()
+		if !finished {
+			_ = writeStoppedRecords(run, outcome.MetricsPath, ctx.Err())
+		}
+	})
+	defer func() { close(stopFinal); <-finalDone }()
 	finalize := func(state types.RunState, reason, summary string, question string) (*ExecOutcome, error) {
+		finalMu.Lock()
+		defer finalMu.Unlock()
+		if ctx.Err() != nil {
+			state, reason, summary, question = stoppedByTimeout, "timeout", "stopped by timeout or signal", ""
+			if errors.Is(ctx.Err(), context.Canceled) {
+				reason = "signal"
+			}
+			// Delegated task callers use the shared durable state vocabulary.
+			if opts.TaskID != "" {
+				state = types.RunPaused
+				if errors.Is(ctx.Err(), context.Canceled) {
+					state = types.RunCanceled
+				}
+			}
+			// Persist before streaming the closing event: stdout may be blocked
+			// or disconnected when the timeout owner stops reading.
+			_ = writeStoppedRecords(run, outcome.MetricsPath, ctx.Err())
+		}
+		finished = true
 		outcome.State = state
 		outcome.Reason = reason
 		outcome.Summary = summary
 		outcome.Question = question
 		outcome.Assumptions = append([]string(nil), assumptions...)
 		outcome.ExitCode = CodeForRunState(state)
+		if state == stoppedByTimeout {
+			outcome.ExitCode = ExitPaused
+		}
 		if err := run.EmitEvent("run_finished", map[string]any{
 			"state": string(state), "reason": reason, "summary": summary,
 		}); err != nil {
@@ -869,6 +917,9 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 			return &CodedError{Code: ExitError, Err: err}
 		}
 	}
+	if err := writeFinalRecord(runDir, string(state), outcome.Reason, outcome.ExitCode); err != nil {
+		return err
+	}
 	// Trial recorder finalization (eval only): Harbor final metrics,
 	// final state and closing transition. All writes are incremental
 	// elsewhere, so a killed trial still keeps valid partial files.
@@ -906,7 +957,7 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		// Mirror profile hashes under excalibur/ for Appendix F.
 		if profile == ProfileEval {
 			excaliburDir := filepath.Join(logsDir, "excalibur")
-			for _, name := range []string{"profile.json", "profile.sha256", "budgets.json"} {
+			for _, name := range []string{"profile.json", "profile.sha256", "budgets.json", "services.json", "explicit_finish.json"} {
 				src := filepath.Join(runDir, name)
 				dst := filepath.Join(excaliburDir, name)
 				if raw, err := os.ReadFile(src); err == nil {

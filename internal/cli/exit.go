@@ -63,7 +63,7 @@ func CodeForRunState(s types.RunState) int {
 		return ExitPending
 	case types.RunBlocked:
 		return ExitBlocked
-	case types.RunPaused:
+	case types.RunPaused, stoppedByTimeout:
 		return ExitPaused
 	case types.RunFailed:
 		return ExitFailed

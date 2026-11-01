@@ -36,7 +36,9 @@ func (t *FinishTool) Definition() Definition {
 		Description: "End the run explicitly. Call ONLY when everything is verified: summary says what was done, " +
 			"evidence lists the commands run and their results proving each requirement. " +
 			"Use status blocked with a concrete reason only when genuinely stuck (missing data, file or permission). " +
-			"Never stop with a text-only answer: always call finish with evidence.",
+			"Never stop with a text-only answer: always call finish with evidence. " +
+			"Services the instruction requires must be left running (background:true sessions survive the run; declare keep_running in evidence); " +
+			"stop temporary helpers with exec_io close. Killing or stopping a process the task requires is a failure, never a blocked reason.",
 		InputSchema: finishSchema, Effect: "exec", Idempotency: "non_idempotent",
 		Cancel: "immediate", Timeout: 10 * time.Second, OutputBudget: DefaultOutputBudget, Fast: true,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},

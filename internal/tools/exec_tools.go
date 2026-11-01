@@ -127,7 +127,16 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		owner = "default"
 	}
 	start := time.Now()
-	s, out, alive := t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, env)
+	var s *Session
+	var out string
+	var alive bool
+	if a.Background && !a.TTY && DetachBackgroundEnabled() {
+		// Run-end services (W10): background sessions detach into
+		// their own session so they survive the agent's exit.
+		s, out, alive = t.sessions().StartDetached(owner, a.Command, a.Workdir, env)
+	} else {
+		s, out, alive = t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, env)
+	}
 	dur := time.Since(start)
 	var b strings.Builder
 	if code, exited := s.Exit(); exited && !alive {
@@ -136,6 +145,9 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		next := len(s.SnapshotFull())
 		fmt.Fprintf(&b, "exit: running  duration: %.1fs  session: %s  alive: true  next_offset: %d\n", dur.Seconds(), s.ID, next)
 		fmt.Fprintf(&b, "to poll: exec_io {\"action\":\"read\",\"session\":%q,\"offset\":%d}\n", string(s.ID), next)
+		if s.Detached {
+			fmt.Fprintf(&b, "detached service: pid %d survives run end; log %s\n", s.Pid, s.LogPath)
+		}
 	} else {
 		fmt.Fprintf(&b, "exit: unknown  duration: %.1fs  session: %s  alive: false\n", dur.Seconds(), s.ID)
 	}

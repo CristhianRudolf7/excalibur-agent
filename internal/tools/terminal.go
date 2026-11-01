@@ -50,6 +50,38 @@ type TerminalDeps struct {
 // SessionID identifies a terminal session.
 type SessionID string
 
+// DetachBackgroundSwitch gates run-end service survival (W10):
+// background exec sessions detach into their own session (setsid,
+// stdin from /dev/null, output to a log file under /tmp) so they
+// survive the agent's exit. Default ON; off restores the
+// pre-detach behaviour where every child dies with the parent.
+const DetachBackgroundSwitch = "EXCALIBUR_DETACH_BACKGROUND"
+
+// DetachBackgroundEnabled reports whether background sessions detach.
+func DetachBackgroundEnabled() bool {
+	v, ok := os.LookupEnv(DetachBackgroundSwitch)
+	if !ok || len(strings.TrimSpace(v)) == 0 {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+// SurvivingProcess is one detached background process that outlives
+// the run, recorded in the trial records (services.json).
+type SurvivingProcess struct {
+	Session SessionID `json:"session"`
+	Pid     int       `json:"pid"`
+	Command string    `json:"command"`
+	LogPath string    `json:"log_path"`
+	Started time.Time `json:"started"`
+	Alive   bool      `json:"alive"`
+}
+
 // Session is one live process behind exec/exec_io.
 type Session struct {
 	ID      SessionID
@@ -59,15 +91,18 @@ type Session struct {
 	UsePTY  bool
 	Started time.Time
 
-	mu      sync.Mutex
-	buf     bytes.Buffer
-	full    bytes.Buffer
-	done    chan struct{}
-	exitErr error
-	exited  bool
-	lastUse time.Time
-	pty     platform.PTYSession
-	proc    *os.Process
+	mu       sync.Mutex
+	buf      bytes.Buffer
+	full     bytes.Buffer
+	done     chan struct{}
+	exitErr  error
+	exited   bool
+	lastUse  time.Time
+	pty      platform.PTYSession
+	proc     *os.Process
+	Detached bool
+	LogPath  string
+	Pid      int
 }
 
 func (s *Session) appendOut(p []byte) {
@@ -311,6 +346,167 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 		}
 		s.markDone(sess.Wait())
 	})
+}
+
+// StartDetached launches cmd as a run-end service (W10): the child
+// is detached into its own session (setsid, no Pdeathsig), stdin
+// from /dev/null, stdout+stderr to a log file under /tmp, so it
+// survives the agent's exit. The manager tails the log for polling
+// during the run; after the run the process keeps running and the
+// log file remains. PTY sessions never detach: they fall back to
+// the foreground path so interactive behaviour is unchanged.
+func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*Session, string, bool) {
+	m.evictIfNeeded(owner)
+	s := &Session{
+		ID: SessionID(fmt.Sprintf("sess-%d", m.nextSeq())), Owner: owner,
+		Cmd: cmd, Dir: dir, Started: m.now(), done: make(chan struct{}),
+		Detached: true,
+	}
+	s.lastUse = s.Started
+	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", string(s.ID), s.Started.UnixNano()))
+	s.LogPath = logPath
+	m.mu.Lock()
+	m.sessions[s.ID] = s
+	m.order = append(m.order, s.ID)
+	m.mu.Unlock()
+
+	if runtime.GOOS != "linux" || !DetachBackgroundEnabled() {
+		// Stubs and opt-out keep the foreground path byte-for-byte.
+		s.Detached = false
+		s.LogPath = ""
+		m.startPipe(s, cmd, dir, env)
+		out, alive := s.waitYield(time.Duration(minYieldMs) * time.Millisecond)
+		return s, out, alive
+	}
+	m.startDetachedPipe(s, cmd, dir, env, logPath)
+	out, alive := s.waitYield(time.Duration(minYieldMs) * time.Millisecond)
+	return s, out, alive
+}
+
+func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []string, logPath string) {
+	shell := DetectShell()
+	c := exec.Command(shell, "-c", cmd)
+	if dir != "" {
+		c.Dir = dir
+	}
+	c.Env = pipeEnv(env)
+	c.SysProcAttr = detachedSysProcAttr()
+	// Never arm Pdeathsig or group-kill for detached services: the
+	// point is survival after the agent exits. Isolator and priority
+	// still apply when present.
+	if m.deps.Isolator != nil {
+		_ = m.deps.Isolator.Isolate(c)
+	}
+	devNull, err := os.OpenFile(os.DevNull, os.O_RDONLY, 0)
+	if err != nil {
+		s.appendOut([]byte("start error: open devnull: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	defer devNull.Close()
+	logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		s.appendOut([]byte("start error: open log: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	c.Stdin = devNull
+	c.Stdout = logF
+	c.Stderr = logF
+	if err := c.Start(); err != nil {
+		_ = logF.Close()
+		s.appendOut([]byte("start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	s.mu.Lock()
+	s.proc = c.Process
+	s.Pid = c.Process.Pid
+	if m.deps.Priority != nil && c.Process != nil {
+		_ = m.deps.Priority.LowerProcess(c.Process.Pid)
+	}
+	s.mu.Unlock()
+	_ = logF.Close()
+	s.appendOut([]byte(fmt.Sprintf("detached service pid %d log %s\n", s.Pid, logPath)))
+	safego.Go("tools/terminal-detached-wait", nil, func() {
+		s.markDone(c.Wait())
+	})
+	safego.Go("tools/terminal-detached-tail", nil, func() {
+		var off int64
+		buf := make([]byte, 8192)
+		for {
+			f, err := os.Open(logPath)
+			if err != nil {
+				select {
+				case <-s.done:
+					return
+				case <-time.After(100 * time.Millisecond):
+					continue
+				}
+			}
+			if off > 0 {
+				_, _ = f.Seek(off, io.SeekStart)
+			}
+			n, _ := f.Read(buf)
+			if n > 0 {
+				s.appendOut(buf[:n])
+				off += int64(n)
+			}
+			_ = f.Close()
+			select {
+			case <-s.done:
+				// Drain once more after exit so the final
+				// output is visible before polling stops.
+				if f2, err := os.Open(logPath); err == nil {
+					if off > 0 {
+						_, _ = f2.Seek(off, io.SeekStart)
+					}
+					if n2, _ := f2.Read(buf); n2 > 0 {
+						s.appendOut(buf[:n2])
+					}
+					_ = f2.Close()
+				}
+				return
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	})
+}
+
+// Surviving returns the detached background services that are still
+// alive (or were detached and have a log), for the trial records.
+func (m *SessionManager) Surviving() []SurvivingProcess {
+	m.mu.Lock()
+	snaps := make([]*Session, 0, len(m.sessions))
+	for _, sid := range m.order {
+		if s, ok := m.sessions[sid]; ok {
+			snaps = append(snaps, s)
+		}
+	}
+	m.mu.Unlock()
+	var out []SurvivingProcess
+	for _, s := range snaps {
+		s.mu.Lock()
+		det := s.Detached
+		pid := s.Pid
+		if pid == 0 && s.proc != nil {
+			pid = s.proc.Pid
+		}
+		alive := !s.exited
+		logPath := s.LogPath
+		cmd := s.Cmd
+		started := s.Started
+		id := s.ID
+		s.mu.Unlock()
+		if !det {
+			continue
+		}
+		out = append(out, SurvivingProcess{
+			Session: id, Pid: pid, Command: cmd,
+			LogPath: logPath, Started: started, Alive: alive,
+		})
+	}
+	return out
 }
 
 func (s *Session) waitYield(d time.Duration) (string, bool) {

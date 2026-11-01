@@ -82,7 +82,7 @@ func TestArtifactGatePassesWhenFileExists(t *testing.T) {
 	if err := os.WriteFile(path, []byte("def run_tasks(): pass\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("created " + path + " and verified the import")}}
+	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("created " + path + " and verified the import"), verifierPassResp()}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
 	history := writeHistory(path)
@@ -192,6 +192,8 @@ func TestArtifactGateBlocksEarlierLiveSession(t *testing.T) {
 	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("done"), finalResp("done")}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
+	// This test isolates background-session artifact checks.
+	e.deps.SelfVerify.EnableStrongVerifier = false
 	run := artifactRun("", "Build the project with make.", []ctxcompiler.ActivityEvent{
 		{Seq: 0, Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{toolCall("c1", "exec", `{"command":"make -j"}`)}},

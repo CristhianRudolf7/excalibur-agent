@@ -63,6 +63,8 @@ type EmbeddedOptions struct {
 // catalog with its fixed prefix, and the pipeline executor with vault
 // redaction installed. Surface holds the task-scoped stores when the
 // embedded adapters are wired (nil when WireEmbedded is off).
+// Sessions is the shared terminal session manager behind exec/exec_io:
+// background sessions detached through it survive the run (W10).
 type Embedded struct {
 	Registry *tools.MapRegistry
 	Catalog  *tools.DeferredCatalog
@@ -71,6 +73,7 @@ type Embedded struct {
 	History  *SharedHistory
 	Leases   *workspace.LeaseManager
 	Surface  *SurfaceStores
+	Sessions *tools.SessionManager
 	Prefix   string
 }
 
@@ -99,7 +102,8 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 		RunID:        opts.RunID,
 	}
 	reg := tools.NewMapRegistry()
-	if err := tools.RegisterBuiltins(reg, &tools.BuiltinDeps{Files: files}); err != nil {
+	sess := tools.NewSessionManager(tools.TerminalDeps{})
+	if err := tools.RegisterBuiltins(reg, &tools.BuiltinDeps{Files: files, Sessions: sess}); err != nil {
 		return nil, err
 	}
 	// Point the built-in exec tool at the vault for env resolution.
@@ -201,7 +205,7 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	}
 	return &Embedded{
 		Registry: reg, Catalog: cat, Exec: exec,
-		Files: files, History: hist, Leases: leases, Surface: surface, Prefix: prefix,
+		Files: files, History: hist, Leases: leases, Surface: surface, Sessions: sess, Prefix: prefix,
 	}, nil
 }
 

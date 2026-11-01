@@ -172,8 +172,10 @@ func FinishToolDefinition() providers.ToolDefinition {
 		Description: "End the run explicitly. Call ONLY when everything is verified: summary says what was done, " +
 			"evidence lists the commands run and their results proving each requirement. " +
 			"Use status blocked with a concrete reason only when genuinely stuck (missing data, file or permission). " +
-			"Never stop with a text-only answer: always call finish with evidence.",
-		Schema: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","description":"what was done"},"evidence":{"type":"string","description":"commands run and their results proving each requirement"},"status":{"type":"string","enum":["completed","blocked"],"description":"completed (default) or blocked when genuinely stuck"},"reason":{"type":"string","description":"concrete reason when blocked"}},"required":["summary","evidence"],"additionalProperties":false}`),
+			"Never stop with a text-only answer: always call finish with evidence. " +
+			"Services the instruction requires must be left running (background:true sessions survive the run; declare keep_running in evidence); " +
+			"stop temporary helpers with exec_io close. Killing or stopping a process the task requires is a failure, never a blocked reason.",
+		Schema: json.RawMessage(`{"type":"object","properties":{"summary":{"type":"string","description":"what was done"},"evidence":{"type":"string","description":"commands run and their results proving each requirement"},"status":{"type":"string","enum":["completed","blocked"],"description":"completed (default) or blocked when genuinely stuck"},"reason":{"type":"string","description":"concrete reason when blocked"}},"required":["summary","evidence"],"additionalProperties":true}`),
 	}
 }
 
@@ -393,10 +395,19 @@ func historyEventForTool(seq int64, tc providers.ToolCall, res tools.Result) ctx
 // must pass, and a blocked claim must not name paths that exist. It
 // returns the refusal reason ("" when accepted).
 func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, evidenceText string) string {
+	e.restoreRefusals(ctx, run)
+	var reasons []string
 	if out, isErr, found := lastNonFinishError(run); found && isErr {
-		return "your last command errored (" + truncOneLine(out, 200) + "). Fix it and verify by executing before calling `finish` again."
+		reason := "your last command errored (" + truncOneLine(out, 200) + "). Fix it and verify by executing before calling `finish` again."
+		if !ActionableRefusalsEnabled() {
+			return reason
+		}
+		reasons = append(reasons, reason)
 	}
 	if args.Status == "blocked" {
+		if len(reasons) > 0 {
+			return e.refuseFinish(ctx, run, reasons)
+		}
 		if existing := e.blockedPathsExist(run, args.Reason); existing != "" {
 			return "blocked claim refused: path " + existing + " exists. Re-read the filesystem result and continue working instead of declaring blocked."
 		}
@@ -414,11 +425,10 @@ func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, 
 	gate := e.gateCheck(run)
 	merged := e.selfVerify(ctx, run, gate, evidenceText)
 	if !merged.OK {
-		pendings := append([]string(nil), merged.Pendings...)
-		if len(pendings) > 3 {
-			pendings = pendings[:3]
-		}
-		return "verification failed: " + strings.Join(pendings, "; ")
+		reasons = append(reasons, merged.Pendings...)
+	}
+	if len(reasons) > 0 {
+		return e.refuseFinish(ctx, run, reasons)
 	}
 	return ""
 }
@@ -438,13 +448,17 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 	run.recordFinishAttempt(string(tc.Arguments), assistantText)
 	args, err := ParseFinishArgs(tc.Arguments)
 	if err != nil {
-		run.recordFinishRefusal(err.Error())
-		run.InjectNote(err.Error())
+		reason := e.refuseFinish(ctx, run, []string{err.Error()})
+		run.recordFinishRefusal(reason)
+		run.InjectNote(reason)
 		return false, nil
 	}
 	if reason := e.validateFinish(ctx, run, args, finishEvidenceText(args, assistantText)); reason != "" {
-		run.recordFinishRefusal("finish refused: " + reason)
-		run.InjectNote("finish refused: " + reason)
+		if !strings.HasPrefix(reason, "finish refused: ") {
+			reason = e.refuseFinish(ctx, run, []string{reason})
+		}
+		run.recordFinishRefusal(reason)
+		run.InjectNote(reason)
 		return false, nil
 	}
 	run.clearRefusal()
@@ -503,12 +517,9 @@ func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) 
 		_ = run.transition(types.RunRunning)
 		run.mu.Unlock()
 		e.recordState(ctx, run, back, types.RunRunning, "finish race: re-verify")
-		pendings := append([]string(nil), rep.Pendings...)
-		if len(pendings) > 3 {
-			pendings = pendings[:3]
-		}
-		run.InjectNote("finish refused: verification failed: " + strings.Join(pendings, "; "))
-		run.recordFinishRefusal("finish refused: verification failed: " + strings.Join(pendings, "; "))
+		reason := e.refuseFinish(ctx, run, rep.Pendings)
+		run.InjectNote(reason)
+		run.recordFinishRefusal(reason)
 		return nil
 	}
 	return e.complete(ctx, run, types.RunCompleted, "explicit finish")

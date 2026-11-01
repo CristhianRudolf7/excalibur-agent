@@ -71,7 +71,7 @@ func TestFinishTurnBlocksUnverifiedWrite(t *testing.T) {
 
 func verifierPassResp() providers.ChatResponse {
 	return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant,
-		Content: "CHECKS:\n- python3 /app/filter.py hello\nD1: PASS - ran with input, output confirms behavior\nVERDICT: PASS\nREASONS: none"}}
+		Content: "FRESH_INPUTS: PASS - generated hello input asserted independently\nPROPERTY: PASS - file is importable Python\nOUTPUT_CONTRACT: PASS - Python module import verified\nCHECKS:\n- python3 /app/filter.py hello\nD1: PASS - ran with input, output confirms behavior\nVERDICT: PASS\nREASONS: none"}}
 }
 
 func TestFinishTurnPassesWhenVerified(t *testing.T) {

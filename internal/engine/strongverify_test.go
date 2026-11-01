@@ -103,7 +103,7 @@ func TestStrongVerifierDisagreementReturnsToWorkThenBlocks(t *testing.T) {
 	}
 }
 
-func TestStrongVerifierFallbackPassesOnGibberish(t *testing.T) {
+func TestStrongVerifierFallbackPassesOnGibberishWithGeneralizationOff(t *testing.T) {
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		finalResp("created /app/filter.py and verified the import"),
@@ -111,6 +111,7 @@ func TestStrongVerifierFallbackPassesOnGibberish(t *testing.T) {
 	}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
+	e.deps.SelfVerify.EnableGeneralizeChecks = false
 	e.deps.Artifacts = artifactOff()
 	run := testRun(Profile{})
 	run.Request = "Create /app/filter.py."

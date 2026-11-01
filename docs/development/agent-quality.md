@@ -2774,3 +2774,479 @@ file-content assertions passed. Records are outside the repository at
 Integrated-tree quality checks passed: empty `gofmt -l .`, `go vet ./...`,
 `staticcheck ./...`, `go test -race -p 2 ./...` with no global provider
 override, Darwin and Windows cross builds, and the no-bare-go check.
+
+## W10: run-end services and strict blocked closure (Sections 7.3, 13.5)
+
+Owner: w10-run-end-services workstream (branch `w10-run-end-services`).
+Implements the director's three run-end fixes from read-only v9-default
+records (never task contents): pypi-server lost at run end, qemu blocked
+with 0 refusals after self-kill, extract-elf blocked on missing
+reference. Decision: `docs/decisions/0060-w10-run-end-services.md`.
+Connectors untouched.
+
+### Mechanisms (all default ON)
+
+1. Detached background services (`EXCALIBUR_DETACH_BACKGROUND`, default
+   ON): `exec background:true` (non-PTY) detaches into its own session
+   (`setsid`, no `Pdeathsig`, stdin `/dev/null`, log under `/tmp`) so
+   required servers survive `exec` exit; foreground keeps
+   `Setpgid`+`Pdeathsig`. Tailed logs keep `exec_io` polling working.
+   Surviving `(pid, command)` recorded in `services.json` (+ `services`
+   event, mirrored under `excalibur/` in eval). The `finish`
+   description carries `keep_running` guidance; fixed instructions
+   teach detach survival and that killing a required process is a
+   failure.
+2. Strict blocked closure (existing `EXCALIBUR_STRICT_BLOCKED`, default
+   ON): blocked while time remains needs deterministic external
+   evidence; only the empty-history operator case stays accepted.
+   Reference-solution and self-caused (kill/stop) claims are never
+   external and are refused. Closing mode never accepts blocked: the
+   run must end `finish status=completed` with the best deliverable.
+   This intentionally changes W8's no-time-left acceptance (see the
+   decision).
+
+### Switches
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_DETACH_BACKGROUND` | `on`/`1`/`true`/`yes` enables | `on` | `off` runs background sessions in the foreground process group (pre-detach behaviour, children die with the agent) |
+| `EXCALIBUR_STRICT_BLOCKED` | `on`/`1`/`true`/`yes` enables | `on` | `off` restores the legacy path-exists-only blocked check (also disables the W10 reference/self-kill/closing refusals) |
+
+Measure detach on against off with the same model/effort/task set;
+watch service survival (`services.json` count, post-run curl), share
+of `blocked` vs `completed`, and strict refusals.
+
+### Research sources for this section
+
+General engineering knowledge only (no task material used); the task
+brief already cites the prior art. Implementation follows the
+director's specified repair: survival via session detach (standard
+Unix `setsid` daemon semantics), strict evidence gating, and explicit
+`keep_running` completion discipline. Evaluation records are standard
+evaluation and auditing (Section 23.2, Appendix F).
+
+### Contract and backend tests
+
+- `internal/tools/terminal_detach_test.go`: detach default ON, log
+  under `/tmp`, pid recorded, `Surviving` lists it, tailed output
+  pollable, switch-off fallback, `background:true` routes to detached
+  with survival wording, `finish` description carries `keep_running`
+  and the no-kill rule; `TestDetachedSurvivesParentExit` proves a
+  detached HTTP server answers after its launcher exits.
+- `internal/cli/run_end_services_test.go`: `TestRunEndBackgroundSurvives`
+  (background server answers after `RunExec` returns, `services.json`
+  records the survivor) and prompt teaching (`keep_running`, killing
+  rule).
+- `internal/engine/strictblocked_test.go`: W10 regressions
+  `TestStrictBlockedRefusesSelfStoppedQemu` (v9 qemu shape, 0-refusal
+  hole) and `TestStrictBlockedRefusesMissingReference` (v9 extract-elf
+  shape); closing (`TestStrictBlockedAcceptsWhenNoTimeRemains`) now
+  refuses blocked and requires completed.
+- Existing suites unchanged and green (see final verification below).
+## W11: Verification of generalisation and explicit output properties
+
+The strong-verification closing hook now asks its existing independent reviewer
+to assess generated-input evidence and every explicit instruction property.
+`EXCALIBUR_GENERALIZE_CHECKS=on|off` defaults **on**, under the existing
+`EXCALIBUR_SELFVERIFY`, `EXCALIBUR_STRONG_VERIFY` and
+`EXCALIBUR_STRONG_VERIFY_VERIFIER` master switches. Off restores the previous
+review prompt and fallback. No second verifier or tool-execution path is added.
+
+For functions, CLIs, extractors, converters, models and solvers applied to inputs,
+the reviewer must identify an executed check on at least one agent-generated
+fresh input, such as a changed seed/size, random instance or edge case. Visible
+reference values alone cannot establish generalisation. The reviewer receives
+the literal instruction and must list its explicit properties individually,
+including types, shapes, file formats, field names and ordering, even when the
+bounded draft criteria omit them. Each PROPERTY entry cites its actual check;
+a proposed command cannot satisfy it. The executor runs missing checks through
+its normal tools. Hidden benchmark tests and reference solutions remain
+explicitly forbidden.
+
+The same call returns FRESH_INPUTS and OUTPUT_CONTRACT assessments and PROPERTY
+checklist entries. Missing assessments, any failed property and verifier errors
+return actionable pendings through the existing completion gate and budgets.
+NA is permitted only when the relevant requirement does not apply. The reviewer
+judges applicability, input novelty and coverage semantics; the harness does
+not claim to prove arbitrary program correctness by matching shell keywords.
+It preserves up to ten recent command/result excerpts, identifies the last
+mutation boundary, and requires evidence after that boundary. The output
+allowance is 1536 tokens when enabled, 512 when off. Observational
+`generalization_check` entries in `journal.jsonl` preserve the review and its
+pending checks without changing recovery behavior. See
+[decision 0061](../decisions/0061-generalizing-verification.md).
+
+Backend tests in `internal/tasks/generalize_test.go` exercise visible-only
+reports, generated-input coverage, wrong output properties, missing checklists,
+proposed checks without execution, non-applicability and both switch values.
+`internal/engine/generalize_test.go` exercises the real closing-hook seam with
+simulated verifier responses, checks that failures return actionable reasons,
+confirms one reused verifier call, and asserts the journal report. Existing
+strong-verification tests retain the legacy malformed-response fallback with
+the new mechanism explicitly off. Ordinary tests never call paid APIs.
+
+Research reviewed before implementation:
+
+- [LangChain, Improving Deep Agents with harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+  reports gains from self-verification, context engineering and tracing. This
+  change uses the existing verifier and evidence seam.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052) studies harness code and
+  information presentation across applications and held-out models. Its broader
+  harness search is outside this implementation's scope.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850) motivates
+  component, experience and decision observability; the coverage report here is
+  an evaluation and audit record under Section 23.2 and Appendix F.
+- [Terminus 2](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py)
+  provides terminal execution and explicit completion control; existing finish
+  control remains intact.
+- [SWE-agent](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml)
+  and [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/config/default.yaml)
+  recommend reproduction followed by edge-case checks.
+- [OpenHands](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/agent/agent.py),
+  [Codex CLI](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/prompts/base_instructions/default.md)
+  and [Aider](https://github.com/Aider-AI/aider/blob/main/aider/coders/editblock_prompts.py)
+  illustrate explicit action/observation handling, focused validation and precise
+  edits. No tool protocol or editing mechanism is changed here. Two attempted
+  OpenCode prompt-source URLs returned 404 and supplied no implementation basis.
+
+The supplied v9 behavior descriptions were used only to characterize shallow
+verification. The external summary script found zero trials at the supplied
+v9-default root on this workstation, so it supplied no additional evidence.
+No benchmark task contents, tests or solutions were read or run.
+
+A method with executable evidence is also reviewed when deterministic draft
+extraction finds no paths or format keywords; its literal instruction still
+supplies the properties. An engine regression covers this bypass case.
+
+Live end-to-end checks used operator credentials through the existing gateway,
+`gpt-6-luna`, low effort and `EXCALIBUR_GENERALIZE_CHECKS=on`, in three independent
+temporary work directories, without Terminal-Bench runs:
+
+- `/tmp/w11-live-two/records/excalibur`: normalization function completed with
+  exit zero. The journal records an initial FRESH_INPUTS failure, followed by
+  2,000 generated cases and passing property coverage.
+- `/tmp/w11-live-three/records/excalibur`: row-total function completed with exit
+  zero. The journal records rejection for missing fresh inputs and explicit
+  list/integer type assertions. The executor then checked generated rows against
+  an independent iterative accumulator, including order and empty cases, and
+  the coverage report passed. The final recorded check covered 2,000 generated cases.
+- `/tmp/w11-live-one/records/excalibur`: JSON statistics CLI produced correct
+  normal/empty outputs but did not complete within its 180-second budget;
+  final.json reports exit one and state running. This first run preceded the
+  journal coverage export. Its model-call records include verifier calls; it
+  is not counted as a successful end-to-end run. No unrelated timeout or tool
+  routing behavior was changed.
+
+Independent post-run assertions passed 60 additional normalization cases using
+an enumeration oracle, 60 row-total cases using iterative accumulation, and
+four statistics CLI inputs checking exact field order, integer types, one-line
+JSON and values. The records above remain outside the repository.
+The draft-free backstop recognizes general method/input vocabulary and requires
+existing executable evidence before spending the review call; plain greetings,
+build-only requests and text-file actions keep their existing behavior. The
+reviewer still decides whether generated inputs apply. A regression covers the
+method vocabulary independently of evidence-coverage judgment.
+
+Final verification passed on the completed tree: empty `gofmt -l .`,
+`go vet ./...`, `staticcheck ./...`, `go test -race -p 2 ./...`,
+`GOOS=darwin go build -p 2 ./...`, `GOOS=windows go build -p 2 ./...`,
+and `scripts/check-no-bare-go.sh`. Commands ran with low process priority.
+No Go dependencies or connector files changed.
+## W12: actionable finish refusals
+
+The explicit finish gate returns a compact JSON checklist: `id`, `missing`,
+and `check` per unmet item. Extracted artifacts use their `A` IDs and draft
+criteria their `D` IDs. Other gate conditions receive stable content-derived
+IDs. Each repeat contains only changed entries, resolved IDs and a concrete
+next action; an attempt number distinguishes continued refusals. Reasons are
+retained even when omitted from the model-visible delta.
+
+After three refusals for the same extracted item, the verifier role reviews
+its interpretation of the literal instruction. A false-requirement verdict
+requires a reason and an exact instruction quote. The item is then excluded
+from subsequent extraction checks for that instruction. Core gate obligations
+are never eligible. Reviews fail closed on errors or malformed output and run
+at most once per extracted item per instruction. Instruction changes invalidate
+withdrawals. Decision 0060 records the departure from one-time refinement.
+
+The switch is `EXCALIBUR_ACTIONABLE_REFUSALS=on|off`, default **on**. It controls
+checklists, delta responses, extraction reviews and per-item records. Off keeps
+the existing refusal protocol. The finish tool's history result carries the
+refusal, and `finish_refusal` journal entries preserve all items and reviews
+immediately. `explicit_finish.json` records `actionable_refusals` and the
+`refusal_items` history for evaluation and auditing (Section 23.2, Appendix F).
+No provider, gateway, API, contract, integration or benchmark invocation changes
+are included.
+
+Backend coverage in `internal/engine/actionable_refusals_test.go` replays the
+observed refusal streak lengths (20, 9, 9) with invented artifacts, rather than
+benchmark task material. It checks delta responses, complete item retention,
+exact path matching, instruction changes, one review per item, false requirement
+withdrawal, real requirement retention, invalid quotes, malformed/error fallback,
+tool-result delivery, immediate journal records and the off switch. Existing
+explicit-finish, artifact and verification tests remain regression coverage.
+
+Research reviewed before implementation:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering):
+  verification feedback and loop detection support returning an actionable next
+  step when a completion attempt lacks evidence.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052): context preparation and
+  environment information motivate concise, relevant guidance. This change
+  implements only the director's refusal design.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850): observability
+  motivates preserving per-item decisions for auditing; no automatic harness
+  evolution is implemented.
+- [Terminus 2](https://github.com/laude-institute/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py):
+  explicit completion confirmation remains the surrounding stopping protocol.
+- [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py)
+  and [SWE-agent](https://github.com/SWE-agent/SWE-agent/blob/main/sweagent/agent/agents.py):
+  execution feedback and bounded control flow inform concise corrective checks.
+- [Aider](https://github.com/Aider-AI/aider/blob/main/aider/coders/base_coder.py):
+  lint/test outcomes and bounded reflection reinforce execution-backed feedback.
+- [Codex CLI guidance](https://github.com/openai/codex/blob/main/codex-rs/core/templates/agents/orchestrator.md):
+  concrete action and explicit validation are consistent with actionable refusal
+  guidance. No prompts or examples were copied.
+- [OpenCode recovery controls](https://opencode.ai/docs/agents/) distinguish
+  repeated tool loops; this mechanism uses per-item refusal counts instead.
+- [OpenHands SDK](https://github.com/OpenHands/software-agent-sdk) separates
+  agents, tools and conversation state; refusal bookkeeping likewise belongs to
+  the engine rather than provider adapters.
+
+Refusal counters, review outcomes and withdrawals are reconstructed from the
+journal when an execution resumes. Audit entries carry an instruction hash so
+an earlier revision cannot withdraw a requirement in a later revision. Replay
+coverage checks the third-refusal threshold across restart and persists both
+the withdrawal and its rationale.
+
+Live checks on 2026-11-01 used `excalibur exec --profile eval` in two temporary
+Git repositories with `gpt-6-luna`, effort `low`: a Python greeting program and
+an integer-sum CLI. Both completed with two finish calls and zero refusals.
+Their output was independently executed and checked, and each
+`explicit_finish.json` recorded `actionable_refusals: true`. Records are outside
+the repository at `/tmp/w12-actionable-final-live/logs1` and `logs2`.
+An earlier smoke run exercised per-item reasons, delta feedback and third-item
+reviews; genuine deliverables were retained. It exposed an existence probe
+being suggested for an exercise failure, now covered by
+`TestExerciseRefusalUsesExecutableCheck`. No benchmark runs were launched.
+
+Validation: `gofmt -l .` (empty), `go vet ./...`, `staticcheck ./...`,
+`go test -race -p 2 ./...`, `GOOS=darwin go build ./...`,
+`GOOS=windows go build ./...` and `scripts/check-no-bare-go.sh` passed.
+Heavy checks ran with `nice -n 19`. Initial deadline failures in daemon wiring
+tests under shared machine load passed on retry and in the final full run.
+## Final records and verified finish guidance (W12)
+
+Exec writes `final.json` for ordinary profiles as well as the eval recorder.
+SIGINT, SIGTERM and context expiry produce `stopped_by_timeout`, exit 4,
+metrics and a closing ATIF marker. Cancellation snapshots are independent of
+the worker and use synchronized telemetry only. The command bounds shutdown
+at two seconds. SIGKILL and failed/unresponsive storage remain outside the
+record guarantee. Decision 0060 documents the exec record-state departure from
+Sections 6.5 and 7.2; shared engine states remain unchanged.
+
+`EXCALIBUR_PROMPT_FINISH=on|off` defaults **on**. Before the next model call,
+existing deterministic verification and artifact checks plus evidence for every
+extracted criterion enable a short finish nudge. The ordinary finish gate,
+confirmation and independent verification still apply. Repeating the same
+successful check with unchanged output and artifacts adds a re-verification
+warning. Tool-recorded mutations and artifact size/mtime changes invalidate
+repeat tracking. No new verification tools or model calls run.
+`prompt_finish.json`, next to the custom trajectory, records `enabled`,
+`first_all_checks_pass_at` and `repeated_verification` incrementally. The first
+pass time is never reset, even if later work invalidates current checks. It is
+an agent-check milestone, not an external evaluation result. Record reliability
+is unconditional; only advisory completion guidance has an ablation switch.
+
+Backend coverage includes criterion omissions, failed checks, repeated evidence,
+immutable timestamps, switch-off behavior, cancellation-resistant work, and real
+SIGTERM/SIGINT subprocess tests. Existing timeout tests cover the new record
+state and unchanged exit 4. Validation and small live terminal checks are
+recorded below after execution.
+
+Research consulted before implementation:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+  motivates bounded verification and short, timely stopping guidance.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052) describes harness state and
+  context engineering; no automatic harness modification is introduced here.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850) motivates
+  observable, attributable records. These files support standard evaluation
+  and auditing under Section 23.2 and Appendix F.
+- [Terminus 2](https://github.com/laude-institute/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py)
+  and [mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py)
+  provide explicit stopping and trajectory lifecycle examples.
+- [SWE-agent](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml)
+  requires rechecking changed work and a submit confirmation; this implementation
+  retains Excalibur's own finish gate.
+- [Aider](https://github.com/Aider-AI/aider/blob/main/aider/prompts.py)
+  preserves command results as context; this change likewise reuses recorded
+  evidence instead of issuing duplicate checks.
+
+Read-only inspection of v9 final-state metadata confirmed several interrupted
+trials retained `running`; no task contents, tests, solutions or verifier files
+were read.
+
+Additional source inspection:
+[OpenHands SDK](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/agent/agent.py)
+keeps finish handling in the agent lifecycle;
+[OpenCode](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/prompt.ts)
+separates tool completion from assistant finish state; and
+[Codex CLI](https://github.com/openai/codex/blob/main/codex-rs/core/templates/agents/orchestrator.md)
+keeps task execution and concise user delivery connected. These are comparative
+references, not imported prompts or code.
+
+Small live terminal checks on 2026-11-01 used the operator credentials file,
+`gpt-6-luna`, effort `low`, eval profile, fresh temporary project/log directories,
+and a 90-second bound per task. Both exited 0 with `completed` records:
+
+| Own task | Independent artifact check | First all-checks-pass (UTC) |
+|---|---|---|
+| Create and check a greeting text file | Exact bytes equal `hello\n` | 2026-11-01 11:15:52.483844651 |
+| Create an integer-summing Python CLI | Positive inputs, mixed signs, and empty input produce the expected sums | 2026-11-01 11:16:21.421383899 |
+
+Records remain outside the repository at `/tmp/excalibur-w12-live-jLTbhl/`.
+Both `prompt_finish.json` files show `enabled: true` and a nonempty first-pass
+time; model call records confirm the model and effort. These checks establish
+activation and basic end-to-end behavior, not a benchmark success estimate.
+No Terminal-Bench run was launched.
+
+A third live task used the final interruption/terminal-envelope implementation:
+a shell filter lowercasing stdin. It also exited 0 with `completed`, and
+independent checks covered mixed case, alphanumeric text and empty input.
+`normalize-records/excalibur/prompt_finish.json` records its first passing moment
+at 2026-11-01 11:28:28.548239750 UTC with guidance enabled. Repeat detection is
+additionally tested with different terminal session IDs and alternating checks;
+only exit status and actual output contribute to the evidence signature.
+
+Final verification passed on 2026-11-01: `gofmt -l .` produced no output,
+`go vet ./...`, `staticcheck ./...`, `go test ./... -race`,
+`GOOS=darwin go build ./...`, and `GOOS=windows go build ./...` all exited 0.
+The final sweep used `GOFLAGS=-p=1` and low process priority on the shared
+machine. `scripts/check-no-bare-go.sh` also passed. Earlier concurrent runs
+encountered the existing five-second daemon review setup deadline; its isolated
+recheck and the final complete suite passed without changing that test.
+## W12: compatible tool routing
+
+The contract follows Sections 13, 15, 22 and 23.2, with the explicit compatibility
+changes in decision 0060. `call_tool` executes registered core or deferred tools
+through the same validation, timeout, output and journal pipeline. Its name may
+be top level or nested in `arguments`, including an inner `arguments` envelope.
+Recursive invocation is rejected. Eval also validates wrapped targets and task
+operations against its profile. `exec_io` is visible in non-interactive core
+catalogs, and `get_tool_output` accepts a known terminal session reference with
+the same offset/limit paging as stored output. Unknown sessions still receive
+the existing retrieval hint. Subagents infer spawn from a card and otherwise
+status from a run reference; explicit actions take precedence. Dispatch errors
+include one-line spawn/status examples.
+
+| Switch | Default | Disabled behavior |
+|---|---|---|
+| `EXCALIBUR_TOOL_FRICTION_REPAIR` | ON | Restores deferred-only calls, explicit subagent actions, blob-only retrieval and the prior non-interactive catalog |
+| `EXCALIBUR_TOOL_CALL_NAME` (existing) | ON | Disables nested name promotion |
+
+Use `0`, `false`, `off` or `no` to disable the repair switch. Trial records always
+include protocol-error audit fields: `friction_error` on matching failed calls,
+and total/category counts in `final.json`. Categories cover calling a core tool
+through the legacy deferred wrapper, missing tool name, missing subagent action
+or run, session-as-blob, and missing search query. Ordinary command failures do
+not count. Counts rebuild from JSONL, including across recorder restarts and
+merged attempts; partial records remain available if a trial is interrupted.
+
+Read-only inspection of the v9-default tool records found 20 deferred-wrapper
+errors, seven missing-name errors, three missing-action errors, two session/blob
+errors and one missing-run error. Only protocol metadata and argument key names
+were inspected; task contents, tests and solutions were not accessed.
+
+Research consulted for this scoped implementation:
+
+- [LangChain's harness engineering report](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+  discusses verification, tracing and context delivery with a fixed model.
+- [Meta-Harness](https://arxiv.org/html/2603.28052v1) describes environment
+  bootstrapping and state construction. No new snapshot mechanism is added here.
+- [Agentic Harness Engineering](https://arxiv.org/html/2604.25850v1) describes
+  component, experience and decision observability; this change adds explicit
+  protocol-error categories for ordinary evaluation and auditing.
+- [Terminus 2 source](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py)
+  uses terminal sessions and structured command parsing.
+- [mini-swe-agent configuration](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/config/default.yaml)
+  and [SWE-agent configuration](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml)
+  make execution and verification concrete in the tool workflow.
+- [OpenHands](https://github.com/OpenHands/OpenHands) documents its execution
+  backends; [Aider's prompts](https://github.com/Aider-AI/aider/blob/main/aider/coders/base_prompts.py)
+  distinguish editable content and repository context. Neither changes this
+  task's director-specified design.
+
+The [Codex CLI core catalog](https://github.com/openai/codex/tree/main/codex-rs/core)
+and [OpenCode prompt catalog](https://github.com/anomalyco/opencode/tree/dev/packages/opencode/src/session/prompt)
+were also reviewed as reference entry points. Their previously published raw
+prompt paths returned 404, so no claims or implementation changes rely on those
+missing files. Prompt and stopping-policy changes remain outside this task.
+
+Backend regression coverage lives in `internal/tools/friction_test.go`,
+`internal/orchestrator/subagent_test.go`, `internal/eval/friction_test.go` and
+`internal/cli/exec_engine_test.go`: reported call shapes, nested envelopes,
+standard executor validation, switch-off restoration, inferred spawn/status,
+real-error hints, terminal output paging, category counts across reopen, catalog
+visibility, and wrapped profile restrictions. Existing deferred-tool tests now
+expect core invocations to succeed.
+
+Two live `excalibur exec` checks used `gpt-6-luna`, effort `low`, with records
+outside the repository at `/tmp/w12-live/log{1,2}/excalibur`. The first executed
+`call_tool` targeting `exec_io` and produced `greeting.txt` with exact bytes
+`hello\n`. The second retrieved session output through `get_tool_output` and
+produced `sum.txt` with exact bytes `55\n`. Both artifacts passed shell assertions.
+The final friction totals were zero and one respectively; the latter was a
+reference to an older session after many later commands had evicted it. Earlier
+session retrievals succeeded. Both overall runs exited 1 with final state
+`running` after repeated verification; these are successful tool compatibility
+checks, not successful completion-state checks. Completion behavior is outside
+this task's design and is reported to the director separately. No Terminal-Bench
+runs were launched.
+
+Verification completed: `gofmt -l .` was empty; `go vet ./...`,
+`staticcheck ./...`, both Darwin and Windows cross-builds, and the bare-goroutine
+check passed. The complete race suite passed with
+`GOMAXPROCS=2 go test -race -p 1 ./...` at low process priority. Earlier
+overlapping runs encountered deadline failures in unchanged daemon/gateway tests;
+the serial run passed those packages and every integration suite. Targeted race
+tests also passed with `-p 2`. Verification logs are outside the repository at
+`/tmp/tool-friction-serial-verification.log` and
+`/tmp/tool-friction-{vet-all,staticcheck,darwin,windows}-final.log`.
+
+### W12 integration
+
+The integrated tree retains actionable finish refusals, interruption records and
+advisory finish guidance, and compatible tool routing/output retrieval. Decisions
+0062, 0063 and 0064 replace the wave branches' colliding 0060 filenames; decision
+0060 remains the run-end service contract and 0061 remains generalisation checks.
+No shared contract, connector, MCP/ACP server or Harbor invocation changed.
+
+The combined default-on finish guidance and actionable artifact gate initially
+attempted to acquire the run mutex twice. Finish guidance now releases its
+snapshot lock before invoking the shared artifact gate. A regression exercises
+both switches with a real artifact and executable evidence, and checks that the
+passing milestone is recorded. The wave-11 generalisation verifier and wave-12
+artifact-change helper are both retained.
+
+Two retained-record live checks of the integrated binary completed with exit
+zero using the operator credential file, `gpt-6-luna` and low effort. Independent
+byte assertions verified `greeting.txt` (`hello\n`) and `farewell.txt`
+(`goodbye\n`). Records are under
+`/tmp/integrate-w12-live/task{3,4}/.excalibur/run-*/`: both final records say
+`completed`; both prompt-finish records have enabled=true and a first-passing
+check timestamp; both explicit-finish records have actionable_refusals=true.
+The greeting run recovered from one refusal and completed on its third finish
+call; the farewell run completed on its second finish call without refusal.
+Earlier ephemeral smoke attempts produced the requested greeting and total
+files, but one returned `running` after repeated verification. Those removed
+their records by design and are not counted as retained-record validation.
+No Terminal-Bench tasks were launched or inspected.
+Both retained profile records include `exec_io` in `enabled_tools`.
+
+Final integration verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
+`staticcheck ./...`, full `go test -race -p 2 ./...`, Darwin and Windows
+`go build -p 2 ./...`, `git diff --check` and the no-bare-go check. Heavy
+commands ran with `nice -n 19`. The race-test log is
+`/tmp/integrate-w12-race-final.log`. An initial pre-fix sweep was stopped and
+replaced by this passing full run; no tests were weakened.

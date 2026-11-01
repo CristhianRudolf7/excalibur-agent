@@ -316,7 +316,7 @@ func (t *SubagentAdapter) Invoke(ctx context.Context, inv tools.Invocation) (too
 			m["caller"] = string(t.Root)
 		}
 	}
-	if _, ok := m["action"]; !ok {
+	if _, ok := m["action"]; !ok && !tools.FrictionRepairEnabled() {
 		return tools.Result{Status: tools.StatusInputError, Output: subagentUsage()}, nil
 	}
 	raw, _ := json.Marshal(m)

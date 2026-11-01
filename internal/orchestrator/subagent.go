@@ -35,7 +35,7 @@ var subagentSchema = json.RawMessage(`{
     "tool_only": {"type": "boolean"},
     "card": {"type": "object"}
   },
-  "required": ["action", "caller"],
+  "required": ["caller"],
   "additionalProperties": false
 }`)
 
@@ -79,6 +79,8 @@ type subagentArgs struct {
 	Card        json.RawMessage `json:"card"`
 }
 
+const subagentExamples = `examples: subagent {"action":"spawn","card":{"name":"worker","description":"scoped worker","profile":"implementer","goal":"...","deliverable":"...","scope":"general","done_criteria":["verified"],"report_contract":"summary"}}; subagent {"action":"status","run":"run_..."}`
+
 // Invoke implements tools.Tool.
 func (t *SubagentTool) Invoke(_ context.Context, inv tools.Invocation) (tools.Result, error) {
 	if t.Orch == nil {
@@ -94,9 +96,22 @@ func (t *SubagentTool) Invoke(_ context.Context, inv tools.Invocation) (tools.Re
 	}
 	var a subagentArgs
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
-		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
+		return tools.Result{Status: tools.StatusInputError, Output: err.Error() + "; " + subagentExamples}, nil
+	}
+	if a.Action == "" && tools.FrictionRepairEnabled() {
+		if len(a.Card) > 0 && string(a.Card) != "null" {
+			a.Action = "spawn"
+		} else if a.Run != "" {
+			a.Action = "status"
+		}
+	}
+	if a.Action == "" {
+		return tools.Result{Status: tools.StatusInputError, Output: "action is required; " + subagentExamples}, nil
 	}
 	res, retryable := t.dispatch(a)
+	if res.Status != tools.StatusOK {
+		res.Output += "; " + subagentExamples
+	}
 	if inv.IdempotencyKey != "" && res.Status == tools.StatusOK && !retryable {
 		t.mu.Lock()
 		if t.keys == nil {

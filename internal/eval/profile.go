@@ -12,6 +12,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // EvalProfile is the frozen benchmark profile of Section 23.2. The
@@ -94,7 +95,7 @@ func EvalSkillsCatalogHash() string {
 // core+deferred tools per the table, assistant tools off,
 // single-model mode, telemetry on.
 func DefaultEvalProfile() EvalProfileConfig {
-	return EvalProfileConfig{
+	profile := EvalProfileConfig{
 		Version: EvalProfileVersion,
 		EnabledTools: []string{
 			"read_file", "write_file", "edit_file", "exec", "task_db",
@@ -115,6 +116,10 @@ func DefaultEvalProfile() EvalProfileConfig {
 		MaxInput:           ReferenceMaxInput,
 		MaxOutput:          ReferenceMaxOutput,
 	}
+	if tools.FrictionRepairEnabled() {
+		profile.EnabledTools = append(profile.EnabledTools, "exec_io")
+	}
+	return profile
 }
 
 // ProfileForModel returns the effective profile for the evaluated
