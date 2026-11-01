@@ -316,6 +316,49 @@ func (m *TaskMetrics) AddLoopDetections(n int) {
 	m.LoopsCaught += n
 }
 
+// MergeSnapshot folds one attempt snapshot into the aggregate (the
+// best-of-N fan-out sums attempt costs so the outer metrics reflect
+// the total spend, keeping max semantics for resource peaks).
+func (m *TaskMetrics) MergeSnapshot(s Snapshot) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Usage.Add(s.Usage)
+	m.CostUSD += s.CostUSD
+	for k, v := range s.CallsByRole {
+		m.CallsByRole[k] += v
+	}
+	for k, v := range s.CallsByTool {
+		m.CallsByTool[k] += v
+	}
+	m.ModelSeconds += s.ModelSeconds
+	m.ToolSeconds += s.ToolSeconds
+	m.WaitingSecs += s.WaitingSecs
+	if s.DaemonRSSTotalBytes > m.DaemonRSSTotalBytes {
+		m.DaemonRSSTotalBytes = s.DaemonRSSTotalBytes
+	}
+	if s.ChildPeakBytes > m.ChildPeakBytes {
+		m.ChildPeakBytes = s.ChildPeakBytes
+	}
+	m.ChildOOMKills += s.ChildOOMKills
+	if s.ChildPeakPIDs > m.ChildPeakPIDs {
+		m.ChildPeakPIDs = s.ChildPeakPIDs
+	}
+	if s.CPUSeconds > m.CPUSeconds {
+		m.CPUSeconds = s.CPUSeconds
+	}
+	m.Compactions += s.Compactions
+	m.MaskBatches += s.MaskBatches
+	m.LoopsCaught += s.LoopsCaught
+	m.ModelRetries += s.ModelRetries
+	m.ToolRetries += s.ToolRetries
+	m.SubagentsCreated += s.SubagentsCreated
+	if s.MaxDepth > m.MaxDepth {
+		m.MaxDepth = s.MaxDepth
+	}
+	m.Interruptions += s.Interruptions
+	m.GateAttempts += s.GateAttempts
+}
+
 // Finish closes the wall clock and records the final state.
 func (m *TaskMetrics) Finish(state string) {
 	m.mu.Lock()

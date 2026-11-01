@@ -21,6 +21,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/repoexplore"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -150,6 +151,28 @@ func writeSkillsRecord(dir string, mode skills.LibraryMode, compact bool, ix *sk
 		return
 	}
 	_ = os.WriteFile(dir+"/skills.json", append(buf, '\n'), 0o644)
+}
+
+// writeExploreRecord persists the exploration ablation record for
+// the run (switch, workdir, brief lines, truncation) next to the
+// other trial artifacts. A missing dir skips the write; failures
+// never fail the run.
+func writeExploreRecord(dir string, cfg repoexplore.Config, brief repoexplore.Brief) {
+	if dir == "" {
+		return
+	}
+	rec := map[string]any{
+		"enabled": true, "workdir": brief.Workdir,
+		"lines": len(brief.Lines), "truncated": brief.Truncated, "empty": brief.Empty,
+		"timeout_secs": cfg.Timeout.Seconds(), "max_files": cfg.MaxFiles,
+		"max_depth": cfg.MaxDepth, "max_lines": cfg.MaxBriefLines,
+		"brief": brief.Lines,
+	}
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dir+"/explore.json", append(buf, '\n'), 0o644)
 }
 
 // taskDBOps extracts the op names of a task_db batch call so the eval
@@ -429,6 +452,27 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			}
 		}
 	}
+	// Exploration before acting (agent quality, Sections 7.3, 11.1,
+	// 15.2 explorer profile): a lightweight read-only pass over the
+	// workdir inspects layout, build files, entry points, tests,
+	// configs, versions and data files relevant to the instruction
+	// and pins a compact brief (<=60 lines) into the L3 working
+	// notes. Collected once per run so the L0-L2 prefix never
+	// churns; the brief carries no timestamps. Default off until
+	// measured (EXCALIBUR_EXPLORE=on to enable).
+	exploreCfg := repoexplore.ConfigFromEnv(repoexplore.Config{Workdir: opts.ProjectDir})
+	var exploreNote string
+	var exploreBrief repoexplore.Brief
+	if exploreCfg.Enabled && opts.ProjectDir != "" {
+		collector := repoexplore.NewCollector(exploreCfg)
+		exploreBrief = collector.Collect(ctx, opts.ProjectDir, opts.Request)
+		exploreNote = exploreBrief.Render()
+		writeExploreRecord(run.Dir, exploreCfg, exploreBrief)
+		_ = run.EmitEvent("explore_brief", map[string]any{
+			"enabled": true, "workdir": opts.ProjectDir,
+			"lines": len(exploreBrief.Lines), "truncated": exploreBrief.Truncated,
+		})
+	}
 	fixedInstructions := []string{
 		"Complete the request with the available tools.",
 		"Verify the result by executing it (tests, compilers, scripts) before finishing.",
@@ -445,6 +489,14 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		)
 	}
 	snap := func(ctx context.Context, erun *engine.Run) (ctxcompiler.Snapshot, error) {
+		var workingNotes []string
+		if exploreNote != "" {
+			// One note slot carries the whole brief (embedded
+			// newlines): the WorkingNotes cap counts notes, not
+			// lines, so the brief survives intact and stays
+			// byte-identical across steps (stable L3 task layer).
+			workingNotes = []string{exploreNote}
+		}
 		return ctxcompiler.Snapshot{
 			Role: "child", HarnessVersion: Version,
 			ProjectContext: projectContext,
@@ -453,6 +505,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				OriginalRequest:   opts.Request,
 				FixedInstructions: fixedInstructions,
 				SuggestedSkills:   suggestedSkills,
+				WorkingNotes:      workingNotes,
 			},
 			Volatile: ctxcompiler.Volatile{Now: time.Now().UTC()},
 		}, nil

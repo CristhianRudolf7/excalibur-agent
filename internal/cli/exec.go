@@ -102,18 +102,26 @@ type ExecOptions struct {
 	// JournalStore persists the engine write-ahead journal for the
 	// run. Nil uses an in-memory store.
 	JournalStore journal.Store
+	// DisableAttempts forces a single attempt even when
+	// EXCALIBUR_ATTEMPTS>1 (used for the fan-out sub-runs so they
+	// never recurse).
+	DisableAttempts bool
 }
 
 // ExecRun is the live handle passed to the Work hook.
 type ExecRun struct {
-	TaskID   types.TaskID
-	RunID    types.RunID
-	Dir      string
-	ATIF     *telemetry.Writer
-	Metrics  *telemetry.TaskMetrics
-	Events   []map[string]any
-	emit     io.Writer
-	emitJSON bool
+	TaskID types.TaskID
+	RunID  types.RunID
+	Dir    string
+	// ProjectDir is the isolated working copy for this run (the
+	// best-of-N fan-out sets one copy per attempt). Work hooks must
+	// write through it to stay isolated.
+	ProjectDir string
+	ATIF       *telemetry.Writer
+	Metrics    *telemetry.TaskMetrics
+	Events     []map[string]any
+	emit       io.Writer
+	emitJSON   bool
 	// Recorder holds the rich per-trial files under excalibur/ when the
 	// eval profile is active (Section 23.2, Appendix F). Nil elsewhere.
 	Recorder *eval.TrialRecorder
@@ -488,7 +496,8 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 
 	run := &ExecRun{
 		TaskID: taskID, RunID: runID, Dir: runDir,
-		ATIF: writer, Metrics: metrics,
+		ProjectDir: opts.ProjectDir,
+		ATIF:       writer, Metrics: metrics,
 		emit: opts.Emit, emitJSON: opts.EmitJSON,
 		Recorder: recorder, Harbor: harborWriter,
 	}
@@ -573,6 +582,14 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	}
 	if question, ok := ExtractQuestion(request); ok {
 		assumptions = append(assumptions, "assumed default for open question: "+question)
+	}
+
+	// Best-of-N with self-selection (Section 18.2): when enabled via
+	// EXCALIBUR_ATTEMPTS, each attempt runs the normal loop in an
+	// isolated working copy and only the winner's changes land in the
+	// real directory. The default stays single-attempt until measured.
+	if shouldFanOut(opts) {
+		return runAttemptsFanOut(ctx, opts, run, outcome, metrics, profile, settings, layerCfg, finalize)
 	}
 
 	if opts.Work != nil {

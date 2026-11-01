@@ -18,8 +18,14 @@ func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		name, _, isFlag := flagName(a)
 		f := fs.Lookup(name)
-		if !isFlag || f == nil {
+		if !isFlag {
 			posArgs = append(posArgs, a)
+			continue
+		}
+		if f == nil {
+			// Preserve the standard flag package's unknown-flag error instead
+			// of silently treating a misspelled option as positional input.
+			flagArgs = append(flagArgs, a)
 			continue
 		}
 		flagArgs = append(flagArgs, a)

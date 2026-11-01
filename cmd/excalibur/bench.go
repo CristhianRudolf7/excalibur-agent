@@ -80,12 +80,17 @@ func redact(s string) string {
 // variables and are never printed, logged or written to any artifact.
 func runBench(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags] | excalibur bench compare <runA> <runB> [flags]")
+		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags] | excalibur bench compare <runA> <runB> [flags] | excalibur bench triage <run-dir> [flags]")
 	}
 	// Compare is dataset-independent: it pairs two finished run
 	// directories (bench jobs or eval quick dirs).
 	if strings.ToLower(args[0]) == "compare" {
 		return runBenchCompare(args[1:])
+	}
+	// Triage is dataset-independent: it classifies every reward-0
+	// trial under a run directory from agent records plus pass/fail.
+	if strings.ToLower(args[0]) == "triage" {
+		return runBenchTriage(args[1:])
 	}
 	ds := strings.ToLower(args[0])
 	var dataset eval.BenchDataset

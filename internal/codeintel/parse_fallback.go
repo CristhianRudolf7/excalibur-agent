@@ -5,6 +5,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -47,7 +48,12 @@ func parseGoInto(pf *ParsedFile, src []byte) error {
 		return nil
 	}
 	for _, imp := range f.Imports {
-		p := strings.Trim(imp.Path.Value, `"`)
+		p, unquoteErr := strconv.Unquote(imp.Path.Value)
+		if unquoteErr != nil {
+			// go/parser accepts both interpreted and raw string literals;
+			// retain the parser's literal contents if unquoting ever fails.
+			p = strings.Trim(imp.Path.Value, `"`+"`")
+		}
 		pf.Imports = append(pf.Imports, p)
 	}
 	for _, decl := range f.Decls {

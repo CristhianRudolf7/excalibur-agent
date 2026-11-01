@@ -683,3 +683,429 @@ disable, default all ON; `Executor.Tune`, `EmbeddedOptions.Tune`,
 - `EXCALIBUR_TOOL_HEAD_TAIL` — head+tail inline results with retrieval refs.
 - `EXCALIBUR_TOOL_WIRE_EMBEDDED` — embedded task_db/subagent/ack/history/pin/note/skills wiring.
 - `EXCALIBUR_TOOL_SHELL_FIRST` — shell-first tool descriptions (kept file-edit strictness).
+
+## W2: automatic failure triage of evaluation trials
+
+Owner: measurement workstream. Packages: `internal/eval/triage.go`
+(classifier, judge client, writers) plus the `bench triage` side of
+`cmd/excalibur` (`bench_triage.go` dispatch; the Harbor invocation is
+untouched). Evaluation records are standard evaluation and auditing
+(Section 23.2, Appendix F).
+
+### Command
+
+`excalibur bench triage <run-dir> [--model ID] [--out FILE]
+[--credentials-file PATH] [--no-model]`
+
+For every trial with reward 0, triage reads the agent's own records
+(`agent/excalibur/*.jsonl`, final state, last tool outputs with blob
+bodies for the last three calls, the instruction from the trial
+trajectory) plus the pass/fail reward, and classifies the main cause
+into the fixed taxonomy: `wrong-solution-declared-done`,
+`incomplete-stopped-early`, `timeout`,
+`environment/tooling-missing`, `tool-misuse/harness-friction`,
+`loop/no-progress`, `context-loss`, `misunderstood-instruction`,
+`knowledge-gap` (with a `domain` such as `R`, `python`, `sql`),
+`other`. Each row carries a 1-2 sentence evidence quote and the step
+where it went wrong. Output is JSONL (one row per failed trial,
+sorted by trial) plus an aggregated Markdown table (counts per cause,
+counts per domain for knowledge-gap, up to 3 examples per cause).
+Default paths are `<run-dir>/triage.jsonl` and the sibling
+`triage.md`. Passing trials (reward > 0) are counted and skipped, as
+are trials with no readable reward (counted as `skipped`).
+
+The triage never reads the verifier's tests, stdout, or reference
+solutions: only `verifier/reward.txt` (or the rewards map of
+`result.json`) is consulted, which carries pass/fail and nothing else.
+Covered by `TestTriageNeverReadsVerifier`, which plants decoy markers
+in verifier outputs and asserts they never reach the triage output.
+
+Discovery accepts a single trial dir, a job dir of trials, or a run
+root holding timestamped job dirs. No Terminal-Bench task contents,
+tests, or solutions are inspected and no prompts or skills derive from
+them: all signals are general harness behaviour (exit codes, timeout
+strings, repeated commands, error strings, loop-detector rows,
+missing-binary patterns, required-artifact checks).
+
+### Method: deterministic first, one cheap model call when needed
+
+1. Deterministic pass over ordered signals: Harbor/harness timeout
+   strings, then environment/tooling-missing in the last five tool
+   calls (late missing binaries the agent never recovered from;
+   strong patterns such as `command not found` or `no such file or
+   directory` fire on text alone because executor sessions can report
+   exit 0 around a clearly failed command body),
+   then harness friction (`unknown target`, `not wired`, `query is
+   required`) when it persists late or dominates, then loop-detector
+   rows (>= 2), then explicit context-loss strings, then
+   misunderstood-instruction (an `/app/...` path or code file named
+   in the instruction that no tool call ever touches), then
+   knowledge-gap (>= 2 language-error outputs in the window, with a
+   domain guessed from the instruction and commands), then bare
+   repeated commands (>= 3 identical exec commands with no language
+   errors, so retried broken code triages as knowledge-gap rather
+   than a bare loop), then compaction-paired repeats, then
+   incomplete (<= 4 tool calls, a background session still alive at
+   the end, or a pkill after a hanging check), defaulting to
+   `wrong-solution-declared-done`. A single language error, a missing
+   instruction, or the ambiguous default marks the trial as needing
+   the model.
+2. Model fallback: one cheap low-effort call per ambiguous trial only
+   (default the run's own model from the trial config, then the
+   credentials file model, overridable with `--model`). The prompt
+   carries only agent records and pass/fail, never verifier content,
+   and the reply is strict JSON validated against the taxonomy.
+   Transport is a minimal Chat Completions call with
+   `reasoning_effort: low` and no temperature parameter (reasoning
+   models such as `gpt-6-luna` reject anything but the default);
+   on quota/rate-limit (429/5xx) it retries once with the credentials
+   file `fallback_api_key` (bounded, same rule as live checks).
+   Unknown causes or judge errors fall back to the deterministic
+   verdict, and `DecidedBy` records which path decided each row.
+   `TriageStats` tracks `judge_calls`/`judge_errors` (also printed by
+   the command and rendered in the Markdown) so the deterministic-only
+   ablation and judge health are measurable.
+
+### Switches
+
+| Switch | Type | Default | Off behaviour |
+|---|---|---|---|
+| `EXCALIBUR_TRIAGE_MODEL` | env (`0/false/no/off` disables) | on | deterministic only, never calls the judge |
+| `--no-model` | CLI flag | off | same as the switch off for this run |
+
+Measure the switch off against on over the same run directory:
+deterministic-only coverage (share of rows decided without the
+model), judge-changed share (rows where the model overrode the
+deterministic guess), and per-cause distribution drift.
+
+### Contract and backend tests
+
+- `internal/eval/triage_test.go`: recorded-shape fixtures (Harbor
+  trial dirs built in temp dirs: `result.json`,
+  `verifier/reward.txt`, agent JSONL records, `agent/trajectory.json`
+  instruction) cover timeout, environment/tooling-missing,
+  tool-misuse/harness-friction, loop detector, bare repetition,
+  incomplete (shallow), wrong-solution-declared-done,
+   misunderstood-instruction (required `/app/ars.R` never touched),
+   knowledge-gap with domain (`python`), exit-0 failure bodies (a
+   traceback recorded with `exit_code` 0 still triages as
+   environment/tooling-missing), pass skipping, no-reward skipping
+   (`skipped` stat), Markdown aggregation, `FindTrialDirs` shapes
+   (single trial, job dir, job-level `result.json` not shadowing
+   trials, nested run root, empty error), and the
+   `EXCALIBUR_TRIAGE_MODEL` switch.
+ - Judge client against `httptest` servers: model override of an
+   ambiguous trial, fallback-key retry after 429 (asserts the second
+   `Authorization` header), rejection of an unknown cause and of a
+   500 error back to the deterministic verdict (with `judge_calls` /
+   `judge_errors` tracked), `reasoning_effort: low` on the wire and
+   no temperature parameter.
+- `TestTriageNeverReadsVerifier`: decoy markers in
+  `verifier/test-stdout.txt`, `test-stderr.txt`, `ctrf.json`,
+  solution and tests files never reach JSONL or Markdown output.
+- Existing suites untouched: `go test -race ./internal/eval/` stays
+  green; the bench Harbor invocation and all connectors are
+  unmodified.
+
+### Research sources
+
+- LangChain, "Improving Deep Agents with harness engineering" (blog,
+  2026-02-17, fetched full text 2026-10-31): 52.8 to 66.5 on TB2 by
+  harness changes only. Triage mirrors its trace-analyzer loop:
+  automate failure-mode analysis at scale from execution traces
+  (here: per-trial records), aggregate into targeted harness
+  changes, and warn against overfitting single-task fixes — hence
+  the paired per-cause counts plus examples rather than per-task
+  prescriptions. Deterministic-first ordering follows its finding
+  that missing verification, environment onboarding gaps, and doom
+  loops dominate failures. Source:
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026; abstract
+  fetched 2026-10-31): harness code (what to store, retrieve,
+  present) moves results as much as weights; richer access to prior
+  experience beats hand-tuned harnesses. Triage is the read side of
+  that outer loop: it mines the same trial records the optimizer
+  would consume, without tuning against task answers. Larger gains
+  on weaker models motivate the deterministic-first design (cheap,
+  model-independent signals before spending judge calls). Source:
+  https://arxiv.org/abs/2603.28052
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not
+  fetched): same direction — systematic harness search with
+  standard evaluation and auditing records as the objective signal.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop and
+  the missing-binary failure mode noted in the Section 23.2
+  analysis; triage classifies that mode explicitly as
+  `environment/tooling-missing` from late `command not found`
+  outputs.
+- Open-source harnesses (general engineering knowledge, no task
+  content used): OpenHands loop detection (repeated calls+errors),
+  SWE-agent/mini-swe-agent submit-only-after-tests discipline
+  (informs the wrong-solution vs incomplete split), Codex/OpenCode
+  `tool_choice: none` closing shape (informs the alive-session and
+  pkill-after-hang incomplete signals), Aider architect/editor split
+  and OpenCode JSON repair (judge prompt keeps strict JSON with a
+  deterministic fallback).
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing here tunes the agent against
+benchmark failures or derives prompts from task contents.
+
+## W2: parallel attempts with self-selection (Section 18.2)
+
+Owner: parallel-attempts workstream. Packages: new `internal/attempts`
+(config, isolation, selection, records) plus a thin seam in
+`internal/cli` (`attempts.go`, `ExecOptions.DisableAttempts`,
+`ExecRun.ProjectDir`, `telemetry.TaskMetrics.MergeSnapshot`). The model
+gateway wire protocol, the providers, the MCP/ACP servers, the bench
+Harbor invocation and the eval profile table are untouched.
+
+### Problem evidence (read-only trial records, frozen full run)
+
+From `analyze.py` over the frozen full run (275 trials, 31.3% pass):
+
+- ALL failures end as `completed`: the agent declares success while the
+  result is wrong. Shallow work (avg 14.2 tool calls on failures, 9.5
+  on passes).
+- Single-shot execution has no recovery when the first plan is wrong;
+  the self-verification gate can only return the same run to work, it
+  cannot explore an alternative approach in parallel.
+
+### Mechanisms (default OFF until measured)
+
+`EXCALIBUR_ATTEMPTS=<N>` (1 means off, the default; clamps to 8).
+When N>1 and the run uses the engine or a `Work` hook, the run fans
+out to N independent attempts:
+
+1. Isolation: one working copy per attempt — git worktree
+   (`git worktree add --detach HEAD`) when the project is a git repo
+   and the CLI is available, otherwise a filesystem overlay copy
+   (`.git`/`.excalibur` skipped). Empty projects get N fresh dirs.
+2. Budget sharing: each attempt receives `ceil(parentSteps/N)` steps
+   and `parentUSD/N` cost under the shared wall-clock deadline;
+   concurrency is bounded by `min(N, NumCPU)`.
+3. Execution: each attempt runs the normal loop to its verification
+   phase as a full sub-`RunExec` (own logs, metrics, ATIF under
+   `<run>/attempts/attempt-i`), concurrently via `safego.Go`.
+4. Self-selection (Section 18.2, never the benchmark verifier):
+   completed outranks `completed_with_pending` outranks the rest;
+   tie-breaks prefer more verified checks (successful tool results),
+   then fewer tool errors, then a cheap model comparison of evidence
+   (one `verifier`-role call, 16 tokens, 30 s cap; deterministic
+   launch order when tied or without a gateway).
+5. Apply: only the winner's changes overlay the real directory
+   (new/modified copied, winner-deleted removed; `.git` never
+   touched). Outer metrics sum all attempts (`MergeSnapshot`, max
+   semantics for peaks) so cost per success reflects best-of-N.
+6. Records: `attempts.json` (version `attempts@1`, N, winner, per
+   attempt state/summary/tool counts/gate attempts/verified/errors/
+   files/diff) lands in the run dir and, under eval, in
+   `<logs>/excalibur/attempts.json`; per-attempt logs stay under
+   `<run>/attempts/attempt-i` with their own metrics for the audit.
+
+### Switch
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_ATTEMPTS` | env int 1–8 | 1 (off) | single attempt, no `attempts.json`, no isolation |
+
+Measure `1` vs `2` vs `3` on the same model/effort/task set
+(Appendix F); keep N>1 only if paired success gain clears the bar
+after accounting for summed cost. Small step budgets starve quickly
+(e.g. parent 15 steps with N=3 gives 5 per attempt, observed all
+`paused`): scale steps with N when ablating.
+
+### Research sources (fetched before coding, general engineering only)
+
+- LangChain, "Improving Deep Agents with harness engineering"
+  (Feb 2026, fetched full text): 52.8→66.5 on TB2 with the model
+  fixed. Adopted: build-verify-fix loop with a pre-completion
+  checklist (our verification phase per attempt), environment
+  onboarding (snapshot stays), loop-detection reconsider notes, and
+  the trace-analyzer loop that motivates per-attempt records as the
+  outer-loop signal. No task content used.
+- Meta-Harness (arXiv 2603.28052, fetched abstract): harness code
+  (what to store, retrieve, present) moves results as much as
+  weights, with larger gains on weaker models; motivates keeping
+  attempts isolated and selection on executable evidence rather than
+  prompt prose.
+- Agentic Harness Engineering (arXiv 2604.25850, cited from the
+  architecture refs): systematic harness search with standard
+  evaluation and auditing records as the objective — attempts are
+  one declared arm of that search (`--arm`/`--set` measure it).
+- Terminus 2 (Harbor reference harness): single-tool tmux loop;
+  Section 23.2 analysis notes its missing-binary failure mode —
+  isolation here keeps the same container boundary per attempt.
+- Open-source harnesses (general behavior only): SWE-agent submit
+  only after tests pass, mini-swe-agent minimal bash loop, OpenHands
+  loop detection, OpenCode/Codex `tool_choice: none` closing,
+  Aider architect/editor split. Selection uses test execution, not
+  a judge, per Section 18.2 (selection captures only 50–76% of the
+  possible sampling gain).
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing tunes prompts or skills from
+benchmark tasks, tests or solutions.
+
+### Contract and backend tests
+
+- `internal/attempts`: config parse/clamp/division
+  (`config_test.go`), deterministic selection order and compare-hook
+  refinement (`outcome_test.go`), copy/apply/diff isolation and git
+  worktree when available (`isolate_test.go`), concurrent order and
+  error isolation (`runner_test.go`), record round trip
+  (`record_test.go`).
+- `internal/cli`: single stays single without `attempts.json`;
+  N=2 selects the completed attempt and applies only its files;
+  bogus env stays single; eval writes both `attempts.json` copies
+  with per-attempt metrics (`attempts_test.go`).
+- `internal/telemetry`: `MergeSnapshot` sums usage/cost/calls and
+  keeps peak semantics (covered via attempts e2e metrics sums).
+- Full quality bar green: `gofmt -l .`, `go vet ./...`,
+  `staticcheck ./...`, `go test ./... -race`, `GOOS=darwin/windows
+  go build ./...`, `scripts/check-no-bare-go.sh`.
+- Live end-to-end (own small tasks, never Terminal-Bench): `excalibur
+  exec --profile eval` with `EXCALIBUR_ATTEMPTS=2` on hello-file and
+  csv-sum tasks completes and applies the winner (`hello.txt`,
+  `numbers.csv`/`sum.txt` correct, `attempts.json` N=2 with tool
+  counts summed in `metrics.json`); N=3 on a fix task shows the
+  budget-share edge (5 steps each, all `paused`, winner still
+  applied). Credentials via the operator file, `gpt-6-luna` low
+   effort; no paid trial launched beyond these checks.
+
+## W2 — exploration before acting (Sections 7.3, 11.1, 15.2 explorer)
+
+Owner: repo-explorer workstream. Packages: `internal/repoexplore`
+(deterministic collector), `internal/cli` (`exec_engine.go` wiring).
+The connectors are untouched: no change to `internal/providers`,
+the model gateway wire protocol (`internal/models`,
+`internal/gateway`), `internal/api`, `packages/contracts`,
+`integrations/**`, MCP/ACP servers, or the `bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, frozen full run)
+
+From `analyze.py` over the frozen full run (275 trials, 31.3% pass):
+
+- ALL failures end as `completed` while the result is wrong; shallow
+  work (avg 14.2 tool calls on failures, 9.5 on passes).
+- Early steps are spent discovering the repo: `ls`, `head` data
+  files, `which python3/R`, probing build files before any real work.
+  17% of `exec` calls in the older snapshot failed on a model-filled
+  `target` parameter; the current tree already tolerates it, but the
+  discovery waste remains: the model re-lists the same directory and
+  re-probes versions the harness could state once.
+- Architecture Sections 15.2-15.4 already define the answer: an
+  `explorer` profile (read-only: no writes, no terminal execution)
+  that summarizes code/docs for the parent without loading the parent
+  context. This workstream makes that phase automatic and free: no
+  extra model call, no gateway change.
+
+### Mechanism (default OFF until measured)
+
+New package `internal/repoexplore` (stdlib only): at task start a
+bounded, read-only filesystem pass inspects the workdir relevant to
+the instruction and returns a compact structured brief (<=60 lines):
+
+- layout: top-level entries, sorted, heavy dirs (`node_modules`,
+  `.git`, `target`, …) collapsed to entry counts;
+- build files: `go.mod` (module + go line), `Cargo.toml`,
+  `package.json` (scripts), `pyproject/setup/requirements`,
+  `Makefile` (targets), `CMakeLists.txt`, gradle, maven;
+- entry points: `main.go`, `cmd/*/main.go`, `main.py`/`app.py`,
+  `src/index.*`, `Dockerfile` CMD hint; tests (`*_test.go`,
+  `test_*.py`, `*.spec.*`, `tests/`) plus one run command
+  (`go test ./...`, `cargo test`, `pytest`, `npm test`);
+- configs (Dockerfile, compose, `.nvmrc`, `.python-version`,
+  toolchain pins), data files with sizes and format hints (CSV
+  header, JSON, SQLite `sqlite3 .tables`, Parquet), version pins read
+  from files only (no `--version` execution; `envsnap` owns probes);
+- instruction relevance: path-like tokens in the instruction resolve
+  to `exists (size/dir)` vs `not found` (max 5);
+- pitfalls (max 5): no build file, no tests, no README, collapsed
+  dirs, large data, unclear entry point.
+
+Budgets: 3s timeout (`EXCALIBUR_EXPLORE_TIMEOUT`), 120 files,
+depth 3, 8KB per file read, 200KB total head budget. Collection never
+fails the run; every probe degrades to absence. Fresh context: the
+collector reads the filesystem directly and returns a self-contained
+brief; the main history is untouched.
+
+Wiring (`internal/cli/exec_engine.go`, `runEnginePath`): when enabled
+and `ProjectDir != ""`, the collector runs once at task start; the
+brief renders into one L3 working-note slot (`Task.WorkingNotes`,
+single note with embedded newlines so the 12-note cap keeps it intact)
+and stays byte-identical on every snapshot of the run (no timestamps,
+sorted, capped) so the L0-L2 cache prefix never churns. The run also
+writes `explore.json` (switch, workdir, line count, truncation, brief)
+next to `skills.json` and emits an `explore_brief` event for the
+ablation. Empty/missing workdir degrades to a two-line brief, never an
+error.
+
+Design choice (see `docs/decisions/0046-w2-repo-explorer.md`): a
+deterministic collector instead of a model-driven subagent spawn. It
+honours the same contract (explorer profile toolset, small budget,
+fresh context, structured brief pinned to working notes) with zero
+extra model calls, zero gateway changes, and byte-stable output that a
+model explorer cannot guarantee. A future model-refine pass can layer
+on top without changing the switch or the record shape.
+
+### Switch
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_EXPLORE` | `on`/`1`/`true`/`yes` enables | `off` | `off`/unset: no collection, no L3 change, no `explore.json`; `on`: collect once, pin brief to L3 working notes |
+
+`EXCALIBUR_EXPLORE_TIMEOUT` overrides the 3s collection budget (Go
+duration). Measure `off` vs `on` on the same task set; watch success
+rate, early-step tool calls (`ls`/`head`/`which` before first real
+action), and cost (explorer adds no model calls).
+
+### Research sources for this section
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8→66.5 on TB2 with the model fixed. Adopted: onboarding
+  context (`LocalContextMiddleware` mapping cwd, tooling) so the
+  model stops discovering the environment; plan/discovery before
+  build; pre-completion verification. Our explorer is the onboarding
+  half: layout/build/entry/tests up front, verification stays with
+  the self-verification workstream.
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what to
+  store, retrieve, present) moves results as much as weights; richer
+  use of prior experience transfers across models, with larger gains
+  on weaker models. Motivates a deterministic, cached brief over
+  prompt growth.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not fetched):
+  same direction — systematic harness search with standard
+  evaluation and auditing records (Section 23.2, Appendix F) as the
+  objective.
+- Terminus 2 (Harbor reference harness): single tmux tool with JSON
+  analysis/plan/keys and a proactive context summary. Kept as design
+  reference for the brief shape (what exists, where, how to run).
+- Open-source harnesses (general engineering knowledge, no task
+  material used): mini-SWE-agent FAQ (bash-only tools suffice,
+  stateless subprocess execution,
+  https://mini-swe-agent.com/latest/faq/); SWE-agent (short system
+  prompt with explicit test running); OpenHands (loop detection on
+  repeated calls+errors); Codex/OpenCode `tool_choice: none` closing
+  mode and JSON repair; Aider (architect/editor split). What we took
+  is behaviour-side only: read-only first pass, small stable context,
+  explicit build/test commands, stop conditions that keep the brief
+  advisory (verify-with-tools footer).
+
+### Contract and backend tests
+
+- `internal/repoexplore/explore_test.go`: section coverage
+  (layout/build/entry/tests/data/versions), determinism and
+  single-line cap, instruction-path exists/missing, empty-workdir
+  degradation, heavy-dir collapse, CSV/SQLite hints, 60-line (and
+  custom) cap with verify footer, default-off switch matrix.
+- `internal/cli/exec_explore_test.go`: default off injects nothing
+  (no brief, no `explore.json`, no event); switch on pins the brief
+  into L3 working notes byte-identical across two model calls,
+  writes `explore.json` (<=60 lines) plus the `explore_brief` event;
+  empty workdir with the switch on stays silent and never fails.
+- Existing suites unchanged and green: engine/ctxcompiler determinism
+  (`go test -race ./internal/engine/ ./internal/ctxcompiler/`), exec
+  env/time (`exec_envtime_test.go`).
