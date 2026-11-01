@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -18,10 +22,11 @@ import (
 // answers with final text. It proves at the exec level which error
 // classes the Section 19.5 retry policy actually retries.
 type flakyProvider struct {
-	mu    sync.Mutex
-	fails int
-	kind  providers.ErrorKind
-	calls int
+	mu         sync.Mutex
+	fails      int
+	kind       providers.ErrorKind
+	calls      int
+	retryAfter time.Duration
 }
 
 func (f *flakyProvider) Name() string { return "flaky-test" }
@@ -32,7 +37,7 @@ func (f *flakyProvider) Chat(_ context.Context, req providers.ChatRequest) (prov
 	f.calls++
 	if f.calls <= f.fails {
 		return providers.ChatResponse{}, &providers.ProviderError{
-			Kind: f.kind, Provider: f.Name(), Model: req.Model,
+			Kind: f.kind, Provider: f.Name(), Model: req.Model, RetryAfter: f.retryAfter,
 			Err: fmt.Errorf("flaky %s failure", f.kind),
 		}
 	}
@@ -129,4 +134,60 @@ func TestExecTLSConfigErrorFailsFast(t *testing.T) {
 	if snap.ModelRetries != 0 {
 		t.Fatalf("model_retries = %d, want 0", snap.ModelRetries)
 	}
+}
+
+// Overload retries belong to one model turn and preserve trial wait totals.
+func TestExecRateLimitWaitRecords(t *testing.T) {
+	fake := &flakyProvider{fails: 4, kind: providers.KindRateLimited, retryAfter: time.Millisecond}
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{Request: "say hi", LogsDir: logs, Profile: ProfileEval, Provider: fake, MaxSteps: 2, TimeoutSecs: 10})
+	if err != nil || out.State != types.RunCompleted {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(logs, "excalibur", "model_calls.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("model turns=%d, want 2", len(lines))
+	}
+	var record eval.ModelCall
+	if err := json.Unmarshal(lines[0], &record); err != nil {
+		t.Fatal(err)
+	}
+	if record.RetryWaitCount != 4 || record.RetryWaitSeconds <= 0 || record.Retries != 4 {
+		t.Fatalf("wait record %+v", record)
+	}
+}
+
+func TestExecRateLimitsExpireWallBudget(t *testing.T) {
+	fake := &flakyProvider{fails: 100000, kind: providers.KindRateLimited, retryAfter: time.Millisecond}
+	logs := t.TempDir()
+	store := journal.NewMemStore()
+	out, err := RunExec(context.Background(), ExecOptions{Request: "say hi", LogsDir: logs, Profile: ProfileEval, Provider: fake, TimeoutSecs: 5, JournalStore: store})
+	// W12 exposes timeout records while W13 preserves the durable budget pause.
+	if err != nil || out.State != stoppedByTimeout || out.ExitCode != ExitPaused {
+		t.Fatalf("out=%+v err=%v", out, err)
+	}
+	if fake.calls <= 3 {
+		t.Fatalf("calls=%d, want persistent retry", fake.calls)
+	}
+	entries, err := store.List(context.Background(), string(out.RunID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Type == journal.TypeStateChange && entry.State == string(types.RunPaused) {
+			var change journal.StateChangePayload
+			if err := json.Unmarshal(entry.Payload, &change); err != nil {
+				t.Fatal(err)
+			}
+			if change.Reason != "budget" {
+				t.Fatalf("pause reason=%q, want budget", change.Reason)
+			}
+			return
+		}
+	}
+	t.Fatal("deadline must persist a durable budget pause")
 }

@@ -117,9 +117,12 @@ func TestWiringTaskThroughGateway(t *testing.T) {
 // subscriber receives the orchestrator state change fanned out by the
 // daemon bridge after a gate control order.
 func TestWiringWebSocketEvents(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	setupCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	_, client, tasks, _ := fullStack(t, setupCtx)
+	// Bound event delivery independently of database and daemon setup.
+	ctx, cancel := context.WithTimeout(setupCtx, 10*time.Second)
 	defer cancel()
-	_, client, tasks, _ := fullStack(t, ctx)
 	raw, err := client.Call(ctx, "w-1", api.MethodTaskStart, api.TaskStartParams{Request: "watched work"})
 	if err != nil {
 		t.Fatal(err)
@@ -206,9 +209,12 @@ func TestWiringBootWithAdapters(t *testing.T) {
 // TestWiringReviewLoopRuns covers the Sections 10.6/21.9 wiring: the
 // review loop ticks without activity and leaves the service usable.
 func TestWiringReviewLoopRuns(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	setupCtx, stop := context.WithCancel(context.Background())
+	defer stop()
+	_, _, _, review := fullStack(t, setupCtx)
+	// Bound the review tick independently of database and daemon setup.
+	ctx, cancel := context.WithTimeout(setupCtx, 5*time.Second)
 	defer cancel()
-	_, _, _, review := fullStack(t, ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

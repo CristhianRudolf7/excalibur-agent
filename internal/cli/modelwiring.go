@@ -146,7 +146,7 @@ func BuildProvider(ctx context.Context, settings models.ModelSettings, resolve r
 				def.Kind, envKeyHint(def.Kind))}
 		}
 	}
-	p, err := registry.New(ctx, def, resolve)
+	p, err := models.NewProvider(ctx, def, resolve)
 	if err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
 	}

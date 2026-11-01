@@ -3250,3 +3250,120 @@ Final integration verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
 commands ran with `nice -n 19`. The race-test log is
 `/tmp/integrate-w12-race-final.log`. An initial pre-fix sweep was stopped and
 replaced by this passing full run; no tests were weakened.
+
+## W13: provider overload waits
+
+Section 19.5 overload handling lives in the model gateway. Rate-limited calls
+and HTTP 5xx responses retry until they succeed or the caller's wall-clock
+budget expires. Waits remain inside one model turn and consume no extra engine
+steps. Retry-After (seconds or HTTP dates), x-ratelimit-reset-* (durations,
+seconds, or Unix seconds), and provider text such as "try again in 48ms" supply
+the delay, with positive jitter. Multiple reset headers use the latest delay.
+Without a usable server delay, exponential backoff is capped at 30 seconds.
+A configured distinct fallback credential alternates with the primary on
+successive gateway attempts. Keys and response headers are not recorded.
+
+Switches: GatewayConfig.DisableBudgetRetries defaults to false. The operator
+switch EXCALIBUR_BUDGET_RETRIES defaults to enabled; set it to 0 to restore
+bounded overload retries and the legacy registry construction. This switch
+covers delay observation and fallback alternation as part of the same policy.
+
+Each model_calls.jsonl row now includes retry_wait_count and retry_wait_seconds
+(actual elapsed wait time, including an interrupted final wait), alongside
+retries. Summing the fields yields trial totals. Calls with no waits record
+zero. Ordinary transport errors retain bounded retries; authentication and
+input errors fail immediately. See decision 0065 for the deliberate Section
+19.5 policy extension and the unchanged streaming behavior.
+
+Backend coverage: TestOverloadServerWaits uses httptest to verify recovery after
+four failures for Retry-After seconds/date, token and request reset headers,
+message delays in milliseconds/seconds, and HTTP 503, including alternating
+credentials and wait metadata. TestOverloadBudgetAndSwitch checks deadline
+termination and the bounded comparison switch. TestRetryDelayBounds checks the
+30-second cap, uncapped server waits, and simultaneous reset headers.
+TestExecRateLimitWaitRecords checks recovery within a two-step budget and trial
+records; TestExecRateLimitsExpireWallBudget checks paused expiration rather
+than provider failure. Existing gateway tests retain transport, breaker,
+content, input, authentication, routing, and accounting coverage.
+
+Research consulted before implementation:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+  reports fixed-model gains from tracing, verification and context engineering.
+  This change addresses infrastructure reliability only, without new prompts.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052) studies harness code and
+  experience access. Its broader optimization mechanisms are outside W13.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850) motivates
+  component, experience and decision observability; explicit wait fields make
+  provider availability separately measurable in standard evaluation records.
+- [Terminus 2 documentation](https://harborframework.com/docs/agents/terminus-2)
+  and [mini-swe-agent retry code](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/models/utils/retry.py)
+  were consulted as reference harness material. The director's retry design,
+  rather than a borrowed stopping policy, defines this implementation.
+
+No benchmark task content, tests, or solutions were inspected. No new dependency
+was added.
+
+W13 live smoke checks used `excalibur exec` with gpt-6-luna, low effort, and the
+operator credentials file, on two original tasks in temporary directories. A
+local forwarding proxy injected four initial 429 responses with a 10ms token
+reset before forwarding to the real model. Both runs exited 0, with artifacts
+independently checked: sum three integers into a file, and repair a Python
+function with assertions for zero, positive and negative inputs. Trial one
+recorded 13 model calls and five waits totaling 60.405 seconds (including an
+additional upstream wait); trial two recorded nine model calls and four waits
+totaling 0.045 seconds. Local records are under
+`/tmp/w13-live-2f0914rm/logs1/excalibur/` and
+`/tmp/w13-live-2f0914rm/logs2/excalibur/`. These are smoke checks, not benchmark
+results. Read-only provider error counters from v9-default confirmed ten
+rate_limited model-call records; task contents were not read.
+
+A third smoke check on the final rebuilt binary created and independently
+verified an exact text file. It exited 0 with 12 model calls and five waits
+(total 60.584 seconds), again including an upstream wait after the four injected
+429 responses. Records: `/tmp/w13-live-final-vdp3eln4/logs1/excalibur/`.
+
+Final verification passed: empty `gofmt -l .`, `go vet ./...`,
+`staticcheck ./...`, `go test -race -p 2 ./...`, Darwin and Windows
+`go build -p 2 ./...`, and the no-bare-goroutine check. The first full race run
+hit the existing daemon review-loop test's five-second deadline under shared
+machine load; its isolated rerun and the subsequent full-suite rerun passed
+without changes to that package.
+
+### W13 integration
+
+Merged `w13-rate-limit-retry` into `agent-quality`, preserving the W10–W12
+documentation alongside the W13 section. The retry decision is numbered 0065
+because 0060 already describes run-end services. Shared core interfaces,
+provider connectors, protocol schemas, MCP/ACP servers and Harbor invocation
+remain unchanged.
+
+The initial full race sweep found a conflicting test expectation: W13 expected
+the CLI timeout outcome to be paused, while W12 intentionally exposes
+`stopped_by_timeout`. The regression now verifies the external timeout outcome
+and exit code 4 together with a journaled engine pause for budget exhaustion.
+Both behaviors are retained, as documented in decisions 0063 and 0065.
+
+Two original live terminal tasks ran against the integrated binary with
+`gpt-6-luna`, low effort and four injected 429 responses per task. Both produced
+independently verified artifacts and recorded four retry waits. The sum-file
+task used 18 model calls and 0.072 seconds of retry waits, but exited 1 with
+state `running`; it is a completion failure, not a passing end-to-end result.
+The Python repair task used 13 model calls and 0.047 seconds of retry waits,
+completed with exit 0, and passed independent assertions for zero, positive and
+negative inputs. Records are under
+`/tmp/integrate-w13-live-3dabxik3/logs{1,2}/excalibur/`. The unresolved sum-task
+closure behavior is reported for the next wave; no stopping policy was changed
+in this integration. No Terminal-Bench trial was launched or inspected.
+
+Under shared machine load, the existing daemon review-loop and WebSocket tests expired
+their contexts during fixture initialization. Their deadlines now start
+after daemon/database setup; the review tick and event delivery retain their
+original limits and assertions. Production daemon behavior is unchanged.
+
+Final integration verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
+`staticcheck ./...`, full `GOMAXPROCS=2 go test -race -p 1 ./...`, Darwin and
+Windows `go build -p 2 ./...`, `git diff --check` and the no-bare-go check.
+Heavy commands ran with `nice -n 19`. The final race log is
+`/tmp/integrate-w13-race-pass.log`; earlier sweeps exposed the reconciled CLI
+expectation and fixture setup deadlines described above.

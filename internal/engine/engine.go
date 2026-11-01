@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -769,6 +770,10 @@ func (e *Engine) Run(ctx context.Context, run *Run) error {
 				run.consumeInterrupt()
 				return nil
 			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				e.pauseDeadline(ctx, run)
+				return nil
+			}
 			return err
 		}
 		if e.processSignals(ctx, run) {
@@ -915,6 +920,10 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			_ = full
 			return true, nil
 		}
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			e.pauseDeadline(ctx, run)
+			return true, nil
+		}
 		return true, e.fail(ctx, run, "model call: "+err.Error())
 	}
 	run.mu.Lock()
@@ -994,6 +1003,16 @@ func (e *Engine) checkBudgets(run *Run, elapsed time.Duration) tasks.Status {
 	dup := run.Tracker
 	dup.Used.Elapsed = elapsed
 	return dup.Evaluate()
+}
+
+// pauseDeadline persists a wall-clock stop even after the call context expires.
+func (e *Engine) pauseDeadline(ctx context.Context, run *Run) {
+	run.mu.Lock()
+	run.HeartbeatAt = e.deps.Clock().UTC()
+	run.mu.Unlock()
+	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	e.pauseBudget(persist, run)
 }
 
 // pauseBudget parks the run with the budget motive and its delivery

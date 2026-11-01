@@ -202,7 +202,7 @@ func ResolveModelSettings(cfg config.ModelsConfig, getenv func(string) string) (
 // ProviderDef builds the registry definition for the primary
 // provider: kind, model, endpoint and credential references. The
 // registry resolves the key in vault, environment, explicit order,
-// and wraps the fallback key for one quota/rate-limit retry.
+// for the gateway-owned overload retry policy.
 func (s ModelSettings) ProviderDef() registry.ProviderDef {
 	return registry.ProviderDef{
 		Kind: s.Provider, Model: s.Model, BaseURL: s.BaseURL,
@@ -245,14 +245,15 @@ func (s ModelSettings) RoleTable() map[types.ModelRole]RoleEntry {
 // price table lands, which the price version marks.
 func (s ModelSettings) GatewayConfig(cfg config.ProviderConfig) GatewayConfig {
 	return GatewayConfig{
-		Roles:           s.RoleTable(),
-		Prices:          map[string]Price{},
-		PriceVersion:    "operator-unpriced",
-		BreakerAfter:    cfg.BreakerFailures,
-		BreakerWindow:   DefaultBreakerWindow,
-		BreakerCooldown: cfg.BreakerOpenFor,
-		MaxAttempts:     DefaultMaxAttempts,
-		BaseDelay:       DefaultBaseDelay,
+		Roles:                s.RoleTable(),
+		DisableBudgetRetries: os.Getenv("EXCALIBUR_BUDGET_RETRIES") == "0",
+		Prices:               map[string]Price{},
+		PriceVersion:         "operator-unpriced",
+		BreakerAfter:         cfg.BreakerFailures,
+		BreakerWindow:        DefaultBreakerWindow,
+		BreakerCooldown:      cfg.BreakerOpenFor,
+		MaxAttempts:          DefaultMaxAttempts,
+		BaseDelay:            DefaultBaseDelay,
 	}
 }
 

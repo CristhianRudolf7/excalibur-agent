@@ -3,7 +3,7 @@
 // The gateway sits between the engine and the provider adapters of
 // internal/providers. H3 implements the single-model path: each model
 // role resolves to one primary provider/model plus an ordered fallback
-// chain, with bounded retries, a per-provider circuit breaker and
+// chain, with budget-bound overload retries, a per-provider circuit breaker and
 // versioned price accounting. Escalation to the expert role (19.3),
 // the decider (19.4) and multi-lane scheduling (5.2) stay out of scope:
 // CallWithLane records the lane and reserves capacity for the
@@ -13,6 +13,7 @@ package models
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -110,6 +111,8 @@ func (r RoleEntry) Chain() []ModelRef {
 // GatewayConfig tunes the gateway. Zero values select the defaults.
 type GatewayConfig struct {
 	Roles map[types.ModelRole]RoleEntry `json:"roles"`
+	// DisableBudgetRetries restores the bounded overload policy for comparisons.
+	DisableBudgetRetries bool `json:"disable_budget_retries,omitempty"`
 	// Prices is the versioned price table by model id (19.6).
 	Prices map[string]Price `json:"prices"`
 	// PriceVersion pins which table version computed a cost; it is
@@ -158,7 +161,9 @@ type CallMeta struct {
 	Role     types.ModelRole `json:"role"`
 	Lane     Lane            `json:"lane"`
 	// Attempts counts provider tries including the first.
-	Attempts int `json:"attempts"`
+	Attempts         int     `json:"attempts"`
+	RetryWaitCount   int     `json:"retry_wait_count"`
+	RetryWaitSeconds float64 `json:"retry_wait_seconds"`
 	// Fallback is true when a non-primary endpoint served the call.
 	Fallback bool `json:"fallback"`
 	// Retried is true when any retry happened.
@@ -210,8 +215,8 @@ func (b *breaker) record(now time.Time, failed bool, after int, window, cooldown
 	}
 }
 
-// Gateway is the H3 single-model gateway: role routing, bounded
-// retries honoring Retry-After, per-provider breakers with failover,
+// Gateway is the H3 single-model gateway: role routing, overload
+// retries bounded by caller deadlines, per-provider breakers with failover,
 // price accounting and a concurrency cap with an interactive reserve.
 type Gateway struct {
 	cfg GatewayConfig
@@ -308,6 +313,7 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 		return providers.ChatResponse{}, CallMeta{}, fmt.Errorf("models: empty chain for role %q", string(role))
 	}
 	var lastErr error
+	var waits retryWaitStats
 	var failedAttempts int
 	var failedRef ModelRef
 	var failedFallback bool
@@ -331,16 +337,19 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 		if err := g.acquire(ctx, lane); err != nil {
 			return providers.ChatResponse{}, CallMeta{}, err
 		}
-		resp, attempts, err := g.tryEndpoint(ctx, ref, req)
+		resp, attempts, err := g.tryEndpoint(context.WithValue(ctx, retryStatsKey{}, &waits), ref, req)
 		g.release()
 		now := g.now()
 		g.mu.Lock()
-		g.breakerFor(ref.Provider).record(now, err != nil, g.cfg.BreakerAfter, g.cfg.BreakerWindow, g.cfg.BreakerCooldown)
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			g.breakerFor(ref.Provider).record(now, err != nil, g.cfg.BreakerAfter, g.cfg.BreakerWindow, g.cfg.BreakerCooldown)
+		}
 		g.mu.Unlock()
 		if err == nil {
 			cost := g.CostOf(ref.Model, resp.Usage)
 			return resp, CallMeta{
 				Provider: ref.Provider, Model: ref.Model, Role: role, Lane: lane,
+				RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 				Attempts: attempts, Fallback: i > 0, Retried: attempts > 1,
 				CostUSD: cost, PriceVersion: g.cfg.PriceVersion,
 			}, nil
@@ -352,6 +361,7 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 		if !retryableChain(err, ref, req) {
 			return providers.ChatResponse{}, CallMeta{
 				Provider: ref.Provider, Model: ref.Model, Role: role, Lane: lane,
+				RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 				Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
 			}, err
 		}
@@ -364,12 +374,13 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 	// (Appendix F) instead of reporting zero on failure.
 	return providers.ChatResponse{}, CallMeta{
 		Provider: failedRef.Provider, Model: failedRef.Model, Role: role, Lane: lane,
+		RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 		Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
 	}, lastErr
 }
 
-// tryEndpoint calls one endpoint with bounded retries. Retryable
-// provider errors wait honoring Retry-After first, then exponential
+// tryEndpoint calls one endpoint with bounded transport retries and
+// budget-bound overload retries, honoring server delays before exponential
 // backoff with jitter. Content errors (refusal, truncation) get one
 // retry with a larger output limit when the request sets one (19.5).
 func (g *Gateway) tryEndpoint(ctx context.Context, ref ModelRef, req providers.ChatRequest) (providers.ChatResponse, int, error) {
@@ -395,17 +406,18 @@ func (g *Gateway) tryEndpoint(ctx context.Context, ref ModelRef, req providers.C
 	var resp providers.ChatResponse
 	var err error
 	attempts := 0
+	credentialAttempt := 1
 	for attempt := 1; ; attempt++ {
 		attempts = attempt
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return providers.ChatResponse{}, attempts, ctxErr
 		}
-		resp, err = p.Chat(ctx, out)
+		resp, err = p.Chat(context.WithValue(ctx, retryAttemptKey{}, credentialAttempt), out)
 		if err == nil {
 			return resp, attempts, nil
 		}
-		perr, isProv := err.(*providers.ProviderError)
-		if !isProv {
+		var perr *providers.ProviderError
+		if !errors.As(err, &perr) {
 			return providers.ChatResponse{}, attempts, err
 		}
 		switch perr.Kind {
@@ -416,14 +428,18 @@ func (g *Gateway) tryEndpoint(ctx context.Context, ref ModelRef, req providers.C
 			}
 			return providers.ChatResponse{}, attempts, err
 		case providers.KindTransient, providers.KindRateLimited:
-			if attempt >= maxAttempts {
+			if attempt >= maxAttempts && (g.cfg.DisableBudgetRetries || !budgetRetry(err)) {
 				return providers.ChatResponse{}, attempts, err
 			}
-			wait := perr.RetryAfter
-			if wait <= 0 {
-				wait = providers.Backoff(base, attempt)
+			credentialAttempt++
+			wait := retryDelay(perr, base, attempt)
+			started := time.Now()
+			sleepErr := providers.SleepContext(ctx, wait)
+			if stats, ok := ctx.Value(retryStatsKey{}).(*retryWaitStats); ok {
+				stats.Count++
+				stats.Duration += time.Since(started)
 			}
-			if sleepErr := providers.SleepContext(ctx, wait); sleepErr != nil {
+			if sleepErr != nil {
 				return providers.ChatResponse{}, attempts, ctx.Err()
 			}
 			continue

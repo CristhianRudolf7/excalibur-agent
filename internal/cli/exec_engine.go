@@ -400,6 +400,7 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		InputTokens: resp.Usage.Input, CacheRead: resp.Usage.CacheRead, CacheWrite: resp.Usage.CacheWrite,
 		OutputTokens: resp.Usage.Output, ReasoningTok: resp.Usage.Reasoning,
 		LatencySecs: latency.Seconds(), ProviderError: providerErr, Retries: retries,
+		RetryWaitCount: meta.RetryWaitCount, RetryWaitSeconds: meta.RetryWaitSeconds,
 	})
 	// Budget consumption over time (incremental).
 	_ = m.run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: resp.Usage.Input + resp.Usage.Output, CostUSD: 0, Note: "model_call"})
