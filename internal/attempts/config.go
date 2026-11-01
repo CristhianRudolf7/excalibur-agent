@@ -72,6 +72,10 @@ func concurrencyFor(n int) int {
 // DivideSteps shares the task step budget across attempts: each
 // attempt receives ceil(effective/N) with a floor of 1. A
 // non-positive parent means the engine default (25).
+//
+// It is kept for the legacy split path (EXCALIBUR_ATTEMPTS_FULL_BUDGET=0).
+// The default path gives every attempt the full budget so each runs to
+// its own verification instead of pausing early on a slice.
 func DivideSteps(parentMaxSteps, n int) int {
 	if n < 1 {
 		n = 1
@@ -90,11 +94,92 @@ func DivideSteps(parentMaxSteps, n int) int {
 // DivideBudget shares an explicit USD budget across attempts. A nil
 // parent stays nil (uncapped); otherwise each attempt is capped at
 // parent/N. The sum of attempt caps never exceeds the parent.
+//
+// It is kept for the legacy split path (EXCALIBUR_ATTEMPTS_FULL_BUDGET=0).
+// The default path gives every attempt the full budget.
 func DivideBudget(parent *float64, n int) *float64 {
 	if parent == nil || n <= 1 {
 		return parent
 	}
 	per := *parent / float64(n)
 	out := per
+	return &out
+}
+
+// FullBudgetSwitch gates giving every attempt the full parent budget
+// (steps and explicit USD) so each runs to its own verification.
+// Default ON: the legacy split starves attempts (parent 25 with N=3
+// gives 9 steps each, pausing before verification; observed as half
+// of real trials ending paused with empty outer tool records).
+// Set EXCALIBUR_ATTEMPTS_FULL_BUDGET=0/off/false/no to restore the
+// legacy ceil(parent/N) split for ablation.
+const FullBudgetSwitch = "EXCALIBUR_ATTEMPTS_FULL_BUDGET"
+
+// FullBudgetEnabled reports whether attempts get the full budget.
+func FullBudgetEnabled() bool {
+	v, ok := os.LookupEnv(FullBudgetSwitch)
+	if !ok || strings.TrimSpace(v) == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+// MergeRecordsSwitch gates merging every attempt's model/tool calls
+// into the outer trial records tagged by attempt. Default ON: without
+// it the outer excalibur/tool_calls.jsonl and model_calls.jsonl stay
+// empty (all calls live only under attempts/attempt-i), so standard
+// evaluation and auditing sees zero work. Set
+// EXCALIBUR_ATTEMPTS_MERGE_RECORDS=0/off/false/no to keep the legacy
+// outer-only files for ablation.
+const MergeRecordsSwitch = "EXCALIBUR_ATTEMPTS_MERGE_RECORDS"
+
+// MergeRecordsEnabled reports whether the fan-out merges per-attempt
+// records into the outer recorder.
+func MergeRecordsEnabled() bool {
+	v, ok := os.LookupEnv(MergeRecordsSwitch)
+	if !ok || strings.TrimSpace(v) == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	default:
+		return true
+	}
+}
+
+// StepsForAttempt returns the step cap for one attempt: the full
+// parent budget when FullBudgetEnabled (default), else the legacy
+// split. A non-positive parent means the engine default (25).
+func StepsForAttempt(parentMaxSteps, n int) int {
+	if n < 1 {
+		n = 1
+	}
+	if !FullBudgetEnabled() {
+		return DivideSteps(parentMaxSteps, n)
+	}
+	eff := parentMaxSteps
+	if eff <= 0 {
+		eff = 25
+	}
+	return eff
+}
+
+// BudgetForAttempt returns the USD cap for one attempt: the full
+// parent budget when FullBudgetEnabled (default), else the legacy
+// split. A nil parent stays nil (uncapped).
+func BudgetForAttempt(parent *float64, n int) *float64 {
+	if parent == nil || n <= 1 {
+		return parent
+	}
+	if !FullBudgetEnabled() {
+		return DivideBudget(parent, n)
+	}
+	out := *parent
 	return &out
 }

@@ -186,8 +186,23 @@ func TestExecArtifacts(t *testing.T) {
 			t.Fatalf("missing trial record %s: %v", name, err)
 		}
 	}
-	if out.ProfileHash == "" || out.ProfileHash != eval.DefaultEvalProfile().Hash() {
-		t.Fatalf("eval profile hash = %q", out.ProfileHash)
+	if out.ProfileHash == "" || out.ProfileHash != eval.ProfileForModel("stub").Hash() {
+		t.Fatalf("eval profile hash = %q, want stub effective %q", out.ProfileHash, eval.ProfileForModel("stub").Hash())
+	}
+	// Records report the effective window (owner decision 0051).
+	if raw, err := os.ReadFile(filepath.Join(out.Dir, "profile.json")); err != nil {
+		t.Fatalf("profile.json missing: %v", err)
+	} else {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("profile.json not JSON: %v", err)
+		}
+		if doc["context_window"] != float64(eval.ProfileForModel("stub").ContextWindow) {
+			t.Fatalf("profile.json context_window = %v, want %d", doc["context_window"], eval.ProfileForModel("stub").ContextWindow)
+		}
+		if doc["max_input"] != float64(eval.ProfileForModel("stub").MaxInput) {
+			t.Fatalf("profile.json max_input = %v", doc["max_input"])
+		}
 	}
 	if events.Len() == 0 {
 		t.Fatal("EmitJSON must stream the event flow")

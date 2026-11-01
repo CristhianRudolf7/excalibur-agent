@@ -13,6 +13,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/attempts"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
@@ -80,8 +81,15 @@ func runAttemptsFanOut(
 		logDirs[i] = filepath.Join(run.Dir, "attempts", fmt.Sprintf("attempt-%d", i))
 	}
 
-	perStep := attempts.DivideSteps(opts.MaxSteps, n)
-	perBudget := attempts.DivideBudget(opts.BudgetUSD, n)
+	// Each attempt runs to its own verification with the full parent
+	// budget (steps and explicit USD); the wall clock is shared via
+	// the parent context. The legacy split (ceil(parent/N)) starved
+	// attempts: parent 25 with N=3 gave 9 steps each, pausing before
+	// verification, which is why half of the real trials ended
+	// paused with empty outer tool records. The switch restores the
+	// split for ablation.
+	perStep := attempts.StepsForAttempt(opts.MaxSteps, n)
+	perBudget := attempts.BudgetForAttempt(opts.BudgetUSD, n)
 
 	outcomes := attempts.RunConcurrent(ctx, cfg.MaxConcurrency, workDirs, logDirs,
 		func(actx context.Context, idx int, workDir, logDir string) (attempts.Outcome, error) {
@@ -173,6 +181,16 @@ func runAttemptsFanOut(
 		}
 	}
 
+	// Merge every attempt's model/tool calls into the outer trial
+	// records tagged by attempt, so standard evaluation and auditing
+	// sees the work even though the outer run never calls the model
+	// itself. Without the merge the outer excalibur/tool_calls.jsonl
+	// and model_calls.jsonl stay empty. Gated by
+	// EXCALIBUR_ATTEMPTS_MERGE_RECORDS (default ON).
+	if run.Recorder != nil && attempts.MergeRecordsEnabled() {
+		mergeAttemptRecords(run.Recorder, run, logDirs)
+	}
+
 	rec := attempts.ToRecord(outcomes, winner.Index)
 	_ = attempts.WriteRecord(run.Dir, rec)
 	if run.Recorder != nil {
@@ -201,7 +219,18 @@ func runAttemptsFanOut(
 	if ctx.Err() == context.Canceled {
 		return finalize(types.RunCanceled, "signal", "canceled", "")
 	}
-	return finalize(types.RunState(winner.State), winner.Reason, summary, winner.Question)
+	// A bare paused winner (engine budget exhaustion) must carry an
+	// honest reason instead of an empty one, or the outer final.json
+	// ends as paused with no reason and the summary reads only
+	// "paused [best of N attempts]".
+	winnerReason := winner.Reason
+	if types.RunState(winner.State) == types.RunPaused && strings.TrimSpace(winnerReason) == "" {
+		winnerReason = "budget"
+	}
+	if strings.TrimSpace(summary) == "paused" || strings.TrimSpace(summary) == "paused [best of "+strconv.Itoa(n)+" attempts]" {
+		summary = "paused: budget exhausted [best of " + strconv.Itoa(n) + " attempts]"
+	}
+	return finalize(types.RunState(winner.State), winnerReason, summary, winner.Question)
 }
 
 // fillAttemptEvidence computes the file diff of one attempt against
@@ -365,6 +394,126 @@ func pickWinnerWithModel(ctx context.Context, settings models.ModelSettings, lay
 		}
 	}
 	return -1
+}
+
+// mergeAttemptRecords folds every attempt's model/tool calls (and gate
+// checks) into the outer trial recorder tagged by attempt, and copies
+// content-addressed blobs. It runs after the fan-out joins, so no
+// locking beyond the recorder's own append is needed. Missing
+// per-attempt files are skipped; a merge failure never fails the run
+// (the per-attempt logs under <run>/attempts/attempt-i stay canonical).
+func mergeAttemptRecords(outer *eval.TrialRecorder, run *ExecRun, logDirs []string) {
+	if outer == nil {
+		return
+	}
+	dstDir := outer.Dir()
+	_ = os.MkdirAll(filepath.Join(dstDir, "blobs"), 0o755)
+	modelTotal, toolTotal := 0, 0
+	for idx, logDir := range logDirs {
+		srcEx := filepath.Join(logDir, "excalibur")
+		// Blobs first so merged tool rows always resolve.
+		if entries, err := os.ReadDir(filepath.Join(srcEx, "blobs")); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				src := filepath.Join(srcEx, "blobs", e.Name())
+				dst := filepath.Join(dstDir, "blobs", e.Name())
+				if _, err := os.Stat(dst); err == nil {
+					continue
+				}
+				if raw, err := os.ReadFile(src); err == nil {
+					_ = os.WriteFile(dst, raw, 0o644)
+				}
+			}
+		}
+		// Model and tool calls tagged by attempt. Merged via generic
+		// maps (not the typed structs) so attempt 0 stays explicit:
+		// the typed structs use omitempty and would drop the zero
+		// tag. Rows keep their attempt-local seq; the attempt tag
+		// disambiguates across attempts for the audit. Blobs are
+		// copied above, so hashes stay byte-identical.
+		if raw, err := os.ReadFile(filepath.Join(srcEx, "model_calls.jsonl")); err == nil {
+			for _, line := range splitJSONLLines(raw) {
+				var m map[string]any
+				if err := json.Unmarshal(line, &m); err != nil {
+					continue
+				}
+				m["attempt"] = idx
+				modelTotal++
+				appendTaggedJSONL(filepath.Join(dstDir, "model_calls.jsonl"), m)
+			}
+		}
+		if raw, err := os.ReadFile(filepath.Join(srcEx, "tool_calls.jsonl")); err == nil {
+			for _, line := range splitJSONLLines(raw) {
+				var t map[string]any
+				if err := json.Unmarshal(line, &t); err != nil {
+					continue
+				}
+				t["attempt"] = idx
+				toolTotal++
+				appendTaggedJSONL(filepath.Join(dstDir, "tool_calls.jsonl"), t)
+			}
+		}
+		// Gate checks tagged by fanout attempt for the audit.
+		if raw, err := os.ReadFile(filepath.Join(srcEx, "gate_attempts.jsonl")); err == nil {
+			for _, line := range splitJSONLLines(raw) {
+				var g map[string]any
+				if err := json.Unmarshal(line, &g); err != nil {
+					continue
+				}
+				g["fanout_attempt"] = idx
+				appendTaggedJSONL(filepath.Join(dstDir, "gate_attempts.jsonl"), g)
+			}
+		}
+	}
+	// Advance the outer seq counters past the merged rows so any later
+	// outer recording continues without seq reuse.
+	if toolTotal > run.toolSeq {
+		run.toolSeq = toolTotal
+	}
+	if modelTotal > run.modelSeq {
+		run.modelSeq = modelTotal
+	}
+}
+
+// splitJSONLLines splits raw JSONL bytes into non-empty lines.
+func splitJSONLLines(raw []byte) [][]byte {
+	var out [][]byte
+	start := 0
+	for i, b := range raw {
+		if b == '\n' {
+			if i > start {
+				out = append(out, raw[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(raw) {
+		// Trailing line without newline.
+		line := raw[start:]
+		if len(line) > 0 {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// appendTaggedJSONL appends one value as a JSONL line (used for merged
+// attempt rows where the recorder's blob re-hash must be skipped).
+func appendTaggedJSONL(path string, v any) {
+	buf, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	buf = append(buf, '\n')
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.Write(buf)
+	_ = f.Sync()
+	_ = f.Close()
 }
 
 // OutcomeAlias keeps the model-compare helper free of a direct

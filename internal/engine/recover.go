@@ -243,7 +243,7 @@ func (e *Engine) ReplayPending(ctx context.Context, run *Run, rep RecoveryReport
 		tc := toolCallOf(p)
 		res := e.runOneWithKey(ctx, run, tc, p.Intent.IdempotencyKey)
 		run.mu.Lock()
-		seq := int64(len(run.History))
+		seq := run.nextHistorySeqLocked()
 		run.History = append(run.History, historyEventOf(seq, tc, res))
 		run.mu.Unlock()
 		for _, d := range run.Loop.ObserveTool(toolEventOf(tc, res)) {

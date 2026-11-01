@@ -128,6 +128,10 @@ type ModelCall struct {
 	FinishReason  string            `json:"finish_reason,omitempty"`
 	ProviderError string            `json:"provider_error_class,omitempty"`
 	Retries       int               `json:"retries"`
+	// Attempt tags the best-of-N attempt index that produced this
+	// call (Section 18.2 fan-out merge). Zero means the single-run
+	// path or a legacy row without a tag.
+	Attempt int `json:"attempt,omitempty"`
 }
 
 // RecordModelCall appends one model-call line.
@@ -152,6 +156,10 @@ type ToolCall struct {
 	OutputPath   string    `json:"output_path,omitempty"`
 	Truncated    bool      `json:"truncated"`
 	IsError      bool      `json:"is_error"`
+	// Attempt tags the best-of-N attempt index that produced this
+	// call (Section 18.2 fan-out merge). Zero means the single-run
+	// path or a legacy row without a tag.
+	Attempt int `json:"attempt,omitempty"`
 }
 
 // RecordToolCall stores the full output as a blob and appends the line.
@@ -203,6 +211,10 @@ type GateAttempt struct {
 	Criteria []string  `json:"criteria,omitempty"`
 	Evidence []string  `json:"evidence,omitempty"`
 	Note     string    `json:"note,omitempty"`
+	// FanoutAttempt tags the best-of-N attempt index that produced
+	// this gate check when merged into the outer record (Section
+	// 18.2). Zero means the single-run path or a legacy row.
+	FanoutAttempt int `json:"fanout_attempt,omitempty"`
 }
 
 // RecordGate appends a gate attempt.

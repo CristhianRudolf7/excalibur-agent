@@ -423,10 +423,16 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		defer func() { _ = built.Close() }()
 	}
 	provider, model := eff.Provider, eff.Model
-	profileCfg := eval.DefaultEvalProfile()
+	// Effective window (owner decision 0051): the eval profile hash
+	// and records report the model's own limits, not the old fixed
+	// ceiling. Reference runs keep the frozen hash; unknown models
+	// report the conservative fallback.
+	profileCfg := eval.ProfileForModel(model)
 	if opts.ProfileOverride != "" {
 		profileCfg.Override = opts.ProfileOverride
 	}
+	// Preserve an explicit model label when the caller set one on
+	// the profile (tests); production leaves it empty as before.
 	profileHash := profileCfg.Hash()
 	if profile != ProfileEval {
 		profileHash = ToolsHash(profile)
@@ -602,7 +608,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		}
 	} else if opts.Provider != nil {
 		gw := BuildGateway(eff, layerCfg, opts.Provider)
-		st, usage, err := runEnginePath(ctx, opts, run, eff, gw)
+		st, usage, err := runEnginePath(ctx, opts, run, eff, gw, layerCfg)
 		// Recorded runs already observed every model call (with real
 		// latency, including failures) through recordingModelEndpoint;
 		// the aggregate below only covers the unrecorded path so
@@ -626,6 +632,13 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 			} else if st == types.RunFailed {
 				reason = "work"
 				summary = fmt.Sprintf("failed: %s", shortSummary(request))
+			} else if st == types.RunPaused {
+				// The engine parks on budget exhaustion (steps, cost,
+				// time): keep the honest reason instead of an empty
+				// one so attempt records and final.json stay
+				// auditable.
+				reason = "budget"
+				summary = "paused: budget exhausted: " + shortSummary(request)
 			}
 			return finalize(st, reason, summary, "")
 		}
@@ -753,6 +766,9 @@ func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileCon
 		"personal_memory":      profile == ProfileDefault,
 		"timezone":             "UTC",
 		"language":             "en",
+		"context_window":       cfg.ContextWindow,
+		"max_input":            cfg.MaxInput,
+		"max_output":           cfg.MaxOutput,
 	}
 	buf, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {

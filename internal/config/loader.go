@@ -129,6 +129,7 @@ func Load(opts LoadOptions) (Config, error) {
 	}
 	applyEnv(merged, opts.envPrefix(), opts.envList(), opts.NoEnv)
 	applyOverrides(merged, opts.Overrides)
+	applyContextCapAlias(merged, opts.envList(), opts.NoEnv)
 	cfg, err := decodeMerged(merged)
 	if err != nil {
 		return Config{}, err
@@ -137,6 +138,32 @@ func Load(opts LoadOptions) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// applyContextCapAlias folds the single-segment EXCALIBUR_CONTEXT_CAP
+// override into the merged map. The generic applyEnv skips
+// single-segment names (they collide with section tables), so the
+// documented cap alias needs explicit handling with the highest
+// environment precedence.
+func applyContextCapAlias(merged map[string]any, env []string, disabled bool) {
+	if disabled {
+		return
+	}
+	for _, kv := range env {
+		name, value, ok := strings.Cut(kv, "=")
+		if !ok {
+			continue
+		}
+		if name != "EXCALIBUR_CONTEXT_CAP" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		n, err := strconv.Atoi(value)
+		if err != nil || n < 0 {
+			continue
+		}
+		setPath(merged, []string{"context", "compaction_ceiling_tokens"}, int64(n))
+	}
 }
 
 func (o LoadOptions) envPrefix() string {

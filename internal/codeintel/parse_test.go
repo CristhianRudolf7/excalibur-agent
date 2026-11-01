@@ -179,6 +179,19 @@ func TestParseFallbackFamilies(t *testing.T) {
 	}
 }
 
+func TestParseAsyncPythonFunction(t *testing.T) {
+	pf, err := fallbackParserFor("python").Parse("async_app.py", []byte("async def fetch():\n    await request()\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pf.Symbols) != 1 || pf.Symbols[0].Name != "fetch" || pf.Symbols[0].SubKind != SymbolFunc {
+		t.Fatalf("async function not parsed: %+v", pf.Symbols)
+	}
+	if len(pf.Symbols[0].Calls) != 1 || pf.Symbols[0].Calls[0] != "request" {
+		t.Fatalf("async function calls not attributed: %+v", pf.Symbols[0].Calls)
+	}
+}
+
 func TestParseDocSections(t *testing.T) {
 	src := "# Guide\n\nUses `Handler` and `parseTree`.\n\n## Setup\n\nRun `install`.\n"
 	upd, err := ParseFile("docs/guide.md", []byte(src))

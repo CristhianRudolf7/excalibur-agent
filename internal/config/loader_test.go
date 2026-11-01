@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -22,7 +23,7 @@ func TestLoadDefaultsWhenNoLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatal("empty layers must equal defaults")
 	}
 }
@@ -195,7 +196,7 @@ func TestMissingFilesAreSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
+	if !reflect.DeepEqual(cfg, Default()) {
 		t.Fatal("missing layers must equal defaults")
 	}
 }
@@ -214,7 +215,7 @@ func TestWriteFileRoundTrip(t *testing.T) {
 	if got.Porter.GroupCommitMaxOps != 33 {
 		t.Fatalf("round trip: got %d", got.Porter.GroupCommitMaxOps)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatal("round trip must preserve every field")
 	}
 }

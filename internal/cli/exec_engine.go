@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/envsnap"
@@ -114,6 +115,79 @@ func pruneDeferredToProfile(cat *tools.DeferredCatalog, allowed map[string]bool)
 func compactSkillsCatalog() bool {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_SKILLS_COMPACT")))
 	return v == "1" || v == "true"
+}
+
+// ctxConfigForRun builds the compiler config for one embedded run
+// from the layered config (owner decision 0051): the shipped
+// defaults carry the full-window table (reference row plus
+// conservative fallback), the layered [context] values overlay it,
+// per-model rows overlay by lowercased id, and
+// EXCALIBUR_CONTEXT_CAP wins when positive.
+func ctxConfigForRun(layer config.Config) ctxcompiler.Config {
+	cfg := ctxcompiler.DefaultConfig()
+	lc := layer.Context
+	if lc.CompactionCeilingTokens != 0 {
+		cfg.CompactionCeilingTokens = lc.CompactionCeilingTokens
+	}
+	if lc.DefaultContextWindow > 0 {
+		cfg.DefaultContextWindow = lc.DefaultContextWindow
+	}
+	if lc.DefaultMaxInput > 0 {
+		cfg.DefaultMaxInput = lc.DefaultMaxInput
+	}
+	if lc.DefaultMaxOutput > 0 {
+		cfg.DefaultMaxOutput = lc.DefaultMaxOutput
+	}
+	if lc.CompactionReserveTokens > 0 {
+		cfg.CompactionReserveTokens = lc.CompactionReserveTokens
+	}
+	if lc.PostCompactionLiteralTokens > 0 {
+		cfg.PostCompactionLiteralTokens = lc.PostCompactionLiteralTokens
+	}
+	if lc.LiteralObservations > 0 {
+		cfg.LiteralObservations = lc.LiteralObservations
+	}
+	if lc.MaskTriggerTokens > 0 {
+		cfg.MaskTriggerTokens = lc.MaskTriggerTokens
+	}
+	if lc.MaskTargetTokens > 0 {
+		cfg.MaskTargetTokens = lc.MaskTargetTokens
+	}
+	if lc.MasterHistoryTokens > 0 {
+		cfg.MasterHistoryTokens = lc.MasterHistoryTokens
+	}
+	if lc.MasterTargetMin > 0 {
+		cfg.MasterTargetMin = lc.MasterTargetMin
+	}
+	if lc.MasterTargetMax > 0 {
+		cfg.MasterTargetMax = lc.MasterTargetMax
+	}
+	if lc.ChildTargetMax > 0 {
+		cfg.ChildTargetMax = lc.ChildTargetMax
+	}
+	if lc.ParentTargetMax > 0 {
+		cfg.ParentTargetMax = lc.ParentTargetMax
+	}
+	if len(lc.ModelLimits) > 0 {
+		if cfg.ModelLimits == nil {
+			cfg.ModelLimits = map[string]ctxcompiler.ModelLimits{}
+		}
+		for k, v := range lc.ModelLimits {
+			key := strings.ToLower(strings.TrimSpace(k))
+			if key == "" {
+				continue
+			}
+			cfg.ModelLimits[key] = ctxcompiler.ModelLimits{
+				ContextWindow: v.ContextWindow,
+				MaxInput:      v.MaxInput,
+				MaxOutput:     v.MaxOutput,
+			}
+		}
+	}
+	if envCap := ctxcompiler.ContextCapFromEnv(nil); envCap > 0 {
+		cfg.CompactionCeilingTokens = envCap
+	}
+	return cfg
 }
 
 // skillNames projects suggested skills to their names for events.
@@ -364,7 +438,7 @@ func (r *recordingToolRunner) Execute(ctx context.Context, name string, args jso
 // model turn and tool result is appended to the ATIF trajectory so
 // the Appendix F records show the real execution. It returns the
 // engine token usage for the metrics record.
-func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings models.ModelSettings, gw *models.Gateway) (types.RunState, providers.Usage, error) {
+func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings models.ModelSettings, gw *models.Gateway, layerCfg config.Config) (types.RunState, providers.Usage, error) {
 	profile := opts.Profile
 	if profile == "" {
 		profile = ProfileDefault
@@ -383,6 +457,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// records (skills.json, skills_wired event) for the ablation.
 	skillsMode := skills.LibraryModeFromEnv(nil)
 	skillsCompact := compactSkillsCatalog()
+	ctxCfg := ctxConfigForRun(layerCfg)
+	effWindow := ctxcompiler.LimitsForModel(settings.Model, ctxCfg).ContextWindow
+	if effWindow <= 0 {
+		effWindow = 200000
+	}
 	var skillsIndex *skills.Index
 	var skillCatalog string
 	var suggestedSkills []ctxcompiler.SkillView
@@ -392,10 +471,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			return "", providers.Usage{}, fmt.Errorf("cli: scan skills catalog: %w", err)
 		}
 		skillCatalog = skillsIndex.RenderCatalogForMode(skills.CatalogConfig{
-			WindowTokens: 200000, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
+			WindowTokens: effWindow, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
 		}, skillsMode)
 		env := skills.CollectEnvSignals(opts.ProjectDir, exec.LookPath)
-		for _, s := range skillsIndex.SuggestWithEnvForMode(opts.Request, env, settings.Model, ctxcompiler.DefaultConfig().SuggestedSkillsMax, skillsMode) {
+		for _, s := range skillsIndex.SuggestWithEnvForMode(opts.Request, env, settings.Model, ctxCfg.SuggestedSkillsMax, skillsMode) {
 			suggestedSkills = append(suggestedSkills, ctxcompiler.SkillView{Name: s.Name, Why: s.Why})
 		}
 		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsIndex, suggestedSkills)
@@ -552,8 +631,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	eng := engine.New(engine.Deps{
 		Models: modelEndpoint,
 		Context: &engine.DefaultBuilder{
-			Config: ctxcompiler.DefaultConfig(), Counter: ctxcompiler.NewEstimator(0),
+			Config: ctxCfg, Counter: ctxcompiler.NewEstimator(0),
 			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: effort,
+			ModelID: settings.Model,
 			// Remaining-budget line in L5 (Section 18.4): compact
 			// steps/tools/time/cost left, every call. Empty when
 			// nothing is capped, so uncapped runs add no bytes.
@@ -562,6 +642,29 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 					return ""
 				}
 				return erun.BudgetLine(time.Now().UTC())
+			},
+			// Full-window context control (11.3-11.4, owner
+			// decision 0051): masking and compaction run inside
+			// BuildRequest on the embedded path. Pins come from
+			// the run-local store; batches and compactions land
+			// in masking.jsonl / compaction.jsonl.
+			Pins: func() []string {
+				if emb.Surface == nil || emb.Surface.Pins == nil {
+					return nil
+				}
+				return emb.Surface.Pins.List()
+			},
+			OnMask: func(batch, dropped int, note string) {
+				if run.Recorder == nil {
+					return
+				}
+				_ = run.Recorder.RecordMask(batch, dropped, note)
+			},
+			OnCompact: func(from, to, kept int, note string) {
+				if run.Recorder == nil {
+					return
+				}
+				_ = run.Recorder.RecordCompaction(from, to, kept, note)
 			},
 		},
 		Tools:          toolRunner,

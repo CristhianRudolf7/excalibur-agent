@@ -37,7 +37,32 @@ type EvalProfileConfig struct {
 	// Override records a --profile-override deviation; trials with a
 	// non-empty override never compare against clean trials.
 	Override string `json:"override,omitempty"`
+	// ContextWindow is the effective advertised window for the
+	// evaluated model (owner decision 0051). Unknown models report
+	// the conservative configured default.
+	ContextWindow int `json:"context_window"`
+	// MaxInput is the binding request cap the compaction trigger
+	// derives from (threshold = maxInput - reserve - safety).
+	MaxInput int `json:"max_input"`
+	// MaxOutput caps one completion for the evaluated model.
+	MaxOutput int `json:"max_output"`
 }
+
+// ReferenceWindow reports the shipped gpt-6-luna limits (source:
+// models.dev). It mirrors ctxcompiler.ReferenceLimits without
+// importing it, so the eval package keeps its current dependency
+// shape; a cross-check test pins the two tables together.
+const (
+	ReferenceContextWindow = 1050000
+	ReferenceMaxInput      = 922000
+	ReferenceMaxOutput     = 128000
+	// ConservativeWindow is the fallback window reported for
+	// unknown models. It mirrors the ctxcompiler conservative
+	// configured default.
+	ConservativeWindow = 200000
+	ConservativeMaxIn  = 128000
+	ConservativeMaxOut = 16384
+)
 
 // evalSkillsHashOnce memoizes the frozen catalog fingerprint: the
 // embedded builtin index is content-addressed, so scanning it on
@@ -86,7 +111,49 @@ func DefaultEvalProfile() EvalProfileConfig {
 		EnabledSkillGroups: []string{"builtin", "software-engineering"},
 		SkillsCatalogHash:  EvalSkillsCatalogHash(),
 		SingleModel:        true,
+		ContextWindow:      ReferenceContextWindow,
+		MaxInput:           ReferenceMaxInput,
+		MaxOutput:          ReferenceMaxOutput,
 	}
+}
+
+// ProfileForModel returns the effective profile for the evaluated
+// model id: the frozen default with the window row resolved. The
+// reference model keeps the shipped row; anything else normalizes
+// case-insensitively, with unknown ids falling back to the
+// conservative configured default. The Model metadata field is left
+// untouched so the frozen hash only moves when the effective window
+// moves (reference runs keep the frozen hash).
+func ProfileForModel(model string) EvalProfileConfig {
+	p := DefaultEvalProfile()
+	switch normalizeModelID(model) {
+	case "", "gpt-6-luna":
+		// Frozen reference row (empty means "reference model" in
+		// callers that have not resolved a name yet).
+		p.ContextWindow = ReferenceContextWindow
+		p.MaxInput = ReferenceMaxInput
+		p.MaxOutput = ReferenceMaxOutput
+	default:
+		p.ContextWindow = ConservativeWindow
+		p.MaxInput = ConservativeMaxIn
+		p.MaxOutput = ConservativeMaxOut
+	}
+	return p
+}
+
+func normalizeModelID(model string) string {
+	out := make([]byte, 0, len(model))
+	for i := 0; i < len(model); i++ {
+		c := model[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c == ' ' || c == '\t' || c == '\n' {
+			continue
+		}
+		out = append(out, c)
+	}
+	return string(out)
 }
 
 // Hash computes the profile hash recorded in ATIF and metrics.
@@ -98,8 +165,8 @@ func (c EvalProfileConfig) Hash() string {
 	groups := append([]string(nil), c.EnabledSkillGroups...)
 	sort.Strings(groups)
 	h := sha256.New()
-	fmt.Fprintf(h, "version=%s\nsingle=%v\nskills=%s\nmodel=%s\noverride=%s\n",
-		c.Version, c.SingleModel, c.SkillsCatalogHash, c.Model, c.Override)
+	fmt.Fprintf(h, "version=%s\nsingle=%v\nskills=%s\nmodel=%s\noverride=%s\nwindow=%d\nmaxin=%d\nmaxout=%d\n",
+		c.Version, c.SingleModel, c.SkillsCatalogHash, c.Model, c.Override, c.ContextWindow, c.MaxInput, c.MaxOutput)
 	for _, t := range tools {
 		fmt.Fprintf(h, "tool=%s\n", t)
 	}

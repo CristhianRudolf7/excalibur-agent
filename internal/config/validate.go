@@ -28,7 +28,11 @@ func validateStruct(c Config) error {
 		{c.Provider.BreakerFailures > 0, "provider.breaker_failures"},
 		{c.Provider.BreakerErrorRate > 0 && c.Provider.BreakerErrorRate <= 1, "provider.breaker_error_rate"},
 		{c.Provider.BreakerOpenFor > 0, "provider.breaker_open_for"},
-		{c.Context.CompactionCeilingTokens > 0, "context.compaction_ceiling_tokens"},
+		{c.Context.CompactionCeilingTokens >= 0, "context.compaction_ceiling_tokens"},
+		{c.Context.DefaultContextWindow > 0, "context.default_context_window"},
+		{c.Context.DefaultMaxInput > 0, "context.default_max_input"},
+		{c.Context.DefaultMaxOutput > 0, "context.default_max_output"},
+		{c.Context.CompactionReserveTokens > 0, "context.compaction_reserve_tokens"},
 		{c.Context.PostCompactionLiteralTokens > 0, "context.post_compaction_literal_tokens"},
 		{c.Context.LiteralObservations > 0, "context.literal_observations"},
 		{c.Context.MaskTriggerTokens > c.Context.MaskTargetTokens, "context.mask_trigger_gt_target"},
@@ -64,6 +68,11 @@ func validateStruct(c Config) error {
 	for _, c := range checks {
 		if !c.ok {
 			return fmt.Errorf("config: invalid value for %s", c.what)
+		}
+	}
+	for name, lim := range c.Context.ModelLimits {
+		if lim.ContextWindow <= 0 || lim.MaxInput <= 0 || lim.MaxOutput <= 0 {
+			return fmt.Errorf("config: invalid value for context.model_limits[%q]", name)
 		}
 	}
 	return nil

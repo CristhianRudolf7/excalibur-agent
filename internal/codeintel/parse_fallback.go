@@ -187,7 +187,7 @@ type defRule struct {
 // order; first match per line wins).
 var genericRules = map[string][]defRule{
 	"python": {
-		{regexp.MustCompile(`^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`), SymbolFunc},
+		{regexp.MustCompile(`^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`), SymbolFunc},
 		{regexp.MustCompile(`^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)\b`), SymbolType},
 	},
 	"javascript": {

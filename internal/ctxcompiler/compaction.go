@@ -7,37 +7,37 @@ import (
 	"strings"
 )
 
-// This file implements Section 11.4: the compaction trigger with the
-// 500 000-token ceiling, the deterministic structured state, the
-// incremental model summary with a deterministic check, the 20K
-// literal tail without split call/result pairs, the compaction
-// record, and the long master-conversation history.
+// This file implements Section 11.4: the compaction trigger from the
+// model's own max input (owner decision 0051), the deterministic
+// structured state, the incremental model summary with a
+// deterministic check, the 20K literal tail without split
+// call/result pairs, the compaction record, and the long
+// master-conversation history.
 
-// CompactionThreshold returns the trigger for a model window:
-// min(ceiling, 0.85*window-reserve). Windows of 500 000 tokens and
-// above compact at the configured ceiling; smaller windows compact at
-// the window fraction. Degenerate windows clamp to 1024.
-func CompactionThreshold(windowTokens, reserveTokens int, cfg Config) int {
-	return CompactionThresholdForModel(windowTokens, reserveTokens, cfg, 0)
+// CompactionThreshold returns the trigger for a max-input cap:
+// maxInput - (reserve + safety), optionally capped. The old fixed
+// 500 000 ceiling survives only as the optional
+// CompactionCeilingTokens / EXCALIBUR_CONTEXT_CAP cap (0 = model
+// maximum) and as the legacy fallback behind
+// EXCALIBUR_CONTEXT_FULL_WINDOW=0. Degenerate inputs clamp to 1024.
+func CompactionThreshold(maxInputTokens, reserveTokens int, cfg Config) int {
+	return CompactionThresholdForModel(maxInputTokens, reserveTokens, cfg, 0)
 }
 
 // CompactionThresholdForModel is CompactionThreshold with an optional
 // per-model ceiling: modelCeiling lowers the trigger when evaluation
 // shows degradation before the default (11.4). A non-positive
-// modelCeiling selects the configured ceiling.
+// modelCeiling selects the configured ceiling. The windowTokens
+// parameter name is kept for call-site compatibility but carries the
+// model's max input under the full-window policy.
 func CompactionThresholdForModel(windowTokens, reserveTokens int, cfg Config, modelCeiling int) int {
-	ceiling := cfg.CompactionCeilingTokens
-	if modelCeiling > 0 && modelCeiling < ceiling {
-		ceiling = modelCeiling
+	if !FullWindowEnabled(nil) {
+		return LegacyThreshold(windowTokens, reserveTokens, cfg)
 	}
-	frac := int(0.85*float64(windowTokens)) - reserveTokens
-	if frac < 1024 {
-		frac = 1024
+	if reserveTokens <= 0 {
+		reserveTokens = DefaultReserve(cfg)
 	}
-	if frac > ceiling {
-		return ceiling
-	}
-	return frac
+	return thresholdFromMaxInput(windowTokens, reserveTokens, cfg, EffectiveCap(cfg, modelCeiling))
 }
 
 // ShouldCompact reports whether estimatedTokens trips the trigger.
@@ -50,6 +50,20 @@ func ShouldCompact(estimatedTokens, windowTokens, reserveTokens int, cfg Config)
 func ShouldCompactForModel(estimatedTokens, windowTokens, reserveTokens int, cfg Config, modelCeiling int) bool {
 	return WithMargin(estimatedTokens, cfg.EstimateMargin) >=
 		CompactionThresholdForModel(windowTokens, reserveTokens, cfg, modelCeiling)
+}
+
+// ShouldCompactForModelName is the full-window entry point used by
+// the embedded engine path: it resolves the model's max input from
+// the limits table and reports whether the margined estimate trips
+// the maxInput - (reserve + safety) trigger.
+func ShouldCompactForModelName(estimatedTokens int, model string, reserveTokens int, cfg Config, modelCeiling int) bool {
+	if !FullWindowEnabled(nil) {
+		lim := LimitsForModel(model, cfg)
+		return WithMargin(estimatedTokens, cfg.EstimateMargin) >=
+			LegacyThreshold(lim.ContextWindow, reserveTokens, cfg)
+	}
+	return WithMargin(estimatedTokens, cfg.EstimateMargin) >=
+		ThresholdForModel(model, reserveTokens, cfg, modelCeiling)
 }
 
 // Artifact is one entry of the artifact trail: files changed (path,

@@ -81,11 +81,36 @@ type ProviderConfig struct {
 	BreakerOpenFor time.Duration `json:"breaker_open_for" toml:"breaker_open_for"`
 }
 
+// ModelLimitsRow is one per-model window override in the layered
+// config, keyed by lowercased model id.
+type ModelLimitsRow struct {
+	ContextWindow int `json:"context_window" toml:"context_window"`
+	MaxInput      int `json:"max_input" toml:"max_input"`
+	MaxOutput     int `json:"max_output" toml:"max_output"`
+}
+
 // ContextConfig governs the context compiler (Section 11).
 type ContextConfig struct {
-	// CompactionCeiling bounds compaction triggering (Appendix B:
-	// min(500000, 0.85*window - reserve)).
+	// CompactionCeiling is the optional cap on the compaction
+	// trigger (owner decision 0051). Zero (default) means uncapped:
+	// the trigger derives from the model's own max input. Set
+	// EXCALIBUR_CONTEXT_CAP or this field to lower it.
 	CompactionCeilingTokens int `json:"compaction_ceiling_tokens" toml:"compaction_ceiling_tokens"`
+	// DefaultContextWindow is the conservative advertised window
+	// for unknown models (full-window fallback).
+	DefaultContextWindow int `json:"default_context_window" toml:"default_context_window"`
+	// DefaultMaxInput is the conservative binding input cap for
+	// unknown models.
+	DefaultMaxInput int `json:"default_max_input" toml:"default_max_input"`
+	// DefaultMaxOutput is the conservative completion cap for
+	// unknown models.
+	DefaultMaxOutput int `json:"default_max_output" toml:"default_max_output"`
+	// CompactionReserveTokens reserves the next tool result behind
+	// the trigger: threshold = maxInput - (reserve + safety).
+	CompactionReserveTokens int `json:"compaction_reserve_tokens" toml:"compaction_reserve_tokens"`
+	// ModelLimits overrides the shipped per-model table by
+	// lowercased model id.
+	ModelLimits map[string]ModelLimitsRow `json:"model_limits" toml:"model_limits"`
 	// PostCompactionLiteral keeps this literal tail (App. B: 20K).
 	PostCompactionLiteralTokens int `json:"post_compaction_literal_tokens" toml:"post_compaction_literal_tokens"`
 	// LiteralObservations pins the newest observations (App. B: 10).
@@ -263,7 +288,11 @@ func Default() Config {
 			BreakerOpenFor:   60 * time.Second,
 		},
 		Context: ContextConfig{
-			CompactionCeilingTokens:     500000,
+			CompactionCeilingTokens:     0,
+			DefaultContextWindow:        200000,
+			DefaultMaxInput:             128000,
+			DefaultMaxOutput:            16384,
+			CompactionReserveTokens:     16000,
 			PostCompactionLiteralTokens: 20000,
 			LiteralObservations:         10,
 			MaskTriggerTokens:           24000,

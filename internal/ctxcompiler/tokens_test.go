@@ -114,6 +114,10 @@ func TestDefaultsMirrorSharedConfig(t *testing.T) {
 	theirs := config.Default().Context
 	checks := map[string][2]int{
 		"ceiling":        {mine.CompactionCeilingTokens, theirs.CompactionCeilingTokens},
+		"default window": {mine.DefaultContextWindow, theirs.DefaultContextWindow},
+		"default maxin":  {mine.DefaultMaxInput, theirs.DefaultMaxInput},
+		"default maxout": {mine.DefaultMaxOutput, theirs.DefaultMaxOutput},
+		"reserve":        {mine.CompactionReserveTokens, theirs.CompactionReserveTokens},
 		"post literal":   {mine.PostCompactionLiteralTokens, theirs.PostCompactionLiteralTokens},
 		"literal obs":    {mine.LiteralObservations, theirs.LiteralObservations},
 		"mask trigger":   {mine.MaskTriggerTokens, theirs.MaskTriggerTokens},

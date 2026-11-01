@@ -35,7 +35,9 @@ type DefaultBuilder struct {
 	// ModelID is the resolved model id for family adaptation
 	// (agent quality): it only selects the L0 prompt variant. Empty
 	// means the tuned GPT default. Whoever resolves the model for
-	// the run sets it; reasoning effort handling is untouched.
+	// the run sets it; reasoning effort handling is untouched. It
+	// also selects the full-window limits row (owner decision
+	// 0051): empty means the conservative fallback.
 	ModelID string
 	// Quality gates the agent-quality prompt mechanisms (working
 	// method, family adaptation, working notes). Nil means
@@ -46,6 +48,26 @@ type DefaultBuilder struct {
 	// leaves it empty. A snapshot-carried value always wins, so
 	// callers can pin or test the line without the hook.
 	Budget func(run *Run) string
+	// ModelCeiling optionally lowers the compaction trigger for a
+	// degraded model (11.4). Zero selects the configured ceiling.
+	ModelCeiling int
+	// EnableMask gates embedded observation masking (11.3). Nil
+	// means enabled with the EXCALIBUR_CONTEXT_MASK overlay
+	// (default ON); explicit false disables.
+	EnableMask *bool
+	// EnableCompact gates embedded compaction (11.4). Nil means
+	// enabled with the EXCALIBUR_CONTEXT_COMPACT overlay (default
+	// ON); explicit false disables.
+	EnableCompact *bool
+	// Pins returns pinned observation texts that masking must keep
+	// literal (pin_observation). Nil means no pins.
+	Pins func() []string
+	// OnMask records one masking batch (trial recorder, journal).
+	// Nil skips recording; masking still applies.
+	OnMask func(batch, dropped int, note string)
+	// OnCompact records one compaction (trial recorder, journal).
+	// Nil skips recording; compaction still applies.
+	OnCompact func(from, to, kept int, note string)
 }
 
 // BuildRequest implements RequestBuilder.
@@ -55,7 +77,9 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
 	}
-	snap.Activity = append(append([]ctxcompiler.ActivityEvent(nil), snap.Activity...), run.historyCopy()...)
+	snapshotLen := len(snap.Activity)
+	hist := run.historyCopy()
+	snap.Activity = append(append([]ctxcompiler.ActivityEvent(nil), snap.Activity...), hist...)
 	notes := run.VolatileNotes()
 	if run.RecoveryNote != "" {
 		notes = append([]string{run.RecoveryNote}, notes...)
@@ -91,9 +115,52 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if !q.WorkingNotes {
 		cfg.WorkingNotesMax = 0
 	}
+	// Full-window context control (11.3-11.4, owner decision 0051):
+	// masking and compaction run inside BuildRequest so every step
+	// of the embedded exec/eval path actually invokes them (the
+	// threshold helpers were previously test-only). Only the
+	// activity history and the L3 compaction block change; L0-L2
+	// stay byte-identical so the provider prefix cache never
+	// churns except at a batch/compaction boundary.
+	model := snap.ModelID
+	if model == "" {
+		model = b.ModelID
+	}
+	if existing := run.compactionBlock(); existing != "" && snap.CompactionBlock == "" {
+		snap.CompactionBlock = existing
+	}
+	b.applyContextControl(ctx, run, &snap, snapshotLen, len(hist), model, cfg, counter)
 	compiled, err := ctxcompiler.Compile(cfg, snap, counter)
 	if err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
+	}
+	// Compaction after the first compile: the estimate is the real
+	// compiled total, so the request never exceeds the model's max
+	// input. A second compile projects the compacted request.
+	if b.compactEnabled() {
+		if ctxcompiler.ShouldCompactForModelName(compiled.TotalTokens, model, 0, cfg, b.ModelCeiling) {
+			state := ctxcompiler.StateFromTask(snap.Task)
+			ctrl := ctxcompiler.NewController(cfg, counter, model)
+			rev, batches, _, _ := run.compactionState()
+			ctrl.Seed(rev, batches)
+			if existing := run.compactionBlock(); existing != "" {
+				ctrl.SetBlock(existing)
+			}
+			outcome, kept, cerr := ctrl.ApplyCompact(ctx, state, snap.Activity, compiled.TotalTokens)
+			if cerr == nil && outcome.Applied {
+				snap.Activity = kept
+				snap.CompactionBlock = outcome.Block
+				b.persistCompactedHistory(run, snapshotLen, kept)
+				run.recordCompaction(outcome.Block, kept)
+				if b.OnCompact != nil {
+					b.OnCompact(int(outcome.FromSeq), int(outcome.ToSeq), outcome.KeptEvents, "engine compaction")
+				}
+				compiled, err = ctxcompiler.Compile(cfg, snap, counter)
+				if err != nil {
+					return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
+				}
+			}
+		}
 	}
 	toolChoice := ""
 	if closing {

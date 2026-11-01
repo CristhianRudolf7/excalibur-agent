@@ -12,30 +12,33 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 )
 
-// 11.4 trigger: min(500 000, 0.85*window - reserve).
+// 11.4 trigger (owner decision 0051): maxInput - (reserve + safety),
+// optionally capped. The old fixed 500 000 ceiling survives only as
+// the optional cap (0 = model maximum).
 func TestCompactionThreshold(t *testing.T) {
 	cfg := ctxcompiler.DefaultConfig()
-	if got := ctxcompiler.CompactionThreshold(1048576, 8192, cfg); got != 500000 {
-		t.Fatalf("1M window must clamp to the 500K ceiling, got %d", got)
+	// gpt-6-luna max input 922 000, reserve 8192, safety 10%:
+	// 922000 - 8192 - 92200 = 821608.
+	if got := ctxcompiler.CompactionThreshold(922000, 8192, cfg); got != 821608 {
+		t.Fatalf("922K max input threshold = %d, want 821608", got)
 	}
-	if got := ctxcompiler.CompactionThreshold(500000, 4000, cfg); got != 421000 {
-		t.Fatalf("500K window: min(ceiling, 0.85*500K-4K) = %d, want 421000", got)
+	// Conservative 128K max input, reserve 4000:
+	// 128000 - 4000 - 12800 = 111200.
+	if got := ctxcompiler.CompactionThreshold(128000, 4000, cfg); got != 111200 {
+		t.Fatalf("128K max input threshold = %d, want 111200", got)
 	}
-	// 128K window: 0.85*131072 - 4096 = 107315.
-	if got := ctxcompiler.CompactionThreshold(131072, 4096, cfg); got != 107315 {
-		t.Fatalf("128K window threshold = %d, want 107315", got)
-	}
-	if got := ctxcompiler.CompactionThresholdForModel(1048576, 8192, cfg, 200000); got != 200000 {
+	if got := ctxcompiler.CompactionThresholdForModel(922000, 8192, cfg, 200000); got != 200000 {
 		t.Fatalf("per-model ceiling must lower the trigger, got %d", got)
 	}
 	if got := ctxcompiler.CompactionThreshold(100, 100000, cfg); got != 1024 {
-		t.Fatalf("degenerate window must clamp to 1024, got %d", got)
+		t.Fatalf("degenerate max input must clamp to 1024, got %d", got)
 	}
 	// Margin: an estimate just under the trigger still trips it.
-	if !ctxcompiler.ShouldCompact(99000, 131072, 4096, cfg) {
+	// Threshold 111200 for 128K/4000; 101092*1.1 = 111201 >= trigger.
+	if !ctxcompiler.ShouldCompact(101092, 128000, 4000, cfg) {
 		t.Fatal("margined estimate must trip the trigger")
 	}
-	if ctxcompiler.ShouldCompact(1000, 131072, 4096, cfg) {
+	if ctxcompiler.ShouldCompact(1000, 128000, 4000, cfg) {
 		t.Fatal("tiny estimate must not compact")
 	}
 }

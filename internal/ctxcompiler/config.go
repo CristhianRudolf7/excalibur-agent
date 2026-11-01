@@ -7,10 +7,29 @@ import "fmt"
 // the compiler only depends on internal/types, provider request
 // types and the small source interfaces of this package.
 type Config struct {
-	// CompactionCeilingTokens is the configured ceiling (Appendix B:
-	// 500 000). The effective threshold is
-	// min(ceiling, 0.85*window-reserve); see compaction.go.
+	// CompactionCeilingTokens is the optional cap on the compaction
+	// trigger (owner decision 0051). Zero (default) means uncapped:
+	// the trigger is the model maximum. A positive value, or
+	// EXCALIBUR_CONTEXT_CAP, lowers the trigger for ablations or
+	// degraded models. The old fixed 500 000 ceiling is only the
+	// legacy fallback when EXCALIBUR_CONTEXT_FULL_WINDOW=0.
 	CompactionCeilingTokens int
+	// DefaultContextWindow is the conservative advertised window
+	// for unknown models (full-window fallback).
+	DefaultContextWindow int
+	// DefaultMaxInput is the conservative binding input cap for
+	// unknown models.
+	DefaultMaxInput int
+	// DefaultMaxOutput is the conservative completion cap for
+	// unknown models.
+	DefaultMaxOutput int
+	// CompactionReserveTokens reserves the next tool result behind
+	// the trigger: threshold = maxInput - (reserve + safety).
+	CompactionReserveTokens int
+	// ModelLimits overrides the shipped per-model table by
+	// lowercased model id. Empty selects KnownLimits, then the
+	// conservative defaults above.
+	ModelLimits map[string]ModelLimits
 	// PostCompactionLiteralTokens keeps this literal tail after a
 	// compaction (Appendix B: 20K).
 	PostCompactionLiteralTokens int
@@ -61,7 +80,11 @@ type Config struct {
 // DefaultConfig returns the Appendix B initial values.
 func DefaultConfig() Config {
 	return Config{
-		CompactionCeilingTokens:     500000,
+		CompactionCeilingTokens:     0,
+		DefaultContextWindow:        200000,
+		DefaultMaxInput:             128000,
+		DefaultMaxOutput:            16384,
+		CompactionReserveTokens:     16000,
 		PostCompactionLiteralTokens: 20000,
 		LiteralObservations:         10,
 		MaskTriggerTokens:           24000,
@@ -88,7 +111,11 @@ func (c Config) Validate() error {
 		ok   bool
 		what string
 	}{
-		{c.CompactionCeilingTokens > 0, "compaction_ceiling_tokens"},
+		{c.CompactionCeilingTokens >= 0, "compaction_ceiling_tokens"},
+		{c.DefaultContextWindow > 0, "default_context_window"},
+		{c.DefaultMaxInput > 0, "default_max_input"},
+		{c.DefaultMaxOutput > 0, "default_max_output"},
+		{c.CompactionReserveTokens > 0, "compaction_reserve_tokens"},
 		{c.PostCompactionLiteralTokens > 0, "post_compaction_literal_tokens"},
 		{c.LiteralObservations > 0, "literal_observations"},
 		{c.MaskTriggerTokens > c.MaskTargetTokens, "mask_trigger_gt_target"},
@@ -106,6 +133,11 @@ func (c Config) Validate() error {
 	for _, c := range checks {
 		if !c.ok {
 			return fmt.Errorf("ctxcompiler: invalid value for %s", c.what)
+		}
+	}
+	for name, lim := range c.ModelLimits {
+		if lim.ContextWindow <= 0 || lim.MaxInput <= 0 || lim.MaxOutput <= 0 {
+			return fmt.Errorf("ctxcompiler: invalid model limits for %q", name)
 		}
 	}
 	return nil

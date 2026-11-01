@@ -184,10 +184,19 @@ type Run struct {
 	Volatile     []string
 	RecoveryNote string
 	History      []ctxcompiler.ActivityEvent
-	Children     []tasks.GateChild
-	Contrast     *tasks.ContrastResult
-	Summary      string
-	Files        []string
+	// CompactionBlock is the latest compaction block re-rendered in
+	// L3 (11.4 step 4). Empty when no compaction ran.
+	CompactionBlock string
+	// CompactionRevision numbers compactions for this run.
+	CompactionRevision int
+	// MaskBatches counts masking batches applied to this run.
+	MaskBatches int
+	// Compactions counts compactions applied to this run.
+	Compactions int
+	Children    []tasks.GateChild
+	Contrast    *tasks.ContrastResult
+	Summary     string
+	Files       []string
 	// Request is the literal original instruction, stashed from the
 	// compiled task layer on the first step so the closing hooks can
 	// extract checkable criteria and contrast the deliverable
@@ -798,7 +807,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		// (Responses) reject the turn and the history loses the
 		// model's own words (Section 19.2).
 		run.mu.Lock()
-		seq := int64(len(run.History))
+		seq := run.nextHistorySeqLocked()
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleAssistant, Content: resp.Message.Content,
 			ToolCalls: resp.Message.ToolCalls,
@@ -969,7 +978,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		res := results[i]
 		recordCall(run, callSig(tc))
 		run.mu.Lock()
-		seq := int64(len(run.History))
+		seq := run.nextHistorySeqLocked()
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool,
 			Content:    res.Output,
@@ -1095,7 +1104,7 @@ func isDeterministic(res tools.Result) bool {
 func (e *Engine) recordBlockedCall(run *Run, tc providers.ToolCall, res tools.Result) {
 	recordCall(run, callSig(tc))
 	run.mu.Lock()
-	seq := int64(len(run.History))
+	seq := run.nextHistorySeqLocked()
 	run.History = append(run.History, ctxcompiler.ActivityEvent{
 		Seq: seq, Role: providers.RoleTool,
 		Content:    res.Output,

@@ -28,8 +28,14 @@ func TestDefaultMatchesAppendixB(t *testing.T) {
 	if c.Porter.WALAlertBytes != 256<<20 {
 		t.Fatal("porter wal alert")
 	}
-	if c.Context.CompactionCeilingTokens != 500000 {
-		t.Fatal("compaction ceiling")
+	if c.Context.CompactionCeilingTokens != 0 {
+		t.Fatal("compaction ceiling defaults to uncapped (owner decision 0051)")
+	}
+	if c.Context.DefaultMaxInput != 128000 || c.Context.DefaultContextWindow != 200000 || c.Context.DefaultMaxOutput != 16384 {
+		t.Fatal("conservative model defaults")
+	}
+	if c.Context.CompactionReserveTokens != 16000 {
+		t.Fatal("compaction reserve")
 	}
 	if c.Context.MaskTriggerTokens != 24000 || c.Context.MaskTargetTokens != 12000 {
 		t.Fatal("masking")

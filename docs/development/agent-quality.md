@@ -1693,4 +1693,175 @@ benchmark failures or derives prompts from task contents.
 - Existing suites unchanged and green: self-verification
   (`selfverify_test.go`), engine lifecycle/e2e/crash
     (`go test -race ./internal/engine/`), CLI exec surface
-   (`internal/cli`).
+    (`internal/cli`).
+
+## W4: attempts fix — full budgets, merged records, honest pause (Section 18.2, owner decision 0052)
+
+Owner: parallel-attempts fix workstream. Packages: `internal/attempts`
+(config, full-budget switches), `internal/cli` (`attempts.go` fan-out,
+`exec.go` pause reason, `attempts_test.go` end-to-end),
+`internal/eval` (`TrialRecorder` attempt tags). The connectors are
+untouched: no change to `internal/providers`, the model gateway wire
+protocol, `internal/gateway`, `internal/api`, `packages/contracts`,
+`integrations` (Harbor adapter, client templates), the MCP and ACP
+servers, or the `bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, attempts3 run)
+
+From `analyze.py` over the attempts3 run (74 trials, 25.7% pass) and
+direct inspection of per-trial records:
+
+- About half the failures end `paused` (`paused [best of 3 attempts]`,
+  exit 4) instead of completing: every attempt hit its sliced step cap
+  (`DivideSteps(25,3)=9`) after 9 model calls and paused before
+  verification, so the winner was an arbitrary paused attempt.
+- The outer `excalibur/tool_calls.jsonl` and `model_calls.jsonl` were
+  missing (all calls lived only under `attempts/attempt-i/excalibur/`),
+  so standard evaluation and auditing read zero work from the outer
+  record.
+- The paused winner carried an empty reason and the bare summary
+  `paused`, propagated as `paused [best of 3 attempts]` with no reason
+  in `final.json`.
+
+### Mechanisms (default ON)
+
+- Full per-attempt budgets: each attempt gets the full parent steps and
+  explicit USD cap so it runs to its own verification; the wall clock
+  stays shared via the parent context. The legacy `ceil(parent/N)`
+  split starved attempts and is kept only behind the switch.
+- Merged outer records: after the fan-out joins, every attempt's
+  `model_calls.jsonl` and `tool_calls.jsonl` rows are appended into the
+  outer `excalibur/` files with an explicit `attempt` index (0 stays
+  explicit), blobs are copied, and gate checks gain `fanout_attempt`.
+- Honest pause: the engine-budget pause path sets reason `budget` with
+  summary `paused: budget exhausted: ...`, and a bare paused winner
+  maps to reason `budget` and summary
+  `paused: budget exhausted [best of N attempts]`.
+
+### Switches (attempts fix)
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_ATTEMPTS_FULL_BUDGET` | env 0/1 | 1 (ON) | legacy `ceil(parent/N)` step/budget split |
+| `EXCALIBUR_ATTEMPTS_MERGE_RECORDS` | env 0/1 | 1 (ON) | legacy outer-only records (no merge) |
+
+`EXCALIBUR_ATTEMPTS` itself stays default 1 (off) until measured.
+
+### Research sources (attempts fix; fetched before coding, general engineering only)
+
+- Prior workstream notes in this file (W2 attempts): LangChain harness
+  engineering (self-verification, loop detection), Meta-Harness
+  (environment snapshot, larger gains on weaker models), Agentic
+  Harness Engineering, Terminus 2, and open-source harnesses
+  (OpenHands, SWE-agent, mini-swe-agent, Codex CLI, OpenCode, Aider)
+  for prompts, tool design and stopping criteria. No Terminal-Bench
+  task contents, tests or solutions were used.
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing tunes prompts or skills from
+benchmark tasks, tests or solutions.
+
+### Contract and backend tests (attempts fix)
+
+- `internal/attempts`: `StepsForAttempt`/`BudgetForAttempt` full vs
+  legacy split, switch on/off (`config_test.go` via
+  `internal/cli/attempts_test.go` budget test).
+- `internal/cli`: container-like end-to-end
+  `TestAttemptsFullBudgetCompletesWhereSplitWouldPause`
+  (`EXCALIBUR_ATTEMPTS=3`, `MaxSteps=6`, 3-step write/read/done script:
+  completes, winner applied, outer records tagged 0/1/2) and
+  `TestAttemptsLegacySplitPauses` (same setup with the full-budget
+  switch off ends paused with reason `budget`).
+- `internal/eval`: additive `Attempt`/`FanoutAttempt` fields; old rows
+  without them still parse.
+- Full quality bar green: `gofmt -l .`, `go vet ./...`,
+  `staticcheck ./...`, `go test ./... -race`, `GOOS=darwin/windows
+  go build ./...`, `scripts/check-no-bare-go.sh`.
+- Live end-to-end (own small tasks, never Terminal-Bench): `excalibur
+  exec --profile eval` with `EXCALIBUR_ATTEMPTS=2` on hello-file and
+  csv-sum tasks completes with merged attempt-tagged records.
+
+## W4: full model context window (Section 11.4, owner decision 0051)
+
+Owner: context-window workstream. Packages: `internal/ctxcompiler`
+(limits table, trigger, controller), `internal/config` (layered
+defaults + `EXCALIBUR_CONTEXT_CAP` alias), `internal/engine`
+(builder wiring, monotonic Seq, run compaction state),
+`internal/cli` (`ctxConfigForRun`, effective-window records),
+`internal/eval` (profile window row + hash). The model gateway wire
+protocol, `internal/providers/**`, `internal/gateway`,
+`internal/api`, `packages/contracts`, `integrations/**`, the MCP/ACP
+servers and the bench Harbor invocation are untouched. Evaluation
+records are standard evaluation and auditing (Section 23.2,
+Appendix F).
+
+### Problem evidence (read-only trial records, current version)
+
+- The 500 000-token ceiling compacts far earlier than the reference
+  model requires (`gpt-6-luna`: context 1 050 000, max input
+  922 000, max output 128 000, source models.dev).
+- `CompactionThreshold` / `ShouldCompact` are called only in tests;
+  the embedded `exec`/`eval` path never invokes masking or
+  compaction (only synthetic `final` / `engine history length`
+  markers land in `masking.jsonl` / `compaction.jsonl`).
+
+### Mechanisms (all default ON)
+
+1. Limits table with per-model overrides: shipped `gpt-6-luna` row,
+   conservative fallback (200 000 / 128 000 / 16 384) for unknown
+   models, `[context.model_limits]` + `EXCALIBUR_CONTEXT__*` env
+   overrides by lowercased id.
+2. Trigger = max input - (reserve + safety): reserve
+   (`CompactionReserveTokens`, default 16 000) plus 10% safety
+   margin; the old ceiling is now the optional cap
+   (`CompactionCeilingTokens` 0 = model maximum,
+   `EXCALIBUR_CONTEXT_CAP` alias, smallest positive wins).
+3. Embedded masking (11.3) before the first compile and state-only
+   compaction (11.4, no model call to compact) after it, inside
+   `engine.DefaultBuilder.BuildRequest`. Only activity + L3 block
+   change; L0-L2 stay byte-identical. History Seq stays monotonic.
+4. Profile hash and `profile.json` report the effective window;
+   reference runs keep the frozen hash, unknown models move it to
+   the    conservative row.
+
+### Switches (context window)
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_CONTEXT_FULL_WINDOW` | env `0/false/no/off` disables | on | legacy `min(500 000, 0.85*window-reserve)` |
+| `EXCALIBUR_CONTEXT_MASK` | env | on | no embedded masking |
+| `EXCALIBUR_CONTEXT_COMPACT` | env | on | no embedded compaction |
+| `EXCALIBUR_CONTEXT_CAP` | env int / `context.compaction_ceiling_tokens` | unset (model maximum) | n/a (cap only lowers) |
+
+Measure each switch off against on with the same model, effort and
+task set (Appendix F); keep a mechanism only if it does not regress
+the sample. Research: LangChain harness engineering (self-verify,
+tracing, loop detection, context engineering), Meta-Harness (arXiv
+2603.28052: snapshot removes wasted actions, larger gains on weaker
+models), Agentic Harness Engineering (arXiv 2604.25850), Terminus 2,
+OpenHands / SWE-agent / mini-swe-agent / Codex CLI / OpenCode /
+Aider (prompts, tool design, stopping criteria). No benchmark task
+contents, tests or solutions were used.
+
+### Contract and backend tests (context window)
+
+- `internal/ctxcompiler/limits_test.go`: reference row, fallback,
+  overrides, per-model thresholds, env cap, default-ON switches.
+- `internal/ctxcompiler/controller_test.go`: synthetic 40-result
+  run crosses masking + compaction, recompiled total stays under
+  max input, L0-L2 prefix stable.
+- `internal/ctxcompiler/compaction_test.go`: updated full-window
+  trigger (`821608` for 922K/8192, `111200` for 128K/4000, cap,
+  clamp, margined estimates).
+- `internal/engine/builder_context_test.go`: `BuildRequest`
+  invokes masking + compaction with hooks and persists run state;
+  off switches fire nothing.
+- `internal/config/context_cap_test.go`: `EXCALIBUR_CONTEXT_CAP`
+  alias, uncapped default, bad values ignored.
+- `internal/eval/profile_window_test.go`: profile window row, hash
+  moves with window, `profile.json` records, compiler cross-check.
+- `internal/cli/exec_test.go`: `TestExecArtifacts` expects the
+  effective (stub-conservative) hash and `profile.json` window row.
+- Existing suites green: `go test -race ./internal/ctxcompiler/
+  ./internal/config/ ./internal/eval/ ./internal/engine/
+  ./internal/cli/`; cross builds `GOOS=darwin/windows`.
