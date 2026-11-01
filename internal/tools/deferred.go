@@ -445,7 +445,7 @@ type CallToolTool struct {
 
 func (t *CallToolTool) Definition() Definition {
 	return Definition{
-		Name: "call_tool", Description: "Invoke a deferred tool by name with validated arguments",
+		Name: "call_tool", Description: "Invoke a deferred tool by name with validated arguments, e.g. {\"name\":\"lsp\",\"arguments\":{\"path\":\"x\"}}; the name may also sit inside arguments",
 		InputSchema: callToolSchema, Effect: "exec", Idempotency: "keyed",
 		Cancel: "cooperative", Timeout: 120_000_000_000, OutputBudget: DefaultOutputBudget, Fast: false,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
@@ -461,8 +461,11 @@ func (t *CallToolTool) Invoke(ctx context.Context, inv Invocation) (Result, erro
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
+	if strings.TrimSpace(a.Name) == "" && callNameFlex(t) {
+		a.Name, a.Arguments = promoteInvokedName(a.Arguments)
+	}
 	if a.Name == "" {
-		return Result{Status: StatusInputError, Output: "name is required: pick a deferred tool name from search_tools (empty query lists some), then call_tool {\"name\": \"<tool>\", \"arguments\": {...}}"}, nil
+		return Result{Status: StatusInputError, Output: "name is required: pick a deferred tool name from search_tools (empty query lists some), then call_tool {\"name\": \"<tool>\", \"arguments\": {...}}; the name may also sit inside arguments"}, nil
 	}
 	if a.Name == "search_tools" || a.Name == "call_tool" {
 		return Result{Status: StatusInputError, Output: "call_tool cannot invoke itself or search_tools"}, nil
@@ -488,6 +491,43 @@ func (t *CallToolTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 		return nil, err
 	}
 	return []string{"tool:" + a.Name}, nil
+}
+
+// callNameFlex reports whether the invoked call_tool tolerates a
+// nested or wrapped tool name: on unless the executor carries an
+// explicit tuning that disables CallNameFlex. A nil executor (unit
+// tests, direct invocation) keeps the tolerant default, matching
+// the pipeline default.
+func callNameFlex(t *CallToolTool) bool {
+	if t == nil || t.Executor == nil || t.Executor.Tune == nil {
+		return true
+	}
+	return t.Executor.Tune.CallNameFlex
+}
+
+// promoteInvokedName recovers the deferred tool name from inside the
+// arguments object (name/tool/tool_name keys, case-insensitive) for
+// direct invocations that bypass NormalizeArgs. It returns the name
+// ("" when absent) with the consumed key removed from the arguments.
+func promoteInvokedName(args json.RawMessage) (string, json.RawMessage) {
+	var sub map[string]any
+	if err := json.Unmarshal(args, &sub); err != nil || sub == nil {
+		return "", args
+	}
+	for k, v := range sub {
+		switch strings.ToLower(k) {
+		case "name", "tool", "tool_name":
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				delete(sub, k)
+				raw, _ := json.Marshal(sub)
+				if raw == nil {
+					raw = json.RawMessage(`{}`)
+				}
+				return strings.ToLower(strings.TrimSpace(s)), raw
+			}
+		}
+	}
+	return "", args
 }
 
 // WireSearchCall connects the real search_tools/call_tool providers to

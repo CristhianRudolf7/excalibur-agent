@@ -522,6 +522,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			if profile == ProfileEval && !allowed[name] {
 				continue
 			}
+			// Idle-tool pruning (agent quality): ack_directive
+			// while no directive is pending and clock under eval
+			// stay out of the prefix. Both remain executable, and
+			// the switches restore the legacy prefix.
+			if pruneFromPrefix(profile, emb, name) {
+				continue
+			}
 			tool, err := emb.Registry.Get(name)
 			if err != nil {
 				continue

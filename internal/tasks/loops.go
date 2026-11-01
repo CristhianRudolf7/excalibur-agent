@@ -56,6 +56,26 @@ const (
 	// LoopEditMismatches fires R6 after this many consecutive
 	// fingerprint mismatches in one file.
 	LoopEditMismatches = 3
+	// LoopNearRepeat fires the near-repeat rule after this many
+	// consecutive same-tool calls with similar (not necessarily
+	// identical) arguments. It closes the gap R1/R2 leave open:
+	// the same command polled with varying output (exit codes,
+	// process listings, timestamps) never repeats an h1/h2 hash,
+	// so exact-match rules stay silent while the agent stalls.
+	LoopNearRepeat = 3
+	// LoopNoInfoSteps fires the no-information rule after this many
+	// consecutive tool steps that produced no new information (all
+	// errors, all empty, or all identical to the previous output of
+	// the same tool). Shorter than R4's window so the recovery
+	// prompt lands while the run still has budget to act.
+	LoopNoInfoSteps = 6
+	// LoopArgCompareCap bounds the argument bytes compared by the
+	// near-repeat similarity: longer payloads compare on the head.
+	LoopArgCompareCap = 500
+	// LoopNearSimilarity is the minimum normalized similarity
+	// (1 - lev/maxlen over whitespace-collapsed arguments) for two
+	// same-tool argument strings to count as near-identical.
+	LoopNearSimilarity = 0.8
 	// StuckJudgeFromStep enables the optional judge from this step,
 	// every StuckJudgeEvery steps, counting only at or above
 	// StuckJudgeThreshold (Section 18.3).
@@ -75,6 +95,15 @@ const (
 	RuleNoProgress      LoopRule = "no_progress"
 	RuleRepeatedText    LoopRule = "repeated_text"
 	RuleEditMismatch    LoopRule = "edit_mismatch"
+	// RuleNearRepeat fires on consecutive same-tool calls with
+	// near-identical arguments whose outputs keep varying, so the
+	// exact-match R1/R2 rules never trigger (agent-quality loop
+	// breaker; staged like every other rule).
+	RuleNearRepeat LoopRule = "near_repeat"
+	// RuleNoInfo fires after LoopNoInfoSteps consecutive tool steps
+	// with no new information (agent-quality loop breaker; staged
+	// like every other rule).
+	RuleNoInfo LoopRule = "no_info"
 )
 
 // LoopAction is the staged response: note, escalate, or block.
@@ -158,6 +187,15 @@ type LoopDetector struct {
 	stages     map[LoopRule]int
 	judgeNotes int
 	steps      int
+	// nearTool and nearArgs track the trailing run of consecutive
+	// same-tool calls for the near-repeat rule: the tool name and
+	// the whitespace-collapsed argument of each call in the run.
+	nearTool string
+	nearArgs []string
+	// dull counts consecutive tool steps with no new information
+	// (fed by ObserveNoInfo): all errors, all empty, or all outputs
+	// identical to the previous output of the same tool.
+	dull int
 }
 
 // NewLoopDetector returns a detector with empty windows. wait_for is
@@ -191,14 +229,18 @@ func (d *LoopDetector) ObserveTool(ev ToolEvent) []Detection {
 	}
 	var out []Detection
 	// R1: same h2 LoopRepeatIdentical times in a row.
+	r1 := false
 	if len(d.h2Window) >= LoopRepeatIdentical && allEqual(d.h2Window[len(d.h2Window)-LoopRepeatIdentical:]) {
 		out = append(out, d.fire(RuleIdenticalRepeat,
 			fmt.Sprintf("ran %s %s %d times with the identical result; change strategy", ev.Tool, shorten(ev.Args), LoopRepeatIdentical)))
+		r1 = true
 	}
 	// R2: same h1 with error LoopRepeatIdentical times.
+	r2 := false
 	if ev.Error != "" && d.h1Errors[h1] >= LoopRepeatIdentical && d.h1Errors[h1]%LoopRepeatIdentical == 0 {
 		out = append(out, d.fire(RuleSameError,
 			fmt.Sprintf("ran %s %s with error %d times (%s); change strategy", ev.Tool, shorten(ev.Args), d.h1Errors[h1], shorten(ev.Error))))
+		r2 = true
 	}
 	// R3: a cycle of LoopCycleMin..LoopCycleMax calls repeated
 	// LoopCycleRepeats times.
@@ -207,7 +249,138 @@ func (d *LoopDetector) ObserveTool(ev ToolEvent) []Detection {
 			fmt.Sprintf("repeating a cycle of %d calls %d times; break the loop", n, reps)))
 		d.h1Window = nil // avoid refiring on the same window
 	}
+	// Near-repeat: LoopNearRepeat consecutive same-tool calls with
+	// near-identical arguments. Exact-match R1/R2 own the identical
+	// outcome, so this rule only fires when neither did: the same
+	// command polled with varying output, or the same call with
+	// cosmetic argument tweaks that change nothing.
+	if !r1 && !r2 {
+		if det, ok := d.observeNearRepeat(ev.Tool, ev.Args); ok {
+			out = append(out, det)
+		}
+	} else {
+		d.nearTool, d.nearArgs = "", nil
+	}
 	return out
+}
+
+// observeNearRepeat tracks the trailing run of consecutive
+// same-tool calls and fires RuleNearRepeat after LoopNearRepeat of
+// them carry near-identical arguments. After firing it restarts the
+// run, so a persisting loop refires (and escalates) every
+// LoopNearRepeat further similar calls. A different tool or
+// dissimilar arguments restarts the run.
+func (d *LoopDetector) observeNearRepeat(tool, args string) (Detection, bool) {
+	norm := collapseSpaces(args)
+	if tool != d.nearTool || len(d.nearArgs) == 0 {
+		d.nearTool, d.nearArgs = tool, []string{norm}
+		return Detection{}, false
+	}
+	prev := d.nearArgs[len(d.nearArgs)-1]
+	if !nearArgs(prev, norm) {
+		d.nearTool, d.nearArgs = tool, []string{norm}
+		return Detection{}, false
+	}
+	d.nearArgs = append(d.nearArgs, norm)
+	if len(d.nearArgs) < LoopNearRepeat {
+		return Detection{}, false
+	}
+	det := d.fire(RuleNearRepeat,
+		fmt.Sprintf("ran %s %d times with near-identical arguments (%s); the outputs change but the approach does not; change strategy", tool, len(d.nearArgs), shorten(norm)))
+	d.nearArgs = nil
+	return det, true
+}
+
+// ObserveNoInfo feeds one tool step's novelty outcome and fires
+// RuleNoInfo every LoopNoInfoSteps consecutive steps without new
+// information, staged note, escalate, block like every other rule.
+// An informative step resets the count.
+func (d *LoopDetector) ObserveNoInfo(informative bool) []Detection {
+	if informative {
+		d.dull = 0
+		return nil
+	}
+	d.dull++
+	if d.dull < LoopNoInfoSteps || d.dull%LoopNoInfoSteps != 0 {
+		return nil
+	}
+	return []Detection{d.fire(RuleNoInfo,
+		fmt.Sprintf("no new information in the last %d tool steps (errors, empty or repeated outputs only); change strategy", d.dull))}
+}
+
+// collapseSpaces trims s and collapses every whitespace run to one
+// space, so cosmetic spacing tweaks compare identical.
+func collapseSpaces(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// nearArgs reports whether two whitespace-collapsed argument strings
+// count as near-identical: byte-equal, or a normalized similarity at
+// or above LoopNearSimilarity over the capped head. Comparison is
+// case-sensitive (paths and flags are), and length guards keep the
+// edit computation bounded.
+func nearArgs(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if len(a) > LoopArgCompareCap {
+		a = a[:LoopArgCompareCap]
+	}
+	if len(b) > LoopArgCompareCap {
+		b = b[:LoopArgCompareCap]
+	}
+	la, lb := len(a), len(b)
+	if la == 0 || lb == 0 {
+		return false
+	}
+	mx := la
+	if lb > mx {
+		mx = lb
+	}
+	mn := la
+	if lb < mn {
+		mn = lb
+	}
+	if float64(mx-mn)/float64(mx) > 1-LoopNearSimilarity {
+		return false
+	}
+	return 1-float64(levenshtein(a, b))/float64(mx) >= LoopNearSimilarity
+}
+
+// levenshtein returns the rune-wise edit distance of a and b,
+// capped in practice by the caller trimming inputs first.
+func levenshtein(a, b string) int {
+	ar, br := []rune(a), []rune(b)
+	if len(ar) == 0 {
+		return len(br)
+	}
+	if len(br) == 0 {
+		return len(ar)
+	}
+	prev := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ar); i++ {
+		cur := make([]int, len(br)+1)
+		cur[0] = i
+		for j := 1; j <= len(br); j++ {
+			cost := 0
+			if ar[i-1] != br[j-1] {
+				cost = 1
+			}
+			del, ins, sub := prev[j]+1, cur[j-1]+1, prev[j-1]+cost
+			cur[j] = del
+			if ins < cur[j] {
+				cur[j] = ins
+			}
+			if sub < cur[j] {
+				cur[j] = sub
+			}
+		}
+		prev = cur
+	}
+	return prev[len(br)]
 }
 
 // ObserveProgress feeds one step state hash and fires R4 after

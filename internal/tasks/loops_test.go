@@ -150,16 +150,128 @@ func TestLegitimateWaitForNotStopped(t *testing.T) {
 	if ds := feed(d2, ev, 1); len(ds) == 0 {
 		t.Fatal("non-exempt repetition must still fire R1")
 	}
-	// Varying results on a normal tool never fire either.
+	// The same command polled with varying results fires the
+	// near-repeat note (agent-quality loop breaker, TestNearRepeat):
+	// the outputs change but the approach does not. The run is not
+	// stopped here: wait_for stays exempt and short polls stay
+	// silent, so only the new rule's note fires below.
 	d3 := NewLoopDetector()
 	for i := 0; i < 12; i++ {
 		ds := d3.ObserveTool(ToolEvent{
 			Tool: "exec", Args: "poll",
 			Result: strings.Repeat("x", i) + "tick",
 		})
-		if len(ds) != 0 {
-			t.Fatalf("changing results must not fire: %+v", ds)
+		if i+1 < LoopNearRepeat && len(ds) != 0 {
+			t.Fatalf("short polls must stay silent: %+v", ds)
 		}
+	}
+	if got := d3.Counts()[RuleNearRepeat]; got == 0 {
+		t.Fatal("same-command polls must fire near_repeat (see TestNearRepeat)")
+	}
+}
+
+// TestNearRepeat fires on the same command polled with varying
+// results (agent-quality loop breaker): R1/R2 stay silent because
+// no h1/h2 hash repeats, but the approach does not change. Short
+// polls stay silent and the first detection is a note, so the run
+// is never stopped by a couple of status checks.
+func TestNearRepeat(t *testing.T) {
+	d := NewLoopDetector()
+	mk := func(i int) ToolEvent {
+		return ToolEvent{Tool: "exec", Args: "poll", Result: "tick " + strings.Repeat("x", i)}
+	}
+	for i := 0; i < LoopNearRepeat-1; i++ {
+		if ds := d.ObserveTool(mk(i)); len(ds) != 0 {
+			t.Fatalf("short polls must stay silent: %+v", ds)
+		}
+	}
+	ds := d.ObserveTool(mk(LoopNearRepeat - 1))
+	if len(ds) != 1 || ds[0].Rule != RuleNearRepeat || ds[0].Action != ActionNote {
+		t.Fatalf("third same-command poll must note near_repeat: %+v", ds)
+	}
+	// Cosmetic argument tweaks count as near-identical too.
+	d2 := NewLoopDetector()
+	for _, args := range []string{"ls /app", "ls  /app", "ls /app/"} {
+		d2.ObserveTool(ToolEvent{Tool: "exec", Args: args, Result: "r"})
+	}
+	if last := d2.Counts()[RuleNearRepeat]; last != 1 {
+		t.Fatalf("cosmetic tweaks must fire near_repeat once, counts=%v", d2.Counts())
+	}
+	// A different tool or a genuinely different command restarts the run.
+	d3 := NewLoopDetector()
+	d3.ObserveTool(ToolEvent{Tool: "exec", Args: "poll a", Result: "1"})
+	d3.ObserveTool(ToolEvent{Tool: "exec", Args: "poll a", Result: "2"})
+	d3.ObserveTool(ToolEvent{Tool: "read_file", Args: "poll a", Result: "3"})
+	if ds := d3.ObserveTool(ToolEvent{Tool: "exec", Args: "poll a", Result: "4"}); len(ds) != 0 {
+		t.Fatalf("a different tool in between must restart the run: %+v", ds)
+	}
+	d4 := NewLoopDetector()
+	d4.ObserveTool(ToolEvent{Tool: "exec", Args: "make build", Result: "1"})
+	d4.ObserveTool(ToolEvent{Tool: "exec", Args: "make build", Result: "2"})
+	d4.ObserveTool(ToolEvent{Tool: "exec", Args: "make test", Result: "3"})
+	if ds := d4.ObserveTool(ToolEvent{Tool: "exec", Args: "make test", Result: "4"}); len(ds) != 0 {
+		t.Fatalf("a different command must restart the run: %+v", ds)
+	}
+	// Persisting past the first note escalates through the standard
+	// stages: note, escalate, blocked. Results vary so the
+	// exact-match R1 owns nothing and the near rule stages alone.
+	d5 := NewLoopDetector()
+	var last []Detection
+	for i := 0; i < LoopNearRepeat*3; i++ {
+		last = d5.ObserveTool(ToolEvent{Tool: "exec", Args: "poll", Result: "tick " + strings.Repeat("y", i)})
+	}
+	if len(last) == 0 || last[0].Action != ActionBlock {
+		t.Fatalf("persisting near-repeat must reach blocked: %+v", last)
+	}
+	if got := d5.Counts()[RuleNearRepeat]; got != 3 {
+		t.Fatalf("near_repeat must stage 3 times, got %d", got)
+	}
+}
+
+// TestNearRepeatSimilarity pins the argument similarity: identical
+// and cosmetic variants match, unrelated commands do not.
+func TestNearRepeatSimilarity(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"ls /app", "ls /app", true},
+		{"ls  /app", "ls /app", true},
+		{"ls /app", "ls /app/", true},
+		{"ps -p 71 -o pid,stat,etime,cmd", "ps -p 71 -o pid,stat,etime,cmd", true},
+		{"make build", "make test", false},
+		{"", "ls", false},
+		{"", "", true},
+		{"python3 -c 'print(1)'", "rm -rf /tmp/work && git clone https://example.com/r.git", false},
+	} {
+		if got := nearArgs(collapseSpaces(tc.a), collapseSpaces(tc.b)); got != tc.want {
+			t.Errorf("nearArgs(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}
+
+// TestObserveNoInfo fires every LoopNoInfoSteps dull steps with the
+// standard staging, and resets on informative steps.
+func TestObserveNoInfo(t *testing.T) {
+	d := NewLoopDetector()
+	for i := 0; i < LoopNoInfoSteps-1; i++ {
+		if ds := d.ObserveNoInfo(false); len(ds) != 0 {
+			t.Fatalf("dull step %d must stay silent: %+v", i, ds)
+		}
+	}
+	ds := d.ObserveNoInfo(false)
+	if len(ds) != 1 || ds[0].Rule != RuleNoInfo || ds[0].Action != ActionNote {
+		t.Fatalf("K dull steps must note no_info: %+v", ds)
+	}
+	if ds := d.ObserveNoInfo(true); len(ds) != 0 {
+		t.Fatalf("informative step must reset silently: %+v", ds)
+	}
+	for i := 0; i < LoopNoInfoSteps-1; i++ {
+		d.ObserveNoInfo(false)
+	}
+	ds = d.ObserveNoInfo(false)
+	if len(ds) != 1 || ds[0].Action != ActionEscalate {
+		t.Fatalf("second K dull steps must escalate: %+v", ds)
 	}
 }
 

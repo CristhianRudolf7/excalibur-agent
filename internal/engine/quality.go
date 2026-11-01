@@ -36,6 +36,18 @@ type QualityConfig struct {
 	// LoopNudges replaces terse loop notes with actionable nudges
 	// and enables ErrorHint recovery hints.
 	LoopNudges bool
+	// StuckRecovery injects the structured recovery prompt on the
+	// near-repeat and no-information rules, tracks per-step novelty
+	// for the no-information rule, and skips the R4 progress rule
+	// while no progress sampler is installed (it false-fires on the
+	// zero state in exec/eval single-run scope, where nothing ever
+	// installs one).
+	StuckRecovery bool
+	// RepeatBlock rejects an exact repeat of the previous tool call
+	// once per run and signature, with guidance to change approach.
+	// Retryable outcomes (transient, timeout, canceled) are never
+	// blocked: an immediate retry may be the correct repair.
+	RepeatBlock bool
 	// FinishGuard nudges back runs that try to finish with no
 	// verified work while no gate is wired.
 	FinishGuard bool
@@ -53,6 +65,8 @@ func DefaultQualityConfig() QualityConfig {
 		FamilyAdapt:   true,
 		WorkingNotes:  true,
 		LoopNudges:    true,
+		StuckRecovery: true,
+		RepeatBlock:   true,
 		FinishGuard:   true,
 		MaxGuardTrips: 2,
 		MaxNotes:      24,
@@ -74,6 +88,12 @@ func (q QualityConfig) WithEnv() QualityConfig {
 	}
 	if v, ok := envSwitch("EXCALIBUR_Q_NUDGES"); ok {
 		q.LoopNudges = v
+	}
+	if v, ok := envSwitch("EXCALIBUR_Q_RECOVERY"); ok {
+		q.StuckRecovery = v
+	}
+	if v, ok := envSwitch("EXCALIBUR_Q_REPEATBLOCK"); ok {
+		q.RepeatBlock = v
 	}
 	if v, ok := envSwitch("EXCALIBUR_Q_GUARD"); ok {
 		q.FinishGuard = v
@@ -173,6 +193,56 @@ func escalateNote(q QualityConfig, d tasks.Detection, expertDiag string) string 
 		return "loop escalated: " + d.Note
 	}
 	return "loop escalated: " + d.Note + " Strategy switch: stop acting and investigate the cause with read-only tools (read the files, reproduce the error), then try one different approach."
+}
+
+// recoveryPrompt renders the structured stuck-recovery prompt for
+// the near-repeat and no-information rules: what was just tried,
+// then a forced reconsider (summarise, list three different
+// strategies, pick one and execute it) instead of another retry.
+// tried carries the most recent tool signatures (tool + truncated
+// args), most-recent-last, at most three. The "loop:" prefix stays
+// stable so telemetry and tests match on it.
+func recoveryPrompt(q QualityConfig, d tasks.Detection, tried []string) string {
+	if !q.StuckRecovery {
+		return nudgeFor(q, d, "")
+	}
+	var b strings.Builder
+	b.WriteString("loop: " + d.Note + "\n")
+	b.WriteString("Stuck recovery — do NOT repeat the previous call. Answer in this shape:\n")
+	b.WriteString("1. Tried (2 lines max): what the last calls did and what each result showed")
+	if len(tried) > 0 {
+		b.WriteString(" — e.g. " + strings.Join(tried, "; "))
+	}
+	b.WriteString(".\n")
+	b.WriteString("2. Three DIFFERENT strategies: each must use a different tool or a different approach, not another parameter tweak of the same command.\n")
+	b.WriteString("3. Pick the most promising one and execute its first step NOW as your next tool call.")
+	return b.String()
+}
+
+// recentTried summarizes the last n tool calls as short signatures
+// (tool + truncated args, most-recent-last) for the recovery prompt.
+// Callers hold no lock.
+func recentTried(run *Run, n int) []string {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if len(run.recentCalls) <= n {
+		return append([]string(nil), run.recentCalls...)
+	}
+	return append([]string(nil), run.recentCalls[len(run.recentCalls)-n:]...)
+}
+
+// recordCall remembers one executed tool signature for the recovery
+// prompt and the exact-repeat blocker. Callers hold no lock.
+func recordCall(run *Run, sig string) {
+	if sig == "" {
+		return
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	run.recentCalls = append(run.recentCalls, sig)
+	for len(run.recentCalls) > 6 {
+		run.recentCalls = run.recentCalls[1:]
+	}
 }
 
 // guardFinish decides whether a run that answered without tools

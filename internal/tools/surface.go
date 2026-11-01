@@ -37,6 +37,12 @@ type SurfaceTuning struct {
 	// errors. Owned by the wireengine assembly; the flag lives here
 	// so the whole surface reads one tuning source.
 	WireEmbedded bool
+	// CallNameFlex lets call_tool take the deferred tool name from
+	// inside the arguments object (name/tool/tool_name keys) or as
+	// the single top-level key, instead of failing with
+	// "name is required". Small models often nest the name or wrap
+	// the call as {"toolname": {...}}.
+	CallNameFlex bool
 	// ShellFirst rewrites tool descriptions toward chained Unix
 	// commands (one exec with && and pipes beats five bespoke calls)
 	// while keeping the file tools that reject broken edits.
@@ -48,6 +54,7 @@ func DefaultSurfaceTuning() SurfaceTuning {
 	return SurfaceTuning{
 		TolerantArgs: true, SimpleExec: true, ActionableErrors: true,
 		HeadTailResults: true, WireEmbedded: true, ShellFirst: true,
+		CallNameFlex: true,
 	}
 }
 
@@ -70,6 +77,9 @@ func TuningFromEnv(def SurfaceTuning) SurfaceTuning {
 	}
 	if off("EXCALIBUR_TOOL_SHELL_FIRST") {
 		def.ShellFirst = false
+	}
+	if off("EXCALIBUR_TOOL_CALL_NAME") {
+		def.CallNameFlex = false
 	}
 	return def
 }
@@ -363,6 +373,9 @@ func NormalizeArgs(name string, raw json.RawMessage, t SurfaceTuning) json.RawMe
 		} else if _, ok := obj["arguments"]; !ok {
 			obj["arguments"] = map[string]any{}
 		}
+		if t.CallNameFlex {
+			promoteCallToolName(obj, trimmed)
+		}
 	case "search_skills":
 		if v, ok := take("query", "q", "text", "search", "question"); ok {
 			setStr("query", v)
@@ -514,6 +527,103 @@ func NormalizeArgs(name string, raw json.RawMessage, t SurfaceTuning) json.RawMe
 	return out
 }
 
+// callToolTopParams are the known top-level call_tool keys: the
+// first-key wrap rule skips them and treats any other leading
+// object-valued key as the tool name.
+var callToolTopParams = map[string]bool{
+	"name": true, "tool": true, "tool_name": true,
+	"arguments": true, "args": true, "input": true,
+	"parameters": true, "params": true,
+}
+
+// promoteCallToolName recovers the deferred tool name when the
+// model did not pass a top-level name: first from name/tool/tool_name
+// keys nested inside the arguments object (case-insensitive), then
+// from a single-key wrap ({"toolname": {...}} reads the leading key
+// in wire order as the name and its object as the arguments). The
+// consumed key is removed so schema validation sees the canonical
+// shape. It runs only under CallNameFlex; otherwise the schema
+// error plus repair hint stand.
+func promoteCallToolName(obj map[string]any, trimmed string) {
+	if s, _ := obj["name"].(string); strings.TrimSpace(s) != "" {
+		obj["name"] = strings.ToLower(strings.TrimSpace(s))
+		return
+	}
+	delete(obj, "name")
+	if sub, ok := obj["arguments"].(map[string]any); ok {
+		for k, v := range sub {
+			switch strings.ToLower(k) {
+			case "name", "tool", "tool_name":
+				if s, ok := getStrTolerant(v); ok && strings.TrimSpace(s) != "" {
+					obj["name"] = strings.ToLower(strings.TrimSpace(s))
+					delete(sub, k)
+					return
+				}
+			}
+		}
+	}
+	if _, ok := obj["name"]; ok {
+		return
+	}
+	k, v, ok := firstTopKey(trimmed)
+	if !ok || callToolTopParams[strings.ToLower(k)] {
+		return
+	}
+	var m map[string]any
+	if err := json.Unmarshal(v, &m); err != nil || m == nil {
+		return
+	}
+	obj["name"] = strings.ToLower(strings.TrimSpace(k))
+	obj["arguments"] = m
+	delete(obj, k)
+}
+
+// getStrTolerant renders scalar JSON values as strings for name
+// promotion (numbers and booleans stringify, nil and composites do
+// not).
+func getStrTolerant(v any) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case float64:
+		if t == float64(int64(t)) {
+			return strconv.FormatInt(int64(t), 10), true
+		}
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	case bool:
+		return strconv.FormatBool(t), true
+	}
+	return "", false
+}
+
+// firstTopKey returns the first top-level key of a JSON object in
+// wire order with its raw value. Ok is false for non-objects,
+// empty objects and malformed input.
+func firstTopKey(raw string) (string, json.RawMessage, bool) {
+	dec := json.NewDecoder(strings.NewReader(strings.TrimSpace(raw)))
+	t, err := dec.Token()
+	if err != nil {
+		return "", nil, false
+	}
+	d, ok := t.(json.Delim)
+	if !ok || d != '{' {
+		return "", nil, false
+	}
+	t, err = dec.Token()
+	if err != nil {
+		return "", nil, false
+	}
+	k, ok := t.(string)
+	if !ok {
+		return "", nil, false
+	}
+	var v json.RawMessage
+	if err := dec.Decode(&v); err != nil {
+		return "", nil, false
+	}
+	return k, v, true
+}
+
 func wrapBareString(name, s string) json.RawMessage {
 	var obj map[string]any
 	switch name {
@@ -571,7 +681,7 @@ func RepairHint(name string, raw json.RawMessage) string {
 		"grep":                    `grep needs {"pattern": "<regex>"}; optional paths[], literal:true for fixed strings.`,
 		"glob":                    `glob needs {"pattern": "<**/*.go>"}; optional dir.`,
 		"search_tools":            `search_tools needs {"query": "<verb object domain>"}; an empty query lists popular deferred tools.`,
-		"call_tool":               `call_tool needs {"name": "<deferred tool>", "arguments": {...}}. Discover names with search_tools (input also accepted for arguments).`,
+		"call_tool":               `call_tool needs {"name": "<deferred tool>", "arguments": {...}}, e.g. {"name":"lsp","arguments":{"path":"x"}}. The name may also sit inside arguments, or the call may wrap as {"toolname": {...}}. Discover names with search_tools first (an empty query lists some).`,
 		"search_skills":           `search_skills needs {"query": "<text>"}; an empty query lists all skills.`,
 		"load_skill":              `load_skill needs {"name": "<skill>"}; list names with search_skills first.`,
 		"task_db":                 `task_db needs {"ops": [{"op": "<create_task|add_requirement|add_criterion|record_evidence|query|...>", ...}]}. Query first: {"ops":[{"op":"query","entity":"criteria"}]}.`,

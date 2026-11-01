@@ -105,3 +105,88 @@ func TestWildcardFingerprint(t *testing.T) {
 		t.Fatalf("wildcard fp must skip with a note: %+v", res)
 	}
 }
+
+func TestCallToolNamePromotion(t *testing.T) {
+	// Nested inside arguments.
+	got := norm(t, "call_tool", `{"arguments":{"name":"file_history","path":"x"}}`)
+	if got["name"] != "file_history" {
+		t.Fatalf("nested name must promote: %v", got)
+	} else if args, ok := got["arguments"].(map[string]any); !ok || args["path"] != "x" {
+		t.Fatalf("promoted arguments must keep the rest: %v", got)
+	} else if _, consumed := args["name"]; consumed {
+		t.Fatalf("promoted name key must be consumed: %v", got)
+	}
+	// Tool alias, case-insensitive, nested.
+	got = norm(t, "call_tool", `{"arguments":{"Tool":"LSP","path":"y"}}`)
+	if got["name"] != "lsp" {
+		t.Fatalf("nested tool alias must promote lowercased: %v", got)
+	}
+	// Empty top-level name falls back to the nested one.
+	got = norm(t, "call_tool", `{"name":"","arguments":{"tool_name":"code_graph"}}`)
+	if got["name"] != "code_graph" {
+		t.Fatalf("empty name must fall back to nested: %v", got)
+	}
+	// Single-key wrap: leading key names the tool.
+	got = norm(t, "call_tool", `{"file_history":{"path":"z"}}`)
+	if got["name"] != "file_history" {
+		t.Fatalf("wrapped name must promote: %v", got)
+	} else if args, ok := got["arguments"].(map[string]any); !ok || args["path"] != "z" {
+		t.Fatalf("wrapped value must become arguments: %v", got)
+	}
+	// Known leading keys never trigger the wrap rule.
+	got = norm(t, "call_tool", `{"arguments":{"path":"z"}}`)
+	if _, has := got["name"]; has {
+		t.Fatalf("arguments-first must not invent a name: %v", got)
+	}
+	// Switch off restores the strict legacy shape.
+	flexOff := DefaultSurfaceTuning()
+	flexOff.CallNameFlex = false
+	var m map[string]any
+	_ = json.Unmarshal(NormalizeArgs("call_tool", json.RawMessage(`{"arguments":{"name":"x"}}`), flexOff), &m)
+	if _, has := m["name"]; has {
+		t.Fatalf("flex off must not promote: %v", m)
+	}
+}
+
+func TestFirstTopKey(t *testing.T) {
+	k, v, ok := firstTopKey(`{"b":1,"a":2}`)
+	if !ok || k != "b" {
+		t.Fatalf("wire order must win, got %q %v", k, ok)
+	}
+	var n float64
+	_ = json.Unmarshal(v, &n)
+	if n != 1 {
+		t.Fatalf("raw value must match the key, got %s", string(v))
+	}
+	for _, raw := range []string{``, `[]`, `"s"`, `{}`, `{"a"}`} {
+		if _, _, ok := firstTopKey(raw); ok {
+			t.Fatalf("firstTopKey(%q) must fail", raw)
+		}
+	}
+}
+
+func TestCallToolDescriptionExamples(t *testing.T) {
+	reg := NewMapRegistry()
+	_ = RegisterBuiltins(reg, nil)
+	tool, err := reg.Get("call_tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := tool.Definition().Description
+	for _, want := range []string{`"name":"lsp"`, `"arguments"`, "inside arguments"} {
+		if !strings.Contains(desc, want) {
+			t.Fatalf("call_tool description must carry one-line examples, got %q", desc)
+		}
+	}
+}
+
+func TestCallNameFlexEnvSwitch(t *testing.T) {
+	t.Setenv("EXCALIBUR_TOOL_CALL_NAME", "0")
+	tune := TuningFromEnv(DefaultSurfaceTuning())
+	if tune.CallNameFlex {
+		t.Fatal("EXCALIBUR_TOOL_CALL_NAME=0 must disable name promotion")
+	}
+	if got := DefaultSurfaceTuning(); !got.CallNameFlex {
+		t.Fatal("name promotion must default ON")
+	}
+}

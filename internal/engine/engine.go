@@ -17,9 +17,11 @@ package engine
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -215,6 +217,22 @@ type Run struct {
 	// into L3 by the builder, most-recent-last, capped by
 	// QualityConfig.MaxNotes.
 	Notes []string
+	// recentCalls holds the last tool signatures (tool + truncated
+	// args, oldest first, capped) behind the stuck-recovery prompt.
+	// Guarded by mu like the rest of the run state.
+	recentCalls []string
+	// prevSingleSig is the signature of the last single-call batch
+	// with a deterministic outcome, behind the exact-repeat blocker.
+	// Guarded by mu.
+	prevSingleSig string
+	// blockedSigs marks the signatures already blocked once this
+	// run: the blocker fires once per signature, then the loop
+	// detector owns persisting repeats. Guarded by mu.
+	blockedSigs map[string]bool
+	// lastOutputs remembers the last non-empty successful output
+	// hash per tool, behind per-step novelty tracking for the
+	// no-information rule. Guarded by mu.
+	lastOutputs map[string]string
 	// GuardTrips counts finish-guard nudges consumed by this run.
 	GuardTrips int
 	// drafts caches the extracted checkable criteria for the closing
@@ -913,9 +931,30 @@ func (e *Engine) execTools(ctx context.Context, run *Run, calls []providers.Tool
 
 // execBatch executes one parallel batch in request order (7.4).
 func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.ToolCall) (bool, error) {
+	q := e.quality()
+	// Exact-repeat blocker (agent quality): a single-call batch that
+	// repeats the previous single call byte-for-byte, with a
+	// deterministic outcome, is rejected once per run and signature
+	// instead of executing. Retryable outcomes (transient, timeout,
+	// canceled) are never blocked: an immediate retry may be the
+	// correct repair. Multi-call batches pass through: the blocker
+	// only covers the unambiguous one-call repeat.
+	if len(batch) == 1 && q.RepeatBlock {
+		if msg, blocked := checkRepeatBlock(run, batch[0]); blocked {
+			res := tools.Result{Status: tools.StatusInputError, Output: msg}
+			e.recordBlockedCall(run, batch[0], res)
+			for _, d := range run.Loop.ObserveNoInfo(false) {
+				if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
+					return stop, err
+				}
+			}
+			return false, nil
+		}
+	}
 	results := e.runParallel(ctx, run, batch)
 	for i, tc := range batch {
 		res := results[i]
+		recordCall(run, callSig(tc))
 		run.mu.Lock()
 		seq := int64(len(run.History))
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
@@ -933,6 +972,15 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			}
 		}
 	}
+	rememberSingle(run, batch, results)
+	if q.StuckRecovery {
+		informative := markNovelty(run, batch, results)
+		for _, d := range run.Loop.ObserveNoInfo(informative) {
+			if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
+				return stop, err
+			}
+		}
+	}
 	run.mu.Lock()
 	prog := run.progress
 	progressFn := run.progressFn
@@ -940,13 +988,139 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 	if progressFn != nil {
 		prog = progressFn(run)
 	}
-	for _, d := range run.Loop.ObserveProgress(prog) {
-		if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
-			return stop, err
+	// R4 needs a real progress signal. While none is installed (exec
+	// and eval single-run scope: nothing ever calls SetProgressFunc)
+	// the zero state would fire spuriously every 8 steps, so the
+	// stuck-recovery mechanism skips it and tracks novelty from
+	// tool results instead. Off restores the legacy observation.
+	hasSignal := progressFn != nil || prog != (tasks.ProgressState{})
+	if !q.StuckRecovery || hasSignal {
+		for _, d := range run.Loop.ObserveProgress(prog) {
+			if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
+				return stop, err
+			}
 		}
 	}
 	e.harvestBatch(run, batch, results)
 	return false, nil
+}
+
+// callSig is the exact-repeat identity of one tool call: the tool
+// name plus the raw argument bytes.
+func callSig(tc providers.ToolCall) string {
+	return tc.Name + "\x00" + string(tc.Arguments)
+}
+
+// displaySig shortens a call signature for notes and prompts.
+func displaySig(sig string) string {
+	tool, args, _ := strings.Cut(sig, "\x00")
+	if strings.TrimSpace(args) == "" {
+		return tool
+	}
+	return tool + " " + truncOneLine(args, 80)
+}
+
+// checkRepeatBlock reports whether a single tool call repeats the
+// run's previous single call with identical bytes and a
+// deterministic outcome, and has not been blocked before. The one
+// block per signature is claimed here, so concurrent checks cannot
+// double-block.
+func checkRepeatBlock(run *Run, tc providers.ToolCall) (string, bool) {
+	sig := callSig(tc)
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if sig != run.prevSingleSig || run.prevSingleSig == "" {
+		return "", false
+	}
+	if run.blockedSigs != nil && run.blockedSigs[sig] {
+		return "", false
+	}
+	if run.blockedSigs == nil {
+		run.blockedSigs = map[string]bool{}
+	}
+	run.blockedSigs[sig] = true
+	msg := "blocked: exact repeat of the previous " + displaySig(sig) +
+		" with identical arguments. It would produce no new information. " +
+		"Summarise what the last result showed, pick a different approach " +
+		"(a different tool or different arguments), and execute that instead."
+	return msg, true
+}
+
+// rememberSingle updates the previous-single-call state after an
+// executed batch: a single call with a deterministic outcome arms
+// the blocker; anything else (multi-call batches, retryable
+// outcomes) disarms it.
+func rememberSingle(run *Run, batch []providers.ToolCall, results []tools.Result) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if len(batch) == 1 && isDeterministic(results[0]) {
+		run.prevSingleSig = callSig(batch[0])
+		return
+	}
+	run.prevSingleSig = ""
+}
+
+// isDeterministic reports whether repeating the call is pointless:
+// retryable outcomes (transient, timeout, canceled) may succeed on
+// retry, every other outcome will not change by itself.
+func isDeterministic(res tools.Result) bool {
+	if res.Transient {
+		return false
+	}
+	switch res.Status {
+	case tools.StatusTimeout, tools.StatusCanceled:
+		return false
+	default:
+		return true
+	}
+}
+
+// recordBlockedCall journals a rejected repeat as an error tool
+// result (so the model sees the guidance on its next step) without
+// feeding the loop detector: the call never executed, so it must
+// not pollute the R1/R2 windows.
+func (e *Engine) recordBlockedCall(run *Run, tc providers.ToolCall, res tools.Result) {
+	recordCall(run, callSig(tc))
+	run.mu.Lock()
+	seq := int64(len(run.History))
+	run.History = append(run.History, ctxcompiler.ActivityEvent{
+		Seq: seq, Role: providers.RoleTool,
+		Content:    res.Output,
+		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: true},
+	})
+	run.mu.Unlock()
+	e.harvestBatch(run, []providers.ToolCall{tc}, []tools.Result{res})
+}
+
+// markNovelty updates the per-tool output hashes and reports whether
+// this batch produced new information: a successful call whose
+// trimmed output is non-empty and differs from the same tool's
+// previous successful output. Errors, empty outputs and repeats of
+// the previous output are dull.
+func markNovelty(run *Run, batch []providers.ToolCall, results []tools.Result) bool {
+	informative := false
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	if run.lastOutputs == nil {
+		run.lastOutputs = map[string]string{}
+	}
+	for i, tc := range batch {
+		res := results[i]
+		if res.Status != tools.StatusOK {
+			continue
+		}
+		out := strings.TrimSpace(res.Output)
+		if out == "" {
+			continue
+		}
+		sum := sha256.Sum256([]byte(out))
+		h := hex.EncodeToString(sum[:])
+		if run.lastOutputs[tc.Name] != h {
+			informative = true
+		}
+		run.lastOutputs[tc.Name] = h
+	}
+	return informative
 }
 
 // harvestBatch pins one working note per tool outcome (paths,
@@ -984,10 +1158,12 @@ func toolErrorOf(res tools.Result) string {
 }
 
 // onDetection applies the staged loop response (18.3): a corrective
-// note first, an expert consult or strategy switch second, blocked
-// with a report third. Notes are actionable nudges with a recovery
-// strategy (agent quality); every detection is also pinned to the
-// working notes so the pattern survives context growth.
+// note first, an expert consult or switch second, blocked
+// with a report third. The near-repeat and no-information rules
+// carry the structured stuck-recovery prompt at stage 1
+// (agent quality); every other rule keeps its actionable nudge.
+// Every detection is also pinned to the working notes so the
+// pattern survives context growth.
 func (e *Engine) onDetection(ctx context.Context, run *Run, d tasks.Detection) (bool, error) {
 	q := e.quality()
 	pin := func(note string) {
@@ -997,7 +1173,11 @@ func (e *Engine) onDetection(ctx context.Context, run *Run, d tasks.Detection) (
 	}
 	switch d.Action {
 	case tasks.ActionNote:
-		run.InjectNote(nudgeFor(q, d, ""))
+		if q.StuckRecovery && (d.Rule == tasks.RuleNearRepeat || d.Rule == tasks.RuleNoInfo) {
+			run.InjectNote(recoveryPrompt(q, d, recentTried(run, 3)))
+		} else {
+			run.InjectNote(nudgeFor(q, d, ""))
+		}
 		pin(d.Note)
 		return false, nil
 	case tasks.ActionEscalate:

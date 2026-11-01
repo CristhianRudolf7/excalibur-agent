@@ -55,6 +55,10 @@ type ExecTool struct {
 	// RunID, ToolName and Project scope the secret-policy check.
 	RunID   string
 	Project string
+	// Provisioner runs automatic dependency provisioning (W3). Nil
+	// means the default provisioner honoring EXCALIBUR_AUTOPROVISION
+	// (default auto). Tests inject fakes here.
+	Provisioner *Provisioner
 }
 
 func (t *ExecTool) sessions() *SessionManager {
@@ -146,7 +150,29 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if hint := actionableExecHint(a.Command, out); hint != "" {
 		b.WriteString(hint)
 	}
+	if prov := t.provisioner(); prov != nil {
+		if report := prov.MaybeProvision(ctx, a.Command, out, a.Workdir); report != "" {
+			b.WriteString(report)
+		}
+	}
 	return Result{Status: StatusOK, Output: b.String()}, nil
+}
+
+// provisioner returns the effective provisioner: the injected fake in
+// tests, otherwise a default honoring EXCALIBUR_AUTOPROVISION. It
+// returns nil when provisioning is switched off so the result keeps
+// the pre-provisioning bytes.
+func (t *ExecTool) provisioner() *Provisioner {
+	if t.Provisioner != nil {
+		if t.Provisioner.Mode == ProvisionOff {
+			return nil
+		}
+		return t.Provisioner
+	}
+	if ProvisionModeFromEnv() == ProvisionOff {
+		return nil
+	}
+	return &Provisioner{}
 }
 
 func (t *ExecTool) ResourceKeys(args json.RawMessage) ([]string, error) {

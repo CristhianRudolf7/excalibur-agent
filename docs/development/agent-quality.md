@@ -1109,3 +1109,294 @@ action), and cost (explorer adds no model calls).
 - Existing suites unchanged and green: engine/ctxcompiler determinism
   (`go test -race ./internal/engine/ ./internal/ctxcompiler/`), exec
   env/time (`exec_envtime_test.go`).
+
+## W3: automatic dependency provisioning (Sections 13.5, 18.1)
+
+Owner: auto-provision workstream. Packages: `internal/tools`
+(`autoprovision.go` detection/helper/policy, `exec_tools.go`
+wiring). The connectors are untouched: no change to
+`internal/providers/**`, the model gateway wire protocol
+(`internal/models`, `internal/gateway`), `internal/api`,
+`packages/contracts`, `integrations/**`, MCP/ACP servers, or the
+`bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, never task answers)
+
+From the automatic triage of 44 failed evaluation trials
+(`triage-all-on.md`, general behaviour only): 12 fail as
+`environment/tooling-missing` while a package manager and network
+were available and the agent never installs the missing piece:
+`python3: command not found`, `file: command not found`,
+`ps`/`ss: command not found`, `No module named 'chess'`/`'cv2'`,
+`ImportError: liblapack.so.3: cannot open shared object file`.
+Tool errors had already fallen to ~0; the remaining failures are
+dominance of discipline and verification gaps, so this workstream
+removes the tooling-missing class at the harness level instead of
+spending model steps rediscovering it.
+
+### Mechanism (default ON)
+
+1. Recognition (`DetectMissing`, pure function over the recorded
+   `command` plus `output`, never the benchmark answers): shell
+   `command not found` / `: not found`, Python `No module named`,
+   Node `Cannot find module` (bare specifiers only; relative
+   paths and `fs`/`path`/… builtins never provision), Ruby
+   `cannot load such file`, R `there is no package called`,
+   Perl `Can't locate ... in @INC`, Go `cannot find package`,
+   Rust `can't find crate` / `no matching package` / `unresolved
+   import`, Java `package ... does not exist`, shared libraries
+   `.so: cannot open shared object file`. Python `os`/`json`/…,
+   R `base`/…, Go stdlib (no dot) and generic `No such file or
+   directory` for build artifacts never provision; install
+   commands themselves never re-trigger (loop guard).
+2. Provisioning helper (`PlanInstall`): maps each hit to
+   install-only commands for the detected managers: apt with
+   `DEBIAN_FRONTEND=noninteractive`, `-y --no-install-recommends`
+   and update-once caching (the first apt plan in the process
+   carries `apt-get update -qq`, later plans skip it), other
+   managers best-effort (`dnf -y`, `apk add --no-cache`,
+   `pacman -Sy`, `brew install`), pip/uv with the right
+   interpreter (`python3 -m pip` preferred, `uv pip --python`
+   when uv exists, `--break-system-packages` for pip on PEP 668
+   systems, `--quiet`, never `--upgrade`), `npm install`
+   (`yarn add`/`pnpm add` fallback), `gem install --no-document`,
+   R `install.packages`, `cpanm --notest` / `cpan -T`,
+   `go get`, `cargo add`. Curated `command→package` (`ps`→`procps`,
+   `ss`→`iproute2`, `file`→`file`, …), `import→distribution`
+   (`cv2`→`opencv-python-headless`, `chess`→`chess`,
+   `PIL`→`Pillow`, `sklearn`→`scikit-learn`, …) and
+   `.so→apt` (`liblapack.so.3`→`liblapack3`, …) maps; unknown
+   commands fall back to the binary name. Every plan carries a
+   `verify` step and never contains `upgrade`, `dist-upgrade`,
+   `remove`, `purge`, `autoremove`, `uninstall` or `--upgrade`
+   (enforced by `isForbiddenProvisionCommand`).
+3. Policy (`Provisioner.MaybeProvision`, wired into
+   `ExecTool.Invoke` after the actionable hint): in `auto` the
+   harness runs the plan when a TCP probe (`8.8.8.8:53`,
+   `1.1.1.1:53`, no payload, no paid API) succeeds and always
+   appends the `provision:` report (detected, plan, update/install
+   outcome with tail, re-run guidance); `suggest` reports the
+   commands without running; `off` restores the pre-provisioning
+   bytes. Java coordinates are always suggest-only (they need a
+   build-file edit). Failures report the failing command plus the
+   manual retry and verify step; successes tell the model to re-run
+   and verify.
+
+### Switch
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_AUTOPROVISION` | `auto` / `suggest` / `off` (`1`/`on`/`true`/`yes` mean auto, `0`/`off`/`false`/`no` mean off) | `auto` | `auto`: detect, run when network is available, always report; `suggest`: detect and report commands, never run; `off`: no detection, hint only (pre-provisioning bytes) |
+
+Measure `off` vs `suggest` vs `auto` on the same task set;
+watch the `environment/tooling-missing` triage share, extra tool
+calls to recovery (`provision:` lines in `tool_calls.jsonl`),
+and cost (one apt update per process, one install per missing
+dep). See `docs/decisions/0047-w3-auto-provision.md` for the
+PEP 668, Java suggest-only and update-once choices.
+
+### Research sources (fetched before coding, general engineering only)
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8→66.5 on TB2 with the model fixed. Adopted: environment
+  onboarding (`LocalContextMiddleware`) so the model stops
+  discovering tooling, pre-completion verification, loop-detection
+  reconsider notes. Auto-provision is the onboarding half for
+  missing tooling: install instead of hinting when safe, always
+  reported for the trace-analyzer loop.
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what
+  to store, retrieve, present) moves results as much as weights,
+  with larger gains on weaker models. Motivates fixing the
+  tooling-missing class in code rather than the prompt.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not
+  fetched): same direction — systematic harness search with
+  standard evaluation and auditing records (Section 23.2,
+  Appendix F) as the objective signal.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop;
+  the Section 23.2 analysis notes its missing-binary failure mode
+  (24.1% of command failures) — the exact class auto-provision
+  removes.
+- Open-source harnesses (general behaviour only, no task material
+  used): mini-SWE-agent FAQ (bash-only tools suffice,
+  https://mini-swe-agent.com/latest/faq/ — stateless subprocess
+  execution motivates running installs as plain shell commands);
+  SWE-agent (short system prompt with explicit test running);
+  OpenHands loop detection; Codex/OpenCode `tool_choice: none`
+  closing; Aider architect/editor split. What we took is
+  behaviour-side only: install-then-verify discipline, explicit
+  verify steps, and never upgrade/remove.
+
+## W3: loop breaking and tool noise (Sections 7.3, 11.1, 13.3, 18.3)
+
+Owner: loops-and-noise workstream. Packages: `internal/tasks`
+(`loops.go`: `near_repeat`/`no_info` rules), `internal/engine`
+(`quality.go` recovery prompt, `engine.go` repeat block, novelty
+tracking, R4 zero-state skip), `internal/tools` (`surface.go`,
+`deferred.go`, `catalog.go`: call_tool tolerance and description),
+`internal/cli` (`surface_hide.go`, `exec_engine.go`: prefix pruning).
+The connectors are untouched: no change to `internal/providers`,
+the model gateway wire protocol (`internal/models`,
+`internal/gateway`), `internal/api`, `packages/contracts`,
+`integrations/**`, MCP/ACP servers, or the `bench` Harbor invocation.
+
+### Problem evidence (read-only trial records, never task contents)
+
+From the automatic triage of 44 failed trials of the current
+agent-quality build (tool errors near zero; failures dominated by
+discipline and verification problems) plus `analyze.py` counts:
+
+- 4 `loop/no-progress` failures: the same command repeated without
+  progress (process polling, repeated rebuild-and-run). Exact-match
+  R1/R2 rules never fired because outputs varied between repeats.
+- `ack_directive` called 36 times with no directive pending
+  (single-run scope never has any); `call_tool` called 11 times
+  without a name (the model nests the name inside `arguments` or
+  wraps the call as `{"toolname": {...}}`).
+- Load-bearing bug found in this work: nothing in exec/eval scope
+  ever installs a progress sampler (`SetProgressFunc` has no
+  callers), so R4 hashed the zero state and fired spuriously every 8
+  tool steps on every long run (note, escalate, block at 24 steps).
+
+### Mechanisms (all default ON)
+
+1. Near-repeat detection (`tasks.RuleNearRepeat`, `LoopNearRepeat`
+   3, similarity >= 0.8 over whitespace-collapsed arguments): 3
+   consecutive same-tool calls with near-identical arguments fire
+   even when R1/R2 stay silent; a different tool or command restarts
+   the run. Staged note/escalate/blocked like every rule.
+2. No-information detection (`tasks.RuleNoInfo`, `LoopNoInfoSteps`
+   6): the engine marks a step informative only on a successful call
+   with non-empty output differing from that tool's previous
+   success; 6 dull steps fire, then stage every 6.
+3. Structured stuck-recovery prompt at stage 1 of both rules
+   (`engine.recoveryPrompt`): keeps the `loop:` prefix, lists the
+   last tried calls, forces "summarise in 2 lines / list 3 DIFFERENT
+   strategies / pick one and execute its first step now".
+4. Exact-repeat block: a single-call batch repeating the previous
+   single call byte-for-byte with a deterministic outcome is
+   rejected once per run and signature with guidance; it never
+   executes and never pollutes the R1/R2 windows. Retryable
+   outcomes (transient, timeout, canceled) are never blocked;
+   multi-call batches pass through.
+5. R4 zero-state skip: without a progress signal the legacy R4
+   observation is skipped and novelty tracking replaces it in
+   single-run scope.
+6. Prefix pruning (prefix rebuilt every step, execution stays
+   wired, frozen eval table untouched): `ack_directive` hidden while
+   no directive is pending (a pending root directive restores it);
+   `clock` hidden under the eval profile (zero productive calls;
+   time already rides L5).
+7. `call_tool` tolerance: the name promotes from inside arguments
+   (`name/tool/tool_name`, case-insensitive) or from a single-key
+   wrap (`{"toolname": {...}}`, wire-order leading key); consumed
+   keys are removed so validation sees the canonical shape. Both
+   visible descriptions carry a one-line example.
+
+### Switches
+
+| Switch | Mechanism | Off restores |
+|---|---|---|
+| `EXCALIBUR_Q_RECOVERY` | 1, 2, 3, 5 (recovery prompt, novelty tracking, R4 skip) | legacy nudges + legacy R4-on-zero-state |
+| `EXCALIBUR_Q_REPEATBLOCK` | 4 (block exact repeats once) | all repeats execute |
+| `EXCALIBUR_TOOL_HIDE_ACK` | 6 (hide idle ack_directive) | always shown |
+| `EXCALIBUR_TOOL_HIDE_CLOCK` | 6 (hide clock in eval) | legacy eval prefix |
+| `EXCALIBUR_TOOL_CALL_NAME` | 7 (call_tool name promotion) | strict name-required |
+
+Measure each switch off against on with the same model, effort and
+task set (Appendix F conditions); watch success rate, loop-note and
+block counts (`Loop.Counts` in records), blocked-repeat counts in
+history, and prefix tokens per model call.
+
+### Research sources
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8 to 66.5 on TB2 with the model fixed. Adopted: loop-detection
+  middleware with reconsider notes (our recovery prompt is that
+  intervention at stage 1 with a forced output shape), deterministic
+  context injection for verification, environment onboarding, and the
+  trace-analyzer warning against single-task overfitting (hence
+  paired per-task statistics via the measurement workstream).
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what to
+  store, retrieve, present) moves results as much as weights, with
+  larger gains on weaker models; motivates code-side mechanisms with
+  no prompt growth.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not
+  fetched): same direction — systematic harness search with
+  standard evaluation and auditing records (Section 23.2, Appendix F)
+  as the objective signal.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop;
+  kept as the neutral baseline shape. Open-source harnesses
+  (general engineering knowledge, no task content used): OpenHands
+  (stop on repeated identical observations), mini-swe-agent
+  (bash-only tools suffice — supports pruning idle tools),
+  Codex/OpenCode (`tool_choice: none` closing — our block is the
+  same instinct mid-loop), SWE-agent (short prompt, explicit test
+  running), Aider (architect/editor split behind expert escalation).
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing here tunes the agent against
+benchmark failures or derives prompts from task contents.
+
+### Contract and backend tests
+
+- `internal/tools/autoprovision_test.go`: recorded-output
+  detection table (triage quotes: `python3`/`file`/`ps`/`ss`
+  not found, `chess`/`cv2` modules, `liblapack.so.3`, R/Ruby/
+  Perl/Node cases, stdlib/relative/loop guards, generic
+  `No such file` ignored), Go diagnostics, curated maps and flags
+  (`--no-install-recommends`, `--break-system-packages`,
+  `--no-document`), apt update-once (first plan carries update,
+  second skips), never-upgrade/remove across all managers,
+  policy matrix (off silent, suggest no-run, offline suggest,
+  online success/failure with `provision:` lines),
+  `EXCALIBUR_AUTOPROVISION` parsing, exec integration (suggest
+  appends `provision:`, off is silent), real shell runner check
+  (no docker, no network, no apt).
+- Existing suites unchanged and green: `go test -race
+  ./internal/tools/` plus the full `go test ./... -race`
+  (one transient `internal/gateway` websocket timeout under
+  parallel load with the evaluation running; passes isolated
+  and with `-p 1`, no gateway code touched), `gofmt -l .`,
+  `go vet ./...`, `staticcheck ./...`, `GOOS=darwin/windows
+  go build ./...`, `scripts/check-no-bare-go.sh`.
+- Live end-to-end (own small tasks, never Terminal-Bench,
+  `excalibur exec --profile eval`, credentials file,
+  `gpt-6-luna` low): `import chess` auto-installs via pip
+  (`--break-system-packages`, exit 0, `1.11.2` on re-run, 2 tool
+  calls); missing binary reports the apt plan (update ok,
+  install fails cleanly with manual guidance); `hello.txt`
+  shows no false positive. Records carry `provision:` lines in
+  `tool_calls.jsonl`.
+- `internal/tasks/loops_test.go`: near-repeat fires on same-command
+  varying-result polls (note first), cosmetic tweaks match, tool or
+  command changes restart the run, persisting stages to blocked;
+  similarity table; no-info stages every K with reset on informative
+  steps; `TestLegitimateWaitForNotStopped` pins the new contract
+  (short polls silent, `wait_for` exemption untouched).
+- `internal/engine/quality_test.go`: defaults and env overlay for
+  both switches; recovery text shape (prefix, tried calls, three
+  strategies, pick-one) and legacy fallback; `onDetection` routing
+  with pinning; repeat block once (third identical runs), retryable
+  exemption, multi-batch passthrough, switch off; no-info recovery
+  through the loop; R4 zero-state skip on / legacy fire off.
+- `internal/engine/lifecycle_test.go`:
+  `TestLoopEscalationNoteExpertBlocked` runs 8 identical calls (one
+  consumed by the block) to the same note/escalate/blocked stages
+  with exactly one expert consult.
+- `internal/tools/surface_test.go`, `deferred_test.go`: nested and
+  wrapped name promotion, empty-name fallback, wrap-skip on known
+  keys, flex-off strictness, description examples, `Invoke`
+  fallback, `EXCALIBUR_TOOL_CALL_NAME` switch.
+- `internal/cli/surface_hide_test.go`: ack pruned when idle (nil
+  surface counts as idle), restored on pending directive, switch
+  off; clock pruned in eval only, switch off.
+- Existing suites unchanged and green: tasks, engine lifecycle/e2e,
+  tools deferred/pipeline, cli exec surface enumeration (hidden
+   tools stay executable), wireengine prefix stability.
+

@@ -233,6 +233,23 @@ func TestCallToolValidation(t *testing.T) {
 	if res4.Status != StatusInputError {
 		t.Fatalf("call_tool self-call must be input_error, got %+v", res4)
 	}
+	// Nested name inside arguments promotes on direct invocation.
+	raw5, _ := json.Marshal(map[string]any{"arguments": map[string]any{"name": "grep", "pattern": "x"}})
+	tool5, _ := reg.Get("call_tool")
+	res5, _ := tool5.Invoke(context.Background(), Invocation{Arguments: raw5})
+	if res5.Status == StatusInputError && strings.Contains(res5.Output, "name is required") {
+		t.Fatalf("nested name must promote instead of name-required, got %+v", res5)
+	}
+	// Nested name survives the full pipeline: normalization promotes
+	// before schema validation, so the legacy nameless shape that
+	// trials recorded 11 times now resolves to the deferred tool.
+	pipe5, err := exec.Execute(context.Background(), "call_tool", raw5, ExecuteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pipe5.Status == StatusInputError && strings.Contains(pipe5.Output, "name is required") {
+		t.Fatalf("pipeline must promote the nested name, got %+v", pipe5)
+	}
 	_ = exec
 }
 

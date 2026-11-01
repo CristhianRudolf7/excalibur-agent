@@ -401,7 +401,12 @@ func TestClosingModeKeepsPrefixAndStopsTools(t *testing.T) {
 func TestLoopEscalationNoteExpertBlocked(t *testing.T) {
 	ctx := context.Background()
 	same := toolResp(toolCall("c", "lookup", `{"q":"x"}`))
-	model := &fakeEndpoint{responses: []providers.ChatResponse{same, same, same, same, same, same}}
+	// Eight identical calls: the exact-repeat blocker rejects the
+	// second one, so the detector sees six executions and the
+	// note, escalate, blocked stages land one step later than the
+	// pre-blocker trajectory. Expert is still consulted exactly
+	// once at stage 2.
+	model := &fakeEndpoint{responses: []providers.ChatResponse{same, same, same, same, same, same, same, same}}
 	runner := scriptedRunner()
 	runner.add("lookup", types.EffectReadOnly, types.IdemPure,
 		tools.Result{Status: tools.StatusOK, Output: "same"})

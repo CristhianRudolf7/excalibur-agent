@@ -65,7 +65,7 @@ func CoreStubDefinitions() []Definition {
 		stubDef("search_skills", "Search skills by text and group; returns name, group and path", "skills", types.EffectReadOnly, types.IdemPure, types.CancelImmediate, true, []string{"skills"}, []string{"search", "skills"}),
 		stubDef("load_skill", "Load a SKILL.md body and resolve its deferred tools", "skills", types.EffectReadOnly, types.IdemIdempotent, types.CancelImmediate, true, []string{"skills"}, []string{"load", "skill"}),
 		stubDef("search_tools", "Search deferred tools and return the 5 most relevant schemas", "skills", types.EffectReadOnly, types.IdemPure, types.CancelImmediate, true, []string{"tools"}, []string{"search", "tools", "deferred"}),
-		stubDef("call_tool", "Invoke a deferred tool by name with validated arguments", "skills", types.EffectExec, types.IdemKeyed, types.CancelCooperative, false, []string{"tools"}, []string{"call", "tool", "deferred"}),
+		stubDef("call_tool", "Invoke a deferred tool by name with validated arguments, e.g. {\"name\":\"lsp\",\"arguments\":{\"path\":\"x\"}}; the name may also sit inside arguments", "skills", types.EffectExec, types.IdemKeyed, types.CancelCooperative, false, []string{"tools"}, []string{"call", "tool", "deferred"}),
 		stubDef("subagent", "Manage subagents: spawn, status, message, redirect, pause, resume, interrupt, cancel", "delegation", types.EffectExec, types.IdemKeyed, types.CancelCooperative, true, []string{"subagent"}, []string{"subagent", "delegate", "spawn"}),
 		stubDef("reminders", "Create, list, snooze, complete and delete reminders", "agenda", types.EffectWriteLocal, types.IdemKeyed, types.CancelAfterCompletion, true, []string{"agenda"}, []string{"reminder", "schedule", "agenda"}),
 	}
