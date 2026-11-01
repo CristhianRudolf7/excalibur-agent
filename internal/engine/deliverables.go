@@ -457,14 +457,31 @@ func sessionStartCommand(history []tasks.HistoryTool, id string) string {
 // runningWorkReasons is D3d: refuse while a live session of this run is
 // running a package manager or a build, or is a non-service process that
 // wrote a deliverable in the last 10 seconds.
-func runningWorkReasons(history []tasks.HistoryTool, files []deliverable, now time.Time) []string {
+func runningWorkReasons(history []tasks.HistoryTool, files []deliverable, now time.Time, sessions ...[]tools.SessionInfo) []string {
 	var out []string
 	for _, id := range tasks.LiveSessions(history) {
 		cmd := sessionStartCommand(history, id)
 		if cmd == "" {
 			continue
 		}
-		if packageOrBuildRe.MatchString(cmd) {
+		build := packageOrBuildRe.MatchString(cmd)
+		if switchOn("EXCALIBUR_COMMAND_POSITION_CHECK") {
+			build = packageOrBuildCommand(cmd)
+			for _, infos := range sessions {
+				for _, info := range infos {
+					if string(info.ID) == id {
+						if !info.Alive {
+							cmd = ""
+						}
+						build = info.Alive && (info.PackageManager || info.Build)
+					}
+				}
+			}
+		}
+		if cmd == "" {
+			continue
+		}
+		if build {
 			out = append(out, "session "+id+" is still running a package manager or build (`"+truncOneLine(cmd, 120)+"`): wait for it to finish (exec_io read or wait_for) before calling finish")
 			continue
 		}
@@ -586,7 +603,11 @@ func (e *Engine) deliverableHardReasons(run *Run, request string, history []task
 		out = append(out, reason)
 	}
 	out = append(out, unexecutedProgramReasons(request, history, files)...)
-	out = append(out, runningWorkReasons(history, files, time.Now())...)
+	var sessions []tools.SessionInfo
+	if e.deps.ActiveSessions != nil {
+		sessions = e.deps.ActiveSessions()
+	}
+	out = append(out, runningWorkReasons(history, files, e.deps.Clock(), sessions)...)
 	out = append(out, proofEscapeReasons(files)...)
 	out = append(out, declaredServiceReasons(request, workdir, e.artifactConfig().MaxArtifacts)...)
 	return out

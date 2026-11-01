@@ -774,6 +774,12 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		_ = run.Recorder.RecordTransition("created", "executing", "engine admitted")
 	}
 	eng := engine.New(engine.Deps{
+		ActiveSessions: func() []tools.SessionInfo {
+			if emb.Sessions == nil {
+				return nil
+			}
+			return emb.Sessions.ActiveSessions()
+		},
 		Models: modelEndpoint,
 		Context: &engine.DefaultBuilder{
 			Config: ctxCfg, Counter: ctxcompiler.NewEstimator(0),

@@ -99,13 +99,15 @@ type ExpertConsult func(ctx context.Context, run *Run, d tasks.Detection) (strin
 
 // Deps wires the engine to the real packages.
 type Deps struct {
-	Models  ModelEndpoint
-	Context RequestBuilder
-	Tools   ToolRunner
-	Gate    GateChecker
-	Expert  ExpertConsult
-	Clock   func() time.Time
-	NewKey  func() string
+	// ActiveSessions supplies live process facts for finish checks.
+	ActiveSessions func() []tools.SessionInfo
+	Models         ModelEndpoint
+	Context        RequestBuilder
+	Tools          ToolRunner
+	Gate           GateChecker
+	Expert         ExpertConsult
+	Clock          func() time.Time
+	NewKey         func() string
 	// Quality gates the agent-quality loop mechanisms (working
 	// method, family adaptation, working notes, loop nudges, finish
 	// guard). Nil means production defaults with the EXCALIBUR_Q_*
@@ -338,6 +340,7 @@ type Run struct {
 	// finishConfirmPending marks the confirmation round: the first
 	// accepted finish armed it, the second ends the run.
 	finishConfirmPending bool
+	confirmProgress      confirmationProgress
 	// Finish holds the last accepted `finish` arguments; RawFinish
 	// holds the last attempted raw arguments (accepted or refused)
 	// and FinalText holds the model's raw final text for the records.
@@ -864,6 +867,9 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		return true, e.completeWithPending(ctx, run, []string{reason})
 	}
 
+	if done, err := e.completePendingConfirmation(ctx, run, e.deps.Clock()); done || err != nil {
+		return done, err
+	}
 	run.DeadlinePacing(e.deps.Clock())
 
 	// Time-only binding (W8): only the wall clock pauses the run.
@@ -1142,7 +1148,7 @@ func (r *Run) injectOnce(flag *bool, note string) {
 
 // timeFooterFor renders the time footer of a tool result observed now.
 func (e *Engine) timeFooterFor(run *Run) string {
-	return run.timeFooter(e.deps.Clock())
+	return withFooter(run.timeFooter(e.deps.Clock()), run.confirmationFooter())
 }
 
 // pauseDeadline persists a wall-clock stop even after the call context expires.
@@ -1152,6 +1158,9 @@ func (e *Engine) pauseDeadline(ctx context.Context, run *Run) {
 	run.mu.Unlock()
 	persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
+	if done, _ := e.completePendingConfirmation(persist, run, e.deps.Clock()); done {
+		return
+	}
 	e.pauseBudget(persist, run)
 }
 
@@ -1395,6 +1404,9 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 	}
 	afterRecheck := run.recheckSnapshot()
 	unchanged := beforeRecheck != "" && beforeRecheck == afterRecheck
+	for range batch {
+		run.observeConfirmation(unchanged)
+	}
 	liveProgress := false
 	for i, tc := range batch {
 		res := results[i]
@@ -1418,7 +1430,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			}
 			continue
 		}
-		if note := run.observeRecheck(res, unchanged); note != "" {
+		if note := run.observeRecheck(res, unchanged, tc); note != "" {
 			run.InjectNote(note)
 		}
 		if q.LoopGuardV2 {

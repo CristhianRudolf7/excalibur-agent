@@ -306,9 +306,11 @@ func (r *Run) confirmArmed() bool {
 // armConfirm arms the confirmation round and stores the accepted
 // arguments. Callers hold no lock.
 func (r *Run) armConfirm(args FinishArgs) {
+	hash := workspaceCheckHash(r.Workdir)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.finishConfirmPending = true
+	r.confirmProgress = confirmationProgress{hash: hash}
 	cp := args
 	r.Finish = &cp
 }
@@ -563,7 +565,7 @@ func (e *Engine) setFinishVerdict(run *Run, callID, text string, isError bool) {
 	if !FinishVerdictResultEnabled() {
 		return
 	}
-	run.setFinishResult(callID, text, isError)
+	run.setFinishResult(callID, withFooter(text, run.confirmationFooter()), isError)
 }
 
 // setFinishResult rewrites the output of the finish tool result for
@@ -592,6 +594,7 @@ func (r *Run) setFinishResult(callID, output string, isError bool) {
 // (a `finish` batched with other calls): each call gets a tool result
 // so the trajectory stays paired.
 func (e *Engine) recordCallResults(run *Run, calls []providers.ToolCall, finishText string) {
+	footer := run.confirmationFooter()
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	for _, tc := range calls {
@@ -599,6 +602,7 @@ func (e *Engine) recordCallResults(run *Run, calls []providers.ToolCall, finishT
 		if isFinishCall(tc) {
 			text = finishText
 		}
+		text = withFooter(text, footer)
 		seq := run.nextHistorySeqLocked()
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool, Content: text,

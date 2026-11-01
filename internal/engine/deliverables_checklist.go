@@ -1,5 +1,5 @@
 // Confirmation checklist for the first passing finish (agent quality,
-// work package D, D5). The harness extracts up to 12 requirement
+// work package D, D5). The harness extracts up to 8 requirement
 // sentences from the literal instruction, deterministically, and asks
 // the agent to state the measured value or the command output for each
 // in its next finish evidence. Soft warnings (D4, D9) and advisory
@@ -9,12 +9,13 @@ package engine
 
 import (
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
 
 // checklistMaxItems caps the extracted requirements.
-const checklistMaxItems = 12
+const checklistMaxItems = 8
 
 // checklistMarkerRe marks requirement sentences: obligation words,
 // comparisons and thresholds, numbers with units.
@@ -32,7 +33,7 @@ const broadVerificationItem = "the instruction asks for every occurrence: show a
 
 // checklistItems returns up to max requirement sentences of the
 // instruction, in order, without duplicates.
-func checklistItems(request string, max int) []string {
+func legacyChecklistItems(request string, max int) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, s := range requestSentences(request) {
@@ -48,6 +49,78 @@ func checklistItems(request string, max int) []string {
 		if len(out) >= max {
 			break
 		}
+	}
+	return out
+}
+
+var checklistNumberRe = regexp.MustCompile(`(?i)\b\d+(?:\.\d+)?(?:e[+-]?\d+)?\b`)
+var checklistLimitRe = regexp.MustCompile(`(?i)[<>]=?|%|\b(at most|at least|under|below|above|exceed\w*|threshold|within|limit\w*|no more than|no less than|must)\b`)
+var checklistBulletRe = regexp.MustCompile(`^\s*(?:[-*+]\s+|\d+[.)]\s+)`)
+var checklistBoundaryRe = regexp.MustCompile(`[!?]\s+|\.\s+`)
+
+// Quoted paths can contain whitespace, so word count alone is insufficient.
+func checklistOnlyPath(s string) bool {
+	s = strings.TrimSpace(s)
+	path := strings.Trim(s, "`\"'")
+	quoted := path != s && len(s) >= 2 && s[0] == s[len(s)-1]
+	if !quoted && len(strings.Fields(path)) != 1 {
+		return false
+	}
+	return checklistNamedRe.MatchString(path) && (strings.Contains(path, "/") || strings.Contains(path, "."))
+}
+
+// Rank numeric constraints ahead of descriptive obligations. Stable sorting
+// preserves instruction order among equal scores; decimals and exponents stay
+// intact because only punctuation followed by whitespace ends a sentence.
+func checklistItems(request string, max int) []string {
+	if !switchOn("EXCALIBUR_CHECKLIST_LIMIT_RANKING") {
+		return legacyChecklistItems(request, max)
+	}
+	if max <= 0 {
+		return nil
+	}
+	if max > 8 {
+		max = 8
+	}
+	type candidate struct {
+		text  string
+		score int
+	}
+	var candidates []candidate
+	seen := map[string]bool{}
+	for _, line := range strings.Split(request, "\n") {
+		line = checklistBulletRe.ReplaceAllString(line, "")
+		for _, part := range checklistBoundaryRe.Split(line, -1) {
+			s := strings.TrimSpace(part)
+			if checklistOnlyPath(s) || len(strings.Fields(s)) < 4 {
+				continue
+			}
+			// A path alone is never a requirement, even when its name is numeric.
+			if !checklistMarkerRe.MatchString(s) && !checklistNamedRe.MatchString(s) && !checklistLimitRe.MatchString(s) {
+				continue
+			}
+			norm := strings.ToLower(strings.Join(strings.Fields(strings.Trim(s, " .;|")), " "))
+			if seen[norm] {
+				continue
+			}
+			seen[norm] = true
+			score := 1
+			if checklistMarkerRe.MatchString(s) || checklistLimitRe.MatchString(s) {
+				score = 2
+			}
+			if checklistNumberRe.MatchString(s) && checklistLimitRe.MatchString(s) {
+				score = 4
+			}
+			candidates = append(candidates, candidate{s, score})
+		}
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].score > candidates[j].score })
+	if len(candidates) > max {
+		candidates = candidates[:max]
+	}
+	var out []string
+	for _, c := range candidates {
+		out = append(out, c.text)
 	}
 	return out
 }

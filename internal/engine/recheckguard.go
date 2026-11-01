@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
@@ -85,13 +86,13 @@ func workspaceCheckHash(root string) string {
 }
 
 func (r *Run) recheckSnapshot() string {
-	if !recheckGuardEnabled() || r.lastRefusal() == "" {
+	if (!recheckGuardEnabled() || r.lastRefusal() == "") && !((switchOn("EXCALIBUR_FINISH_CONFIRM_PROGRESS") || (recheckGuardEnabled() && switchOn("EXCALIBUR_RECHECK_PROBES"))) && r.confirmArmed()) {
 		return ""
 	}
 	return workspaceCheckHash(r.Workdir)
 }
 
-func (r *Run) observeRecheck(res tools.Result, unchanged bool) string {
+func (r *Run) observeRecheck(res tools.Result, unchanged bool, calls ...providers.ToolCall) string {
 	if !recheckGuardEnabled() {
 		return ""
 	}
@@ -103,6 +104,10 @@ func (r *Run) observeRecheck(res tools.Result, unchanged bool) string {
 			output = tasks.ResultFingerprint(head) + "\n" + tail
 		}
 	}
+	probe := false
+	if switchOn("EXCALIBUR_RECHECK_PROBES") && len(calls) > 0 && calls[0].Name == "exec" {
+		probe = displayProbeCommand(execCommand(string(calls[0].Arguments)))
+	}
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(output)))
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -111,13 +116,17 @@ func (r *Run) observeRecheck(res tools.Result, unchanged bool) string {
 	}
 	repeated := r.rechecks.seen[fingerprint]
 	r.rechecks.seen[fingerprint] = true
-	if r.LastRefusal == "" || !unchanged || !repeated || tasks.LiveSessionOutput(res.Output) {
+	pending := switchOn("EXCALIBUR_RECHECK_PROBES") && r.finishConfirmPending
+	if (r.LastRefusal == "" && !pending) || !unchanged || (!repeated && !probe) || tasks.LiveSessionOutput(res.Output) {
 		r.rechecks.consecutive = 0
 		return ""
 	}
 	r.rechecks.consecutive++
 	if r.rechecks.consecutive%8 != 0 {
 		return ""
+	}
+	if pending {
+		return fmt.Sprintf("the last %d calls only re-checked unchanged results; %s", r.rechecks.consecutive, confirmationReminder)
 	}
 	first := r.LastRefusal
 	// Actionable refusals retain their original ordering in the audit records.

@@ -4833,3 +4833,37 @@ refuse completion. The guidance applies to interactive and autonomous work;
 `EXCALIBUR_METHOD_V2=off` still restores the legacy L0 method, and
 `EXCALIBUR_FINISH_CHECKLIST=off` still disables finish confirmation items.
 Set `EXCALIBUR_BROAD_REVERIFICATION=off` to disable both additions.
+
+### Engine command positions (F12)
+
+`EXCALIBUR_COMMAND_POSITION_CHECK` defaults on. Finish checks parse shell
+executable positions, excluding comments and argument text, and prefer live
+session process flags when available. Exited sessions never block completion.
+
+### Engine confirmation progress (F13)
+
+`EXCALIBUR_FINISH_CONFIRM_PROGRESS` defaults on for explicit finish rounds.
+Pending confirmations appear in tool result footers. Twelve consecutive calls
+without file changes add a stronger reminder. At 95% of the wall budget, an
+unchanged, fully snapshotted workspace completes the previously accepted finish
+with the recorded reason `confirmation pending at deadline`. File changes or
+incomplete snapshots prevent this automatic completion. The same acceptance
+check runs when an in-flight call reaches the context deadline, using a bounded
+persistence context.
+
+### Engine display and probe re-checks (F14)
+
+`EXCALIBUR_RECHECK_PROBES` defaults on. The advisory re-check guard observes
+pending confirmations as well as refusals. Calls composed entirely of display
+or probe commands count as re-checks when their workspace snapshot is unchanged,
+even when output text varies. Every eight consecutive re-checks adds advice;
+this guard never ends the run. File changes and live session output reset it.
+
+### Engine confirmation checklist ranking (F15)
+
+`EXCALIBUR_CHECKLIST_LIMIT_RANKING` defaults on. Confirmation checklists split
+sentences and list entries, normalize duplicates, discard entries shorter than
+four words, and rank numeric limits ahead of descriptive obligations or named
+outputs. Scientific notation, comparators, percentages and limit words are
+recognized. Up to eight entries appear, preserving source order within a score.
+Disabling the switch restores the previous extraction.
