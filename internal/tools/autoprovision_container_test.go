@@ -41,7 +41,7 @@ func TestProvisionMinimalDebian(t *testing.T) {
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	p := &Provisioner{Mode: ProvisionAuto, LookPath: fakeLookPath("apt-get"), Run: run}
-	report := p.MaybeProvision(ctx, "python3 -c 'print(42)'", out, "")
+	report := provisionText(ctx, p, "python3 -c 'print(42)'", out, "")
 	t.Log(report)
 	if !strings.Contains(report, "verified working command") {
 		t.Fatalf("diagnostic=%q report=%s", out, report)

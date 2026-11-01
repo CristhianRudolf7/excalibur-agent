@@ -237,21 +237,12 @@ func (t *StatusTool) Definition() Definition {
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
 		Group: "control", Tags: []string{"status"}, Keywords: []string{"status", "jobs", "agents", "progress"},
 	}
-	// A status observation may now install dependencies from session output.
-	// Keep read-only/fast semantics when no sessions or auto is disabled.
-	prov := (&ExecTool{Provisioner: t.Provisioner}).provisioner()
-	if t.Sessions != nil && prov != nil && prov.mode() == ProvisionAuto {
-		def.Effect = "exec"
-		def.Idempotency = "non_idempotent"
-		def.Cancel = "graceful"
-		def.Timeout = 300_000_000_000
-		def.Fast = false
-	}
+	// Status only names missing dependencies (ReportOnly) and never
+	// installs, so it stays read-only whatever the provisioning switch says.
 	return def
-
 }
 
-func (t *StatusTool) Invoke(ctx context.Context, _ Invocation) (Result, error) {
+func (t *StatusTool) Invoke(_ context.Context, _ Invocation) (Result, error) {
 	data := map[string]any{}
 	if t.Provider != nil {
 		data = t.Provider.Snapshot()
@@ -274,7 +265,7 @@ func (t *StatusTool) Invoke(ctx context.Context, _ Invocation) (Result, error) {
 			fmt.Fprintf(&b, "- %s alive=%v cmd=%q\n", s.ID, s.Alive, s.Cmd)
 			if session, ok := t.Sessions.Get(s.ID); ok {
 				if prov := (&ExecTool{Provisioner: t.Provisioner}).provisioner(); prov != nil {
-					b.WriteString(prov.MaybeProvision(ctx, session.Cmd, s.Tail, session.Dir))
+					b.WriteString(prov.ReportOnly(session.Cmd, s.Tail))
 				}
 			}
 			if s.Tail != "" {

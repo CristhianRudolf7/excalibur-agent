@@ -4068,3 +4068,142 @@ scope-guard rejection when an inline assertion command was reformatted. The
 existing `exec --json` process returned zero despite the recorded timeout code.
 Those broader closure behaviors remain for their owning workstreams. No
 Terminal-Bench run was launched.
+
+## Exec result contract
+
+The exec tool reports the real exit of a finished command, names what a
+failed step means, and keeps long output recoverable. Each part has a switch
+that defaults on; setting it to `0` or `off` restores the previous behaviour of
+that part only. The shared-contract change is recorded in
+`docs/decisions/0069-exec-exit-status-in-result.md`.
+
+### Mechanisms
+
+- **Exit status.** A non-zero or unknown exit is a tool error (`is_error`,
+  trial `exit_code`). A signal is named in the header, for example
+  `exit: 139 (SIGSEGV)`; the code is 128+n, never -1. `tools.Result.ExitCode`
+  carries the real code into the trial record.
+- **Probe commands.** `test`, `[`, `grep`/`rg` without a match, `command -v`,
+  `which`, `type`, `ls` of a missing path, `diff` and `pgrep` answer with a
+  non-zero exit. Their exit 1 (exit 2 for `ls`) carries the note
+  `note: exit 1 here usually means "not found / no match", not a failure`.
+  `IsProbeCommand` classifies a command (every stage a probe or a plain output
+  builtin, at least one probe). The finish refusal "your last command errored"
+  skips probe failures.
+- **Exit 0 with failure text.** A header warning
+  `warning: exit 0 but the output contains "<phrase>"` covers `command not
+  found`, a shell's `No such file or directory`, a Python traceback, a
+  segmentation fault and an unterminated here-document.
+- **Failure hints.** Hints for missing tools and missing paths apply only to a
+  failed exit. The missing-tool hint names the package managers and the tools
+  present, and asks the agent to provision the tool or use a present
+  alternative. A missing path lists the nearest existing parent (at most 20
+  entries) and asks to check the path.
+- **Elided output.** Output above 8,000 bytes keeps the header, the head, and
+  the last 2,000 bytes. The middle is stored under the executor's blob store,
+  and the marker names the ref and the offset:
+  `…[middle N bytes elided; full output: get_tool_output ref=<ref> offset=<n>]…`.
+  The stored blob is the output after pip `[notice]` lines are removed.
+  `get_tool_output` pages it.
+- **Running sessions.** When `exec_io` is part of the surface, a live session
+  prints `to poll: exec_io {"op":"read","session":"sess-N"}`. Otherwise it
+  prints the elapsed time and points to `status`.
+- **Read paths.** `exec_io` read, list and wait_for never provision. A
+  provisioner run is an exec side effect and happens only from `exec`.
+- **Owner and target.** An unknown `target` is ignored with the note
+  `target ignored: commands run locally`. An `exec_io` list with an owner no
+  session carries lists every session with a note.
+- **Identical re-runs.** The same command in the same workdir, with
+  byte-identical output and the same exit, and no file changed since the last
+  run, carries `note: identical to call #K (no files changed since)`. The
+  check walks the workdir for changes only when a candidate matches, is
+  bounded to 5,000 entries, and treats any unreadable entry as changed.
+- **Python test-only scripts.** A silent `python X.py` whose file defines
+  `test_` functions and has no `__main__` block notes that zero tests ran.
+
+### Switches
+
+| Switch | Default | Governs |
+| --- | --- | --- |
+| `EXCALIBUR_EXEC_ERROR_STATUS` | on | Exit status and tool error, signal names, probe note, hints on a failed exit only |
+| `EXCALIBUR_EXEC_WARNINGS` | on | Exit-0 warnings, identical re-run note, python test note, owner note, running-session wording, pre-install label, missing-path listing |
+| `EXCALIBUR_EXEC_ELIDE_REF` | on | Stored elided output, the ref in the marker, pip notice removal |
+
+Read paths never provision and the target note is always shown, so neither has
+a switch.
+
+### Contract and backend tests
+
+- `internal/tools/exec_tools_test.go`: exit status and the record field, the
+  switch, signal naming (a real signal-killed child and a shell `exit 139`),
+  probe classification and note, the zero-exit warnings and the hint gating,
+  elision (a stored blob pages through `get_tool_output`, offsets agree, no
+  store falls back to the session id, the switch restores the old marker), pip
+  notice stripping, UTF-8 safe cuts, identical re-runs, missing-path listing,
+  the python test-only note, target and owner handling, running-session lines.
+- `internal/tools/autoprovision_w9_test.go`: `exec_io` read, wait_for and list
+  return no provision report.
+- `internal/cli/exec_exit_record_test.go`: the trial record carries the real
+  exit code and `is_error`.
+- `internal/engine/exec_probe_finish_test.go`: finish is not refused after a
+  probe failure.
+
+### Verification
+
+Package-scoped checks: `gofmt`, `go vet`, `go test -race` for `internal/tools`,
+`internal/engine`, `internal/cli` and `internal/wireengine`, and the Darwin and
+Windows builds.
+
+## Automatic provisioning follow-up (exec contract)
+
+Owner: harness reliability round, work package B (branch `reliability/package-installs`).
+Code: `internal/tools/autoprovision.go`, with the exec and read-path call sites in
+`internal/tools/exec_tools.go` and `internal/tools/control.go`.
+
+Scope: when a command reports a missing command, module or library, the exec
+call that ran it may install the dependency. Read paths never install.
+
+Contract:
+
+- Exec runs the provisioning step once for its own output. A verified install
+  re-runs the original command once, and that result is the command result. The
+  pre-install output is reduced to `first run: exit N: <first error line>`. When
+  the command is still running at the yield, no re-run happens and the output is
+  labelled as predating the install.
+- The header reports provisioning time, for example `provisioning: 41s apt python3`.
+- The whole provisioning step of one exec call is bounded by its `timeout_s`
+  (120 s when none). A cut-off step returns the original output and the line
+  `provisioning did not finish in Ns; install it yourself in a background session`.
+- `status` and `exec_io` (list, read, wait_for) report `install needed: ...
+  (run exec to provision)` and never run a package manager. `status` is read-only
+  in every mode.
+- Package names come from the curated tables (`commandToApt`, `pythonToPip`,
+  `sharedLibToApt`) or from `apt-cache policy` (a real candidate is required).
+  Harness tool names, names that are not Debian package names, and prose tokens
+  never reach a package manager. A non-apt manager runs only curated names.
+- `python3` maps to the full `python3` package. The pip bootstrap installs
+  `python3-pip` and `python3-venv`. The minimal interpreter package is never used.
+- Before an apt command runs, the provisioner waits, within the same bound, while
+  another apt or dpkg process runs (for example an install in one of the run's
+  background sessions). `apt-get update` runs at most once per 10 minutes per process.
+- pip receives `--break-system-packages` only for an externally managed interpreter
+  (PEP 668 marker) and not when `PIP_BREAK_SYSTEM_PACKAGES` is already enabled.
+  No virtual environment is created.
+- When a dependency is still missing after an install attempt, the report says so
+  and asks the agent not to report results that depend on it.
+
+Switches:
+
+| Switch | Default | Effect when off |
+|---|---|---|
+| `EXCALIBUR_AUTOPROVISION` | auto | unchanged: off disables provisioning, suggest reports without running |
+| `EXCALIBUR_PROVISION_RERUN` | on | the first run's output is kept, with the install note, and the command is not re-run |
+| `EXCALIBUR_PROVISION_APT_LOCK` | on | apt runs at once, relying on the dpkg lock timeout |
+
+Tests: `autoprovision_followup_test.go` covers the re-run and its switch, the
+bounded step, the apt wait and its switch, the update interval, unconfirmed names,
+the curated table, the pip bootstrap, the coverage of builtin tool names, and the
+read paths. The older provisioning tests (`autoprovision_test.go`,
+`autoprovision_w9_test.go`) were updated to the new result shape and to the
+read-path contract. Ordinary tests use fake runners and never touch the host's
+apt or dpkg state.

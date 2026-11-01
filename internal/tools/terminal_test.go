@@ -198,7 +198,7 @@ func TestExecToolLegacyTargetIgnored(t *testing.T) {
 	tool := &ExecTool{Sessions: m}
 	raw, _ := json.Marshal(map[string]string{"command": "echo hi", "target": "node:abc"})
 	res, _ := tool.Invoke(context.Background(), Invocation{Arguments: raw})
-	if res.Status != StatusOK || !strings.Contains(res.Output, "target \"node:abc\" ignored") {
+	if res.Status != StatusOK || !strings.Contains(res.Output, "target ignored: commands run locally") {
 		t.Fatalf("legacy target must be ignored locally: %+v", res)
 	}
 	if !strings.Contains(res.Output, "exit: 0") {

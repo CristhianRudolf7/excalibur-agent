@@ -107,6 +107,10 @@ type Result struct {
 	Truncated bool         `json:"truncated"`
 	BlobRef   string       `json:"blob_ref,omitempty"`
 	Transient bool         `json:"transient"`
+	// ExitCode is the process exit status of an exec result (128+n when
+	// a signal ended the process). Nil for tools without an exit status
+	// and for sessions still running.
+	ExitCode *int `json:"exit_code,omitempty"`
 }
 
 // Tool is the interface every tool implements: built-ins, MCP servers,

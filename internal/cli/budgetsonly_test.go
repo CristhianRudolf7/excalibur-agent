@@ -230,7 +230,10 @@ func TestStrictBlockedRefusedThenCompleted(t *testing.T) {
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	t.Setenv("EXCALIBUR_TIMEOUT_SEC", "")
 	fake := providerfake.New("strict-cli")
-	failArgs, _ := json.Marshal(map[string]string{"command": "Rscript -e 'print(test())'"})
+	// A probe failure is a normal answer, so the strict-blocked path is
+	// still the one refusing the claim (a failing non-probe command
+	// would be refused first by the last-command-errored check).
+	failArgs, _ := json.Marshal(map[string]string{"command": "test -f /nonexistent/check-file"})
 	okArgs, _ := json.Marshal(map[string]string{"command": "true"})
 	blockedBad, _ := json.Marshal(map[string]string{
 		"summary": "stuck", "evidence": "tried", "status": "blocked",

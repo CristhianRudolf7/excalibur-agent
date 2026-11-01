@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -29,9 +31,30 @@ import (
 // reports the outcome in the tool result. Provisioning never upgrades
 // or removes existing packages: only install/add commands are ever
 // generated.
+//
+// Follow-up contract (exec path): a verified install re-runs the
+// original command once and replaces the pre-install output with a
+// one-line first-run summary. Read paths (status, exec_io) only name
+// the missing dependency. The whole provisioning step of one exec call
+// is bounded by its timeout_s (120 s without one). Package names come
+// from the curated tables or from apt-cache; harness tool names and
+// prose tokens never reach a package manager. Before apt runs, the
+// provisioner waits for other apt or dpkg processes of the run, and
+// pip receives --break-system-packages only for externally managed
+// interpreters.
 
 // AutoProvisionEnv is the ablation switch for this workstream.
 const AutoProvisionEnv = "EXCALIBUR_AUTOPROVISION"
+
+// Switches added with the follow-up contract. Both default on.
+const (
+	// ProvisionRerunEnv re-runs the original command after a verified
+	// install. Off keeps the pre-install output with the install note.
+	ProvisionRerunEnv = "EXCALIBUR_PROVISION_RERUN"
+	// ProvisionAptLockEnv waits for other apt or dpkg processes before
+	// apt runs. Off runs apt at once and relies on the dpkg lock timeout.
+	ProvisionAptLockEnv = "EXCALIBUR_PROVISION_APT_LOCK"
+)
 
 // ProvisionMode names the provisioning policy.
 type ProvisionMode string
@@ -110,6 +133,12 @@ type InstallPlan struct {
 	Commands []string
 	Verify   string
 	Note     string
+	// ConfirmPackage is set when the package name is not curated: the
+	// install runs only after apt-cache reports a candidate for it.
+	ConfirmPackage string
+	// Unverified marks a plan whose package name cannot be confirmed
+	// here (no apt, or a non-apt manager). It is reported, never run.
+	Unverified bool
 }
 
 var (
@@ -211,8 +240,11 @@ var commandToApt = map[string]string{
 	"ps": "procps", "pgrep": "procps", "pkill": "procps", "free": "procps",
 	"top": "procps", "uptime": "procps", "w": "procps", "vmstat": "procps", "watch": "procps",
 	"ss": "iproute2", "ip": "iproute2", "bridge": "iproute2", "tc": "iproute2",
-	"cc": "gcc", "c++": "g++", "g++": "g++", "gcc": "gcc",
-	"python": "python-is-python3", "python3": "python3-minimal",
+	"netstat": "net-tools",
+	"cc":      "build-essential", "c++": "build-essential", "g++": "build-essential", "gcc": "build-essential",
+	// The full interpreter: python3-minimal lacks the json and venv modules.
+	"python": "python-is-python3", "python3": "python3",
+	"tesseract": "tesseract-ocr", "bc": "bc",
 	"R": "r-base", "Rscript": "r-base", "killall": "psmisc",
 	"pip": "python3-pip", "pip3": "python3-pip",
 	"node": "nodejs", "nodejs": "nodejs", "npm": "npm",
@@ -629,68 +661,99 @@ func PlanInstall(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	return nil
 }
 
+// rePackageName is the shape of a Debian package name: lowercase
+// letters, digits, '+', '-' and '.', at least two characters.
+var rePackageName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
+
+// harnessToolNames are the tools this harness exposes to the model. A
+// shell diagnostic that names one of them means a tool name was typed
+// into the shell; it never provisions a package.
+var harnessToolNames = map[string]bool{
+	"activate": true, "apply_patch": true, "call_tool": true, "chart_render": true,
+	"clock": true, "diagram_render": true, "document_read": true, "edit_file": true,
+	"exec": true, "exec_io": true, "file_convert": true, "finish": true,
+	"get_tool_output": true, "glob": true, "grep": true, "pdf_ops": true,
+	"read_file": true, "search_tools": true, "source_search": true, "status": true,
+	"vision_extract": true, "web_read": true, "web_search": true, "write_file": true,
+	"ack_directive": true, "ask_user": true, "doc_edit": true, "doc_read": true,
+	"history_search": true, "leave_continuation_note": true, "library_search": true,
+	"load_skill": true, "memory_propose": true, "memory_search": true, "memory_write": true,
+	"reminders": true, "search_skills": true, "send_message": true, "settings": true,
+	"verifier": true, "subagent": true, "task_db": true, "pin_observation": true,
+}
+
+// plausiblePackageName reports whether a missing-command name can name a
+// Debian package at all. Harness tool names and prose tokens fail here.
+func plausiblePackageName(name string) bool {
+	return rePackageName.MatchString(name) && !harnessToolNames[name]
+}
+
 func planCommand(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	bin := dep.Name
-	pkg, ok := commandToApt[bin]
-	if !ok {
+	pkg, mapped := commandToApt[bin]
+	if !mapped {
+		// Unmapped names install only when apt confirms a candidate
+		// (see Provisioner.aptCandidate).
+		if !plausiblePackageName(bin) {
+			return nil
+		}
 		pkg = bin
 	}
-	// Prefer apt, then dnf/yum/apk/pacman/brew in detection order.
-	if _, err := lookPath("apt-get"); err == nil {
-		return aptPlan(bin, pkg, "apt-get", lookPath)
-	}
-	if _, err := lookPath("apt"); err == nil {
-		return aptPlan(bin, pkg, "apt", lookPath)
+	for _, aptBin := range []string{"apt-get", "apt"} {
+		if _, err := lookPath(aptBin); err == nil {
+			plan := aptPlan(bin, []string{pkg}, aptBin, lookPath)
+			if !mapped {
+				plan.ConfirmPackage = pkg
+			}
+			return plan
+		}
 	}
 	// Debian's minimal/alias package names are not portable to other managers.
 	if bin == "python" || bin == "python3" {
 		pkg = "python3"
 	}
+	// Other managers have no apt-style confirmation, so an unmapped
+	// name is reported and never run.
+	nonApt := func(mgr, cmd, note string) *InstallPlan {
+		return &InstallPlan{Manager: mgr, Package: pkg, Commands: []string{cmd},
+			Verify: "command -v " + shellQuote(bin), Unverified: !mapped, Note: note}
+	}
 	if _, err := lookPath("dnf"); err == nil {
-		return &InstallPlan{Manager: "dnf", Package: pkg,
-			Commands: []string{sudoPrefix(lookPath) + "dnf install -y " + shellQuote(pkg)},
-			Verify:   "command -v " + shellQuote(bin),
-			Note:     "dnf install only (never upgrade/remove)"}
+		return nonApt("dnf", sudoPrefix(lookPath)+"dnf install -y "+shellQuote(pkg), "dnf install only (never upgrade/remove)")
 	}
 	if _, err := lookPath("yum"); err == nil {
-		return &InstallPlan{Manager: "yum", Package: pkg,
-			Commands: []string{sudoPrefix(lookPath) + "yum install -y " + shellQuote(pkg)},
-			Verify:   "command -v " + shellQuote(bin)}
+		return nonApt("yum", sudoPrefix(lookPath)+"yum install -y "+shellQuote(pkg), "")
 	}
 	if _, err := lookPath("apk"); err == nil {
-		return &InstallPlan{Manager: "apk", Package: pkg,
-			Commands: []string{sudoPrefix(lookPath) + "apk add --no-cache " + shellQuote(pkg)},
-			Verify:   "command -v " + shellQuote(bin)}
+		return nonApt("apk", sudoPrefix(lookPath)+"apk add --no-cache "+shellQuote(pkg), "")
 	}
 	if _, err := lookPath("pacman"); err == nil {
-		return &InstallPlan{Manager: "pacman", Package: pkg,
-			Commands: []string{sudoPrefix(lookPath) + "pacman -Sy --noconfirm " + shellQuote(pkg)},
-			Verify:   "command -v " + shellQuote(bin)}
+		return nonApt("pacman", sudoPrefix(lookPath)+"pacman -Sy --noconfirm "+shellQuote(pkg), "")
 	}
 	if _, err := lookPath("brew"); err == nil {
-		return &InstallPlan{Manager: "brew", Package: pkg,
-			Commands: []string{"brew install " + shellQuote(pkg)},
-			Verify:   "command -v " + shellQuote(bin)}
+		return nonApt("brew", "brew install "+shellQuote(pkg), "")
 	}
-	// No manager detected: still suggest the apt spelling so the
-	// model has something concrete when apt appears later.
-	return &InstallPlan{Manager: "apt", Package: pkg,
-		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends " + shellQuote(pkg)},
-		Verify:   "command -v " + shellQuote(bin),
-		Note:     "no package manager detected; apt spelling shown"}
+	// No manager detected: show the apt spelling so the model has
+	// something concrete, but run nothing.
+	return nonApt("apt", "DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends "+shellQuote(pkg),
+		"no package manager detected; apt spelling shown")
 }
 
 // aptPlan builds the apt install plan with non-interactive flags and
 // update-once caching. The update command is included only when the
-// process has not updated yet (see ShouldAptUpdate).
-func aptPlan(bin, pkg, aptBin string, lookPath LookPathFunc) *InstallPlan {
+// process has not updated within aptUpdateInterval (see ShouldAptUpdate).
+func aptPlan(bin string, pkgs []string, aptBin string, lookPath LookPathFunc) *InstallPlan {
 	prefix := sudoPrefix(lookPath)
+	quoted := make([]string, len(pkgs))
+	for i, pkg := range pkgs {
+		quoted[i] = shellQuote(pkg)
+	}
 	var cmds []string
 	if ShouldAptUpdate() {
 		cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" update -qq")
 	}
-	cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" -o DPkg::Lock::Timeout=60 install -y --no-install-recommends "+shellQuote(pkg))
-	return &InstallPlan{Manager: "apt", Package: pkg, Commands: cmds,
+	cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" -o DPkg::Lock::Timeout=60 install -y --no-install-recommends "+strings.Join(quoted, " "))
+	return &InstallPlan{Manager: "apt", Package: strings.Join(pkgs, " "), Commands: cmds,
 		Verify: "command -v " + shellQuote(bin),
 		Note:   "apt install only (never upgrade/remove); non-interactive, update-once"}
 }
@@ -714,24 +777,20 @@ func planPython(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 		}
 	}
 	installer, verifyPy := pythonInstaller(lookPath)
+	// PEP 668 (externally managed interpreters) needs an explicit opt-out
+	// for system-wide installs, otherwise pip exits 1. The flag is added
+	// only when it applies; no virtual environment is created.
+	flag := pipBreakSystemFlag()
 	var cmd string
 	if strings.HasPrefix(installer, "uv ") {
 		// uv pip with the right interpreter when one is present.
-		// uv manages its own environment and never touches the
-		// system Python, so no PEP 668 flag is needed.
+		cmd = installer + flag
 		if verifyPy == "python3" || verifyPy == "python" {
-			cmd = installer + " --python " + verifyPy + " " + shellQuote(dist)
-		} else {
-			cmd = installer + " " + shellQuote(dist)
+			cmd += " --python " + verifyPy
 		}
-	} else if strings.Contains(installer, "-m pip") {
-		// PEP 668 (Debian/Ubuntu externally-managed-environment):
-		// system-wide installs in containers need an explicit
-		// opt-out, otherwise pip exits 1 and the agent burns a
-		// venv workaround. Still install-only, never upgrade.
-		cmd = installer + " install --quiet --break-system-packages " + shellQuote(dist)
+		cmd += " " + shellQuote(dist)
 	} else {
-		cmd = installer + " install --quiet --break-system-packages " + shellQuote(dist)
+		cmd = installer + " install --quiet" + flag + " " + shellQuote(dist)
 	}
 	verify := verifyPy + " -c " + shellQuote("import "+strings.Split(dep.Name, ".")[0])
 	return &InstallPlan{Manager: pipManagerName(installer), Package: dist,
@@ -794,21 +853,24 @@ func planPerl(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 
 func planSharedLib(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	so := dep.Name
-	pkg, ok := sharedLibToApt[so]
-	if !ok {
-		// Heuristic: libfoo.so.N -> libfooN (covers many -dev
-		// adjacent runtime libs); still install-only.
+	pkg, mapped := sharedLibToApt[so]
+	if !mapped {
+		// Heuristic: libfoo.so.N -> libfooN (covers many -dev adjacent
+		// runtime libs). apt must confirm the name before it runs.
 		pkg = soToPkgHeuristic(so)
 	}
-	if _, err := lookPath("apt-get"); err == nil {
-		return aptPlan(so, pkg, "apt-get", lookPath)
-	}
-	if _, err := lookPath("apt"); err == nil {
-		return aptPlan(so, pkg, "apt", lookPath)
+	for _, aptBin := range []string{"apt-get", "apt"} {
+		if _, err := lookPath(aptBin); err == nil {
+			plan := aptPlan(so, []string{pkg}, aptBin, lookPath)
+			if !mapped {
+				plan.ConfirmPackage = pkg
+			}
+			return plan
+		}
 	}
 	// Without apt there is no safe default for .so files: report the
 	// heuristic without running it.
-	return &InstallPlan{Manager: "apt", Package: pkg,
+	return &InstallPlan{Manager: "apt", Package: pkg, Unverified: true,
 		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends " + shellQuote(pkg)},
 		Verify:   "ldconfig -p | grep " + shellQuote(so),
 		Note:     "no apt detected; spelling shown for when apt is available"}
@@ -949,35 +1011,43 @@ func sudoPrefix(lookPath LookPathFunc) string {
 }
 
 // apt update-once caching (process-wide): the first apt plan in the
-// process carries the update, later plans skip it so repeated missing
-// tools do not pay for repeated updates.
+// process carries the update, and later plans skip it until
+// aptUpdateInterval has passed, so repeated missing tools do not pay for
+// repeated updates while a long run still refreshes a stale index.
 var (
-	aptMu      sync.Mutex
-	aptUpdated = false
+	aptMu        sync.Mutex
+	aptUpdatedAt time.Time
+	// aptNow and aptUpdateInterval are variables so tests can move the clock.
+	aptNow            = time.Now
+	aptUpdateInterval = 10 * time.Minute
 )
 
 // ShouldAptUpdate reports whether the caller should include the apt
-// update command (first apt plan only). Tests reset via
-// ResetAptUpdateCache.
+// update command: no update has succeeded yet, or the last one is older
+// than aptUpdateInterval.
 func ShouldAptUpdate() bool {
 	aptMu.Lock()
 	defer aptMu.Unlock()
-	return !aptUpdated
+	return aptUpdatedAt.IsZero() || aptNow().Sub(aptUpdatedAt) >= aptUpdateInterval
 }
 
 // MarkAptUpdated records a successfully completed apt update.
 func MarkAptUpdated() {
 	aptMu.Lock()
 	defer aptMu.Unlock()
-	aptUpdated = true
+	aptUpdatedAt = aptNow()
 }
 
-// ResetAptUpdateCache clears the update-once flag (tests only).
+// ResetAptUpdateCache clears the update record (tests only).
 func ResetAptUpdateCache() {
 	aptMu.Lock()
 	defer aptMu.Unlock()
-	aptUpdated = false
+	aptUpdatedAt = time.Time{}
 }
+
+// provisionRunFunc runs one shell command and returns its combined output
+// and exit code.
+type provisionRunFunc = func(ctx context.Context, command, workdir string) (output string, exit int)
 
 // Provisioner executes InstallPlans under the policy switch.
 type Provisioner struct {
@@ -986,11 +1056,16 @@ type Provisioner struct {
 	LookPath LookPathFunc
 	// Run executes one shell command (nil means the real runner).
 	// It returns combined output and exit code.
-	Run func(ctx context.Context, command, workdir string) (output string, exit int)
+	Run provisionRunFunc
 	// Network optionally overrides connectivity policy in tests; nil lets the package manager try.
 	Network func(ctx context.Context) bool
 	// Timeout bounds one install command (default 180s).
 	Timeout time.Duration
+	// AptBusy reports whether another apt or dpkg process is running.
+	// Nil means pgrep on the host, or idle when Run is injected.
+	AptBusy func(ctx context.Context) bool
+	// Poll is the interval between apt idle checks (default 1s).
+	Poll time.Duration
 }
 
 func (p *Provisioner) mode() ProvisionMode {
@@ -1055,17 +1130,69 @@ func defaultRunProvisionCommand(ctx context.Context, command, workdir string, ti
 	return string(out), 0
 }
 
-// MaybeProvision detects a missing dependency in the exec output and
-// applies the policy. It returns the report lines to append to the
-// tool result ("" when disabled or nothing detected). In auto mode it
-// runs the install when network is available; in suggest mode (or
-// when offline) it only reports the commands. It never emits
-// upgrade/remove commands.
-func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workdir string) string {
-	var report strings.Builder
+// provisionMu serializes provisioning sequences within the process.
+var provisionMu sync.Mutex
+
+// DefaultProvisionBudget bounds the whole provisioning step of one exec
+// call when the call has no timeout_s.
+const DefaultProvisionBudget = 120 * time.Second
+
+// MinProvisionBudget is the floor of the per-call provisioning bound.
+const MinProvisionBudget = 60 * time.Second
+
+// ProvisionBudget returns the provisioning bound for one exec call: its
+// timeout_s when set (never below MinProvisionBudget),
+// DefaultProvisionBudget otherwise.
+func ProvisionBudget(timeoutS float64) time.Duration {
+	if timeoutS > 0 {
+		// A short command timeout must not cut an apt install halfway
+		// (dpkg left half-configured): the bound never drops below
+		// MinProvisionBudget.
+		return max(time.Duration(timeoutS*float64(time.Second)), MinProvisionBudget)
+	}
+	return DefaultProvisionBudget
+}
+
+// ProvisionOutcome is what the exec path needs after provisioning ran.
+type ProvisionOutcome struct {
+	// Timing is the header line that reports provisioning time, for
+	// example "provisioning: 41s apt python3". Empty when no step ran.
+	Timing string
+	// Report holds the body lines: suggestions, failures, the time-bound
+	// message and the install notes. The exec path prints it unless the
+	// command is re-run.
+	Report string
+	// Rerun is true when every planned install verified and the re-run
+	// switch is on. The caller re-runs the original command once when the
+	// first run has finished, then shows FirstRunLine instead of Report.
+	Rerun bool
+	// Evidence is the output line that first reported the missing dependency.
+	Evidence string
+}
+
+// FirstRunLine is the single line that replaces the first run's output
+// after a re-run.
+func (o ProvisionOutcome) FirstRunLine(exit int) string {
+	evidence := o.Evidence
+	if evidence == "" {
+		evidence = "(no error line)"
+	}
+	return fmt.Sprintf("first run: exit %d: %s", exit, evidence)
+}
+
+// provisionDep is one distinct missing dependency and the output line
+// that reported it.
+type provisionDep struct {
+	dep  *MissingDep
+	line string
+}
+
+// missingDeps returns the distinct dependencies that output reports
+// missing. Each line is diagnosed on its own, so one missing dependency
+// cannot mask another in a compound command or a session buffer.
+func missingDeps(command, output string) []provisionDep {
+	var deps []provisionDep
 	seen := map[string]bool{}
-	// Scan each diagnostic independently so one missing dependency cannot mask
-	// another in a compound command or a session buffer.
 	for _, line := range strings.Split(output, "\n") {
 		dep := DetectMissing(command, line)
 		if dep == nil {
@@ -1076,121 +1203,408 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 			continue
 		}
 		seen[key] = true
-		report.WriteString(p.provisionOne(ctx, command, line, workdir))
+		deps = append(deps, provisionDep{dep: dep, line: line})
 	}
-	return report.String()
+	return deps
 }
 
-var provisionMu sync.Mutex
-
-func (p *Provisioner) provisionOne(ctx context.Context, command, output, workdir string) string {
+// Provision applies the policy to one exec call's output; only exec calls
+// it (read paths use ReportOnly). budget bounds all provisioning steps of
+// the call together. Off returns nothing, suggest reports without running,
+// and auto installs, verifies, and sets Rerun so the caller can re-run the
+// original command once. It never emits upgrade/remove commands.
+func (p *Provisioner) Provision(ctx context.Context, command, output, workdir string, budget time.Duration) ProvisionOutcome {
+	var res ProvisionOutcome
+	if p.mode() == ProvisionOff {
+		return res
+	}
+	deps := missingDeps(command, output)
+	if len(deps) == 0 {
+		return res
+	}
+	if budget <= 0 {
+		budget = DefaultProvisionBudget
+	}
 	// Serialize install/verify sequences, including apt cache transitions.
 	provisionMu.Lock()
 	defer provisionMu.Unlock()
+	bctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+
+	var timings []string
+	var report strings.Builder
+	anyVerified, anyFailed, timedOut := false, false, false
+	for _, d := range deps {
+		step := p.provisionOne(bctx, command, workdir, d)
+		if step.timing != "" {
+			timings = append(timings, step.timing)
+		}
+		report.WriteString(step.report)
+		anyVerified = anyVerified || step.verified
+		anyFailed = anyFailed || step.failed
+		if res.Evidence == "" && (step.verified || step.failed) {
+			res.Evidence = d.dep.Evidence
+		}
+		if step.timedOut {
+			timedOut = true
+			break
+		}
+	}
+	if len(timings) > 0 {
+		res.Timing = "provisioning: " + strings.Join(timings, ", ")
+	}
+	if timedOut {
+		fmt.Fprintf(&report, "provisioning did not finish in %s; install it yourself in a background session\n", fmtSeconds(budget))
+		anyFailed = true
+	}
+	res.Report = report.String()
+	res.Rerun = anyVerified && !anyFailed && provisionSwitchOn(ProvisionRerunEnv)
+	return res
+}
+
+// ReportOnly names the missing dependencies in output and never installs
+// anything. The status and exec_io read paths use it, so observing a
+// session cannot start a package manager. A missing command that already
+// resolves on PATH is not reported.
+func (p *Provisioner) ReportOnly(command, output string) string {
+	if p.mode() == ProvisionOff {
+		return ""
+	}
+	var b strings.Builder
+	for _, d := range missingDeps(command, output) {
+		plan := PlanInstall(d.dep, p.lookPath())
+		if plan == nil || plan.Unverified {
+			continue
+		}
+		if d.dep.Kind == KindCommand {
+			if _, err := p.lookPath()(d.dep.Name); err == nil {
+				continue
+			}
+		}
+		fmt.Fprintf(&b, "install needed: %s '%s' (run exec to provision)\n", d.dep.Kind, d.dep.Name)
+	}
+	return b.String()
+}
+
+// provisionStep is the outcome for one dependency.
+type provisionStep struct {
+	timing   string // "41s apt python3" once a command started
+	report   string // body lines
+	verified bool   // the plan installed and its verification passed
+	failed   bool   // refused, suggested, failed, or timed out
+	timedOut bool   // the provisioning budget expired during this step
+}
+
+// provisionOne applies the policy to one dependency.
+func (p *Provisioner) provisionOne(ctx context.Context, command, workdir string, d provisionDep) provisionStep {
+	if expired(ctx) {
+		return provisionStep{failed: true, timedOut: true}
+	}
+	dep := d.dep
 	mode := p.mode()
-	if mode == ProvisionOff {
-		return ""
-	}
-	dep := DetectMissing(command, output)
-	if dep == nil {
-		return ""
-	}
 	plan := PlanInstall(dep, p.lookPath())
 	if dep.Kind == KindPythonMod && plan != nil {
-		if py := provisionPythonInterpreter(command, output); py != "" {
+		if py := provisionPythonInterpreter(command, d.line); py != "" {
 			dist := shellQuote(plan.Package)
 			plan.Verify = shellQuote(py) + " -c " + shellQuote("import "+dep.Name)
 			if _, err := p.lookPath()("uv"); err == nil {
-				plan.Commands = []string{"uv pip install --quiet --break-system-packages --python " + shellQuote(py) + " " + dist}
+				plan.Commands = []string{"uv pip install --quiet" + pipBreakSystemFlag() + " --python " + shellQuote(py) + " " + dist}
 			} else {
-				plan.Commands = []string{shellQuote(py) + " -m pip install --quiet --break-system-packages " + dist}
+				plan.Commands = []string{shellQuote(py) + " -m pip install --quiet" + pipBreakSystemFlag() + " " + dist}
 			}
 		}
 	}
 	if plan == nil {
-		return ""
+		return provisionStep{}
 	}
-	// Java coordinates are suggest-only: installing them needs a
-	// build-file edit, not a shell install.
-	suggestOnly := dep.Kind == KindJavaPackage
-	if mode == ProvisionSuggest || suggestOnly {
-		return suggestReport(dep, plan, modeReason(mode, p, ctx))
-	}
-	// Auto mode: check network before spending minutes on an install
-	// that cannot succeed.
-	if !p.networkOK(ctx) {
-		return suggestReport(dep, plan, "network unavailable (auto-provision needs network; ran nothing)")
-	}
-	run := p.Run
-	if run == nil {
-		timeout := p.timeout()
-		run = func(c context.Context, cmd, dir string) (string, int) {
-			return defaultRunProvisionCommand(c, cmd, dir, timeout)
+	// Java coordinates need a build-file edit, unverified names have no
+	// confirmation path, and suggest mode runs nothing.
+	if dep.Kind == KindJavaPackage || plan.Unverified || mode == ProvisionSuggest {
+		reason := modeReason(mode)
+		if plan.Unverified {
+			reason = "the name is not a curated package and no package manager confirms it (ran nothing)"
 		}
+		return provisionStep{report: suggestReport(dep, plan, reason), failed: true}
 	}
+	// Auto mode: check network before spending minutes on an install that cannot succeed.
+	if !p.networkOK(ctx) {
+		return provisionStep{report: suggestReport(dep, plan, "network unavailable (auto-provision needs network; ran nothing)"), failed: true}
+	}
+	return p.runPlan(ctx, command, workdir, d, plan)
+}
+
+// runPlan executes an auto-mode plan: the install commands in order, then
+// the verification command. Package-manager commands wait for other apt or
+// dpkg processes first (see runInstall).
+func (p *Provisioner) runPlan(ctx context.Context, command, workdir string, d provisionDep, plan *InstallPlan) provisionStep {
+	dep := d.dep
+	run := p.runner()
 	var b strings.Builder
 	fmt.Fprintf(&b, "provision: detected missing %s '%s' (evidence: %s).\n", dep.Kind, dep.Name, dep.Evidence)
 	fmt.Fprintf(&b, "provision: plan: %s installs %s via: %s (verify: %s).\n", plan.Manager, plan.Package, strings.Join(plan.Commands, " && "), plan.Verify)
+	start := time.Now()
+	started := false
+	timing := func() string {
+		if !started {
+			return ""
+		}
+		return fmtSeconds(time.Since(start)) + " " + plan.Manager + " " + plan.Package
+	}
+	fail := func(timedOut bool) provisionStep {
+		return provisionStep{timing: timing(), report: b.String(), failed: true, timedOut: timedOut}
+	}
+
+	confirmed := plan.ConfirmPackage == ""
 	for _, cmd := range plan.Commands {
 		if isForbiddenProvisionCommand(cmd) {
 			fmt.Fprintf(&b, "provision: refused to run %q (never upgrade/remove).\n", cmd)
-			return b.String()
+			return fail(false)
 		}
-		isUpdate := strings.Contains(cmd, "apt-get update") || strings.Contains(cmd, "apt update")
-		start := time.Now()
-		out, code := run(ctx, cmd, workdirForPlan(plan, workdir))
+		if !confirmed && isAptInstallCommand(cmd) {
+			// The update (if any) ran earlier in this plan, so the index is current.
+			if !p.aptCandidate(ctx, plan.ConfirmPackage) {
+				if expired(ctx) {
+					return fail(true)
+				}
+				fmt.Fprintf(&b, "provision: not installed: apt has no installable candidate named '%s' (apt-cache policy); ran nothing.\n", plan.ConfirmPackage)
+				return fail(false)
+			}
+			confirmed = true
+		}
+		started = true
+		cmdStart := time.Now()
+		out, code, ran := p.runInstall(ctx, run, cmd, workdirForPlan(plan, workdir))
+		if !ran {
+			return fail(expired(ctx))
+		}
 		// Minimal system interpreters often lack pip. Bootstrap pip for the
 		// same interpreter, then retry the original install once.
 		if code != 0 && dep.Kind == KindPythonMod && strings.Contains(out, "No module named pip") {
-			py := provisionPythonInterpreter(command, output)
-			if py == "" {
-				_, py = pythonInstaller(p.lookPath())
+			bootOut, bootCode, ok := p.bootstrapPip(ctx, run, command, d.line, workdir)
+			if !ok {
+				return fail(expired(ctx))
 			}
-			bootstrapOut, bootstrapCode := run(ctx, shellQuote(py)+" -m ensurepip", workdir)
-			if bootstrapCode != 0 {
-				if _, err := p.lookPath()("apt-get"); err == nil {
-					pipPlan := aptPlan("pip3", "python3-pip", "apt-get", p.lookPath())
-					for _, bootstrap := range pipPlan.Commands {
-						bootstrapOut, bootstrapCode = run(ctx, bootstrap, workdir)
-						if bootstrapCode != 0 {
-							break
-						}
-						if strings.Contains(bootstrap, " update ") {
-							MarkAptUpdated()
-						}
-					}
+			fmt.Fprintf(&b, "provision: pip bootstrap exit %d: %s\n", bootCode, clipProvisionOutput(bootOut))
+			if bootCode == 0 {
+				out, code, ran = p.runInstall(ctx, run, cmd, workdirForPlan(plan, workdir))
+				if !ran {
+					return fail(expired(ctx))
 				}
 			}
-			fmt.Fprintf(&b, "provision: pip bootstrap exit %d: %s\n", bootstrapCode, clipProvisionOutput(bootstrapOut))
-			if bootstrapCode == 0 {
-				out, code = run(ctx, cmd, workdir)
-			}
 		}
-		dur := time.Since(start)
+		dur := time.Since(cmdStart)
+		if code != 0 && expired(ctx) {
+			return fail(true)
+		}
+		isUpdate := strings.Contains(cmd, "apt-get update") || strings.Contains(cmd, "apt update")
 		clipped := clipProvisionOutput(out)
 		if code != 0 {
 			if isUpdate {
-				fmt.Fprintf(&b, "provision: apt update failed (exit %d, %.1fs): %s\n", code, dur.Seconds(), clipped)
+				fmt.Fprintf(&b, "provision: apt update failed (exit %d, %s): %s\n", code, fmtSeconds(dur), clipped)
 			} else {
-				fmt.Fprintf(&b, "provision: install failed (exit %d, %.1fs): %s\n", code, dur.Seconds(), clipped)
+				fmt.Fprintf(&b, "provision: install failed (exit %d, %s): %s\n", code, fmtSeconds(dur), clipped)
 			}
 			fmt.Fprintf(&b, "provision: try manually: %s then verify with `%s` and re-run your command.\n", cmd, plan.Verify)
-			return b.String()
+			fmt.Fprintf(&b, "provision: '%s' is still missing; do not report results that depend on it.\n", dep.Name)
+			return fail(false)
 		}
 		if isUpdate {
 			MarkAptUpdated()
-			fmt.Fprintf(&b, "provision: apt update ok (exit 0, %.1fs). output tail: %s\n", dur.Seconds(), clipped)
+			fmt.Fprintf(&b, "provision: apt update ok (exit 0, %s). output tail: %s\n", fmtSeconds(dur), clipped)
 		} else {
-			fmt.Fprintf(&b, "provision: installed %s via %s (exit 0, %.1fs). output tail: %s\n", plan.Package, plan.Manager, dur.Seconds(), clipped)
+			fmt.Fprintf(&b, "provision: installed %s via %s (exit 0, %s). output tail: %s\n", plan.Package, plan.Manager, fmtSeconds(dur), clipped)
 		}
 	}
 	verified, code := run(ctx, plan.Verify, workdirForPlan(plan, workdir))
+	if code != 0 && expired(ctx) {
+		return fail(true)
+	}
 	if code != 0 {
 		fmt.Fprintf(&b, "provision: verification failed (exit %d): %s; command: %s\n", code, clipProvisionOutput(verified), plan.Verify)
-		return b.String()
+		fmt.Fprintf(&b, "provision: '%s' is still missing; do not report results that depend on it.\n", dep.Name)
+		return fail(false)
 	}
-	fmt.Fprintf(&b, "provision: verified working command: `%s`. re-run your original command explicitly:\n%s\n", plan.Verify, command)
-	return b.String()
+	fmt.Fprintf(&b, "provision: verified working command: `%s`. The output above predates the install; run the command again to see its result.\n", plan.Verify)
+	return provisionStep{timing: timing(), report: b.String(), verified: true}
+}
+
+// runInstall runs one command of a plan. Package-manager commands first
+// wait, within ctx, for other apt or dpkg processes (for example an
+// install in one of this run's background sessions). ran is false when
+// the wait ended with ctx and the command never started.
+func (p *Provisioner) runInstall(ctx context.Context, run provisionRunFunc, cmd, dir string) (out string, code int, ran bool) {
+	if isAptCommand(cmd) && !p.awaitAptIdle(ctx) {
+		return "", -1, false
+	}
+	out, code = run(ctx, cmd, dir)
+	return out, code, true
+}
+
+// bootstrapPip repairs a missing pip for the interpreter in the original
+// command: ensurepip first, then the apt packages for pip and venv.
+func (p *Provisioner) bootstrapPip(ctx context.Context, run provisionRunFunc, command, line, workdir string) (string, int, bool) {
+	py := provisionPythonInterpreter(command, line)
+	if py == "" {
+		_, py = pythonInstaller(p.lookPath())
+	}
+	out, code := run(ctx, shellQuote(py)+" -m ensurepip", workdir)
+	if code != 0 {
+		if _, err := p.lookPath()("apt-get"); err == nil {
+			pipPlan := aptPlan("pip3", []string{"python3-pip", "python3-venv"}, "apt-get", p.lookPath())
+			for _, bootstrap := range pipPlan.Commands {
+				var ran bool
+				out, code, ran = p.runInstall(ctx, run, bootstrap, workdir)
+				if !ran {
+					return out, code, false
+				}
+				if code != 0 {
+					break
+				}
+				if strings.Contains(bootstrap, " update ") {
+					MarkAptUpdated()
+				}
+			}
+		}
+	}
+	return out, code, true
+}
+
+// aptCandidate reports whether apt-cache holds an installable candidate
+// for pkg. A name with no candidate is not a package, whatever it is called.
+func (p *Provisioner) aptCandidate(ctx context.Context, pkg string) bool {
+	out, code := p.runner()(ctx, "apt-cache policy "+shellQuote(pkg), "")
+	if code != 0 {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Candidate:"); ok {
+			v = strings.TrimSpace(v)
+			return v != "" && v != "(none)"
+		}
+	}
+	return false
+}
+
+// AwaitPackageManagers waits up to bound for other apt or dpkg processes on
+// this host to finish. It reports whether the package managers are idle, so
+// a caller about to read or change dpkg state can wait instead of failing on
+// the lock. It honours EXCALIBUR_PROVISION_APT_LOCK.
+func AwaitPackageManagers(ctx context.Context, bound time.Duration) bool {
+	cctx, cancel := context.WithTimeout(ctx, bound)
+	defer cancel()
+	return (&Provisioner{}).awaitAptIdle(cctx)
+}
+
+// awaitAptIdle waits while another apt or dpkg process runs, until ctx
+// ends. It returns false only when ctx ends first. With
+// EXCALIBUR_PROVISION_APT_LOCK=off it returns true without waiting.
+func (p *Provisioner) awaitAptIdle(ctx context.Context) bool {
+	if !provisionSwitchOn(ProvisionAptLockEnv) {
+		return true
+	}
+	for p.aptBusy(ctx) {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(p.pollInterval()):
+		}
+	}
+	return true
+}
+
+// aptBusy reports whether another apt or dpkg process is running. The
+// AptBusy hook wins. An injected Run owns its environment and counts as
+// idle; the real host is checked with pgrep.
+func (p *Provisioner) aptBusy(ctx context.Context) bool {
+	if p != nil && p.AptBusy != nil {
+		return p.AptBusy(ctx)
+	}
+	if p != nil && p.Run != nil {
+		return false
+	}
+	return exec.CommandContext(ctx, "pgrep", "-x", "apt|apt-get|dpkg").Run() == nil
+}
+
+func (p *Provisioner) pollInterval() time.Duration {
+	if p != nil && p.Poll > 0 {
+		return p.Poll
+	}
+	return time.Second
+}
+
+// runner returns the injected Run, or the real shell bounded by the
+// provisioning timeout.
+func (p *Provisioner) runner() provisionRunFunc {
+	if p != nil && p.Run != nil {
+		return p.Run
+	}
+	timeout := p.timeout()
+	return func(c context.Context, cmd, dir string) (string, int) {
+		return defaultRunProvisionCommand(c, cmd, dir, timeout)
+	}
+}
+
+// expired reports whether ctx ended because its deadline passed.
+func expired(ctx context.Context) bool {
+	return errors.Is(ctx.Err(), context.DeadlineExceeded)
+}
+
+// fmtSeconds formats a duration for the provisioning report.
+func fmtSeconds(d time.Duration) string {
+	if d >= 10*time.Second {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
+
+// isAptCommand reports whether a shell command runs apt-get or apt.
+func isAptCommand(cmd string) bool {
+	return strings.Contains(cmd, "apt-get ") || strings.Contains(cmd, "apt ")
+}
+
+// isAptInstallCommand reports whether a shell command runs an apt install.
+func isAptInstallCommand(cmd string) bool {
+	return isAptCommand(cmd) && strings.Contains(cmd, " install ")
+}
+
+// provisionSwitchOn reads an on-by-default switch: unset, or any value
+// other than 0, off, false or no, means on.
+func provisionSwitchOn(name string) bool {
+	v, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(v) == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "false", "no":
+		return false
+	}
+	return true
+}
+
+// pythonExternallyManaged reports whether the system Python refuses direct
+// pip installs (PEP 668). Debian and Ubuntu ship the marker file.
+var pythonExternallyManaged = func() bool {
+	matches, _ := filepath.Glob("/usr/lib/python3*/EXTERNALLY-MANAGED")
+	return len(matches) > 0
+}
+
+// pipBreakSystemFlag returns the PEP 668 opt-out for system-wide pip
+// installs. The flag is added only for an externally managed interpreter,
+// and not when PIP_BREAK_SYSTEM_PACKAGES is already enabled in the command
+// environment. No virtual environment is created.
+func pipBreakSystemFlag() string {
+	for _, kv := range pipeEnv(nil) {
+		if v, ok := strings.CutPrefix(kv, "PIP_BREAK_SYSTEM_PACKAGES="); ok {
+			switch strings.ToLower(strings.TrimSpace(v)) {
+			case "1", "true", "yes", "on":
+				return ""
+			}
+		}
+	}
+	if pythonExternallyManaged() {
+		return " --break-system-packages"
+	}
+	return ""
 }
 
 // MarkAptUpdatedIfApt records the update-once flag when the plan
@@ -1207,9 +1621,9 @@ func MarkAptUpdatedIfApt(plan *InstallPlan) {
 	}
 }
 
-func modeReason(mode ProvisionMode, p *Provisioner, ctx context.Context) string {
+func modeReason(mode ProvisionMode) string {
 	if mode == ProvisionSuggest {
-		return "auto-install is off (" + string(AutoProvisionEnv) + "=suggest; ran nothing)"
+		return "auto-install is off (" + AutoProvisionEnv + "=suggest; ran nothing)"
 	}
 	return "ran nothing"
 }

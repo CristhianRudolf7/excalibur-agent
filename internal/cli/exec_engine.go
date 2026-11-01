@@ -470,6 +470,10 @@ func (r *recordingToolRunner) Execute(ctx context.Context, name string, args jso
 	if res.Status != tools.StatusOK {
 		exitCode = 1
 	}
+	// exec reports the real shell exit (128+n for signals) in ExitCode.
+	if res.ExitCode != nil {
+		exitCode = *res.ExitCode
+	}
 	if err != nil {
 		exitCode = 1
 	}

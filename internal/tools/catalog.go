@@ -115,7 +115,7 @@ func BuiltinTools(deps *BuiltinDeps) []Tool {
 		&ApplyPatchTool{Deps: files},
 		&GrepTool{},
 		&GlobTool{},
-		&ExecTool{Sessions: sess},
+		&ExecTool{Sessions: sess, Outputs: outs},
 		&ExecIOTool{Sessions: sess},
 		&ClockTool{Now: deps.ClockNow},
 		&GetToolOutputTool{Outputs: outs, History: files.History, Sessions: sess},

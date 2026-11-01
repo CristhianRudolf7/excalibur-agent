@@ -400,7 +400,9 @@ func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, 
 	if reason := scopeRefusal(run); reason != "" {
 		reasons = append(reasons, reason)
 	}
-	if out, isErr, found := lastNonFinishError(run); found && isErr {
+	// Probe failures (grep with no match, test -f, command -v) are normal
+	// answers; the exec result marks them with the probe note.
+	if out, isErr, found := lastNonFinishError(run); found && isErr && !tools.IsProbeFailureOutput(out) {
 		reason := "your last command errored (" + truncOneLine(out, 200) + "). Fix it and verify by executing before calling `finish` again."
 		if !ActionableRefusalsEnabled() {
 			return reason

@@ -217,15 +217,35 @@ func TestPlanCuratedMapsAndFlags(t *testing.T) {
 func TestPlanPipBreaksSystemPackages(t *testing.T) {
 	ResetAptUpdateCache()
 	apt := fakeLookPath("apt-get", "python3")
+	old := pythonExternallyManaged
+	defer func() { pythonExternallyManaged = old }()
+	t.Setenv("PIP_BREAK_SYSTEM_PACKAGES", "")
+
+	// A system interpreter that is not externally managed takes a plain install.
+	pythonExternallyManaged = func() bool { return false }
 	plan := PlanInstall(&MissingDep{KindPythonMod, "chess", ""}, apt)
-	if plan == nil {
-		t.Fatal("want pip plan")
+	if plan == nil || strings.Contains(plan.Commands[0], "--break-system-packages") {
+		t.Fatalf("unmanaged interpreter must not get the PEP 668 flag: %+v", plan)
 	}
-	if !strings.Contains(plan.Commands[0], "--break-system-packages") {
-		t.Fatalf("pip plan must handle PEP 668 in containers: %q", plan.Commands[0])
+
+	// An externally managed interpreter needs the opt-out to install system-wide.
+	pythonExternallyManaged = func() bool { return true }
+	plan = PlanInstall(&MissingDep{KindPythonMod, "chess", ""}, apt)
+	if plan == nil || !strings.Contains(plan.Commands[0], "--break-system-packages") {
+		t.Fatalf("managed interpreter must handle PEP 668: %+v", plan)
 	}
 	if isForbiddenProvisionCommand(plan.Commands[0]) {
 		t.Fatalf("break-system-packages must not trip the upgrade guard: %q", plan.Commands[0])
+	}
+
+	// PIP_BREAK_SYSTEM_PACKAGES=1 in the command environment makes the flag redundant.
+	t.Setenv("PIP_BREAK_SYSTEM_PACKAGES", "1")
+	plan = PlanInstall(&MissingDep{KindPythonMod, "chess", ""}, apt)
+	if plan == nil || strings.Contains(plan.Commands[0], "--break-system-packages") {
+		t.Fatalf("env opt-out must not be duplicated on the command line: %+v", plan)
+	}
+	if strings.Contains(plan.Commands[0], "venv") {
+		t.Fatalf("no virtual environment may be created silently: %q", plan.Commands[0])
 	}
 }
 
@@ -291,14 +311,8 @@ func TestProvisionPolicyModes(t *testing.T) {
 	ResetAptUpdateCache()
 	look := fakeLookPath("apt-get", "python3")
 	depOut := "/usr/bin/bash: line 1: file: command not found"
-	newProv := func(mode ProvisionMode, network bool, run func(ctx context.Context, cmd, dir string) (string, int)) *Provisioner {
-		var net func(ctx context.Context) bool
-		if network {
-			net = func(ctx context.Context) bool { return true }
-		} else {
-			net = func(ctx context.Context) bool { return false }
-		}
-		return &Provisioner{Mode: mode, LookPath: look, Run: run, Network: net}
+	newProv := func(mode ProvisionMode, network bool, run provisionRunFunc) *Provisioner {
+		return &Provisioner{Mode: mode, LookPath: look, Run: run, Network: func(context.Context) bool { return network }}
 	}
 	// Off: silent, never runs.
 	called := false
@@ -306,8 +320,8 @@ func TestProvisionPolicyModes(t *testing.T) {
 		called = true
 		return "", 0
 	})
-	if got := p.MaybeProvision(context.Background(), "file x", depOut, ""); got != "" {
-		t.Fatalf("off must be silent, got %q", got)
+	if res := p.Provision(context.Background(), "file x", depOut, "", 0); res != (ProvisionOutcome{}) {
+		t.Fatalf("off must be silent, got %+v", res)
 	}
 	if called {
 		t.Fatal("off must never run")
@@ -318,9 +332,9 @@ func TestProvisionPolicyModes(t *testing.T) {
 		called = true
 		return "", 0
 	})
-	got := p.MaybeProvision(context.Background(), "file x", depOut, "")
-	if !strings.Contains(got, "provision:") || !strings.Contains(got, "suggest") {
-		t.Fatalf("suggest must report without running: %q", got)
+	res := p.Provision(context.Background(), "file x", depOut, "", 0)
+	if !strings.Contains(res.Report, "provision:") || !strings.Contains(res.Report, "suggest") || res.Rerun {
+		t.Fatalf("suggest must report without running: %+v", res)
 	}
 	if called {
 		t.Fatal("suggest must not run")
@@ -331,28 +345,29 @@ func TestProvisionPolicyModes(t *testing.T) {
 		called = true
 		return "", 0
 	})
-	got = p.MaybeProvision(context.Background(), "file x", depOut, "")
-	if !strings.Contains(got, "provision:") || !strings.Contains(got, "network unavailable") {
-		t.Fatalf("offline auto must suggest: %q", got)
+	res = p.Provision(context.Background(), "file x", depOut, "", 0)
+	if !strings.Contains(res.Report, "network unavailable") {
+		t.Fatalf("offline auto must suggest: %+v", res)
 	}
 	if called {
 		t.Fatal("offline must not run")
 	}
-	// Auto online success.
+	// Auto online success: installed, verified, and the caller may re-run once.
 	ResetAptUpdateCache()
 	called = false
 	p = newProv(ProvisionAuto, true, func(ctx context.Context, cmd, dir string) (string, int) {
 		called = true
 		return "Setting up file (1:5.44-3) ...", 0
 	})
-	got = p.MaybeProvision(context.Background(), "file x", depOut, "")
-	if !strings.Contains(got, "provision: installed") || !strings.Contains(got, "re-run") {
-		t.Fatalf("auto success must report install: %q", got)
+	res = p.Provision(context.Background(), "file x", depOut, "", 0)
+	if !res.Rerun || !strings.HasPrefix(res.Timing, "provisioning: ") || !strings.Contains(res.Report, "verified working command") {
+		t.Fatalf("auto success must verify and allow a re-run: %+v", res)
 	}
 	if !called {
 		t.Fatal("auto online must run")
 	}
-	// Auto online failure (update ok, install fails).
+	// Auto online failure (update ok, install fails): no re-run, and the
+	// report says the dependency is still missing.
 	ResetAptUpdateCache()
 	p = newProv(ProvisionAuto, true, func(ctx context.Context, cmd, dir string) (string, int) {
 		if strings.Contains(cmd, "update") {
@@ -360,9 +375,9 @@ func TestProvisionPolicyModes(t *testing.T) {
 		}
 		return "E: Unable to locate package nope", 100
 	})
-	got = p.MaybeProvision(context.Background(), "file x", depOut, "")
-	if !strings.Contains(got, "provision: install failed") {
-		t.Fatalf("auto failure must report: %q", got)
+	res = p.Provision(context.Background(), "file x", depOut, "", 0)
+	if res.Rerun || !strings.Contains(res.Report, "provision: install failed") || !strings.Contains(res.Report, "still missing") {
+		t.Fatalf("auto failure must report and forbid a re-run: %+v", res)
 	}
 }
 
@@ -440,4 +455,12 @@ func TestProvisionRealShell(t *testing.T) {
 	if sh := DetectShell(); sh == "" {
 		t.Fatal("shell detection must work in the container")
 	}
+}
+
+// provisionText runs one provisioning pass with the exec call budget
+// and renders it the way the exec header lays it out: the timing line
+// first, then the body.
+func provisionText(ctx context.Context, p *Provisioner, command, output, workdir string) string {
+	res := p.Provision(ctx, command, output, workdir, 0)
+	return res.Timing + "\n" + res.Report
 }

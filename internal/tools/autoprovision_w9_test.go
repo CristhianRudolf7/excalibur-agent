@@ -36,16 +36,21 @@ func TestProvisionMultipleAndUpdateSuccess(t *testing.T) {
 			return "", 0
 		}}
 	out := "/usr/bin/bash: line 1: python3: command not found"
-	p.MaybeProvision(context.Background(), "python3", out, "")
+	provisionText(context.Background(), p, "python3", out, "")
 	if !ShouldAptUpdate() {
 		t.Fatal("failed update was cached")
 	}
 	failUpdate = false
-	report := p.MaybeProvision(context.Background(), "python3; file x", out+"\n/usr/bin/bash: line 2: file: command not found", "")
-	if !strings.Contains(report, "python3-minimal") || !strings.Contains(report, "verified working command") || ShouldAptUpdate() {
+	report := provisionText(context.Background(), p, "python3; file x", out+"\n/usr/bin/bash: line 2: file: command not found", "")
+	if !strings.Contains(report, "verified working command") || ShouldAptUpdate() {
 		t.Fatal(report)
 	}
-	if !strings.Contains(strings.Join(commands, "\n"), "Lock::Timeout=60") {
+	joined := strings.Join(commands, "\n")
+	// python3 maps to the full interpreter package, never the minimal one.
+	if strings.Contains(joined, "python3-minimal") || !strings.Contains(joined, "--no-install-recommends python3") {
+		t.Fatalf("python3 must install the full package: %v", commands)
+	}
+	if !strings.Contains(joined, "Lock::Timeout=60") {
 		t.Fatal(commands)
 	}
 }
@@ -60,24 +65,32 @@ func TestProvisionInterpreterAndDirectory(t *testing.T) {
 			cmds = append(cmds, cmd)
 			return "", 0
 		}}
-	report := p.MaybeProvision(context.Background(), "cd /tmp; /opt/venv/bin/python - <<'PY'\nimport yaml\nPY", "ModuleNotFoundError: No module named 'yaml'", "/tmp")
+	report := provisionText(context.Background(), p, "cd /tmp; /opt/venv/bin/python - <<'PY'\nimport yaml\nPY", "ModuleNotFoundError: No module named 'yaml'", "/tmp")
 	if !strings.Contains(strings.Join(cmds, "\n"), "--python /opt/venv/bin/python") || !strings.Contains(report, "/opt/venv/bin/python -c") {
 		t.Fatal(report, cmds)
 	}
 }
 
 func TestProvisionSessionOutputs(t *testing.T) {
-	t.Setenv(AutoProvisionEnv, "off")
 	m := NewSessionManager(TerminalDeps{})
 	s, _, _ := m.Start("default", "sleep 0.3; printf 'sh: 1: file: not found\n'", t.TempDir(), false, 250, nil)
-	p := &Provisioner{Mode: ProvisionSuggest, LookPath: fakeLookPath("apt-get")}
+	// Auto mode, and any command the read path runs is counted: read
+	// paths only report, so the count must stay zero.
+	ran := 0
+	p := &Provisioner{Mode: ProvisionAuto, LookPath: fakeLookPath("apt-get"), Run: func(_ context.Context, cmd, dir string) (string, int) {
+		ran++
+		return "", 1
+	}}
 	io := &ExecIOTool{Sessions: m, Provisioner: p}
 	for _, action := range []string{"wait_for", "read", "list"} {
 		args := fmt.Sprintf(`{"action":%q,"session":%q,"pattern":"not found","timeout_s":2}`, action, s.ID)
 		result, err := io.Invoke(context.Background(), Invocation{Arguments: []byte(args)})
-		if err != nil || !strings.Contains(result.Output, "provision: suggest:") {
+		if err != nil || !strings.Contains(result.Output, "install needed: command 'file' (run exec to provision)") || strings.Contains(result.Output, "provision:") {
 			t.Fatalf("%s: %v %s", action, err, result.Output)
 		}
+	}
+	if ran != 0 {
+		t.Fatalf("read paths ran %d command(s)", ran)
 	}
 }
 
@@ -90,7 +103,7 @@ func TestProvisionPipBootstrap(t *testing.T) {
 		}
 		return "", 0
 	}}
-	report := p.MaybeProvision(context.Background(), "/opt/env/bin/python x.py", "ModuleNotFoundError: No module named 'yaml'", "/tmp")
+	report := provisionText(context.Background(), p, "/opt/env/bin/python x.py", "ModuleNotFoundError: No module named 'yaml'", "/tmp")
 	if !strings.Contains(report, "pip bootstrap exit 0") || len(commands) != 4 || commands[1] != "/opt/env/bin/python -m ensurepip" {
 		t.Fatal(report, commands)
 	}
@@ -100,7 +113,7 @@ func TestProvisionSuggestionDoesNotConsumeAptUpdate(t *testing.T) {
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	p := &Provisioner{Mode: ProvisionSuggest, LookPath: fakeLookPath("apt-get")}
-	report := p.MaybeProvision(context.Background(), "file x", "sh: 1: file: not found", "")
+	report := provisionText(context.Background(), p, "file x", "sh: 1: file: not found", "")
 	if !strings.Contains(report, "suggest") || !ShouldAptUpdate() {
 		t.Fatal(report)
 	}
@@ -114,7 +127,7 @@ func TestProvisionVerificationFailure(t *testing.T) {
 			}
 			return "", 0
 		}}
-	report := p.MaybeProvision(context.Background(), "python3 x.py", "No module named 'yaml'", "")
+	report := provisionText(context.Background(), p, "python3 x.py", "No module named 'yaml'", "")
 	if !strings.Contains(report, "verification failed") || strings.Contains(report, "verified working command") {
 		t.Fatal(report)
 	}
@@ -123,18 +136,24 @@ func TestProvisionVerificationFailure(t *testing.T) {
 func TestProvisionStatusSessionTail(t *testing.T) {
 	m := NewSessionManager(TerminalDeps{})
 	m.Start("default", "printf 'sh: 1: file: not found\n'", t.TempDir(), false, 1000, nil)
-	tool := &StatusTool{Sessions: m, Provisioner: &Provisioner{Mode: ProvisionSuggest, LookPath: fakeLookPath("apt-get")}}
+	ran := 0
+	tool := &StatusTool{Sessions: m, Provisioner: &Provisioner{Mode: ProvisionAuto, LookPath: fakeLookPath("apt-get"), Run: func(_ context.Context, cmd, dir string) (string, int) {
+		ran++
+		return "", 1
+	}}}
 	result, err := tool.Invoke(context.Background(), Invocation{})
-	if err != nil || !strings.Contains(result.Output, "provision: suggest:") {
+	if err != nil || !strings.Contains(result.Output, "install needed: command 'file' (run exec to provision)") {
 		t.Fatalf("%v %s", err, result.Output)
 	}
-	tool.Provisioner.Mode = ProvisionAuto
-	if def := tool.Definition(); def.Fast || def.Effect != "exec" {
-		t.Fatalf("auto status must declare side effects: %+v", def)
+	if ran != 0 {
+		t.Fatalf("status ran %d command(s)", ran)
 	}
-	tool.Provisioner.Mode = ProvisionOff
-	if def := tool.Definition(); !def.Fast || def.Effect != "read_only" {
-		t.Fatalf("off status must stay fast: %+v", def)
+	// Status is read-only and fast in every mode: it never installs.
+	for _, mode := range []ProvisionMode{ProvisionAuto, ProvisionSuggest, ProvisionOff} {
+		tool.Provisioner.Mode = mode
+		if def := tool.Definition(); !def.Fast || def.Effect != "read_only" {
+			t.Fatalf("status must stay read-only in %s mode: %+v", mode, def)
+		}
 	}
 }
 

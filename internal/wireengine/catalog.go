@@ -129,6 +129,12 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 			gt.Outputs = exec.Outputs
 		}
 	}
+	// Elided exec output is stored in the same store (EXCALIBUR_EXEC_ELIDE_REF).
+	if ex, err := reg.Get("exec"); err == nil {
+		if et, ok := ex.(*tools.ExecTool); ok {
+			et.Outputs = exec.Outputs
+		}
+	}
 	tools.WireSearchCall(reg, cat, exec)
 	tools.WireWebTools(reg, cat, &tools.WebDeps{})
 
