@@ -254,8 +254,6 @@ func runBenchReport(dataset eval.BenchDataset, args []string) error {
 	return nil
 }
 
-// loadBenchTrials reads the run-level trials.jsonl index when present,
-// falling back to trial.json files (eval report shape).
 // runBenchCompare implements `excalibur bench compare <runA> <runB>`:
 // the paired per-task comparison of Section 23.7 with the acceptance
 // rule, over bench jobs or eval quick dirs alike.

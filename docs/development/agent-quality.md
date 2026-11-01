@@ -4630,7 +4630,7 @@ sent to the triage model.
 ## Harness reliability H: self-checks, error cards, eval tool surface and working method
 
 This section records four changes, decided in
-`docs/decisions/0069-checks-cards-method-tool-surface.md`.
+`docs/decisions/0072-checks-cards-method-tool-surface.md`.
 
 ### Error-triggered skill cards (EXCALIBUR_CARDS_STRICT, default on)
 
@@ -4682,7 +4682,7 @@ reproduces the original block byte for byte, which a golden test pins.
 
 The eval core table drops `ack_directive`, `leave_continuation_note`,
 `subagent` and `task_db`. The reasons are recorded in
-`docs/decisions/0069-checks-cards-method-tool-surface.md`. The assistant and
+`docs/decisions/0072-checks-cards-method-tool-surface.md`. The assistant and
 delegate profiles keep the earlier core through `cli.EffectiveTools`.
 
 | `EXCALIBUR_ATTEMPTS` | `1` (off) | Number of attempts; `1` keeps the single-run path. |

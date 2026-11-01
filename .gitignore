@@ -8,3 +8,4 @@
 .oc-logs/
 __pycache__/
 *.pyc
+/excalibur

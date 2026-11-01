@@ -1,4 +1,4 @@
-# 0069: Non-interactive wall budgets, time footer and spend caps
+# 0070: Non-interactive wall budgets, time footer and spend caps
 
 ## Context
 

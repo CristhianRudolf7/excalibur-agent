@@ -1,4 +1,4 @@
-# 0069: Wire the assistant daemon features into production
+# 0073: Wire the assistant daemon features into production
 
 The architecture specification defines several assistant features that were
 implemented as libraries but never started or never reached the daemon:

@@ -123,15 +123,15 @@ func TestEmbeddedSurfaceWired(t *testing.T) {
 	if !strings.Contains(ctres.Output, "version(s)") {
 		t.Fatalf("call_tool input alias: %q", ctres.Output)
 	}
-	// get_tool_output points sess-N refs at exec_io instead of a bare
-	// unknown-blob error.
+	// get_tool_output reads sess-N logs itself; an unknown session ref is
+	// an input error that names the valid ref forms.
 	gres, err := emb.Exec.Execute(ctx, "get_tool_output",
 		json.RawMessage(`{"ref":"sess-6"}`), tools.ExecuteOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gres.Status == tools.StatusOK || !strings.Contains(gres.Output, "exec_io") {
-		t.Fatalf("get_tool_output sess ref must redirect to exec_io: %+v", gres)
+	if gres.Status == tools.StatusOK || !strings.Contains(gres.Output, "Valid refs") {
+		t.Fatalf("get_tool_output unknown sess ref must name the valid forms: %+v", gres)
 	}
 }
 

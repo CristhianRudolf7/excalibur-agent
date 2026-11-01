@@ -71,6 +71,7 @@ func runAttemptsFanOut(
 	layerCfg config.Config,
 	finalize func(types.RunState, string, string, string) (*ExecOutcome, error),
 ) (*ExecOutcome, error) {
+	fanStart := time.Now()
 	cfg := attempts.ConfigFromEnv()
 	n := cfg.N
 	if n < 2 {
@@ -154,7 +155,13 @@ func runAttemptsFanOut(
 	fallbackLog := filepath.Join(run.Dir, "attempts", "fallback")
 	if fallbackReason != "" {
 		_ = run.EmitEvent("attempts_fallback", map[string]any{"reason": fallbackReason})
-		fb, err = runSubRun(ctx, opts, src, fallbackLog, opts.MaxSteps, opts.BudgetUSD, nil)
+		// The fallback gets only the wall time the attempts left.
+		fbOpts := opts
+		if opts.TimeoutSecs > 0 {
+			left := opts.TimeoutSecs - int64(time.Since(fanStart).Seconds())
+			fbOpts.TimeoutSecs = max(left, 1)
+		}
+		fb, err = runSubRun(ctx, fbOpts, src, fallbackLog, opts.MaxSteps, opts.BudgetUSD, nil)
 		mergeAttemptMetrics(metrics, fallbackLog)
 		if err != nil {
 			fb = &ExecOutcome{State: types.RunFailed, Reason: "work", Summary: fmt.Sprintf("failed: %v", err)}

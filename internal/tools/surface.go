@@ -745,9 +745,6 @@ func receivedKeys(raw json.RawMessage) []string {
 func RetrievalHintForRef(ref string) string {
 	if OutputRefsEnabled() {
 		hint := fmt.Sprintf("unknown ref %q. Valid refs: a blob-sha256:... ref printed in a truncated result; a session id sess-N from an exec header (its full log, paged with offset and limit); a call id call-N; or {\"list\": true} to list recent stored outputs and sessions", ref)
-		if strings.HasPrefix(ref, "sess-") {
-			hint += fmt.Sprintf("; for live output of a running session use exec_io {\"action\":\"read\",\"session\":%q,\"offset\":0}", ref)
-		}
 		return hint
 	}
 	if strings.HasPrefix(ref, "sess-") {

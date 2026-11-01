@@ -409,7 +409,10 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 				continue
 			}
 			cmd := execCommand(h.Args)
-			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || strings.Contains(h.Output, "exit: running") {
+			// A run counts only when it exercises the program on real
+			// input (not --help, a compile or an import): the shared
+			// predicate of the strong verifier.
+			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || !tasks.ExercisesDeliverable(cmd) || strings.Contains(h.Output, "exit: running") {
 				continue
 			}
 			if code, ok := exitCodeOfOutput(h.Output); (ok && code == 0) || (!ok && !h.IsError) {
