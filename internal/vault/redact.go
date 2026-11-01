@@ -26,8 +26,9 @@ const (
 // unlock and on every value change), and by pattern for known key
 // formats even when absent from the vault.
 type Redactor struct {
-	mu   sync.RWMutex
-	root *acNode
+	mu          sync.RWMutex
+	root        *acNode
+	literalRoot *acNode
 	// names maps a secret name to its marker, for stable output.
 	names map[string]string
 }
@@ -64,6 +65,17 @@ type acPattern struct {
 // bytes) are skipped for exact matching to avoid false positives but
 // remain covered by pattern redaction.
 func BuildRedactor(values [][]byte, names []string) *Redactor {
+	r := buildRedactor(values, names, 8)
+	r.literalRoot = buildRedactor(values, names, 1).root
+	return r
+}
+
+// BuildLiteralRedactor retains even short known values for literal-only redaction.
+func BuildLiteralRedactor(values [][]byte, names []string) *Redactor {
+	return buildRedactor(values, names, 1)
+}
+
+func buildRedactor(values [][]byte, names []string, minLength int) *Redactor {
 	r := &Redactor{names: map[string]string{}}
 	var pats []acPattern
 	for i, val := range values {
@@ -76,7 +88,7 @@ func BuildRedactor(values [][]byte, names []string) *Redactor {
 		}
 		marker := RedactSecretPrefix + name + "›"
 		r.names[name] = marker
-		if len(val) < 8 {
+		if len(val) < minLength {
 			continue
 		}
 		seen := map[string]bool{}
@@ -202,9 +214,17 @@ type match struct {
 // Redact replaces secret values (exact plus base64/URL variants) and
 // known token patterns. Value matches win over pattern matches on
 // overlap; output is deterministic.
-func (r *Redactor) Redact(s string) string {
+func (r *Redactor) Redact(s string) string { return r.redact(s, true) }
+
+// RedactLiterals replaces only known literal values and their encodings.
+func (r *Redactor) RedactLiterals(s string) string { return r.redact(s, false) }
+
+func (r *Redactor) redact(s string, patterns bool) string {
 	r.mu.RLock()
 	root := r.root
+	if !patterns && r.literalRoot != nil {
+		root = r.literalRoot
+	}
 	r.mu.RUnlock()
 
 	var hits []match
@@ -240,9 +260,11 @@ func (r *Redactor) Redact(s string) string {
 			hits = append(hits, match{start: i - longest + 1, end: i + 1, marker: marker})
 		}
 	}
-	for _, re := range secretPatterns {
-		for _, loc := range re.FindAllStringIndex(s, -1) {
-			hits = append(hits, match{start: loc[0], end: loc[1], marker: RedactPatternMarker})
+	if patterns {
+		for _, re := range secretPatterns {
+			for _, loc := range re.FindAllStringIndex(s, -1) {
+				hits = append(hits, match{start: loc[0], end: loc[1], marker: RedactPatternMarker})
+			}
 		}
 	}
 	if len(hits) == 0 {
@@ -281,4 +303,15 @@ func (v *Vault) Redact(s string) string {
 		r = NewRedactor()
 	}
 	return r.Redact(s)
+}
+
+// RedactLiterals uses the vault's live values without candidate-pattern matching.
+func (v *Vault) RedactLiterals(s string) string {
+	v.mu.Lock()
+	r := v.redactor
+	v.mu.Unlock()
+	if r == nil {
+		return s
+	}
+	return r.RedactLiterals(s)
 }

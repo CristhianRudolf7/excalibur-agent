@@ -4437,7 +4437,7 @@ terminal: the third and later stages repeat the strategy note.
 Switch: `EXCALIBUR_SPEND_CAP` (default on). In time-only runs two caps apply:
 
 - the USD cost cap, `EXCALIBUR_COST_CAP_USD` (default 20);
-- the input-token cap per run, `EXCALIBUR_INPUT_TOKEN_CAP` (default 8,000,000).
+- the input-token cap per run, `EXCALIBUR_INPUT_TOKEN_CAP` (default 30,000,000; fallback when cost is unknown or its cap is unavailable).
 
 At 100 percent of a cap the agent receives one closing note: finish within the
 next three turns. At 125 percent the run stops as paused with the budget
@@ -4717,3 +4717,65 @@ workdir mapping rules, the deliverable checks and the switches.
 `internal/cli/attempts_isolation_test.go` covers losing attempts that never reach
 the real directory, named-output selection, the apply failure fallback with and
 without its switch, the tool-path runner and the artifact checks through the map.
+
+## Loop reliability: completed background commands (F1)
+
+`EXCALIBUR_BACKGROUND_YIELD` defaults on. Background exec calls wait through
+the ordinary yield window. Commands that finish return the ordinary exit
+header and their complete output; only live sessions report detached service
+metadata. Completion waits for the log drain, including output larger than a
+single read. Set the switch to off to restore the short background yield.
+
+## Loop reliability: finish error evidence (F2)
+
+`EXCALIBUR_FINISH_ERROR_ENTRY` defaults on. A last-command refusal names
+its own command, exit status and output tail. Its suggested check is joined
+by call ID to that same failing history entry, including when later probes
+have completed. Successful later calls keep their normal success semantics.
+
+Error refusals take precedence over criterion keyword matching: a filename in
+an error cannot replace its retry command with an unrelated draft check. Error
+excerpts omit executor path suggestions and engine clock footers so the actual
+process error remains visible.
+
+## Loop reliability: unchanged verification reminders (F3)
+
+`EXCALIBUR_RECHECK_GUARD` defaults on. With an open finish refusal, eight
+consecutive executed calls whose output repeats earlier content and whose
+workdir stays unchanged produce a reminder naming the first open refusal
+item. Further reminders are spaced eight calls apart. This guard never stops
+or refuses work. Novel output, filesystem changes and live sessions reset the
+streak. Parallel batches count only when the whole batch leaves the workdir
+unchanged. Snapshots include content, metadata and symlinks; incomplete scans
+(over 20,000 entries, 50 MiB, unreadable or special files) suppress reminders.
+
+## Loop reliability: autonomous credential redaction (F4)
+
+`EXCALIBUR_REDACT_PATTERNS_AUTONOMOUS` defaults off. Non-interactive exec,
+delegate and eval entry points redact known literal credentials and their
+base64/URL encodings: current vault values, resolved primary/fallback provider
+keys (including config and operator-file values), and credentials explicitly
+injected through the embedded catalog. Candidate patterns read from workspace
+files remain visible so credential auditing and replacement can operate on
+real data. Set the switch on to also redact candidate patterns. Assistant and
+daemon catalogs retain pattern redaction. Known short literals stay protected
+in autonomous runs, and vault changes take effect without rebuilding tools.
+
+
+## Loop reliability: cost-first spend protection (F5)
+
+The default input-token cap is 30,000,000. `EXCALIBUR_COST_PRIMARY_SPEND`
+defaults on: when usage has a known positive price and a finite positive cost
+cap, cost governs spend without an independent token stop. Any unpriced usage
+(including verifier calls) or unavailable cost cap keeps the token fallback.
+A later priced call cannot erase earlier unknown cost. Set the switch off to
+apply both caps independently. `EXCALIBUR_INPUT_TOKEN_CAP` still overrides the
+fallback token allowance; closing and stop shares remain unchanged.
+
+## Loop reliability: inspect data formats before computing (F6)
+
+`EXCALIBUR_METHOD_DATA_FORMAT` defaults on with method V2. The L0 method asks
+for a format check (separators, decimal commas, units and header), plus a few
+parsed values next to raw text before computing. Other evidence rules use
+shorter wording to keep the full block within 2,600 characters. Turning the
+switch off omits this line; method V2 off retains the original golden block.

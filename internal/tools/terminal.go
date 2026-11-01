@@ -439,7 +439,14 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 // during the run; after the run the process keeps running and the
 // log file remains. PTY sessions never detach: they fall back to
 // the foreground path so interactive behaviour is unchanged.
-func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*Session, string, bool) {
+func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string, yieldMs ...int) (*Session, string, bool) {
+	yield := minYieldMs
+	if BackgroundYieldEnabled() {
+		if len(yieldMs) > 0 {
+			yield = yieldMs[0]
+		}
+		yield = max(minYieldMs, min(maxYieldMs, yield))
+	}
 	m.evictIfNeeded(owner)
 	s := &Session{
 		ID: SessionID(fmt.Sprintf("sess-%d", m.nextSeq())), Owner: owner,
@@ -449,21 +456,32 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*S
 	s.lastUse = s.Started
 	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", string(s.ID), s.Started.UnixNano()))
 	s.LogPath = logPath
+	if runtime.GOOS != "linux" || !DetachBackgroundEnabled() {
+		s.Detached = false
+		s.LogPath = ""
+	}
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.order = append(m.order, s.ID)
 	m.mu.Unlock()
 
-	if runtime.GOOS != "linux" || !DetachBackgroundEnabled() {
+	if !s.Detached {
 		// Stubs and opt-out keep the foreground path byte-for-byte.
-		s.Detached = false
-		s.LogPath = ""
 		m.startPipe(s, cmd, dir, env)
-		out, alive := s.waitYield(context.Background(), time.Duration(minYieldMs)*time.Millisecond)
+		out, alive := s.waitYield(context.Background(), time.Duration(yield)*time.Millisecond)
 		return s, out, alive
 	}
 	m.startDetachedPipe(s, cmd, dir, env, logPath)
-	out, alive := s.waitYield(context.Background(), time.Duration(minYieldMs)*time.Millisecond)
+	out, alive := s.waitYield(context.Background(), time.Duration(yield)*time.Millisecond)
+	if !alive && BackgroundYieldEnabled() {
+		// Catalog readers use the manager lock, while session snapshots use
+		// the session lock. Hold both when resolving provisional detachment.
+		m.mu.Lock()
+		s.mu.Lock()
+		s.Detached = false
+		s.mu.Unlock()
+		m.mu.Unlock()
+	}
 	return s, out, alive
 }
 
@@ -515,45 +533,38 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 	}
 	s.mu.Unlock()
 	_ = logF.Close()
-	s.appendOut([]byte(fmt.Sprintf("detached service pid %d log %s\n", s.Pid, logPath)))
-	safego.Go("tools/terminal-detached-wait", nil, func() {
-		s.markDone(c.Wait())
-	})
+	if !BackgroundYieldEnabled() {
+		s.appendOut([]byte(fmt.Sprintf("detached service pid %d log %s\n", s.Pid, logPath)))
+	}
+	// Completion is published only after the log is drained. Otherwise a
+	// quick command can finish before its output reaches waitYield.
+	waited := make(chan error, 1)
+	safego.Go("tools/terminal-detached-wait", nil, func() { waited <- c.Wait() })
 	safego.Go("tools/terminal-detached-tail", nil, func() {
-		var off int64
-		buf := make([]byte, 8192)
-		for {
-			f, err := os.Open(logPath)
-			if err != nil {
-				select {
-				case <-s.done:
+		f, err := os.Open(logPath)
+		if err != nil {
+			s.markDone(<-waited)
+			return
+		}
+		defer f.Close()
+		drain := func() {
+			buf := make([]byte, 8192)
+			for {
+				n, err := f.Read(buf)
+				if n > 0 {
+					s.appendOut(buf[:n])
+				}
+				if err != nil {
 					return
-				case <-time.After(100 * time.Millisecond):
-					continue
 				}
 			}
-			if off > 0 {
-				_, _ = f.Seek(off, io.SeekStart)
-			}
-			n, _ := f.Read(buf)
-			if n > 0 {
-				s.appendOut(buf[:n])
-				off += int64(n)
-			}
-			_ = f.Close()
+		}
+		for {
+			drain()
 			select {
-			case <-s.done:
-				// Drain once more after exit so the final
-				// output is visible before polling stops.
-				if f2, err := os.Open(logPath); err == nil {
-					if off > 0 {
-						_, _ = f2.Seek(off, io.SeekStart)
-					}
-					if n2, _ := f2.Read(buf); n2 > 0 {
-						s.appendOut(buf[:n2])
-					}
-					_ = f2.Close()
-				}
+			case err := <-waited:
+				drain()
+				s.markDone(err)
 				return
 			case <-time.After(100 * time.Millisecond):
 			}

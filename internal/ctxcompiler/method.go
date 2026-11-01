@@ -117,15 +117,15 @@ const workingMethodSteps = `working method:
 // EXCALIBUR_METHOD_V2. Each line is short and general: provided
 // inputs, success paths, unseen instances, measurement, handoffs
 // between steps, services, sources and the task's own tools.
-const workingMethodEvidence = `9. Copy provided data first (cp -a) to preserve originals. Never edit given inputs or tests unless asked.
-10. Test the success path too: craft an input that must pass the rules and one that must fail.
-11. Never hard-code example values. Compare varied inputs, sizes and seeds with an independent reference.
-12. Measure the way the instruction measures: same metric, repeated runs, margin; state the value.
-13. Pass values between steps through files or pipes; never retype numbers, keys or hashes by hand.
-14. Run a script you wrote on the real input after its last edit; compile/--help are not tests. Assert each patch replacement.
-15. Keep required services running: detach (nohup/setsid), log to a file; check the port from a new shell.
-16. If a source is unreachable, try mirrors, archives, git or local copies. An impossible claim needs the failing command and output.
-17. Use only the task's own files and tools; do not read harness logs or host internals.
+const workingMethodEvidence = `9. Copy provided data first (cp -a) as originals. Edit inputs/tests only if asked.
+10. Test the success path too: include pass/fail cases.
+11. Never hard-code example values. Vary inputs/sizes/seeds; use an independent reference.
+12. Measure the way the instruction measures: same metric, repeats and margin; state the value.
+13. Pass values between steps through files or pipes; never retype numbers, keys or hashes.
+14. Run a script you wrote on the real input after its last edit; compile/--help are not tests. Check replacements.
+15. Keep required services running: detach and log; probe the port in a new shell.
+16. If a source is unreachable, try mirrors or local copies. An impossible claim needs the failing command and output.
+17. Use only the task's own files and tools; avoid harness logs and host internals.
 `
 
 // workingMethodRules closes the block for both variants.
@@ -142,7 +142,11 @@ func WorkingMethod() string {
 	if !MethodV2Enabled() {
 		return workingMethodSteps + workingMethodRules
 	}
-	return workingMethodSteps + workingMethodEvidence + workingMethodRules
+	dataCheck := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_METHOD_DATA_FORMAT") {
+		dataCheck = "Before computing on a data file, check its format (separators, decimal commas, units, header) and print a few parsed values next to the raw text.\n"
+	}
+	return workingMethodSteps + workingMethodEvidence + dataCheck + workingMethodRules
 }
 
 // FamilyNote is the per-family variant appended after the shared

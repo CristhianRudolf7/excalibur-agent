@@ -35,6 +35,10 @@ type EmbeddedOptions struct {
 	// Vault wires secret resolution and output redaction
 	// (Section 20.1). Nil keeps pattern-only redaction.
 	Vault *vault.Vault
+	// Autonomous selects eval/exec output policy; assistant and daemon keep patterns.
+	Autonomous bool
+	// KnownSecrets holds provider and harness-injected credentials for this run.
+	KnownSecrets [][]byte
 	// Skills is the skill index backing search_skills/load_skill
 	// (Section 12.4). Nil builds the embedded builtin index so
 	// exec/eval runs always have skills instead of "not wired"
@@ -124,7 +128,7 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	cat := tools.NewDeferredCatalog(reg)
 	prefix := cat.PrefixHash()
 	exec := tools.NewExecutor(reg)
-	exec.Redact = VaultRedactor(opts.Vault)
+	exec.Redact = ProfileRedactor(opts.Vault, opts.Autonomous, opts.KnownSecrets)
 	// The pipeline stores truncated full outputs in exec.Outputs, so
 	// get_tool_output must read from that same store: otherwise the
 	// blob ref in the truncation marker resolves nowhere and the

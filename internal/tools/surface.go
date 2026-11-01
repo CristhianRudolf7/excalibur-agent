@@ -840,3 +840,6 @@ func StubRepliesEnabled() bool { return !off("EXCALIBUR_STUB_REPLIES") }
 
 // FrictionRepairEnabled controls compatible tool routing repairs.
 func FrictionRepairEnabled() bool { return !off("EXCALIBUR_TOOL_FRICTION_REPAIR") }
+
+// BackgroundYieldEnabled waits for quick background commands before detaching.
+func BackgroundYieldEnabled() bool { return !off("EXCALIBUR_BACKGROUND_YIELD") }

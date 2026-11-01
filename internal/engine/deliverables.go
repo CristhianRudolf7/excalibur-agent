@@ -366,12 +366,11 @@ func verificationFailureReason(history []tasks.HistoryTool, files []deliverable)
 		if strings.Contains(h.Output, "exit: running") {
 			return ""
 		}
-		failed, detail := execFailed(h)
+		failed, _ := execFailed(h)
 		if !failed {
 			return ""
 		}
-		return "the last verification failed: `" + truncOneLine(cmd, 120) + "` (" + detail +
-			"; output: " + lastOutputLines(h.Output, 3, 300) + "). Fix the cause, re-run the check, and only then call finish."
+		return verificationEntryReason(h)
 	}
 	return ""
 }
@@ -820,4 +819,10 @@ func (e *Engine) finishRequirements(run *Run, request string) []tasks.ArtifactRe
 		kept = append(kept, a)
 	}
 	return kept
+}
+
+// verificationEntryReason formats command, status and output from one entry.
+func verificationEntryReason(h tasks.HistoryTool) string {
+	_, detail := execFailed(h)
+	return "the last verification failed: `" + truncOneLine(execCommand(h.Args), 120) + "` (" + detail + "; output: " + lastOutputLines(h.Output, 3, 300) + "). Fix the cause, re-run the check, and only then call finish."
 }

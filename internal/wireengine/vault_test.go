@@ -2,6 +2,7 @@ package wireengine
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -108,4 +109,43 @@ func TestVaultExecEnvAndRedaction(t *testing.T) {
 		t.Fatalf("locked vault must not succeed: %+v", res)
 	}
 	_ = os.Getenv
+}
+
+func TestAutonomousLiteralRedactionPreservesWorkspaceCandidates(t *testing.T) {
+	t.Setenv("EXCALIBUR_REDACT_PATTERNS_AUTONOMOUS", "off")
+	v := openTestVault(t)
+	setSecret(t, v, "short-vault-value", "short42")
+	providerKey := "provider-credential-for-unit-test"
+	candidate := "AKIAABCDEFGHIJKLMNOP"
+	path := filepath.Join(t.TempDir(), "workspace.txt")
+	if err := os.WriteFile(path, []byte(candidate+" "+providerKey+" "+base64.StdEncoding.EncodeToString([]byte(providerKey))), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, autonomous := range []bool{true, false} {
+		emb, err := BuildEmbedded(EmbeddedOptions{Vault: v, Autonomous: autonomous, KnownSecrets: [][]byte{[]byte(providerKey)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, _ := json.Marshal(map[string]any{"path": path})
+		res, err := emb.Exec.Execute(context.Background(), "read_file", args, tools.ExecuteOptions{})
+		if err != nil || res.Status != tools.StatusOK {
+			t.Fatalf("workspace read: %+v %v", res, err)
+		}
+		if strings.Contains(res.Output, providerKey) || strings.Contains(res.Output, base64.StdEncoding.EncodeToString([]byte(providerKey))) || strings.Contains(res.Output, candidate) != autonomous {
+			t.Fatal("workspace read must preserve candidates and hide known provider credentials")
+		}
+
+		got := emb.Exec.Redact(candidate + " " + providerKey + " short42")
+		if strings.Contains(got, providerKey) || (autonomous && strings.Contains(got, "short42")) {
+			t.Fatal("known credential was not redacted")
+		}
+		if strings.Contains(got, candidate) != autonomous {
+			t.Fatalf("workspace candidate visibility: %q", got)
+		}
+	}
+	t.Setenv("EXCALIBUR_REDACT_PATTERNS_AUTONOMOUS", "on")
+	if got := ProfileRedactor(nil, true, nil)(candidate); strings.Contains(got, candidate) {
+		t.Fatal("pattern opt-in failed")
+	}
 }

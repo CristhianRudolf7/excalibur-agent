@@ -2,6 +2,9 @@ package wireengine
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/registry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -54,5 +57,35 @@ func ExecSecretResolver(v *vault.Vault, runID, project string, delegated, eval b
 		}
 		defer vault.ZeroBytes(res.Value)
 		return string(res.Value), nil
+	}
+}
+
+// ProfileRedactor keeps literal credential protection in every profile. Only
+// autonomous eval/exec runs may omit candidate patterns from workspace output.
+func ProfileRedactor(v *vault.Vault, autonomous bool, known [][]byte) tools.Redactor {
+	patterns := true
+	if autonomous {
+		switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_REDACT_PATTERNS_AUTONOMOUS"))) {
+		case "on", "1", "true", "yes":
+		default:
+			patterns = false
+		}
+	}
+	names := make([]string, len(known))
+	for i := range names {
+		names[i] = fmt.Sprintf("run-credential-%d", i+1)
+	}
+	r := vault.BuildLiteralRedactor(known, names)
+	return func(s string) string {
+		if patterns {
+			if v != nil {
+				s = v.Redact(s)
+			}
+			return r.Redact(s)
+		}
+		if v != nil {
+			s = v.RedactLiterals(s)
+		}
+		return r.RedactLiterals(s)
 	}
 }

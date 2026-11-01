@@ -379,3 +379,19 @@ func TestWorkingMethodV2HasNoTaskSpecificTerms(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkingMethodDataFormatCheck(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "on")
+	t.Setenv("EXCALIBUR_METHOD_DATA_FORMAT", "")
+	want := "Before computing on a data file, check its format (separators, decimal commas, units, header) and print a few parsed values next to the raw text."
+	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("missing data format instruction")
+	}
+	if len(ctxcompiler.WorkingMethod()) > 2600 {
+		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
+	}
+	t.Setenv("EXCALIBUR_METHOD_DATA_FORMAT", "off")
+	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("data format switch off")
+	}
+}

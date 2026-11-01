@@ -449,8 +449,13 @@ func (e *Engine) decideFinish(ctx context.Context, run *Run, args FinishArgs, ev
 	}
 	// Probe failures (grep with no match, test -f, command -v) are normal
 	// answers; the exec result marks them with the probe note.
-	if out, isErr, found := lastNonFinishError(run); args.Status != "blocked" && found && isErr && !tools.IsProbeFailureOutput(out) {
-		reasons = append(reasons, lastErrorReason(out))
+	h, found := lastNonFinishEntry(run)
+	if args.Status != "blocked" && found && h.IsError && !tools.IsProbeFailureOutput(h.Output) {
+		reason := lastErrorReason(h.Output)
+		if finishErrorEntryEnabled() {
+			reason = lastErrorReason(h.Output, historyCommand(h))
+		}
+		reasons = append(reasons, reason)
 		if !ActionableRefusalsEnabled() {
 			return finishDecision{reasons: reasons}
 		}
@@ -471,10 +476,13 @@ func (e *Engine) decideFinish(ctx context.Context, run *Run, args FinishArgs, ev
 
 // lastErrorReason states the agent's own failing command with the
 // evidence the model needs: the exit code and the last output lines.
-func lastErrorReason(out string) string {
+func lastErrorReason(out string, command ...string) string {
 	detail := "tool error"
 	if code, ok := exitCodeOfOutput(out); ok {
 		detail = fmt.Sprintf("exit %d", code)
+	}
+	if len(command) > 0 && command[0] != "" {
+		detail += "; command: " + truncOneLine(command[0], 300)
 	}
 	return "your last command errored (" + detail + "; last output: " + lastOutputLines(out, 3, 300) +
 		"). Fix it and verify by executing before calling `finish` again."
@@ -495,6 +503,16 @@ var execExitRe = regexp.MustCompile(`(?m)^exit: (-?\d+)\b`)
 // lastOutputLines returns the last n non-empty lines of out, joined
 // with " | " and cut to max bytes.
 func lastOutputLines(out string, n, max int) string {
+	if finishErrorEntryEnabled() {
+		// Executor path suggestions and the engine clock footer are harness
+		// context, not the failing process's output.
+		if i := strings.Index(out, "\nhint: no such file or directory."); i >= 0 {
+			out = out[:i]
+		}
+		if i := strings.LastIndex(out, "\n[time:"); i >= 0 {
+			out = out[:i]
+		}
+	}
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {
 		if t := strings.TrimSpace(l); t != "" {
@@ -843,4 +861,32 @@ func (e *Engine) finishSafetyReason(run *Run) string {
 		return "safety stop: 200 turns without a configured budget"
 	}
 	return ""
+}
+
+// The arguments, output and status always come from one joined history entry.
+func lastNonFinishEntry(run *Run) (tasks.HistoryTool, bool) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	history := historyTools(run.History)
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Name != FinishToolName {
+			return history[i], true
+		}
+	}
+	return tasks.HistoryTool{}, false
+}
+
+func historyCommand(h tasks.HistoryTool) string {
+	var a struct {
+		Command string `json:"command"`
+	}
+	if h.Name == "exec" {
+		_ = json.Unmarshal([]byte(h.Args), &a)
+	}
+	return a.Command
+}
+
+func finishErrorEntryEnabled() bool {
+	v, set := envSwitch("EXCALIBUR_FINISH_ERROR_ENTRY")
+	return !set || v
 }

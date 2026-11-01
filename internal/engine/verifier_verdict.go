@@ -52,7 +52,7 @@ func (e *Engine) verifierChat(ctx context.Context, run *Run, site, prompt, small
 		}
 		resp, meta, err = e.deps.Models.Chat(WithModelCallSite(ctx, callSite), types.RoleVerifier, providers.ChatRequest{Messages: []providers.Message{{Role: providers.RoleUser, Content: prompt}}, MaxTokens: budget})
 		run.mu.Lock()
-		run.Tracker.Observe(tasks.Usage{InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output), CostUSD: meta.CostUSD})
+		run.observeUsageLocked(tasks.Usage{InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output), CostUSD: meta.CostUSD})
 		run.mu.Unlock()
 		if !enabled {
 			return resp, meta, err

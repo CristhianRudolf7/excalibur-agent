@@ -154,6 +154,9 @@ func (t *ExecTool) Definition() Definition {
 	}
 }
 
+// backgroundYieldMs bounds the wait of background:true calls.
+const backgroundYieldMs = 3000
+
 func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Command    string   `json:"command"`
@@ -204,8 +207,12 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if yield == 0 {
 		yield = defaultYieldMs
 	}
-	if a.Background {
+	if a.Background && !BackgroundYieldEnabled() {
 		yield = minYieldMs
+	} else if a.Background {
+		// A short background command returns its output; a service that
+		// keeps running is reported after at most backgroundYieldMs.
+		yield = min(yield, backgroundYieldMs)
 	}
 	owner := a.Owner
 	if owner == "" {
@@ -228,7 +235,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		if a.Background && !a.TTY && DetachBackgroundEnabled() {
 			// Run-end services (W10): background sessions detach into
 			// their own session so they survive the agent's exit.
-			return t.sessions().StartDetached(owner, a.Command, a.Workdir, env)
+			return t.sessions().StartDetached(owner, a.Command, a.Workdir, env, yield)
 		}
 		return t.sessions().StartContext(waitCtx, owner, a.Command, a.Workdir, a.TTY, yield, env)
 	}

@@ -243,3 +243,18 @@ func BuildDecider(settings models.ModelSettings, gw models.ChatCaller) models.De
 	}
 	return models.NewLLMDecider(gw, settings.DecisionsModel)
 }
+
+// runCredentialValues resolves the same settings as the provider so literal-only
+// output redaction also protects keys from environment, config and operator files.
+func runCredentialValues(ctx context.Context, settings models.ModelSettings, v *vault.Vault, runID string) [][]byte {
+	def := settings.ProviderDef()
+	resolve := VaultSecretResolver(v, runID)
+	var values [][]byte
+	if key, _, err := registry.ResolveKey(ctx, def, resolve); err == nil && key != "" {
+		values = append(values, []byte(key))
+	}
+	if key, _, err := registry.ResolveFallbackKey(ctx, def, resolve); err == nil && key != "" {
+		values = append(values, []byte(key))
+	}
+	return values
+}

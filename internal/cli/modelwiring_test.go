@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
@@ -178,5 +180,17 @@ func TestBuildDeciderDegrades(t *testing.T) {
 func TestVaultSecretResolverNil(t *testing.T) {
 	if VaultSecretResolver(nil, "run-1") != nil {
 		t.Fatal("nil vault must yield a nil hook")
+	}
+}
+
+func TestRunCredentialsProtectProviderValuesInEval(t *testing.T) {
+	t.Setenv("EXCALIBUR_API_KEY", "unit-provider-credential-value")
+	t.Setenv("EXCALIBUR_REDACT_PATTERNS_AUTONOMOUS", "off")
+	settings := models.ModelSettings{Provider: "openai"}
+	values := runCredentialValues(context.Background(), settings, nil, "test-run")
+	redact := wireengine.ProfileRedactor(nil, true, values)
+	got := redact("unit-provider-credential-value AKIAABCDEFGHIJKLMNOP")
+	if strings.Contains(got, "unit-provider-credential-value") || !strings.Contains(got, "AKIAABCDEFGHIJKLMNOP") {
+		t.Fatal("eval must hide provider credentials and preserve workspace candidates")
 	}
 }

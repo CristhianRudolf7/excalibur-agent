@@ -480,3 +480,57 @@ func TestFinishGuardUsesArgumentsAndBoundedWindow(t *testing.T) {
 		t.Fatal(note)
 	}
 }
+
+func TestCostPrimarySpendDoesNotPausePricedInput(t *testing.T) {
+	t.Setenv("EXCALIBUR_COST_PRIMARY_SPEND", "on")
+	t.Setenv(InputTokenCapSwitch, "1000")
+	e, run, _, _ := meteredRun(t, tasks.Limit{MaxCostUSD: 100}, 6, 0.01, 600)
+	if err := e.Run(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	mustState(t, run, types.RunCompleted)
+	if countContaining(run.VolatileNotes(), "budget exhausted: input_tokens") != 0 {
+		t.Fatal(run.VolatileNotes())
+	}
+}
+
+func TestInputTokenFallbackForUnknownCostAndUnavailableCap(t *testing.T) {
+	t.Setenv("EXCALIBUR_COST_PRIMARY_SPEND", "on")
+	for _, tc := range []struct {
+		name      string
+		cost, cap float64
+		unpriced  bool
+		want      int
+	}{
+		{"priced", 1, 100, false, 0},
+		{"unknown", 0, 100, false, 2},
+		{"partially priced", 1, 100, true, 2},
+		{"no cap", 1, 0, false, 2},
+		{"over cost cap", 130, 100, false, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRun("r", "t", Profile{TimeBudgetOnly: true})
+			r.inputTokenCap = 1000
+			r.Tracker.Limit.MaxCostUSD = tc.cap
+			r.observeUsageLocked(tasks.Usage{InputTokens: 1500, CostUSD: tc.cost})
+			if tc.unpriced {
+				r.observeUsageLocked(tasks.Usage{InputTokens: 1})
+			}
+			if got, _ := r.spendLevel(); got != tc.want {
+				t.Fatalf("level=%d want=%d", got, tc.want)
+			}
+		})
+	}
+	t.Setenv("EXCALIBUR_COST_PRIMARY_SPEND", "off")
+	r := NewRun("r", "t", Profile{TimeBudgetOnly: true})
+	r.inputTokenCap = 1000
+	r.Tracker.Limit.MaxCostUSD = 100
+	r.observeUsageLocked(tasks.Usage{InputTokens: 1500, CostUSD: 1})
+	if level, _ := r.spendLevel(); level != 2 {
+		t.Fatal("off must restore independent caps")
+	}
+	t.Setenv(InputTokenCapSwitch, "")
+	if InputTokenCap() != 30_000_000 {
+		t.Fatal("default input cap must be 30 million")
+	}
+}

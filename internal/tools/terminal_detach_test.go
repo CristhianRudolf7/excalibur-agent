@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"net"
 	"net/http"
 	"os"
@@ -74,7 +75,7 @@ func TestExecBackgroundUsesDetached(t *testing.T) {
 	t.Setenv(DetachBackgroundSwitch, "on")
 	m := NewSessionManager(TerminalDeps{})
 	tool := &ExecTool{Sessions: m}
-	raw, _ := json.Marshal(map[string]any{"command": "echo bg-hello; sleep 5", "background": true})
+	raw, _ := json.Marshal(map[string]any{"command": "echo bg-hello; sleep 5", "background": true, "yield_ms": 20})
 	res, _ := tool.Invoke(context.Background(), Invocation{Arguments: raw})
 	if res.Status != StatusOK {
 		t.Fatalf("background exec: %+v", res)
@@ -169,4 +170,56 @@ func TestDetachedSurvivesParentExit(t *testing.T) {
 	// Best effort: pkill the exact server command.
 	_ = exec.Command("pkill", "-f", fmt.Sprintf("http.server %d", port)).Run()
 	time.Sleep(300 * time.Millisecond)
+}
+
+func TestQuickBackgroundReturnsCompletedOutput(t *testing.T) {
+	t.Setenv("EXCALIBUR_BACKGROUND_YIELD", "on")
+	for _, code := range []int{0, 7} {
+		m := NewSessionManager(TerminalDeps{})
+		tool := &ExecTool{Sessions: m}
+		raw, _ := json.Marshal(map[string]any{"command": fmt.Sprintf("sleep 0.35; printf 'quick output\\n'; exit %d", code), "background": true, "yield_ms": 1000})
+		res, err := tool.Invoke(context.Background(), Invocation{Arguments: raw})
+		if err != nil || !strings.Contains(res.Output, "quick output") || !strings.Contains(res.Output, fmt.Sprintf("exit: %d", code)) || !strings.Contains(res.Output, "alive: false") || strings.Contains(res.Output, "detached service") {
+			t.Fatalf("completed background: %+v %v", res, err)
+		}
+		if res.ExitCode == nil || *res.ExitCode != code {
+			t.Fatalf("exit status: %+v", res)
+		}
+	}
+}
+
+func TestQuickBackgroundDrainsLargeLog(t *testing.T) {
+	t.Setenv("EXCALIBUR_BACKGROUND_YIELD", "on")
+	m := NewSessionManager(TerminalDeps{})
+	s, out, alive := m.StartDetached("test", "head -c 32768 /dev/zero | tr '\\0' x", "", nil, 1000)
+	if alive || s.Detached || out != strings.Repeat("x", 32768) {
+		t.Fatalf("incomplete output: alive=%v detached=%v bytes=%d", alive, s.Detached, len(out))
+	}
+	if code, done := s.Exit(); !done || code != 0 {
+		t.Fatalf("exit: %d %v", code, done)
+	}
+}
+
+func TestBackgroundCompletionWithConcurrentSessionSnapshots(t *testing.T) {
+	m := NewSessionManager(TerminalDeps{})
+	stop, done := make(chan struct{}), make(chan struct{})
+	safego.Go("test/session-snapshots", nil, func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(time.Millisecond):
+			}
+			_ = m.Surviving()
+			_ = m.ServiceSessions()
+		}
+	})
+	defer func() { close(stop); <-done }()
+	for i := 0; i < 5; i++ {
+		_, out, alive := m.StartDetached("test", "sleep 0.02; echo complete", "", nil, 1000)
+		if alive || !strings.Contains(out, "complete") {
+			t.Fatalf("completion: %q %v", out, alive)
+		}
+	}
 }

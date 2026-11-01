@@ -565,9 +565,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
 		RunID: string(run.RunID), Project: opts.ProjectDir, Vault: opts.Vault,
-		Delegated: profile == ProfileDelegate,
-		Skills:    skillsIndex,
-		Workdir:   opts.ProjectDir,
+		Delegated:    profile == ProfileDelegate,
+		Autonomous:   true, // This entry point runs non-interactive exec/delegate/eval work.
+		KnownSecrets: runCredentialValues(ctx, settings, opts.Vault, string(run.RunID)),
+		Skills:       skillsIndex,
+		Workdir:      opts.ProjectDir,
 	})
 	if err != nil {
 		return "", providers.Usage{}, "", fmt.Errorf("cli: wire embedded catalog: %w", err)

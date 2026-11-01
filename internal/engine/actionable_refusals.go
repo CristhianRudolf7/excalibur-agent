@@ -118,6 +118,24 @@ func (e *Engine) refusalItems(run *Run, reasons []string) []RefusalItem {
 	artifacts := tasks.ExtractArtifactRequirements(request, e.artifactConfig().MaxArtifacts)
 	var items []RefusalItem
 	for _, reason := range reasons {
+		if finishErrorEntryEnabled() && (strings.Contains(reason, "last command errored") || strings.Contains(reason, "the last verification failed:")) {
+			check := ""
+			for i := len(history) - 1; i >= 0; i-- {
+				h := history[i]
+				failed, _ := execFailed(h)
+				if !h.IsError && !failed {
+					continue
+				}
+				if strings.Contains(reason, lastErrorReason(h.Output)) || strings.Contains(reason, lastErrorReason(h.Output, historyCommand(h))) || strings.Contains(reason, verificationEntryReason(h)) {
+					check = historyCommand(h)
+					break
+				}
+			}
+			// Error evidence is not a criterion keyword match. In particular,
+			// filenames in an error must not select an unrelated draft check.
+			items = append(items, RefusalItem{refusalID(reason), reason, check})
+			continue
+		}
 		matched := false
 		for _, a := range artifacts {
 			token := a.Path

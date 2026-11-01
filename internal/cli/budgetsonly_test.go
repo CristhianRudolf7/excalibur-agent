@@ -42,7 +42,7 @@ func TestEffectiveBudgetsEvalTimeOnly(t *testing.T) {
 		t.Fatalf("fallback wall = %d/%s, want 900/default", b.WallSecs, b.WallSource)
 	}
 	if !b.SpendCaps || b.InputTokenCap != engine.DefaultInputTokenCap {
-		t.Fatalf("spend caps = %v/%d, want on/8000000", b.SpendCaps, b.InputTokenCap)
+		t.Fatalf("spend caps = %v/%d, want on/30000000", b.SpendCaps, b.InputTokenCap)
 	}
 	if b.MaxSteps != engine.SafetyMaxSteps {
 		t.Fatalf("safety steps = %d, want %d", b.MaxSteps, engine.SafetyMaxSteps)

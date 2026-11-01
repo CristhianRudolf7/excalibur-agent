@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -44,7 +45,7 @@ const (
 	// DefaultCostCapUSD is the default per-trial spend cap.
 	DefaultCostCapUSD = 20.0
 	// DefaultInputTokenCap is the default per-run input-token cap.
-	DefaultInputTokenCap = 8_000_000
+	DefaultInputTokenCap = 30_000_000
 	// DefaultEvalWallSecs is the wall budget of a non-interactive run
 	// with neither an explicit --timeout nor EXCALIBUR_EVAL_WALL_SECS:
 	// the common agent timeout of terminal benchmarks, so the budget
@@ -245,7 +246,16 @@ func (r *Run) spendLevel() (level int, over []string) {
 		}
 	}
 	check("cost", r.Tracker.Used.CostUSD, r.Tracker.Limit.MaxCostUSD)
-	check("input_tokens", float64(r.Tracker.Used.InputTokens), float64(r.inputTokenCap))
+	// A finite, computable cost cap is the primary spend guard. The
+	// token cap is a fallback for unpriced usage or an unavailable cost cap.
+	primary, set := envSwitch("EXCALIBUR_COST_PRIMARY_SPEND")
+	cost := r.Tracker.Used.CostUSD
+	cap := r.Tracker.Limit.MaxCostUSD
+	priced := !r.unpricedUsage && cost > 0 && !math.IsInf(cost, 0) && !math.IsNaN(cost)
+	computable := cap > 0 && !math.IsInf(cap, 0) && !math.IsNaN(cap)
+	if (set && !primary) || !priced || !computable {
+		check("input_tokens", float64(r.Tracker.Used.InputTokens), float64(r.inputTokenCap))
+	}
 	return level, over
 }
 
@@ -271,4 +281,13 @@ func (r *Run) ClosingNotedForRecord() (closing, safety bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.timeOnlyClosingNoted, r.safetyCapNoted
+}
+
+// observeUsageLocked tracks missing prices across calls; a later priced call
+// cannot make earlier unpriced consumption known. The caller holds r.mu.
+func (r *Run) observeUsageLocked(usage tasks.Usage) {
+	if (usage.InputTokens > 0 || usage.OutputTokens > 0) && (usage.CostUSD <= 0 || math.IsNaN(usage.CostUSD) || math.IsInf(usage.CostUSD, 0)) {
+		r.unpricedUsage = true
+	}
+	r.Tracker.Observe(usage)
 }

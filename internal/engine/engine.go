@@ -369,6 +369,9 @@ type Run struct {
 	spendNoted bool
 	// inputTokenCap is the per-run input-token cap (time-only runs).
 	inputTokenCap int64
+	unpricedUsage bool
+	rechecks      recheckGuard
+
 	// exact is the exact-call guard (loop guard v2). Guarded by mu.
 	exact *tasks.ExactCallGuard
 }
@@ -1016,7 +1019,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		}
 	}
 	run.mu.Lock()
-	run.Tracker.Observe(tasks.Usage{
+	run.observeUsageLocked(tasks.Usage{
 		Steps: 1, InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output),
 		CostUSD: meta.CostUSD, Elapsed: elapsed, ToolCalls: len(resp.Message.ToolCalls),
 	})
@@ -1369,6 +1372,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		runCalls = append(runCalls, tc)
 		runIdx = append(runIdx, i)
 	}
+	beforeRecheck := run.recheckSnapshot()
 	results := make([]tools.Result, len(batch))
 	if len(runCalls) > 0 {
 		ran := e.runParallel(ctx, run, runCalls)
@@ -1389,6 +1393,8 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			run.scopeGuard.ObserveCall(batch[i].Name, string(batch[i].Arguments), r.Output, r.Status != tools.StatusOK || strings.Contains(r.Output, "AssertionError") || strings.Contains(r.Output, "FAIL"))
 		}
 	}
+	afterRecheck := run.recheckSnapshot()
+	unchanged := beforeRecheck != "" && beforeRecheck == afterRecheck
 	liveProgress := false
 	for i, tc := range batch {
 		res := results[i]
@@ -1411,6 +1417,9 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 				}
 			}
 			continue
+		}
+		if note := run.observeRecheck(res, unchanged); note != "" {
+			run.InjectNote(note)
 		}
 		if q.LoopGuardV2 {
 			if note := run.observeExact(tc, res); note != "" {
