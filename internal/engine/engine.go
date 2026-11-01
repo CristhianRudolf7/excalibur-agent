@@ -908,7 +908,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	}
 
 	run.SetWaitingModel(true)
-	resp, meta, err := e.deps.Models.Chat(ctx, run.Profile.Role, req)
+	resp, meta, err := e.deps.Models.Chat(WithModelCallSite(ctx, "engine.step"), run.Profile.Role, req)
 	run.SetWaitingModel(false)
 	if err != nil {
 		if ctx.Err() != nil && run.interruptedNow() {
@@ -923,6 +923,12 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			e.pauseDeadline(ctx, run)
 			return true, nil
+		}
+		if errors.Is(err, models.ErrProviderQuotaExhausted) {
+			if waitErr := e.Wait(ctx, run, types.WaitCapability); waitErr != nil {
+				return true, waitErr
+			}
+			return true, err
 		}
 		return true, e.fail(ctx, run, "model call: "+err.Error())
 	}

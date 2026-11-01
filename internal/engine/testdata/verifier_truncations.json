@@ -1,0 +1,16 @@
+[
+  {
+    "role": "verifier",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0,
+    "provider_error_class": "truncated"
+  },
+  {
+    "role": "verifier",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "reasoning_tokens": 0,
+    "provider_error_class": "truncated"
+  }
+]

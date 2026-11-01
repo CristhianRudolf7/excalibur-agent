@@ -144,7 +144,10 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 	def := tool.Definition()
 
 	repaired := RepairJSON(rawArgs)
-	normalized := NormalizeArgs(name, repaired, tune)
+	normalized, repairs := NormalizeSchemaArgs(repaired, def.InputSchema, tune.TolerantArgs)
+	normalized = NormalizeArgs(name, normalized, tune)
+	normalized, moreRepairs := NormalizeSchemaArgs(normalized, def.InputSchema, tune.TolerantArgs)
+	repairs = append(repairs, moreRepairs...)
 	if err := ValidateAgainstSchema(normalized, def.InputSchema); err != nil {
 		out := "invalid arguments: " + err.Error() + schemaHint(def.InputSchema)
 		if tune.ActionableErrors {
@@ -222,6 +225,9 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 		}
 	}
 
+	if len(repairs) > 0 {
+		res.Output = "argument normalization: " + strings.Join(repairs, "; ") + "\n" + res.Output
+	}
 	res = e.normalize(res, def)
 
 	if e.Journal != nil {

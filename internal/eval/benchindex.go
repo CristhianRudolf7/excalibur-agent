@@ -181,6 +181,9 @@ func classifyException(msg string) string {
 // not complete is a harness_error (or the matching Appendix F
 // category). Exit 137 is the container OOM kill signature.
 func classifyHarnessFailure(fin harnessFinal) string {
+	if fin.Reason == FailProviderQuota {
+		return FailProviderQuota
+	}
 	switch fin.State {
 	case "completed":
 		return FailVerifier

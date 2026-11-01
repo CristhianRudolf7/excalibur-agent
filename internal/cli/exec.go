@@ -673,6 +673,9 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 			metrics.ObserveModel(types.RoleExecutor, model, usage, telemetry.PriceTable{}, 0)
 		}
 		if err != nil {
+			if errors.Is(err, models.ErrProviderQuotaExhausted) {
+				return finalize(types.RunWaiting, "provider_quota_exhausted", "provider_quota_exhausted: all configured API credentials have exhausted their quota; restore credits and restart the process", "")
+			}
 			var q *NeedInputError
 			if errors.As(err, &q) {
 				return finalize(types.RunWaiting, "user", "waiting for user input", q.Question)

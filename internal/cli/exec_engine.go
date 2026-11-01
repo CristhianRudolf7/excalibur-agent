@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -386,6 +387,9 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		}
 		if perr != nil {
 			providerErr = string(perr.Kind)
+			if errors.Is(err, models.ErrProviderQuotaExhausted) {
+				providerErr = "provider_quota_exhausted"
+			}
 		} else {
 			providerErr = "unknown"
 		}
@@ -394,7 +398,19 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 	if effort == "" {
 		effort = m.settings.ReasoningEffort
 	}
+	// The current adapter contract has no raw finish reason. Record that
+	// absence explicitly; truncation is inferred only from its typed error.
+	finishReason := "unavailable"
+	if providerErr == string(providers.KindTruncated) {
+		finishReason = "length"
+	}
+	callSite := engine.ModelCallSite(ctx)
+	if callSite == "" {
+		callSite = "model." + string(role)
+	}
 	_ = m.run.Recorder.RecordModelCall(eval.ModelCall{
+		MaxOutputTokens: req.MaxTokens, VerifierVerdict: tasks.VerifierVerdictEnabled(),
+		CallSite: callSite, FinishReason: finishReason, FinishReasonSource: "inferred_from_contract", UsageAvailable: resp.Usage != (providers.Usage{}),
 		Seq: m.run.modelSeq, Role: string(role), Model: model, Effort: effort,
 		LayerHashes: layerHashes, LayerSizes: layerSizes,
 		InputTokens: resp.Usage.Input, CacheRead: resp.Usage.CacheRead, CacheWrite: resp.Usage.CacheWrite,

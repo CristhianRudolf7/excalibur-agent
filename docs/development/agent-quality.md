@@ -3367,3 +3367,301 @@ Windows `go build -p 2 ./...`, `git diff --check` and the no-bare-go check.
 Heavy commands ran with `nice -n 19`. The final race log is
 `/tmp/integrate-w13-race-pass.log`; earlier sweeps exposed the reconciled CLI
 expectation and fixture setup deadlines described above.
+## W16: exhausted provider credentials
+
+The Section 19.5 model-layer observer permanently quarantines credentials on
+explicit insufficient-quota, billing or credit exhaustion (including HTTP 402).
+A transient 429 remains retryable. If the alternating fallback is exhausted,
+the same gateway attempt returns to the working primary; later attempts and
+new provider instances skip the quarantined key. Quarantine lasts until
+process exit, is concurrency safe, and logs a fixed warning once per key.
+Neither keys nor error bodies are logged. Streaming can recover before any
+output but never replays emitted content. Decision 0066 records the policy.
+
+Switch: `EXCALIBUR_EXHAUSTED_KEYS` defaults ON; `0` restores W13 alternation.
+The parent `EXCALIBUR_BUDGET_RETRIES=0` bypasses the observer entirely and
+restores legacy bounded retries. All-key exhaustion returns an infrastructure
+error: the engine waits on capability availability, `final.json` records
+`state=waiting`, `reason=provider_quota_exhausted`, and model-call records and
+evaluation indexing retain the same error category rather than `failed/work`.
+
+Backend tests: `TestExhaustedCredentialRecovery` covers fallback exhaustion,
+primary exhaustion, all-key exhaustion, code-only errors, process persistence
+across provider construction, and the switch-off comparison using httptest.
+`TestQuotaStreamQuarantine` covers payment errors and subsequent streaming
+calls skipping the key. `TestPermanentQuotaMarkers` separates permanent credit
+failures from transient quota windows. `TestExecQuotaExhaustionIsInfrastructure`
+checks the complete exec path and final/model-call records;
+`TestQuotaInfrastructureCategory` checks evaluation classification.
+
+Research sources consulted: [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering),
+[Meta-Harness](https://arxiv.org/abs/2603.28052),
+[Agentic Harness Engineering](https://arxiv.org/abs/2604.25850),
+[Terminus 2](https://harborframework.com/docs/agents/terminus-2), and
+[mini-swe-agent retry utility](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/models/utils/retry.py).
+These provide context on runtime state, observability and retry exclusions;
+the director's specified credential policy determines this change. No prompts,
+skills or stopping criteria were changed. No benchmark task contents, tests or
+solutions were read, and no benchmark runs were launched.
+
+Live verification used two original tasks with `gpt-6-luna`, low effort, and the
+operator credentials file: create an exact text file and repair a Python
+multiplication function with assertions for zero, positive and negative inputs.
+A local proxy injected an initial primary rate limit and a permanent quota
+error for a synthetic fallback credential, then forwarded primary requests to
+the real model. Both runs exited 0 and independent artifact checks passed.
+The first made 12 primary requests, the second 10; each contacted the exhausted
+fallback exactly once, logged exactly one quarantine warning, and recorded one
+retry wait. Records: `/tmp/w16-live-ny55qzdb/logs1/excalibur/` and
+`/tmp/w16-live-ny55qzdb/logs2/excalibur/`. No real fallback key was sent upstream
+by these smoke checks. `TestCredentialQuarantineLogsOnce` additionally verifies
+concurrent quarantine produces a single warning without exposing credentials.
+
+Full verification also exercised W13's deadline boundary under load. The engine
+now pauses on an expired wall-clock deadline both between steps and during a
+model wait. `TestExpiredDeadlinePausesRunningEngine` covers the former directly;
+the exec overload-expiration test covers the latter with an isolated temporary
+project and a five-second budget so setup cannot consume its old one-second
+window before the first model request.
+
+Verification on the final code: empty `gofmt -l .`; `go vet -p 2 ./...`;
+`staticcheck ./...`; Darwin and Windows `go build -p 2 ./...`; and the
+no-bare-goroutine check all passed. The full `go test -race -p 2 ./...` run
+passed every package except `internal/store`: `TestPowerCutBlobInvariant`
+reported zero storm rows before its fixed 1.5-second child kill. Its isolated
+rerun without an extra CPU cap failed with the same result. Storage and its
+test dependencies are unchanged by W16. Consequently the repository-wide
+race quality gate is not yet green. Final check logs are
+`/tmp/w16-final-*.log`; the isolated failure is
+`/tmp/w16-store-isolated.log`. All W16 tests, the complete CLI/engine/models
+test packages, and both live task checks passed. No storage change was made
+outside this workstream's scope.
+
+W16 iteration 2 verification: the unchanged implementation passed the complete
+`nice -n 19 go test -race -p 2 ./...` suite, including the storage crash test.
+The earlier storage timing failure did not recur. Formatting,
+`go vet -p 2 ./...`, `staticcheck ./...`, Darwin and Windows cross builds,
+and the no-bare-goroutine check also passed again. Full race output is recorded
+in `/tmp/w16-iteration2-race.log`. No storage changes were needed.
+
+### W16 integration
+
+Merged `w16-exhausted-key` into `agent-quality`. The existing credential retry
+counter, HTTP 5xx status enrichment, registered-provider handling and bounded
+deadline persistence remain intact. Quota quarantine and infrastructure wait
+reporting compose with those mechanisms. Shared core interfaces, connector
+code, model wire contracts, servers and Harbor invocation are unchanged.
+Decision 0066 records quarantine; the duplicate W13 decision is consolidated
+into existing decision 0065.
+
+The source branch's status was available at
+`/home/cristhian/excalibur-imp/status/w16-exhausted-key.status`, rather than the
+specified orchestrator status directory. Its final iteration reports all gates
+passing after an earlier storage startup timing failure. Integration likewise
+passed the full low-priority `go test -race -p 2 ./...`, including storage,
+plus empty `gofmt -l .`, vet, staticcheck, Darwin/Windows cross builds,
+`git diff --check` and the no-bare-goroutine check. The final deadline helper
+also passed a separate engine race run. Logs are `/tmp/w16-race.log` and
+`/tmp/w16-engine-final.log`. No W16 feature was dropped; process-lifetime
+quarantine and restart after restoring credits are deliberate policy limits.
+
+Two integrated-binary live checks passed with `gpt-6-luna`, low effort:
+an exact text file and a repaired Python multiplication function. Independent
+artifact assertions passed and both exec processes exited zero. A local proxy
+injected one transient primary rate limit and permanent exhaustion for a
+synthetic fallback; each run contacted that fallback exactly once and logged
+one quarantine warning. Model-call records show one and two retry waits,
+respectively (the latter includes an upstream wait). Records remain outside
+the repository at `/tmp/w16-live-b9ebwoxj/logs1/excalibur/` and
+`logs2/excalibur/`; aggregate results are
+`/tmp/w16-integrated-live.jsonl`. No Terminal-Bench run was launched.
+## W17: nested arguments and accidental self-kill protection
+
+The executor decodes JSON strings only where the tool schema expects an object
+or array, traverses declared object properties and array items, and clamps
+numbers to declared inclusive bounds. Notes name each repaired field and its
+conversion or old/new numeric value. Existing aliases receive a second schema
+normalization pass. Malformed nested JSON, wrong types, missing action fields,
+and non-schema constraints still produce ordinary validation errors.
+`EXCALIBUR_TOOL_TOLERANT_ARGS=0` disables these repairs (default on).
+
+`EXCALIBUR_SELF_KILL_GUARD=0` disables both terminal signal checks and the Linux
+exec argv transfer (default on). Normal, PTY and detached terminal launches
+check literal `kill`, `pkill`, and `killall` calls, including absolute paths,
+common command wrappers and nested literal shell strings. Signals matching the
+harness, its parent or members of their process groups are refused. Unsupported
+selectors and dynamic signal operands are refused with guidance to use explicit
+PIDs outside those groups. Ordinary unrelated cleanup remains available.
+Linux exec replaces its own process image once, preserving PID and exit status,
+with a placeholder positional request; an environment transfer supplies the
+original request and is cleared before tool execution.
+
+This prevents accidental signals through the inspected utilities; it is not a
+sandbox for arbitrary programs or dynamically generated scripts. Process
+selection is a preflight snapshot and cannot eliminate every process race.
+See decision 0067 for the conservative selector policy.
+
+Backend coverage: `TestNestedSchemaNormalization` covers object/array decoding,
+recursive arrays/properties, high and low numeric bounds, wrong container types,
+malformed strings and switch-off behavior. `TestPipelineNormalizationNotes`
+checks actual invocation and journaled result notes. `TestSignalSelectors`
+reproduces task-text pattern matching, parent matches, numeric PID/group targets,
+broadcasts and unrelated cleanup. `TestGuardSignals` checks live process
+inspection and wrappers. `TestSessionRefusesSelfKill` verifies normal and detached
+launches refuse an actual self PID without executing it.
+
+Research consulted before implementation:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering): concrete tool feedback and traceable runtime behavior.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052): deterministic context and harness behavior affect model effectiveness.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850): component and decision observability support auditable changes.
+- [Terminus 2 implementation](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py): structured command parsing and terminal observation boundaries.
+- [mini-SWE-agent implementation](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py): bounded format-error handling and explicit termination signals.
+
+These sources inform implementation boundaries only; this change adds no new
+planning, stopping, or verification policy. Evaluation records remain standard
+audit evidence under Section 23.2 and Appendix F.
+
+Live smoke evidence (2026-11-01, operator credentials, `gpt-6-luna`, effort
+`low`; temporary projects only, no benchmark runs):
+
+- `/tmp/w17-live/d/records/excalibur/tool_calls.jsonl`, sequence 1: the
+  requested `kill -TERM $PPID` was refused before launch; subsequent shell
+  script execution printed `hello-w17`. The finish was accepted, but the
+  existing final-state issue reported `running` / exit 1. This is mechanism
+  evidence, not a claim of successful final-state reporting.
+- `/tmp/w17-live/e/records/excalibur/tool_calls.jsonl`, sequence 1:
+  `call_tool` invoked `exec` with `yield_ms:60000`; the result contains
+  `argument normalization: $.yield_ms: clamped 60000 to 30000` and
+  `nested-ok`. The run later reached its 90-second timeout after unrelated
+  completion-gate demands. The repair was exercised six times in this record.
+- `/tmp/w17-live/argv-observation.json`: while the second run was active,
+  `/proc/<pid>/cmdline` contained `[request transferred]` and no instruction
+  text. `TestReexecRemovesInstruction` additionally verifies PID preservation.
+
+A direct-exec smoke (`/tmp/w17-live/c`) chose `yield_ms:6000` despite the
+request, so it did not exercise clamping. An earlier startup attempt used a
+previous binary while the build was still in progress and is excluded from
+current-version evidence. A default-profile follow-up (`/tmp/w17-live/b`)
+completed with exit 0 after a guarded signal refusal and a Python assertion.
+No task answers or benchmark contents were inspected. Nested string repairs
+are covered by deterministic pipeline tests, including the recorded
+`call_tool.arguments`, `task_db.ops`, and `subagent.card` shapes.
+
+`TestKillallLongAndPathNames` covers Linux process-name truncation and
+conservative refusal of executable-path selectors. The normal, PTY and detached
+session paths all run the same preflight before launching a process.
+
+Final verification (2026-11-01): `gofmt -l .` produced no output;
+`go vet -p 2 ./...`, `staticcheck ./...`, `go test -p 1 ./... -race`,
+`GOOS=darwin go build -p 2 ./...`, `GOOS=windows go build -p 2 ./...`,
+and `scripts/check-no-bare-go.sh` all passed. Heavy checks ran with
+`nice -n 19` and `GOMAXPROCS=2`. Logs are in `/tmp/w17-verification/`.
+The initial parallel race run hit the existing five-second deadline in
+`TestWiringReviewLoopRuns`; its isolated rerun and the complete serial race
+rerun both passed. No daemon code or test deadlines were changed.
+## W17: Verifier verdict recovery and behavioural evidence
+
+`EXCALIBUR_VERIFIER_VERDICT` defaults to on; `off`, `false`, or `0` restores
+legacy verdict handling and metadata evidence recognition. With the switch
+on, refinement, independent verification, and requirement review use an 8192
+token output budget and compact structured replies. Truncation or a missing
+verdict permits one retry with reduced context. Missing independent verdicts
+remain unverified through the existing finish-attempt limit. Refinement and
+requirement review keep their conservative fallbacks. Each engine call carries
+its site (`engine.step`, `verifier.refine`, `verifier.strong`, or
+`verifier.requirement_review`); recovery adds `.retry`.
+
+Existence and size probes alone cannot satisfy behavioural evidence, including
+program output, service responses, conversions and numeric thresholds. The
+deterministic filter avoids interpreting filenames such as `check.py` as
+executed validation. The verifier also receives this rule for semantic review.
+The rule does not reject an instruction that only asks for a file to exist.
+Mixed commands remain subject to the independent verdict.
+
+Backend coverage: `internal/engine/verifier_verdict_test.go` replays sanitized
+zero-token truncation metadata from two verifier records in the read-only
+v9-default run dated 2026-11-01 (the older tb21-full run contains only executor
+calls). Tests cover successful retry, exhausted retry, absent and partial
+verdicts, larger budgets, reduced prompts, call sites, and cancellation.
+`internal/tasks/verifier_verdict_test.go` covers metadata-only probes, mixed
+behavioural commands, draft-free requirements, contradictory verdicts, and
+ablation. Legacy permissive-path tests explicitly disable the switch.
+Decision 0068 explains the raw provider telemetry limitation: error-path usage
+is retained when available, but discarded usage and raw finish reasons remain
+unavailable through the protected connector contracts.
+
+Research consulted before implementation:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering): self-verification and trace inspection support explicit stopping checks.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052): environment context and harness behaviour affect outcomes, particularly for weaker models; no automatic harness evolution is implemented here.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850): observability supports attributable, auditable changes.
+- [Terminus 2 source](https://github.com/harbor-framework/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py): explicit completion handling and output-length recovery are separate concerns.
+- [mini-swe-agent configuration](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/config/default.yaml): executable reproduction, edge-case checks and explicit submission; truncation receives specific format-recovery guidance.
+
+These sources inform the implementation of the director's specified design;
+no benchmark task contents, tests or solutions were consulted or incorporated.
+
+Live checks (2026-11-01): two temporary repositories used `excalibur exec
+--profile eval` with operator credentials, `gpt-6-luna`, effort `low`.
+Both completed with exit 0. `hello.py` printed the requested literal and
+`sum.py` passed exact stdout assertions for empty input, negative values and
+multiple integers. Separate post-run executions confirmed all four outputs.
+Records remain outside the repository under `/tmp/w17-live/`.
+
+| Task | Model calls | Verifier calls | Observed mechanism |
+|---|---:|---:|---|
+| Literal stdout | 9 | 4 | `verifier.refine` and `verifier.strong` site tags; no provider errors |
+| Integer CLI | 14 | 5 | Site tags, `verifier_verdict: true`, and `max_output_tokens: 8192` on every verifier call; no provider errors |
+
+The first binary preceded the addition of explicit switch/budget audit fields;
+both runs exercised the verdict gate. Live calls produced verdicts without
+needing recovery; deterministic truncation fixtures cover recovery itself.
+The recording-layer test in `internal/cli/verifier_records_test.go` verifies
+that error records preserve returned usage, distinguish unavailable usage,
+and retain call sites and inferred truncation finish reasons.
+
+Final verification: formatting, `go vet -p 2 ./...`, standard
+`staticcheck ./...`, `go test -race -p 1 ./...`, the bare-goroutine check,
+and both Darwin and Windows builds passed. A prior parallel race run hit
+the unchanged daemon review-loop test's five-second migration deadline under
+shared-machine load; the complete serial rerun passed without changes to
+that package. Regression coverage also confirms that daemon-owned verifier
+verdicts remain owned by the daemon when no embedded model is configured.
+
+### W17 integration
+
+Merged `w17-args-and-selfkill` and `w17-verifier-verdicts`, in that order,
+into `agent-quality`. Documentation conflicts retain every prior wave and
+both W17 sections. The model-call record conflict retains retry counts and
+wait durations alongside the new verifier call-site, budget, switch and usage
+fields. Decisions are uniquely numbered 0067 (arguments/self-signals) and
+0068 (verdicts); existing decisions 0065 and 0066 remain unchanged. Shared
+interfaces and protected connectors are unchanged. The shell parser dependency
+is pinned and its BSD-3-Clause license is recorded.
+
+Two original temporary terminal tasks passed against the integrated binary
+with `gpt-6-luna`, low effort, and operator credentials. Both exited zero and
+independent post-run assertions passed: exact shell-script stdout and integer
+CLI sums for empty, positive and negative inputs. Each recorded five verifier
+calls with `verifier_verdict: true` and `max_output_tokens: 8192`. The first
+recorded refusal of `kill -TERM $PPID`; the second recorded a wrapped exec
+`yield_ms` repair from 60000 to 30000. That wrapped call omitted `workdir` and
+initially failed to find the script; subsequent execution recovered and the
+artifact passed. This is a working-directory follow-up, not evidence that
+normalization guarantees successful commands. Records are outside the
+repository at `/tmp/integrate-w17/live/{hello,sum}-logs/excalibur/`; aggregate
+results are `/tmp/integrate-w17/live-results.jsonl`. No benchmark was launched.
+
+Review limitations remain explicit: self-signal inspection is a snapshot-based
+accident guard, not a sandbox; discarded provider usage and exact raw finish
+reasons cannot be recovered without changing protected connectors. The
+embedded verifier reviews recorded evidence and requests additional executable
+checks from the executor; it does not itself reproduce checks as specified
+for the Section 8.7 verifier. Daemon ownership is preserved; no broader
+verifier redesign was introduced here.
+
+Integrated verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
+`staticcheck ./...`, complete `go test -race -p 1 ./...`, and Darwin/Windows
+`go build -p 2 ./...`. Heavy checks used `nice -n 19` and `GOMAXPROCS=2`.
+Logs are `/tmp/integrate-w17/{fmt,vet,static,race,darwin,windows}.log`.

@@ -57,20 +57,21 @@ func (t TrialOutcome) Passed() bool { return !t.Failed && t.Reward > 0 }
 
 // Failure categories of Appendix F.
 const (
-	FailVerifier = "verifier"
-	FailTimeout  = "timeout"
-	FailHarness  = "harness_error"
-	FailCrash    = "crash"
-	FailOOM      = "oom"
-	FailBudget   = "budget_exhausted"
-	FailBlocked  = "blocked"
-	FailUnknown  = "unknown"
+	FailVerifier      = "verifier"
+	FailTimeout       = "timeout"
+	FailHarness       = "harness_error"
+	FailCrash         = "crash"
+	FailOOM           = "oom"
+	FailBudget        = "budget_exhausted"
+	FailBlocked       = "blocked"
+	FailUnknown       = "unknown"
+	FailProviderQuota = "provider_quota_exhausted"
 )
 
 // Category normalizes a raw category string.
 func Category(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case FailVerifier, FailTimeout, FailHarness, FailCrash, FailOOM, FailBudget, FailBlocked:
+	case FailVerifier, FailTimeout, FailHarness, FailCrash, FailOOM, FailBudget, FailBlocked, FailProviderQuota:
 		return strings.ToLower(strings.TrimSpace(s))
 	default:
 		return FailUnknown

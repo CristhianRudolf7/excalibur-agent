@@ -146,7 +146,10 @@ func topUsage(cmds map[string]command) string {
 	return b.String()
 }
 
-func main() { os.Exit(run(os.Args[1:])) }
+func main() {
+	requestReexec = true
+	os.Exit(run(os.Args[1:]))
+}
 
 func run(argv []string) int {
 	if len(argv) > 0 && argv[0] == "__run-task" {

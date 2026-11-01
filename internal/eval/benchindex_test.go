@@ -305,3 +305,12 @@ func TestIndexTrialCategories(t *testing.T) {
 		})
 	}
 }
+
+func TestQuotaInfrastructureCategory(t *testing.T) {
+	if got := classifyHarnessFailure(harnessFinal{State: "waiting", Reason: FailProviderQuota}); got != FailProviderQuota {
+		t.Fatalf("category %q", got)
+	}
+	if Category(FailProviderQuota) != FailProviderQuota {
+		t.Fatal("quota category lost")
+	}
+}

@@ -66,7 +66,7 @@ func NewProvider(ctx context.Context, def registry.ProviderDef, resolve registry
 	if err != nil {
 		return nil, err
 	}
-	p := &observedProvider{primary: primary}
+	p := &observedProvider{primary: primary, primaryID: credentialID(def.BaseURL, key), fallbackID: credentialID(def.BaseURL, fallback)}
 	if fallback != "" && fallback != key {
 		p.fallback, err = build(fallback)
 		if err != nil {
@@ -81,13 +81,15 @@ type delayKey struct{}
 type responseDelay struct {
 	mu     sync.Mutex
 	delay  time.Duration
+	quota  bool
 	status int
 }
 type retryTransport struct{ base http.RoundTripper }
 
 func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := t.base.RoundTrip(req)
-	if err == nil && (resp.StatusCode == 429 || resp.StatusCode >= 500) {
+	if err == nil && resp.StatusCode >= 400 {
+		observeQuota(req.Context(), resp)
 		if state, ok := req.Context().Value(delayKey{}).(*responseDelay); ok {
 			state.mu.Lock()
 			state.delay = max(state.delay, serverDelay(resp.Header, time.Now()))
@@ -98,37 +100,91 @@ func (t retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return resp, err
 }
 
-type observedProvider struct{ primary, fallback providers.Provider }
+type observedProvider struct {
+	primary, fallback     providers.Provider
+	primaryID, fallbackID [32]byte
+}
 
 func (p *observedProvider) Name() string { return p.primary.Name() }
 func (p *observedProvider) Chat(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
-	state := &responseDelay{}
-	chosen := p.primary
-	if attempt, _ := ctx.Value(retryAttemptKey{}).(int); attempt > 0 && attempt%2 == 0 && p.fallback != nil {
-		chosen = p.fallback
+	if err := ctx.Err(); err != nil {
+		return providers.ChatResponse{}, err
 	}
-	resp, err := chosen.Chat(context.WithValue(ctx, delayKey{}, state), req)
-	var pe *providers.ProviderError
-	if errors.As(err, &pe) && pe.Retryable() {
-		copy := *pe
-		state.mu.Lock()
-		copy.RetryAfter = max(copy.RetryAfter, state.delay)
-		if state.status >= 500 && state.status <= 599 {
-			copy.Err = fmt.Errorf("http %d: %w", state.status, copy.Err)
+	attempt, _ := ctx.Value(retryAttemptKey{}).(int)
+	start := 0
+	if attempt > 0 && attempt%2 == 0 && p.fallback != nil {
+		start = 1
+	}
+	for n := 0; n < 2; n++ {
+		slot := (start + n) % 2
+		chosen, id := p.primary, p.primaryID
+		if slot == 1 {
+			chosen, id = p.fallback, p.fallbackID
 		}
+		if chosen == nil || credentialExhausted(id) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return providers.ChatResponse{}, err
+		}
+		state := &responseDelay{}
+		resp, err := chosen.Chat(context.WithValue(ctx, delayKey{}, state), req)
+		state.mu.Lock()
+		quota, delay, status := state.quota, state.delay, state.status
 		state.mu.Unlock()
-		return resp, &copy
+		if quota || quotaError(err) {
+			exhaustCredential(id)
+			continue
+		}
+		var pe *providers.ProviderError
+		if errors.As(err, &pe) && pe.Retryable() {
+			copy := *pe
+			copy.RetryAfter = max(copy.RetryAfter, delay)
+			if status >= 500 && status <= 599 {
+				copy.Err = fmt.Errorf("http %d: %w", status, copy.Err)
+			}
+			return resp, &copy
+		}
+		return resp, err
 	}
-	return resp, err
+	return providers.ChatResponse{}, quotaExhaustedError(p.Name())
 }
 func (p *observedProvider) Stream(ctx context.Context, req providers.ChatRequest, emit func(providers.StreamEvent) error) error {
-	emitted := false
-	err := p.primary.Stream(ctx, req, func(ev providers.StreamEvent) error { emitted = true; return emit(ev) })
-	var pe *providers.ProviderError
-	if !emitted && ctx.Err() == nil && p.fallback != nil && errors.As(err, &pe) && pe.Retryable() {
-		return p.fallback.Stream(ctx, req, emit)
+	var last error
+	for slot := 0; slot < 2; slot++ {
+		chosen, id := p.primary, p.primaryID
+		if slot == 1 {
+			chosen, id = p.fallback, p.fallbackID
+		}
+		if chosen == nil || credentialExhausted(id) {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		state := &responseDelay{}
+		emitted := false
+		err := chosen.Stream(context.WithValue(ctx, delayKey{}, state), req, func(ev providers.StreamEvent) error { emitted = true; return emit(ev) })
+		state.mu.Lock()
+		quota := state.quota
+		state.mu.Unlock()
+		if quota || quotaError(err) {
+			exhaustCredential(id)
+			if emitted {
+				return err
+			}
+			continue
+		}
+		var pe *providers.ProviderError
+		if emitted || err == nil || !errors.As(err, &pe) || !pe.Retryable() {
+			return err
+		}
+		last = err
 	}
-	return err
+	if last != nil {
+		return last
+	}
+	return quotaExhaustedError(p.Name())
 }
 func (p *observedProvider) Close() error {
 	err := p.primary.Close()

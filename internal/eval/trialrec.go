@@ -114,24 +114,29 @@ func (r *TrialRecorder) writeFile(name string, v any) error {
 // ModelCall is one JSONL line in model_calls.jsonl (Appendix F plus
 // failure-analysis fields).
 type ModelCall struct {
-	At               time.Time         `json:"at"`
-	Seq              int               `json:"seq"`
-	Role             string            `json:"role"`
-	Model            string            `json:"model"`
-	Effort           string            `json:"effort,omitempty"`
-	LayerHashes      map[string]string `json:"layer_hashes,omitempty"`
-	LayerSizes       map[string]int    `json:"layer_sizes,omitempty"`
-	InputTokens      int64             `json:"input_tokens"`
-	CacheRead        int64             `json:"cache_read"`
-	CacheWrite       int64             `json:"cache_write"`
-	OutputTokens     int64             `json:"output_tokens"`
-	ReasoningTok     int64             `json:"reasoning_tokens"`
-	LatencySecs      float64           `json:"latency_secs"`
-	FinishReason     string            `json:"finish_reason,omitempty"`
-	ProviderError    string            `json:"provider_error_class,omitempty"`
-	Retries          int               `json:"retries"`
-	RetryWaitCount   int               `json:"retry_wait_count"`
-	RetryWaitSeconds float64           `json:"retry_wait_seconds"`
+	MaxOutputTokens    int               `json:"max_output_tokens,omitempty"`
+	VerifierVerdict    bool              `json:"verifier_verdict"`
+	CallSite           string            `json:"call_site"`
+	UsageAvailable     bool              `json:"usage_available"`
+	FinishReasonSource string            `json:"finish_reason_source"`
+	At                 time.Time         `json:"at"`
+	Seq                int               `json:"seq"`
+	Role               string            `json:"role"`
+	Model              string            `json:"model"`
+	Effort             string            `json:"effort,omitempty"`
+	LayerHashes        map[string]string `json:"layer_hashes,omitempty"`
+	LayerSizes         map[string]int    `json:"layer_sizes,omitempty"`
+	InputTokens        int64             `json:"input_tokens"`
+	CacheRead          int64             `json:"cache_read"`
+	CacheWrite         int64             `json:"cache_write"`
+	OutputTokens       int64             `json:"output_tokens"`
+	ReasoningTok       int64             `json:"reasoning_tokens"`
+	LatencySecs        float64           `json:"latency_secs"`
+	FinishReason       string            `json:"finish_reason,omitempty"`
+	ProviderError      string            `json:"provider_error_class,omitempty"`
+	Retries            int               `json:"retries"`
+	RetryWaitCount     int               `json:"retry_wait_count"`
+	RetryWaitSeconds   float64           `json:"retry_wait_seconds"`
 	// Attempt tags the best-of-N attempt index that produced this
 	// call (Section 18.2 fan-out merge). Zero means the single-run
 	// path or a legacy row without a tag.

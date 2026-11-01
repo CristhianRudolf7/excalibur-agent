@@ -5,15 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers/registry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -190,4 +195,49 @@ func TestExecRateLimitsExpireWallBudget(t *testing.T) {
 		}
 	}
 	t.Fatal("deadline must persist a durable budget pause")
+}
+
+func TestExecQuotaExhaustionIsInfrastructure(t *testing.T) {
+	t.Setenv("EXCALIBUR_API_KEY", "")
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("EXCALIBUR_FALLBACK_API_KEY", "")
+	t.Setenv("EXCALIBUR_EXHAUSTED_KEYS", "1")
+	t.Setenv("EXCALIBUR_BUDGET_RETRIES", "1")
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(429)
+		fmt.Fprint(w, `{"error":{"code":"insufficient_quota","message":"You have no credits remaining"}}`)
+	}))
+	defer srv.Close()
+	p, err := models.NewProvider(context.Background(), registry.ProviderDef{Kind: "openai", APIKey: "primary", FallbackKey: "fallback", BaseURL: srv.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	logs := t.TempDir()
+	out, err := RunExec(context.Background(), ExecOptions{Request: "write hello.txt", LogsDir: logs, Profile: ProfileEval, Provider: p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.State != types.RunWaiting || out.Reason != "provider_quota_exhausted" {
+		t.Fatalf("outcome: %+v", out)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls: %d", calls.Load())
+	}
+	raw, err := os.ReadFile(filepath.Join(logs, "excalibur", "final.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"reason": "provider_quota_exhausted"`)) {
+		t.Fatalf("final: %s", raw)
+	}
+	raw, err = os.ReadFile(filepath.Join(logs, "excalibur", "model_calls.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"provider_error_class":"provider_quota_exhausted"`)) {
+		t.Fatalf("model record: %s", raw)
+	}
 }

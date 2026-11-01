@@ -258,6 +258,11 @@ func (m *SessionManager) nextSeq() uint64 {
 }
 
 func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
+	if err := guardSignals(cmd); err != nil {
+		s.appendOut([]byte(err.Error()))
+		s.markDone(err)
+		return
+	}
 	shell := DetectShell()
 	c := exec.Command(shell, "-c", cmd)
 	if dir != "" {
@@ -305,6 +310,11 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 }
 
 func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
+	if err := guardSignals(cmd); err != nil {
+		s.appendOut([]byte(err.Error()))
+		s.markDone(err)
+		return
+	}
 	shell := DetectShell()
 	c := exec.Command(shell, "-c", cmd)
 	if dir != "" {
@@ -384,6 +394,11 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*S
 }
 
 func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []string, logPath string) {
+	if err := guardSignals(cmd); err != nil {
+		s.appendOut([]byte(err.Error()))
+		s.markDone(err)
+		return
+	}
 	shell := DetectShell()
 	c := exec.Command(shell, "-c", cmd)
 	if dir != "" {

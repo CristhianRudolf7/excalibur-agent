@@ -12,9 +12,7 @@ import (
 	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
 // RefusalItem identifies missing evidence and one check to produce it.
@@ -285,14 +283,18 @@ func (e *Engine) reviewFalseRequirement(ctx context.Context, run *Run, item Refu
 	s.reviewed[item.ID] = true
 	run.mu.Unlock()
 	input, _ := json.Marshal(map[string]string{"instruction": request, "id": item.ID, "extracted_requirement": statement})
-	resp, meta, err := e.deps.Models.Chat(ctx, types.RoleVerifier, providers.ChatRequest{Messages: []providers.Message{{Role: providers.RoleUser, Content: "Review only whether this extracted requirement misinterprets the instruction. Missing evidence and repeated refusals are NEVER reasons to drop a real requirement. Keep ambiguous requirements. Return JSON {\"false_requirement\":bool,\"reason\":string,\"instruction_quote\":string}. To drop, quote the exact instruction text establishing that this is an input, example, optional item, or otherwise not required.\n" + string(input)}}, MaxTokens: 384})
+	prompt := "Review only whether this extracted requirement misinterprets the instruction. Missing evidence and repeated refusals are NEVER reasons to drop a real requirement. Keep ambiguous requirements. Return JSON {\"false_requirement\":bool,\"reason\":string,\"instruction_quote\":string}. To drop, quote the exact instruction text establishing that this is an input, example, optional item, or otherwise not required.\n" + string(input)
+	resp, _, err := e.verifierChat(ctx, run, "verifier.requirement_review", prompt, "Return only JSON {\"false_requirement\":bool,\"reason\":string,\"instruction_quote\":string}. Missing evidence is never grounds to drop a requirement. Keep ambiguous requirements. A false requirement needs an exact instruction quote establishing it is not required.\n"+string(input), 384, func(reply string) bool {
+		var verdict struct {
+			False  *bool  `json:"false_requirement"`
+			Reason string `json:"reason"`
+		}
+		return json.Unmarshal([]byte(reply), &verdict) == nil && verdict.False != nil && strings.TrimSpace(verdict.Reason) != ""
+	})
 	reason := "review unavailable; requirement retained"
 	drop := false
 	quote := ""
 	if err == nil {
-		run.mu.Lock()
-		run.Tracker.Observe(tasks.Usage{InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output), CostUSD: meta.CostUSD})
-		run.mu.Unlock()
 		var verdict struct {
 			False  bool   `json:"false_requirement"`
 			Reason string `json:"reason"`

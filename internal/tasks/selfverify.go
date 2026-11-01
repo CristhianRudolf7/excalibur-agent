@@ -768,6 +768,9 @@ func ApplySelfVerify(cfg SelfVerifyConfig, gate GateReport, in GateInput, req Se
 		drafts = ExtractDraftCriteria(req.Request, cfg.MaxDrafts)
 	}
 	out := gate
+	if cfg.EnableVerification {
+		out.Pendings = append(out.Pendings, BehaviouralEvidencePending(req.Request, req.History)...)
+	}
 	if cfg.EnableVerification && needsVerification(in, req, drafts) {
 		out.Pendings = append(out.Pendings, CheckFreshVerification(req.History, cfg.MinFreshChecks)...)
 		if cfg.EnableContrast && len(drafts) > 0 {

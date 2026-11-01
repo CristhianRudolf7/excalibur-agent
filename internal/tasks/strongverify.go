@@ -121,6 +121,9 @@ func IsExercisingCall(h HistoryTool) bool {
 	default:
 		return false
 	}
+	if VerifierVerdictEnabled() && ExistenceOnlyEvidence(h) {
+		return false
+	}
 	args := strings.ToLower(h.Args)
 	for _, m := range exerciseMarkers {
 		if strings.Contains(args, m) {
@@ -370,6 +373,9 @@ func StrongVerifierPrompt(small VerifierSmallContext, history []HistoryTool, fin
 // StrongVerifierPromptWithConfig uses the same run-level ablation as the gate.
 func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallContext, history []HistoryTool, finalText string) string {
 	var b strings.Builder
+	if VerifierVerdictEnabled() {
+		b.WriteString("Return a compact structured verdict using the line schema below. Keep each reason to one sentence; always include VERDICT: PASS or FAIL. For behavioural requirements (program output, service response, conversion correctness, numeric thresholds), test -s, ls, stat and wc alone are insufficient: ask the executor to exercise the behaviour and assert the result.\n")
+	}
 	b.WriteString("You are the independent verifier for a task just executed by another agent. ")
 	if cfg.EnableGeneralizeChecks {
 		b.WriteString("You review recorded tool calls and results; you cannot execute tools in this pass. Request missing checks from the executor. ")
@@ -448,9 +454,8 @@ type StrongVerdict struct {
 	// Pass is true when the verifier explicitly passed every draft
 	// it judged and the overall verdict is PASS.
 	Pass bool
-	// Explicit is false when no verdict line was found at all, so
-	// the caller falls back to the deterministic outcome instead
-	// of blocking on an unparseable reply.
+	// Explicit requires an overall verdict with verdict recovery enabled.
+	// The disabled legacy mode also accepts individual draft verdicts.
 	Explicit bool
 	// Reasons carries the failure reasons (and, on failure without
 	// a REASONS line, the failed draft lines).
@@ -469,9 +474,9 @@ var (
 
 // ParseStrongVerdict parses the independent-verifier reply
 // leniently: unparseable lines are skipped, and a reply with no
-// verdict or draft line at all parses as non-explicit (the caller
-// falls back to the deterministic outcome). Any FAIL draft or FAIL
-// verdict fails overall.
+// overall verdict parses as non-explicit with verdict recovery enabled.
+// The caller then retries or records unverified work. The disabled legacy
+// mode accepts draft verdicts too. Any FAIL draft or verdict fails overall.
 func ParseStrongVerdict(text string, drafts []DraftCriterion) StrongVerdict {
 	var out StrongVerdict
 	verdictFail := false
@@ -485,7 +490,7 @@ func ParseStrongVerdict(text string, drafts []DraftCriterion) StrongVerdict {
 		}
 		if m := strongVerdictRe.FindStringSubmatch(t); m != nil {
 			out.Explicit = true
-			verdictFail = strings.ToUpper(m[1]) != "PASS"
+			verdictFail = verdictFail || strings.ToUpper(m[1]) != "PASS"
 			inChecks = false
 			continue
 		}
@@ -499,7 +504,9 @@ func ParseStrongVerdict(text string, drafts []DraftCriterion) StrongVerdict {
 			continue
 		}
 		if m := strongDraftLineRe.FindStringSubmatch(t); m != nil {
-			out.Explicit = true
+			if !VerifierVerdictEnabled() {
+				out.Explicit = true
+			}
 			inChecks = false
 			if strings.ToUpper(m[2]) == "FAIL" {
 				out.FailedDrafts = append(out.FailedDrafts, strings.ToUpper(m[1]))

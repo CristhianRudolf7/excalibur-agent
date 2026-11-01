@@ -179,3 +179,10 @@ unchanged.
 Permissive license, no copyleft or commercial-use restriction; use
 reviewed against the project license policy before adoption. Pure
 Go, no cgo, so `GOOS=darwin`/`GOOS=windows` builds keep working.
+
+## W17 shell inspection
+
+`mvdan.cc/sh/v3 v3.12.0` (BSD-3-Clause, reviewed upstream
+[license](https://github.com/mvdan/sh/blob/v3.12.0/LICENSE)) supplies the
+shell syntax parser for the terminal self-kill guard. No shell interpreter
+or additional runtime executable is introduced.

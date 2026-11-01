@@ -23,9 +23,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
 // selfVerifyConfig resolves the effective switches: the driver
@@ -90,9 +88,9 @@ func historyTools(history []ctxcompiler.ActivityEvent) []tasks.HistoryTool {
 }
 
 // refineDrafts runs the single model refine pass over the
-// deterministic drafts through the verifier role: one cheap call,
-// once per run, with fallback to the deterministic drafts on any
-// error. It never sees executor reasoning — only the instruction
+// deterministic drafts through the verifier role, once per run, with
+// one bounded recovery call when verdict recovery is enabled. Errors
+// retain the deterministic drafts. It never sees executor reasoning — only the instruction
 // and the drafts.
 func (e *Engine) refineDrafts(ctx context.Context, run *Run, cfg tasks.SelfVerifyConfig, request string, drafts []tasks.DraftCriterion) []tasks.DraftCriterion {
 	if !cfg.EnableRefine || len(drafts) == 0 || strings.TrimSpace(request) == "" {
@@ -112,22 +110,11 @@ func (e *Engine) refineDrafts(ctx context.Context, run *Run, cfg tasks.SelfVerif
 		return drafts
 	}
 	prompt := tasks.RefinePrompt(request, drafts)
-	resp, meta, err := e.deps.Models.Chat(ctx, types.RoleVerifier, providers.ChatRequest{
-		Messages: []providers.Message{
-			{Role: providers.RoleUser, Content: prompt},
-		},
-		MaxTokens: 512,
-	})
+	resp, _, err := e.verifierChat(ctx, run, "verifier.refine", prompt, "Return compact criteria, one line per item: METHOD | statement | check command. Preserve all required items.\nInstruction:\n"+request, 512, func(reply string) bool { return len(tasks.ParseRefinedCriteria(reply, cfg.MaxDrafts)) > 0 })
 	if err != nil {
 		markRefined(run, drafts)
 		return drafts
 	}
-	run.mu.Lock()
-	run.Tracker.Observe(tasks.Usage{
-		InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output),
-		CostUSD: meta.CostUSD,
-	})
-	run.mu.Unlock()
 	if refined := tasks.ParseRefinedCriteria(resp.Message.Content, cfg.MaxDrafts); len(refined) > 0 {
 		markRefined(run, refined)
 		return refined
@@ -148,16 +135,14 @@ func markRefined(run *Run, drafts []tasks.DraftCriterion) {
 // lines, change diff, final answer excerpt — never executor
 // reasoning) goes to one cheap verifier-role call that writes its
 // own small checks and returns per-draft pass/fail with reasons. A
-// FAIL returns the agent to work with the reasons. With generalisation
-// checks enabled, missing coverage or a model error also returns to work;
-// disabling that extension restores the original permissive fallback. The daemon big-task path owns its Section 8.7 subagent
+// FAIL returns the agent to work with the reasons. Verdict recovery treats
+// missing replies as unverified; generalisation additionally checks coverage.
+// The legacy permissive fallback requires both extensions disabled.
+// The daemon big-task path owns its Section 8.7 subagent
 // spawn from the orchestrator, so this embedded equivalent stands
 // down when the gate input already requires that verdict.
 func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.SelfVerifyConfig, drafts []tasks.DraftCriterion, history []tasks.HistoryTool, finalText string) (bool, []string) {
 	if !cfg.EnableStrong || !cfg.EnableStrongVerifier {
-		return true, nil
-	}
-	if e.deps.Models == nil {
 		return true, nil
 	}
 	run.mu.Lock()
@@ -185,31 +170,48 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 			return true, nil
 		}
 	}
+	if e.deps.Models == nil {
+		if tasks.VerifierVerdictEnabled() {
+			return false, []string{"independent verifier unavailable; result is unverified"}
+		}
+		return true, nil
+	}
 	small := tasks.BuildVerifierContext(request, drafts, history, 20)
 	prompt := tasks.StrongVerifierPromptWithConfig(cfg, small, history, finalText)
 	maxTokens := 512
 	if cfg.EnableGeneralizeChecks {
 		maxTokens = 1536
 	}
-	resp, meta, err := e.deps.Models.Chat(ctx, types.RoleVerifier, providers.ChatRequest{
-		Messages: []providers.Message{
-			{Role: providers.RoleUser, Content: prompt},
-		},
-		MaxTokens: maxTokens,
-	})
+	// Retain literal instruction and item IDs, but omit final prose and reduce
+	// observations on recovery. Missing context must be judged as unverified.
+	compactHistory := append([]tasks.HistoryTool(nil), history...)
+	for i := range compactHistory {
+		if len(compactHistory[i].Args) > 400 {
+			compactHistory[i].Args = compactHistory[i].Args[:400]
+		}
+		if len(compactHistory[i].Output) > 400 {
+			compactHistory[i].Output = compactHistory[i].Output[:400]
+		}
+	}
+	smaller := tasks.StrongVerifierPromptWithConfig(cfg, tasks.BuildVerifierContext(request, drafts, compactHistory, 3), compactHistory, "")
+	if at := strings.Index(smaller, "instruction:\n"); at >= 0 {
+		shortRules := "Return the compact line schema below including VERDICT. Judge only executed evidence against the literal instruction. Missing checks FAIL. Metadata alone does not prove behaviour. Never assume hidden tests.\n"
+		if cfg.EnableGeneralizeChecks {
+			shortRules += "FRESH_INPUTS must cite generated inputs and an independent oracle; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
+		}
+		smaller = shortRules + smaller[at:]
+	}
+	resp, _, err := e.verifierChat(ctx, run, "verifier.strong", prompt, smaller, maxTokens, func(reply string) bool { return tasks.ParseStrongVerdict(reply, drafts).Explicit })
 	if err != nil {
+		if tasks.VerifierVerdictEnabled() {
+			return false, []string{"independent verifier unavailable or produced no verdict; result is unverified; retry verification"}
+		}
 		if cfg.EnableGeneralizeChecks {
 			e.recordGeneralization(ctx, run, "", []string{"verifier unavailable"})
 			return false, []string{"generalisation verifier unavailable; retry verification"}
 		}
 		return true, nil
 	}
-	run.mu.Lock()
-	run.Tracker.Observe(tasks.Usage{
-		InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output),
-		CostUSD: meta.CostUSD,
-	})
-	run.mu.Unlock()
 	if cfg.EnableGeneralizeChecks {
 		pending := tasks.GeneralizationPendings(resp.Message.Content)
 		e.recordGeneralization(ctx, run, resp.Message.Content, pending)

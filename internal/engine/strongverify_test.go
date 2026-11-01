@@ -104,6 +104,7 @@ func TestStrongVerifierDisagreementReturnsToWorkThenBlocks(t *testing.T) {
 }
 
 func TestStrongVerifierFallbackPassesOnGibberishWithGeneralizationOff(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERIFIER_VERDICT", "off")
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		finalResp("created /app/filter.py and verified the import"),

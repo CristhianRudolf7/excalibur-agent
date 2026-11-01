@@ -67,6 +67,7 @@ func TestGeneralizationReviewsMethodWithoutExtractedDrafts(t *testing.T) {
 }
 
 func TestGeneralizationVerifierErrorHonorsSwitch(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERIFIER_VERDICT", "off")
 	for _, enabled := range []bool{false, true} {
 		model := &fakeEndpoint{err: errors.New("simulated unavailable verifier")}
 		e, _ := testEngine(model, scriptedRunner(), passingGate())

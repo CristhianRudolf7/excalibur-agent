@@ -8,6 +8,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
 // The Harbor override resolves to the 90% closing budget only when no
@@ -137,4 +138,16 @@ func TestTimeBudgetClosingThenPaused(t *testing.T) {
 	if got := e.checkBudgets(run, 100*time.Second); got != tasks.StatusExhausted {
 		t.Fatalf("zero left must exhaust, got %v", got)
 	}
+}
+
+func TestExpiredDeadlinePausesRunningEngine(t *testing.T) {
+	e, js := testEngine(&fakeEndpoint{}, &fakeRunner{}, passingGate())
+	run := testRun(Profile{Limit: tasks.Limit{MaxSeconds: 1}})
+	startRun(t, e, run, js)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if err := e.Run(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	mustState(t, run, types.RunPaused)
 }
