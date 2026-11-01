@@ -622,6 +622,21 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			"Run long builds, servers and watchers in background terminal sessions and poll them with exec_io wait_for instead of busy-polling; never wait on interactive prompts: prefer non-interactive flags (-y, --no-input, --yes) and avoid pagers or editors.",
 		)
 	}
+	// Wall-clock-only binding (W8): closing mode must leave the best
+	// deliverable in place and call `finish`. Gated by
+	// EXCALIBUR_TIME_BUDGET_ONLY (default ON in eval).
+	if engine.TimeBudgetOnlyEnabled(profile == ProfileEval) {
+		fixedInstructions = append(fixedInstructions,
+			"Closing mode: when time is almost exhausted, leave the best deliverable in place, verify what exists quickly, and call `finish` with evidence now. Do not start new work. Never end paused except on the hard wall clock.",
+		)
+	}
+	// Strict blocked policy (W8): `finish status=blocked` needs
+	// deterministic external evidence while time remains.
+	if engine.StrictBlockedEnabled() {
+		fixedInstructions = append(fixedInstructions,
+			"Blocked policy: call `finish` with status blocked only for external impossibilities (required network resource unreachable/404 after retries, required file/tool provably absent and not installable, explicit permission denial). Validation failures are never a valid blocked reason while time remains: fix and verify instead.",
+		)
+	}
 	// Long-horizon persistence (EXCALIBUR_LONG_HORIZON, default on):
 	// the pacing line shows elapsed/remaining budget every step, the
 	// milestone plan orders large work, and long commands belong in
@@ -762,37 +777,53 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
 		LeaseRelease:   wireengine.LeaseReleaseHook(emb.Leases),
 	})
-	// Effective wall budget (Sections 7.3, 18.4, 23.2): the explicit
-	// --timeout first, else 90% of the Harbor/operator override, so
-	// the tracker trips closing mode below 10% and pauses with the
-	// budget motive at zero instead of dying on the context edge.
+	// Effective run-level budgets (W8, Sections 7.3, 18.4, 23.2):
+	// in eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the
+	// binding budget is the task wall clock (explicit --timeout,
+	// else the Harbor 90% override, else the configured arm
+	// fallback) with safety caps that cannot bind before the wall;
+	// otherwise the legacy limits apply. The tracker trips closing
+	// mode below 10% and pauses with the budget motive at zero.
+	effBudgets := EffectiveBudgetsFor(opts, profile)
 	erun := engine.NewRun(string(run.RunID), string(run.TaskID), engine.Profile{
 		Name: "child", Role: types.RoleExecutor, ContextRole: "child",
-		Limit: tasks.Limit{MaxSteps: 25},
+		Limit: tasks.Limit{
+			MaxSteps:   effBudgets.MaxSteps,
+			MaxSeconds: effBudgets.WallSecs,
+			MaxCostUSD: effBudgets.CostCapUSD,
+		},
 		// Explicit finish (agent quality): exec runs are
 		// non-interactive, so they end ONLY through `finish` when
 		// the switch is on; off restores the legacy text finish.
 		ExplicitFinish: explicitFinish,
+		TimeBudgetOnly: effBudgets.TimeBudgetOnly,
 	})
 	// Resolve relative artifact paths against the run project
 	// directory for the required-artifact completion gate.
 	erun.Workdir = opts.ProjectDir
-	if maxSecs := engine.ResolveMaxSeconds(opts.TimeoutSecs); maxSecs > 0 {
-		erun.Profile.Limit.MaxSeconds = maxSecs
-		erun.Tracker.Limit.MaxSeconds = maxSecs
-		// An operator-derived budget (no explicit flag) still bounds
-		// the wall clock: the context enforces the edge while the
-		// tracker owns closing mode and the honest paused report.
+	if effBudgets.WallSecs > 0 {
+		// An operator-derived or arm-default budget (no explicit
+		// flag) still bounds the wall clock: the context enforces
+		// the edge while the tracker owns closing mode and the
+		// honest paused report.
 		if opts.TimeoutSecs == 0 {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, time.Duration(maxSecs)*time.Second)
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(effBudgets.WallSecs)*time.Second)
 			defer cancel()
 		}
 	}
-	if opts.MaxSteps > 0 {
-		erun.Profile.Limit.MaxSteps = opts.MaxSteps
-		erun.Tracker.Limit.MaxSteps = opts.MaxSteps
-	}
+	// Record the effective budgets for the ablation (budgets.json
+	// next to skills.json/explore.json plus the budgets event).
+	writeBudgetsRecord(run.Dir, effBudgets)
+	_ = run.EmitEvent("budgets", map[string]any{
+		"time_budget_only": effBudgets.TimeBudgetOnly,
+		"strict_blocked":   effBudgets.StrictBlocked,
+		"wall_secs":        effBudgets.WallSecs,
+		"wall_source":      effBudgets.WallSource,
+		"max_steps":        effBudgets.MaxSteps,
+		"cost_cap_usd":     effBudgets.CostCapUSD,
+		"cost_source":      effBudgets.CostSource,
+	})
 	rec := eng.AttachJournal(erun.ID, store)
 	// Prove the orchestrator contract in embedded mode: the engine
 	// runner attaches, serves a snapshot, and detaches. Control
@@ -985,16 +1016,32 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 
 // writeExplicitFinishRecord persists the explicit-finish ablation
 // record for the run (switch, finish arguments, raw final text,
-// streak, refusals) next to the other trial artifacts. A missing dir
-// skips the write; failures never fail the run.
+// streak, refusals, strict-blocked refusals, time-only closing) next
+// to the other trial artifacts. A missing dir skips the write;
+// failures never fail the run.
 func writeExplicitFinishRecord(dir string, enabled bool, erun *engine.Run) {
 	if dir == "" {
 		return
 	}
-	rec := map[string]any{"enabled": enabled}
+	timeOnly, strictRefusals, closingNoted, safetyNoted := false, 0, false, false
+	if erun != nil {
+		timeOnly = erun.TimeOnlyForRecord()
+		strictRefusals = erun.StrictBlockedRefusalsForRecord()
+		closingNoted, safetyNoted = erun.ClosingNotedForRecord()
+	}
+	rec := map[string]any{
+		"enabled":           enabled,
+		"time_budget_only":  timeOnly,
+		"strict_blocked":    engine.StrictBlockedEnabled(),
+		"strict_refusals":   strictRefusals,
+		"closing_noted":     closingNoted,
+		"safety_cap_noted":  safetyNoted,
+		"time_only_closing": closingNoted,
+	}
 	if erun != nil {
 		rec["finish_calls"] = erun.FinishCalls
 		rec["refusals"] = erun.FinishRefusals
+		rec["strict_blocked_refusals"] = erun.StrictBlockedRefusals
 		rec["text_only_streak"] = erun.TextOnlyStreak()
 		if erun.Finish != nil {
 			rec["summary"] = erun.Finish.Summary

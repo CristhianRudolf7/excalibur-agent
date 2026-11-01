@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"strings"
 )
 
@@ -29,9 +30,14 @@ func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
 			continue
 		}
 		flagArgs = append(flagArgs, a)
-		// Match flag.FlagSet's value handling: non-boolean flags consume the
-		// next token even when it begins with a dash (for example, -1).
+		// A following recognized flag starts a new option, not this flag's
+		// value. Other dash-prefixed values (notably negative numbers) are
+		// still consumed just as they are by flag.FlagSet.
 		if !strings.Contains(a, "=") && !isBoolFlag(f.Value) && i+1 < len(args) && args[i+1] != "--" {
+			nextName, _, nextIsFlag := flagName(args[i+1])
+			if nextIsFlag && fs.Lookup(nextName) != nil {
+				return nil, fmt.Errorf("flag needs an argument: -%s", name)
+			}
 			i++
 			flagArgs = append(flagArgs, args[i])
 		}

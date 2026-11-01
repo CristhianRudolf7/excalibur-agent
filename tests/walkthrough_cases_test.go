@@ -337,6 +337,7 @@ func TestWalkthrough267PowerCut(t *testing.T) {
 // dir with a frozen hashed profile, writing nothing into the
 // evaluated tree.
 func TestWalkthrough268EvalProfile(t *testing.T) {
+	t.Setenv("EXCALIBUR_PROVIDER", "stub")
 	tree := t.TempDir()
 	runDir := t.TempDir()
 	outcome, err := cli.RunExec(context.Background(), cli.ExecOptions{

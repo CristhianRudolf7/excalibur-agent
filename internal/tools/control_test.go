@@ -72,6 +72,9 @@ func TestStatusRendersSnapshotAndSessions(t *testing.T) {
 }
 
 func TestCatalogNamesAndManifest(t *testing.T) {
+	// The base fast/read-only contract applies with provisioning disabled.
+	// Auto status effects are checked in TestProvisionStatusSessionTail.
+	t.Setenv(AutoProvisionEnv, "off")
 	reg := NewMapRegistry()
 	deps := DefaultBuiltinDeps()
 	if err := RegisterBuiltins(reg, deps); err != nil {

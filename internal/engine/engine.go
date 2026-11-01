@@ -52,6 +52,11 @@ type Profile struct {
 	// through a `finish` tool call. Interactive daemon runs leave it
 	// false and keep the old text-only finish.
 	ExplicitFinish bool
+	// TimeBudgetOnly marks wall-clock-only binding (W8): only the wall
+	// clock pauses the run; steps/cost/tokens are safety caps that
+	// force closing instead of pausing. Set by non-interactive
+	// drivers (eval default ON via EXCALIBUR_TIME_BUDGET_ONLY).
+	TimeBudgetOnly bool
 }
 
 // ModelEndpoint is the single-model gateway seam (19.2-19.6). The
@@ -319,6 +324,15 @@ type Run struct {
 	// LastRefusal is the latest `finish` refusal reason for the
 	// records (empty when the last attempt was accepted).
 	LastRefusal string
+	// StrictBlockedRefusals counts `finish status=blocked` refusals
+	// under the strict blocked policy (W8) for the trial records.
+	StrictBlockedRefusals int
+	// timeOnlyClosingNoted marks the one-time wall-closing note in
+	// time-only mode so closing reminds once without spamming.
+	timeOnlyClosingNoted bool
+	// safetyCapNoted marks the one-time safety-cap note in time-only
+	// mode.
+	safetyCapNoted bool
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -796,11 +810,56 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	run.mu.Unlock()
 
-	if status := e.checkBudgets(run, elapsed); status == tasks.StatusExhausted {
-		e.pauseBudget(ctx, run)
-		return true, nil
+	// Time-only binding (W8): only the wall clock pauses the run.
+	// Safety-cap exhaustion (steps/cost/tokens) forces closing
+	// instead of pausing so the run works to the wall edge and leaves
+	// the best deliverable in place with `finish`.
+	timeOnly := func() bool {
+		run.mu.Lock()
+		defer run.mu.Unlock()
+		return run.Profile.TimeBudgetOnly
+	}()
+	if timeOnly {
+		if status := timeOnlyStatus(run.Tracker.Limit, elapsed); status == tasks.StatusExhausted {
+			e.pauseBudget(ctx, run)
+			return true, nil
+		}
+		if e.checkBudgets(run, elapsed) == tasks.StatusExhausted {
+			// A safety cap would have paused the legacy run: note
+			// once and keep working toward the wall edge.
+			run.mu.Lock()
+			noted := run.safetyCapNoted
+			if !noted {
+				run.safetyCapNoted = true
+			}
+			run.mu.Unlock()
+			if !noted {
+				run.InjectNote(SafetyCapNote)
+			}
+		}
+	} else {
+		if status := e.checkBudgets(run, elapsed); status == tasks.StatusExhausted {
+			e.pauseBudget(ctx, run)
+			return true, nil
+		}
 	}
 	closing := e.checkBudgets(run, elapsed) == tasks.StatusClosing
+	if timeOnly {
+		// In time-only mode closing follows the wall clock only so
+		// safety caps never force an early close.
+		closing = timeOnlyStatus(run.Tracker.Limit, elapsed) == tasks.StatusClosing
+		if closing {
+			run.mu.Lock()
+			noted := run.timeOnlyClosingNoted
+			if !noted {
+				run.timeOnlyClosingNoted = true
+			}
+			run.mu.Unlock()
+			if !noted {
+				run.InjectNote(TimeOnlyClosingNote)
+			}
+		}
+	}
 	// Long-horizon closing: after the continuation bound is reached
 	// the remaining finish attempts render tool_choice none so the
 	// run closes with a final report instead of new work.
@@ -935,11 +994,20 @@ func (e *Engine) pauseBudget(ctx context.Context, run *Run) {
 	from := run.state
 	_ = run.transition(types.RunPaused)
 	run.pauseReason = types.PauseBudget
-	exhausted := run.Tracker.ExhaustedBy()
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	dup := run.Tracker
 	dup.Used.Elapsed = elapsed
+	exhausted := dup.ExhaustedBy()
+	timeOnly := run.Profile.TimeBudgetOnly
 	run.mu.Unlock()
+	if timeOnly {
+		// In wall-clock-only mode the honest report names the wall
+		// clock even if a safety cap tripped on the same step.
+		exhausted = timeOnlyExhaustedBy(dup.Limit, elapsed)
+		if len(exhausted) == 0 {
+			exhausted = []string{"time"}
+		}
+	}
 	run.InjectNote("budget exhausted: " + joinList(exhausted))
 	e.recordState(ctx, run, from, types.RunPaused, "budget")
 	if e.deps.LeaseRelease != nil {

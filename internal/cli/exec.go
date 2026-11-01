@@ -438,10 +438,15 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	if profile != ProfileEval {
 		profileHash = ToolsHash(profile)
 	}
+	// Effective run-level budgets (W8): binding wall clock plus
+	// safety caps. Recorded in profile.json (so profile.sha256 moves
+	// with them) and in budgets.json for the ablation.
+	effBudgets := EffectiveBudgetsFor(opts, profile)
 
-	if err := writeRunProfile(runDir, profile, profileCfg, opts.ProfileOverride); err != nil {
+	if err := writeRunProfile(runDir, profile, profileCfg, opts.ProfileOverride, effBudgets); err != nil {
 		return nil, &CodedError{Code: ExitError, Err: err}
 	}
+	writeBudgetsRecord(runDir, effBudgets)
 
 	meta := telemetry.ATIFMetadata{
 		TaskID:          string(taskID),
@@ -780,7 +785,7 @@ func metricsPathFor(runDir string, profile ProfileName, logsDir string) string {
 	return filepath.Join(runDir, "metrics.json")
 }
 
-func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileConfig, override string) error {
+func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileConfig, override string, budgets EffectiveBudgets) error {
 	core, deferred := EffectiveTools(profile)
 	rec := map[string]any{
 		"version":              cfg.Version,
@@ -800,6 +805,13 @@ func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileCon
 		"context_window":       cfg.ContextWindow,
 		"max_input":            cfg.MaxInput,
 		"max_output":           cfg.MaxOutput,
+		"wall_secs":            budgets.WallSecs,
+		"wall_source":          budgets.WallSource,
+		"max_steps":            budgets.MaxSteps,
+		"cost_cap_usd":         budgets.CostCapUSD,
+		"cost_source":          budgets.CostSource,
+		"time_budget_only":     budgets.TimeBudgetOnly,
+		"strict_blocked":       budgets.StrictBlocked,
 	}
 	buf, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
@@ -894,7 +906,7 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		// Mirror profile hashes under excalibur/ for Appendix F.
 		if profile == ProfileEval {
 			excaliburDir := filepath.Join(logsDir, "excalibur")
-			for _, name := range []string{"profile.json", "profile.sha256"} {
+			for _, name := range []string{"profile.json", "profile.sha256", "budgets.json"} {
 				src := filepath.Join(runDir, name)
 				dst := filepath.Join(excaliburDir, name)
 				if raw, err := os.ReadFile(src); err == nil {

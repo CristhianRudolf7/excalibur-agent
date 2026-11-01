@@ -142,6 +142,11 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if ignored != "" {
 		b.WriteString(ignored)
 	}
+	if prov := t.provisioner(); prov != nil {
+		if report := prov.MaybeProvision(ctx, a.Command, out, a.Workdir); report != "" {
+			b.WriteString(report)
+		}
+	}
 	headTail := headTailInline(out, 8000)
 	b.WriteString(headTail)
 	if out == "" || !strings.HasSuffix(headTail, "\n") {
@@ -149,11 +154,6 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	}
 	if hint := actionableExecHint(a.Command, out); hint != "" {
 		b.WriteString(hint)
-	}
-	if prov := t.provisioner(); prov != nil {
-		if report := prov.MaybeProvision(ctx, a.Command, out, a.Workdir); report != "" {
-			b.WriteString(report)
-		}
 	}
 	return Result{Status: StatusOK, Output: b.String()}, nil
 }
@@ -190,7 +190,8 @@ func (t *ExecTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 
 // ExecIOTool implements exec_io session operations.
 type ExecIOTool struct {
-	Sessions *SessionManager
+	Provisioner *Provisioner
+	Sessions    *SessionManager
 }
 
 func (t *ExecIOTool) sessions() *SessionManager {
@@ -226,6 +227,17 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
 	m := t.sessions()
+	report := func(out string) string {
+		session, ok := m.Get(SessionID(a.Session))
+		if !ok {
+			return ""
+		}
+		prov := (&ExecTool{Provisioner: t.Provisioner}).provisioner()
+		if prov == nil {
+			return ""
+		}
+		return prov.MaybeProvision(ctx, session.Cmd, out, session.Dir)
+	}
 	switch a.Action {
 	case "list":
 		sums := m.Summaries(a.Owner)
@@ -233,6 +245,11 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		fmt.Fprintf(&b, "%d session(s)\n", len(sums))
 		for _, s := range sums {
 			fmt.Fprintf(&b, "- %s alive=%v owner=%s cmd=%q\n", s.ID, s.Alive, s.Owner, s.Cmd)
+			if session, ok := m.Get(s.ID); ok {
+				if prov := (&ExecTool{Provisioner: t.Provisioner}).provisioner(); prov != nil {
+					b.WriteString(prov.MaybeProvision(ctx, session.Cmd, s.Tail, session.Dir))
+				}
+			}
 			if s.Tail != "" {
 				b.WriteString("  tail:\n")
 				for _, l := range strings.Split(s.Tail, "\n") {
@@ -249,7 +266,7 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		if err != nil {
 			return Result{Status: StatusInputError, Output: err.Error()}, nil
 		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("exited: %v  next_offset: %d\n%s", exited, next, out)}, nil
+		return Result{Status: StatusOK, Output: fmt.Sprintf("exited: %v  next_offset: %d\n%s%s", exited, next, report(out), out)}, nil
 	case "write":
 		if a.Session == "" {
 			return Result{Status: StatusInputError, Output: "session is required for write"}, nil
@@ -281,9 +298,9 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		defer cancel()
 		out, next, exited, err := m.WaitFor(wctx, SessionID(a.Session), a.Pattern, timeout, a.Offset)
 		if err != nil {
-			return Result{Status: StatusToolError, Output: fmt.Sprintf("wait_for: %v\noutput so far (next_offset %d):\n%s", err, next, out)}, nil
+			return Result{Status: StatusToolError, Output: fmt.Sprintf("wait_for: %v\n%soutput so far (next_offset %d):\n%s", err, report(out), next, out)}, nil
 		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("matched; exited: %v  next_offset: %d\n%s", exited, next, out)}, nil
+		return Result{Status: StatusOK, Output: fmt.Sprintf("matched; exited: %v  next_offset: %d\n%s%s", exited, next, report(out), out)}, nil
 	case "signal":
 		if a.Session == "" {
 			return Result{Status: StatusInputError, Output: "session is required for signal"}, nil

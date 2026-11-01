@@ -57,3 +57,13 @@ func TestParseCmdMissingFlagValue(t *testing.T) {
 		t.Fatal("expected missing value error")
 	}
 }
+
+func TestParseCmdRecognizedFlagDoesNotBecomeValue(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(nil)
+	fs.String("name", "default", "")
+	fs.Bool("verbose", false, "")
+	if _, err := parseCmd(fs, []string{"--name", "--verbose"}); err == nil {
+		t.Fatal("expected missing value error for --name")
+	}
+}

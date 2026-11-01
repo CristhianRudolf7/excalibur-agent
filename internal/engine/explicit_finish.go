@@ -400,6 +400,15 @@ func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, 
 		if existing := e.blockedPathsExist(run, args.Reason); existing != "" {
 			return "blocked claim refused: path " + existing + " exists. Re-read the filesystem result and continue working instead of declaring blocked."
 		}
+		if refusal := e.strictBlockedRefusal(run, args.Reason); refusal != "" {
+			// Count strict refusals separately for the trial
+			// records; the generic FinishRefusals counter is
+			// bumped by the caller.
+			run.mu.Lock()
+			run.StrictBlockedRefusals++
+			run.mu.Unlock()
+			return refusal
+		}
 		return ""
 	}
 	gate := e.gateCheck(run)

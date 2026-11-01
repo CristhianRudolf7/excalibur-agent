@@ -200,6 +200,9 @@ func TestExecEngineSkillsCards(t *testing.T) {
 func TestExecEngineSkillsCardsErrorCardsOff(t *testing.T) {
 	t.Setenv("EXCALIBUR_SKILLS", "cards")
 	t.Setenv("EXCALIBUR_SKILLS_ERROR_CARDS", "0")
+	// Legacy quick-pause path: the run never calls `finish`, so keep
+	// the small step cap to avoid the 2000-step safety wait.
+	t.Setenv("EXCALIBUR_TIME_BUDGET_ONLY", "0")
 	dir := t.TempDir()
 	fake := providerfake.New("e2e-cards-off")
 	makeArgs, _ := json.Marshal(map[string]string{"command": "make -C /tmp/definitely-missing-xyz-cards", "workdir": dir})
@@ -211,7 +214,7 @@ func TestExecEngineSkillsCardsErrorCardsOff(t *testing.T) {
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "build the project with make", LogsDir: logs,
-		Profile: ProfileEval, ProjectDir: dir, Provider: fake,
+		Profile: ProfileEval, ProjectDir: dir, Provider: fake, MaxSteps: 5,
 	})
 	if err != nil {
 		t.Fatal(err)

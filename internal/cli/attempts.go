@@ -87,9 +87,21 @@ func runAttemptsFanOut(
 	// attempts: parent 25 with N=3 gave 9 steps each, pausing before
 	// verification, which is why half of the real trials ended
 	// paused with empty outer tool records. The switch restores the
-	// split for ablation.
+	// split for ablation. In time-only mode (W8) every attempt gets
+	// the full safety caps (steps 2000, cost cap) with the shared
+	// wall clock so no attempt pauses before the wall edge.
+	effForAttempts := EffectiveBudgetsFor(opts, profile)
 	perStep := attempts.StepsForAttempt(opts.MaxSteps, n)
 	perBudget := attempts.BudgetForAttempt(opts.BudgetUSD, n)
+	if effForAttempts.TimeBudgetOnly && attempts.FullBudgetEnabled() {
+		perStep = effForAttempts.MaxSteps
+		if effForAttempts.CostCapUSD > 0 {
+			c := effForAttempts.CostCapUSD
+			perBudget = &c
+		} else {
+			perBudget = nil
+		}
+	}
 
 	outcomes := attempts.RunConcurrent(ctx, cfg.MaxConcurrency, workDirs, logDirs,
 		func(actx context.Context, idx int, workDir, logDir string) (attempts.Outcome, error) {

@@ -2492,3 +2492,285 @@ does not regress Muse runs and never moves GPT bytes.
 - Meta-Harness (arXiv 2603.28052) and Agentic Harness Engineering
   (arXiv 2604.25850): model-specific harness optima, cross-family
   transfer, gains in tools/middleware/memory.
+
+## W8: time-based run budgets and a strict blocked policy (Sections 7.3, 18.4)
+
+Owner: budget-and-blocked workstream (branch `budget-and-blocked`).
+Packages: `internal/engine` (`timebudgetonly.go`, `strictblocked.go`,
+step/pause/closing), `internal/cli` (`budgetsonly.go`, `exec.go`,
+`exec_engine.go`, `attempts.go` records), `internal/eval` records only
+(profile hash via `profile.sha256`, no frozen-table change). The
+connectors are untouched: no change to `internal/providers/**`, the
+model gateway wire protocol (`internal/models`, `internal/gateway`),
+`internal/api`, `packages/contracts`, `integrations/**`, MCP/ACP
+servers, or the `bench` Harbor invocation. Decision:
+`docs/decisions/0058-w8-time-budget-strict-blocked.md`.
+
+### Problem evidence (read-only trial records, never task contents)
+
+From the director's analysis of the current agent-quality build:
+
+- 25/74 runs end `paused: budget exhausted` (Muse: 13/13), e.g. after
+  ~2 minutes and ~200k tokens on tasks with a 15-minute-8-hour limit;
+  11 of those paused runs still passed, so work was cut while on track.
+  Root cause: the embedded eval limit is `MaxSteps: 25` with no wall
+  budget when Harbor is unknown, so the step cap binds far before the
+  task deadline.
+- 21-22/74 runs end `blocked` after a single failed validation
+  ("validation failed, deliverable not complete") with most of the time
+  unused; only 1 passed. Root cause: `finish status=blocked` was
+  accepted on any reason naming a missing path, including the agent's
+  own validation failure.
+
+### Mechanisms (all default ON in eval)
+
+1. Wall-clock-only binding (`EXCALIBUR_TIME_BUDGET_ONLY`, default ON
+   in eval, OFF elsewhere; forced OFF when `EXCALIBUR_TIME_BUDGET=0`):
+   the binding budget is the task wall clock (explicit `--timeout`,
+   else the Harbor 90% override, else the configured arm fallback
+   `EXCALIBUR_EVAL_WALL_SECS`/`EXCALIBUR_ARM_TIMEOUT_SEC`/
+   `EXCALIBUR_ARM_WALL_SECS`, default 3600s) with closing at 90% (10%
+   left). Token and step limits are safety caps that cannot bind
+   before the wall (steps 2000, cost `EXCALIBUR_COST_CAP_USD` default
+   20, tokens/tool-calls uncapped); per-call input stays bounded by the
+   model's max input. The engine pauses only on the wall clock; safety
+   exhaustion forces closing with a one-time note instead of pausing,
+   and closing injects the one-time wall note (leave the best
+   deliverable, call `finish`). Fixed instructions carry the closing
+   and blocked-policy discipline. Attempts get full safety caps with
+   the shared wall clock.
+2. Strict blocked (`EXCALIBUR_STRICT_BLOCKED`, default ON):
+   `finish status=blocked` while time remains is accepted only with
+   deterministic external evidence in the agent's own history (network
+   unreachable/404 after retries, missing file/tool plus a failed
+   install or dead network, permission denial). Validation-failure
+   claims are refused with a structured recovery prompt (failing check
+   and its output, three materially different approaches, pick one,
+   continue); operator-missing-data without validation language stays
+   accepted. Refusals count in `FinishRefusals` plus
+   `StrictBlockedRefusals` in `explicit_finish.json`.
+3. Records: `budgets.json` (mode, wall/steps/cost, sources) next to the
+   other artifacts and mirrored under `excalibur/`; `profile.json`
+   carries `wall_secs`, `wall_source`, `max_steps`, `cost_cap_usd`,
+   `cost_source`, `time_budget_only`, `strict_blocked` so
+   `profile.sha256` moves with the budgets; `explicit_finish.json`
+   pins `time_budget_only`, `strict_blocked`, `strict_blocked_refusals`
+   and closing/safety notes; `budgets` event for the ablation.
+
+### Switches
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_TIME_BUDGET_ONLY` | `on`/`1`/`true`/`yes` enables | `on` in eval, `off` elsewhere (forced `off` when `EXCALIBUR_TIME_BUDGET=0`) | `off` restores legacy binding (steps 25, explicit `--max-steps` wins, no cost cap) |
+| `EXCALIBUR_COST_CAP_USD` | float > 0 | `20` | safety cost cap per trial in time-only mode |
+| `EXCALIBUR_EVAL_WALL_SECS` (`EXCALIBUR_ARM_TIMEOUT_SEC`, `EXCALIBUR_ARM_WALL_SECS` aliases) | int seconds | `3600` | arm wall fallback when no explicit/Harbor wall is known |
+| `EXCALIBUR_STRICT_BLOCKED` | `on`/`1`/`true`/`yes` enables | `on` | `off` restores the legacy path-exists-only blocked check |
+
+Measure each switch off against on with the same model, effort and
+task set (Appendix F conditions); watch success rate, share of runs
+ending `paused` (must be wall-only in eval) vs `blocked` vs honest
+`completed`, finish refusals per run, and cost. See
+`docs/decisions/0058-w8-time-budget-strict-blocked.md` for the arm
+fallback, operator-missing-data compatibility, and profile-hash
+choices.
+
+### Research sources for this section
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8-66.5 on TB2 with the model fixed. Adopted: time-budget
+  warnings and closing discipline, pre-completion verification
+  checklist (our finish refusals are that checklist enforced at the
+  step loop), loop-detection reconsider notes, and the trace-analyzer
+  warning against single-task overfitting (hence paired per-task
+  statistics via the measurement workstream, not tuned prompts).
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what to
+  store, retrieve, present) moves results as much as weights, with
+  larger gains on weaker models. Motivates fixing the budget class in
+  code (wall binding, safety caps) rather than prompt growth, and the
+  small stable context plus explicit budgets over long-horizon growth.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not fetched):
+  same direction - systematic harness search with standard evaluation
+  and auditing records (Section 23.2, Appendix F) as the objective
+  signal; continuation/refusal trips and budget records are that
+  signal for this lever.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop with
+  JSON analysis/plan/keys and a proactive context summary. Kept as
+  the neutral baseline shape; our closing note mirrors its
+  task-complete confirmation shape (leave deliverable, call finish).
+- Open-source harnesses (general engineering knowledge, no task
+  material used): SWE-agent / mini-swe-agent explicit submit only
+  after tests pass (our exercising checks plus strict blocked),
+  OpenHands stop on repeated identical observations, Codex/OpenCode
+  `tool_choice: none` closing shape (we keep tools available in
+  closing so `finish` remains callable), Aider architect/editor split
+  behind expert escalation.
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing here tunes the agent against
+benchmark failures or derives prompts from task contents.
+
+### Contract and backend tests
+
+- `internal/engine/timebudgetonly_test.go`: switch defaults (eval ON,
+  non-eval OFF, master time switch forces OFF), cost-cap parsing and
+  fallback, wall sources (explicit/harbor/arm fallback), safety caps
+  never pause (legacy tracker exhausts on steps while time-only stays
+  OK), wall binds and closes with honest `time` reason and closing
+  copy, one-time closing note through the real step loop.
+- `internal/engine/strictblocked_test.go`: switch defaults, refusal of
+  the recorded ARS-style validation failure with the three-approaches
+  recovery shape, acceptance of network-after-retries / permission /
+  missing-plus-failed-install / operator-missing-data / no-time-left,
+  switch-off acceptance, end-to-end refusal counting
+  (`FinishRefusals` + `StrictBlockedRefusals`) ending `blocked`.
+- `internal/cli/budgetsonly_test.go`: effective budgets (eval
+  time-only wall/steps/cost sources, explicit/harbor/env overrides,
+  large explicit steps kept; legacy off restores 25/uncapped and
+  non-eval defaults off), `profile.json`/`budgets.json` mirroring and
+  `profile.sha256` movement, `explicit_finish.json` pins, past-25
+  survival (30 alternating tool turns complete instead of pausing on
+  the legacy cap, with closing/blocked discipline in the prompt),
+  strict refusal-then-completion plus switch-off legacy acceptance.
+- Updated to the new contract: `exec_envtime_test.go` (legacy
+  25-step line pinned with time-only off), `attempts_test.go`
+  (legacy split pinned with time-only off), `exec_cards_test.go`
+  (quick-pause path pinned with time-only off).
+- Existing suites unchanged and green: full `go test ./... -race`,
+  `gofmt -l .`, `go vet ./...`, `staticcheck ./...`,
+  `GOOS=darwin/windows go build ./...`,
+  `scripts/check-no-bare-go.sh`.
+- Live end-to-end (own small tasks, never Terminal-Bench):
+  `excalibur exec --profile eval` on hello-file (`hello.txt` exact,
+  `budgets.json` wall 3600 arm_default steps 2000 cost 20, completed)
+   and csv-sum (`numbers.csv`/`sum.txt` verified, 1 verification
+   refusal, completed) with `gpt-6-luna` low effort; no paid trial
+   beyond these checks.
+## W9: Automatic provisioning from terminal observations
+
+Contract: Section 13 terminal observations detect explicit missing executables
+and supported language modules in initial exec output and session read, wait,
+and list output. Compound commands and heredoc contents do not suppress recovery.
+The sole switch remains `EXCALIBUR_AUTOPROVISION=auto|suggest|off` (default auto).
+Suggest runs nothing; off adds no provisioning report.
+
+Auto serializes provisioning, updates apt once after a successful update,
+waits up to 60 seconds for dpkg locks, and uses noninteractive install flags.
+Python installs and import checks select the interpreter present in the original
+command/diagnostic and preserve the supplied task directory. Missing pip gets a
+bounded bootstrap and retry. The output records installation failures, executable
+verification failures, and the exact original command to retry explicitly.
+
+Read-only auditing of v6-default tool diagnostics found 16 reported install
+failures: these included mistaken executable identities, two dpkg lock failures,
+unavailable distributions, and a wheel compilation failure. The existing
+first-command fallback explains attempts to install rm, mkdir, cat, set, and a
+timeout number. Delayed session observations previously had no provisioning
+hook. The apt cache previously advanced on suggestions and failed updates.
+No task definitions, tests, or solutions were used.
+
+Backend coverage: `autoprovision_w9_test.go` exercises compound/heredoc
+diagnostics, false positives, multiple missing dependencies, failed-update retry,
+interpreter paths, task directories, pip bootstrap, and delayed session reads,
+waits, and lists. `TestProvisionMinimalDebian` is opt-in through
+`EXCALIBUR_PROVISION_CONTAINER=1`: it starts debian:bookworm-slim without
+python3, observes a real failure, installs python3-minimal through the provisioner,
+then executes Python successfully. Ordinary tests use fake installers.
+
+Research reviewed for context (no additional mechanisms introduced):
+[LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+emphasizes executable verification and useful environment observations;
+[Meta-Harness](https://arxiv.org/abs/2603.28052) studies harness code and context
+selection; [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850)
+describes observability and attribution.
+[Terminus 2](https://harborframework.com/docs/agents/terminus-2) provides the
+terminal harness reference.
+[mini-swe-agent's configuration](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/config/default.yaml)
+makes shell observation and explicit completion central; [Aider's prompts](https://github.com/Aider-AI/aider/blob/main/aider/prompts.py)
+retain command and output together. These sources support reporting concrete
+execution evidence; the implementation follows the director's specified repair.
+
+Status session tails are covered as well. With sessions and auto provisioning,
+status declares execution effects and uses the execution timeout; off/suggest or
+a status tool without sessions retain the fast read-only definition.
+The regression suite checks both the provisioning report and this effect metadata.
+
+Additional reference review:
+[SWE-agent's default configuration](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml)
+requires reproduction and executable checks before submission;
+[OpenCode tools](https://opencode.ai/docs/tools/) documents the shell/file tool
+surface. Neither introduces additional changes in this workstream.
+
+Validation evidence: the opt-in minimal Debian check passed (apt update,
+python3-minimal install, command discovery, and Python output 42). Live checks
+used gpt-6-luna with low effort and an isolated virtual environment. The
+pyfiglet rendering task completed with an exact output comparison. A humanize
+recovery check recorded successful installation and import verification after
+removal from that isolated environment, but reached its eight-step limit before
+explicit retry. A fresh boltons task recorded the initial import failure,
+automatic installation using the exact virtual-environment interpreter,
+successful import verification, explicit retry, file assertion, and completion.
+Records remain outside the repository under /tmp/w9-live-eval-records-one,
+/tmp/w9-live-eval-records-two, and /tmp/w9-live-records-three.
+
+[OpenHands' agent implementation](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/agent/agent.py)
+separates action execution, observations, and explicit finish transitions.
+[Codex CLI's base instructions](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/prompts/base_instructions/default.md)
+describe focused implementation and executable validation. This review did not
+change completion policy, prompts, or connector behavior.
+
+Full-output audit clarification: all 26 exec observations containing missing
+python3/file diagnostics actually recorded successful installation. Three
+shortened inline previews omitted the provisioning report, which remained in
+the full output blob. Two status observations exposed stale missing-tool tails.
+These observations do not establish that 13 trials failed because installation
+never fired. Missing-tool text in a session remains historical after recovery.
+Provisioning reports now precede command output in exec and session read/wait
+responses so prefix-limited previews retain the recovery result.
+A large-output regression asserts that the report appears near the beginning.
+
+The Node missing-module recognizer also rejects printed source-code fixtures:
+a field containing an example error string is not an actual Node diagnostic.
+A dedicated regression covers this distinction.
+
+Repository-wide test isolation: the existing walkthrough evaluation test invokes
+RunExec without a fake provider. On a workstation with operator credentials,
+plain tests can therefore resolve a real provider. Full-suite verification for
+this workstream explicitly sets EXCALIBUR_PROVIDER=stub; targeted provisioning
+tests still inject their own installers and the opt-in live checks remain
+separate. The walkthrough isolation gap is reported to the director.
+
+Final verification passed: gofmt produced no paths; go vet ./... and
+staticcheck ./... passed; EXCALIBUR_PROVIDER=stub go test -race -p 2 ./...
+passed across the repository; GOOS=darwin go build ./... and
+GOOS=windows go build ./... passed. The no-bare-go check passed.
+No new Go dependencies were added.
+
+## W9 integration verification
+
+Merged `autoprovision-fix` into `agent-quality`, preserving the W7, Muse,
+and W8 documentation alongside the provisioning repair. The provisioning
+choice is recorded in [decision 0059](../decisions/0059-autoprovision-output-repair.md);
+the incoming number 0056 was already assigned to arm comparison.
+Shared domain types, API schemas, core interfaces, connectors, and Harbor
+invocation are unchanged. The synchronous status effect departure remains
+explicit in that decision.
+
+The Section 26.8 walkthrough now explicitly selects the stub provider so
+ordinary repository verification cannot resolve operator credentials through
+that test. This closes the test-isolation issue reported by the workstream;
+production provider selection is unchanged.
+
+Fresh integrated-binary checks used `gpt-6-luna` with low effort in two
+isolated temporary virtual environments. Both the boltons unique-number task
+and the humanize integer-formatting task completed with exit zero. Each
+`tool_calls.jsonl` contains missing-import detection, automatic installation,
+and successful import verification before explicit retry. Independent exact
+file-content assertions passed. Records are outside the repository at
+`/tmp/w9-integrate-live-one/records` and `/tmp/w9-integrate-live-two/records`.
+
+Integrated-tree quality checks passed: empty `gofmt -l .`, `go vet ./...`,
+`staticcheck ./...`, `go test -race -p 2 ./...` with no global provider
+override, Darwin and Windows cross builds, and the no-bare-go check.

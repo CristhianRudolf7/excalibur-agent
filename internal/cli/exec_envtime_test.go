@@ -99,9 +99,10 @@ func TestExecEngineEnvSnapshotSwitchOff(t *testing.T) {
 
 // Every model call carries the compact remaining budget in L5, and
 // the discipline lines ride the fixed instructions (Sections 7.3,
-// 18.4).
+// 18.4). Legacy path with time-only off keeps the 25-step cap.
 func TestExecEngineBudgetLineAndDiscipline(t *testing.T) {
 	t.Setenv(engine.TimeBudgetSwitch, "1")
+	t.Setenv(engine.TimeBudgetOnlySwitch, "0")
 	fake := providerfake.New("budgetline")
 	fake.Responses = doneImmediately()
 	out, err := RunExec(context.Background(), ExecOptions{

@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"regexp"
@@ -121,7 +120,7 @@ var (
 	rePythonNoModule = regexp.MustCompile(`(?i)No module named\s+['"]?([A-Za-z0-9_\-.]+)['"]?`)
 	rePythonCantFind = regexp.MustCompile(`(?i)can't find (?:module|package)\s+['"]?([A-Za-z0-9_\-.]+)['"]?`)
 
-	reNodeNoModule = regexp.MustCompile(`(?i)Cannot find module\s+['"]([^'"]+)['"]`)
+	reNodeNoModule = regexp.MustCompile(`(?im)^\s*(?:Error(?: \[[^\]]+\])?:\s*)?Cannot find module\s+['"]([^'"]+)['"]`)
 
 	reRubyLoadError = regexp.MustCompile(`(?i)cannot load such file\s+--\s+([^\s'"]+)`)
 	reRubyLoadErr2  = regexp.MustCompile(`(?i)LoadError[^\n]*--\s+([^\s'"]+)`)
@@ -213,7 +212,8 @@ var commandToApt = map[string]string{
 	"top": "procps", "uptime": "procps", "w": "procps", "vmstat": "procps", "watch": "procps",
 	"ss": "iproute2", "ip": "iproute2", "bridge": "iproute2", "tc": "iproute2",
 	"cc": "gcc", "c++": "g++", "g++": "g++", "gcc": "gcc",
-	"python": "python3", "python3": "python3",
+	"python": "python-is-python3", "python3": "python3-minimal",
+	"R": "r-base", "Rscript": "r-base", "killall": "psmisc",
 	"pip": "python3-pip", "pip3": "python3-pip",
 	"node": "nodejs", "nodejs": "nodejs", "npm": "npm",
 	"r": "r-base", "rscript": "r-base",
@@ -308,11 +308,6 @@ var sharedLibToApt = map[string]string{
 // outputs (general engineering knowledge, never benchmark answers)
 // and never fails.
 func DetectMissing(command, output string) *MissingDep {
-	if looksLikeInstallCommand(command) {
-		// Never auto-provision off an install command itself: that
-		// loop would reinstall forever when the install fails.
-		return nil
-	}
 	out := output
 	if out == "" {
 		return nil
@@ -476,49 +471,8 @@ func detectShellCommand(command, out string) *MissingDep {
 			}
 		}
 	}
-	// Fall back to the command's own first word.
-	if fields := strings.Fields(command); len(fields) > 0 {
-		base := fields[0]
-		if i := strings.LastIndex(base, "/"); i >= 0 {
-			base = base[i+1:]
-		}
-		// Skip wrappers (sudo, env, timeout) to the real binary.
-		for _, w := range []string{"sudo", "env", "timeout", "nice", "stdbuf"} {
-			if strings.ToLower(base) == w && len(fields) > 1 {
-				base = fields[1]
-				if i := strings.LastIndex(base, "/"); i >= 0 {
-					base = base[i+1:]
-				}
-				break
-			}
-		}
-		if base != "" && base != "bash" && base != "sh" {
-			// Only claim it when the output actually complains.
-			if strings.Contains(lower, "not found") {
-				return &MissingDep{Kind: KindCommand, Name: base, Evidence: firstLineWith(out, "not found")}
-			}
-		}
-	}
-	return nil
-}
 
-// looksLikeInstallCommand guards the auto-install loop: the output of
-// an install command itself never triggers another install.
-func looksLikeInstallCommand(cmd string) bool {
-	l := strings.ToLower(cmd)
-	for _, s := range []string{
-		"apt-get install", "apt install", "apt-get update",
-		"pip install", "pip3 install", "uv pip install", "uv add",
-		"npm install", "npm i ", "npm ci", "yarn add", "pnpm add",
-		"cargo add", "cargo install", "gem install",
-		"install.packages", "cpan ", "cpanm ",
-		"go get ", "go install ",
-	} {
-		if strings.Contains(l, s) {
-			return true
-		}
-	}
-	return false
+	return nil
 }
 
 func normalizePythonMod(s string) string {
@@ -688,6 +642,10 @@ func planCommand(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	if _, err := lookPath("apt"); err == nil {
 		return aptPlan(bin, pkg, "apt", lookPath)
 	}
+	// Debian's minimal/alias package names are not portable to other managers.
+	if bin == "python" || bin == "python3" {
+		pkg = "python3"
+	}
 	if _, err := lookPath("dnf"); err == nil {
 		return &InstallPlan{Manager: "dnf", Package: pkg,
 			Commands: []string{sudoPrefix(lookPath) + "dnf install -y " + shellQuote(pkg)},
@@ -717,7 +675,7 @@ func planCommand(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	// No manager detected: still suggest the apt spelling so the
 	// model has something concrete when apt appears later.
 	return &InstallPlan{Manager: "apt", Package: pkg,
-		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + shellQuote(pkg)},
+		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends " + shellQuote(pkg)},
 		Verify:   "command -v " + shellQuote(bin),
 		Note:     "no package manager detected; apt spelling shown"}
 }
@@ -731,7 +689,7 @@ func aptPlan(bin, pkg, aptBin string, lookPath LookPathFunc) *InstallPlan {
 	if ShouldAptUpdate() {
 		cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" update -qq")
 	}
-	cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" install -y --no-install-recommends "+shellQuote(pkg))
+	cmds = append(cmds, prefix+"DEBIAN_FRONTEND=noninteractive "+aptBin+" -o DPkg::Lock::Timeout=60 install -y --no-install-recommends "+shellQuote(pkg))
 	return &InstallPlan{Manager: "apt", Package: pkg, Commands: cmds,
 		Verify: "command -v " + shellQuote(bin),
 		Note:   "apt install only (never upgrade/remove); non-interactive, update-once"}
@@ -851,7 +809,7 @@ func planSharedLib(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
 	// Without apt there is no safe default for .so files: report the
 	// heuristic without running it.
 	return &InstallPlan{Manager: "apt", Package: pkg,
-		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends " + shellQuote(pkg)},
+		Commands: []string{"DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=60 install -y --no-install-recommends " + shellQuote(pkg)},
 		Verify:   "ldconfig -p | grep " + shellQuote(so),
 		Note:     "no apt detected; spelling shown for when apt is available"}
 }
@@ -1007,9 +965,7 @@ func ShouldAptUpdate() bool {
 	return !aptUpdated
 }
 
-// MarkAptUpdated records that the update command has been emitted
-// (called after the plan is built, regardless of install outcome, so
-// a failed update does not retry on every missing tool).
+// MarkAptUpdated records a successfully completed apt update.
 func MarkAptUpdated() {
 	aptMu.Lock()
 	defer aptMu.Unlock()
@@ -1031,7 +987,7 @@ type Provisioner struct {
 	// Run executes one shell command (nil means the real runner).
 	// It returns combined output and exit code.
 	Run func(ctx context.Context, command, workdir string) (output string, exit int)
-	// Network reports reachability (nil means the real TCP probe).
+	// Network optionally overrides connectivity policy in tests; nil lets the package manager try.
 	Network func(ctx context.Context) bool
 	// Timeout bounds one install command (default 180s).
 	Timeout time.Duration
@@ -1068,19 +1024,11 @@ func (p *Provisioner) networkOK(ctx context.Context) bool {
 	return defaultNetworkAvailable(ctx)
 }
 
-// defaultNetworkAvailable dials well-known IPs with a short timeout.
-// No payload is sent and no paid API is called; success means the
-// container can reach the package mirrors.
+// defaultNetworkAvailable lets the package manager report connectivity errors.
 func defaultNetworkAvailable(ctx context.Context) bool {
-	for _, host := range []string{"8.8.8.8:53", "1.1.1.1:53"} {
-		d := net.Dialer{Timeout: 2 * time.Second}
-		conn, err := d.DialContext(ctx, "tcp", host)
-		if err == nil {
-			_ = conn.Close()
-			return true
-		}
-	}
-	return false
+	// Package managers are the authority on mirror connectivity; DNS TCP
+	// reachability does not establish whether HTTP proxies/mirrors work.
+	return ctx.Err() == nil
 }
 
 // defaultRunProvisionCommand runs one shell command with the
@@ -1114,6 +1062,31 @@ func defaultRunProvisionCommand(ctx context.Context, command, workdir string, ti
 // when offline) it only reports the commands. It never emits
 // upgrade/remove commands.
 func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workdir string) string {
+	var report strings.Builder
+	seen := map[string]bool{}
+	// Scan each diagnostic independently so one missing dependency cannot mask
+	// another in a compound command or a session buffer.
+	for _, line := range strings.Split(output, "\n") {
+		dep := DetectMissing(command, line)
+		if dep == nil {
+			continue
+		}
+		key := string(dep.Kind) + ":" + dep.Name
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		report.WriteString(p.provisionOne(ctx, command, line, workdir))
+	}
+	return report.String()
+}
+
+var provisionMu sync.Mutex
+
+func (p *Provisioner) provisionOne(ctx context.Context, command, output, workdir string) string {
+	// Serialize install/verify sequences, including apt cache transitions.
+	provisionMu.Lock()
+	defer provisionMu.Unlock()
 	mode := p.mode()
 	if mode == ProvisionOff {
 		return ""
@@ -1123,6 +1096,17 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 		return ""
 	}
 	plan := PlanInstall(dep, p.lookPath())
+	if dep.Kind == KindPythonMod && plan != nil {
+		if py := provisionPythonInterpreter(command, output); py != "" {
+			dist := shellQuote(plan.Package)
+			plan.Verify = shellQuote(py) + " -c " + shellQuote("import "+dep.Name)
+			if _, err := p.lookPath()("uv"); err == nil {
+				plan.Commands = []string{"uv pip install --quiet --break-system-packages --python " + shellQuote(py) + " " + dist}
+			} else {
+				plan.Commands = []string{shellQuote(py) + " -m pip install --quiet --break-system-packages " + dist}
+			}
+		}
+	}
 	if plan == nil {
 		return ""
 	}
@@ -1130,13 +1114,11 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 	// build-file edit, not a shell install.
 	suggestOnly := dep.Kind == KindJavaPackage
 	if mode == ProvisionSuggest || suggestOnly {
-		MarkAptUpdatedIfApt(plan)
 		return suggestReport(dep, plan, modeReason(mode, p, ctx))
 	}
 	// Auto mode: check network before spending minutes on an install
 	// that cannot succeed.
 	if !p.networkOK(ctx) {
-		MarkAptUpdatedIfApt(plan)
 		return suggestReport(dep, plan, "network unavailable (auto-provision needs network; ran nothing)")
 	}
 	run := p.Run
@@ -1149,7 +1131,6 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 	var b strings.Builder
 	fmt.Fprintf(&b, "provision: detected missing %s '%s' (evidence: %s).\n", dep.Kind, dep.Name, dep.Evidence)
 	fmt.Fprintf(&b, "provision: plan: %s installs %s via: %s (verify: %s).\n", plan.Manager, plan.Package, strings.Join(plan.Commands, " && "), plan.Verify)
-	MarkAptUpdatedIfApt(plan)
 	for _, cmd := range plan.Commands {
 		if isForbiddenProvisionCommand(cmd) {
 			fmt.Fprintf(&b, "provision: refused to run %q (never upgrade/remove).\n", cmd)
@@ -1158,6 +1139,33 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 		isUpdate := strings.Contains(cmd, "apt-get update") || strings.Contains(cmd, "apt update")
 		start := time.Now()
 		out, code := run(ctx, cmd, workdirForPlan(plan, workdir))
+		// Minimal system interpreters often lack pip. Bootstrap pip for the
+		// same interpreter, then retry the original install once.
+		if code != 0 && dep.Kind == KindPythonMod && strings.Contains(out, "No module named pip") {
+			py := provisionPythonInterpreter(command, output)
+			if py == "" {
+				_, py = pythonInstaller(p.lookPath())
+			}
+			bootstrapOut, bootstrapCode := run(ctx, shellQuote(py)+" -m ensurepip", workdir)
+			if bootstrapCode != 0 {
+				if _, err := p.lookPath()("apt-get"); err == nil {
+					pipPlan := aptPlan("pip3", "python3-pip", "apt-get", p.lookPath())
+					for _, bootstrap := range pipPlan.Commands {
+						bootstrapOut, bootstrapCode = run(ctx, bootstrap, workdir)
+						if bootstrapCode != 0 {
+							break
+						}
+						if strings.Contains(bootstrap, " update ") {
+							MarkAptUpdated()
+						}
+					}
+				}
+			}
+			fmt.Fprintf(&b, "provision: pip bootstrap exit %d: %s\n", bootstrapCode, clipProvisionOutput(bootstrapOut))
+			if bootstrapCode == 0 {
+				out, code = run(ctx, cmd, workdir)
+			}
+		}
 		dur := time.Since(start)
 		clipped := clipProvisionOutput(out)
 		if code != 0 {
@@ -1170,12 +1178,18 @@ func (p *Provisioner) MaybeProvision(ctx context.Context, command, output, workd
 			return b.String()
 		}
 		if isUpdate {
+			MarkAptUpdated()
 			fmt.Fprintf(&b, "provision: apt update ok (exit 0, %.1fs). output tail: %s\n", dur.Seconds(), clipped)
 		} else {
 			fmt.Fprintf(&b, "provision: installed %s via %s (exit 0, %.1fs). output tail: %s\n", plan.Package, plan.Manager, dur.Seconds(), clipped)
 		}
 	}
-	fmt.Fprintf(&b, "provision: re-run your command now and verify with `%s`.\n", plan.Verify)
+	verified, code := run(ctx, plan.Verify, workdirForPlan(plan, workdir))
+	if code != 0 {
+		fmt.Fprintf(&b, "provision: verification failed (exit %d): %s; command: %s\n", code, clipProvisionOutput(verified), plan.Verify)
+		return b.String()
+	}
+	fmt.Fprintf(&b, "provision: verified working command: `%s`. re-run your original command explicitly:\n%s\n", plan.Verify, command)
 	return b.String()
 }
 
@@ -1214,7 +1228,7 @@ func workdirForPlan(plan *InstallPlan, workdir string) string {
 	// npm/cargo/go installs are project-local; run them in the task
 	// directory when the model supplied one.
 	switch plan.Manager {
-	case "npm", "yarn", "pnpm", "cargo", "go":
+	case "npm", "yarn", "pnpm", "cargo", "go", "pip", "uv":
 		return workdir
 	}
 	return ""
@@ -1251,4 +1265,16 @@ func isForbiddenProvisionCommand(cmd string) bool {
 		}
 	}
 	return false
+}
+
+// provisionPythonInterpreter prefers interpreter diagnostics, then the
+// interpreter token in the original command, including compound/heredoc forms.
+func provisionPythonInterpreter(command, output string) string {
+	re := regexp.MustCompile(`(?m)(?:^|[\s;&|])((?:/[A-Za-z0-9_.+/-]+/|\.?/?[A-Za-z0-9_.+/-]*/)?python(?:[0-9]+(?:\.[0-9]+)?)?)(?:[\s:]|$)`)
+	for _, text := range []string{output, command} {
+		if m := re.FindStringSubmatch(text); m != nil {
+			return m[1]
+		}
+	}
+	return ""
 }

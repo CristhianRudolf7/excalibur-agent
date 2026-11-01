@@ -119,10 +119,10 @@ func TestDetectMissingFromRecordedOutputs(t *testing.T) {
 			wantNil: true,
 		},
 		{
-			name:    "install command never loops",
+			name:    "install output detects missing module",
 			command: "pip install foo",
 			output:  "ModuleNotFoundError: No module named 'bar'",
-			wantNil: true,
+			kind:    KindPythonMod, dep: "bar",
 		},
 		{
 			name:    "generic no such file is not provisioning",
@@ -180,9 +180,9 @@ func TestPlanCuratedMapsAndFlags(t *testing.T) {
 		pkg      string
 		contains []string
 	}{
-		{MissingDep{KindCommand, "ps", ""}, "apt", "procps", []string{"apt-get install -y --no-install-recommends procps", "command -v ps"}},
+		{MissingDep{KindCommand, "ps", ""}, "apt", "procps", []string{"install -y --no-install-recommends procps", "command -v ps"}},
 		{MissingDep{KindCommand, "ss", ""}, "apt", "iproute2", []string{"iproute2"}},
-		{MissingDep{KindCommand, "file", ""}, "apt", "file", []string{"apt-get install"}},
+		{MissingDep{KindCommand, "file", ""}, "apt", "file", []string{"install -y"}},
 		{MissingDep{KindCommand, "mytool", ""}, "apt", "mytool", []string{"mytool"}},
 		{MissingDep{KindPythonMod, "cv2", ""}, "pip", "opencv-python-headless", []string{"opencv-python-headless", "import cv2"}},
 		{MissingDep{KindPythonMod, "chess", ""}, "pip", "chess", []string{"chess"}},

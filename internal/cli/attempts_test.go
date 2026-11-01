@@ -352,6 +352,9 @@ func TestAttemptsLegacySplitPauses(t *testing.T) {
 	t.Setenv("EXCALIBUR_ATTEMPTS", "3")
 	t.Setenv("EXCALIBUR_ATTEMPTS_FULL_BUDGET", "0")
 	t.Setenv("EXCALIBUR_ATTEMPTS_MERGE_RECORDS", "")
+	// Legacy step-split path predates wall-clock-only binding: keep
+	// time-only off so the 2-step slice still pauses.
+	t.Setenv("EXCALIBUR_TIME_BUDGET_ONLY", "0")
 	proj := t.TempDir()
 	if err := os.WriteFile(filepath.Join(proj, "base.txt"), []byte("base"), 0o644); err != nil {
 		t.Fatal(err)
