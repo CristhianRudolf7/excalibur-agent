@@ -11,42 +11,55 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
-// The ablation switch defaults to helpful: unset env means auto,
-// explicit values select off/on/auto, and unknown values stay safe
-// by falling back to auto.
+// The ablation switch defaults to cards (inject nothing), explicit
+// values select off/on/auto/cards, and unknown values stay safe by
+// falling back to cards.
 func TestLibraryModeParsing(t *testing.T) {
-	if DefaultLibraryMode() != LibraryAuto {
-		t.Fatalf("default mode must be auto, got %q", DefaultLibraryMode())
+	if DefaultLibraryMode() != LibraryCards {
+		t.Fatalf("default mode must be cards, got %q", DefaultLibraryMode())
 	}
-	for in, want := range map[string]LibraryMode{
-		"": LibraryAuto, "auto": LibraryAuto, "AUTO": LibraryAuto,
+	for in, want := range map[LibraryMode]LibraryMode{
+		"": LibraryCards, "cards": LibraryCards, "CARDS": LibraryCards,
+		"auto": LibraryAuto, "AUTO": LibraryAuto,
 		"on": LibraryOn, "On": LibraryOn,
 		"off": LibraryOff, "OFF": LibraryOff,
+		"sometimes": LibraryCards,
 	} {
-		got := LibraryModeFromEnv(func(string) string { return in })
+		got := LibraryModeFromEnv(func(string) string { return string(in) })
 		if got != want {
 			t.Errorf("env %q: want %q, got %q", in, want, got)
 		}
-		if _, err := ParseLibraryMode(in); in != "" && err != nil && want != LibraryAuto {
+		if _, err := ParseLibraryMode(string(in)); in != "" && in != "sometimes" && err != nil {
 			t.Errorf("ParseLibraryMode(%q) unexpected error: %v", in, err)
 		}
 	}
 	if _, err := ParseLibraryMode("sometimes"); err == nil {
 		t.Error("unknown mode must error")
+	} else if !strings.Contains(err.Error(), "cards") {
+		t.Errorf("unknown-mode error must list cards, got %v", err)
 	}
-	if LibraryModeFromEnv(nil) != LibraryAuto {
-		t.Error("nil getenv must default to auto")
+	if LibraryModeFromEnv(nil) != LibraryCards {
+		t.Error("nil getenv must default to cards")
 	}
-	if LibraryOff.CatalogEnabled() || !LibraryOn.CatalogEnabled() || !LibraryAuto.CatalogEnabled() {
-		t.Error("catalog must be enabled in on/auto only")
+	if LibraryOff.CatalogEnabled() || !LibraryOn.CatalogEnabled() || !LibraryAuto.CatalogEnabled() || !LibraryCards.CatalogEnabled() {
+		t.Error("catalog must be enabled in on/auto/cards only")
 	}
-	if !LibraryAuto.AutoSuggestEnabled() || LibraryOn.AutoSuggestEnabled() || LibraryOff.AutoSuggestEnabled() {
+	if !LibraryAuto.AutoSuggestEnabled() || LibraryOn.AutoSuggestEnabled() || LibraryOff.AutoSuggestEnabled() || LibraryCards.AutoSuggestEnabled() {
 		t.Error("auto-suggest must run in auto mode only")
+	}
+	if !LibraryCards.CardsEnabled() || LibraryAuto.CardsEnabled() || LibraryOn.CardsEnabled() || LibraryOff.CardsEnabled() {
+		t.Error("cards behavior must apply in cards mode only")
+	}
+	for in, want := range map[string]bool{"": true, "1": true, "yes": true, "0": false, "false": false, "off": false} {
+		if got := ErrorCardsFromEnv(func(string) string { return in }); got != want {
+			t.Errorf("error-cards env %q: want %v, got %v", in, want, got)
+		}
 	}
 }
 
 // Off disables everything, on wires the catalog without injecting
-// suggestions, auto adds the task-start suggestions.
+// suggestions, auto adds the task-start suggestions, and cards
+// wires search/load with nothing injected.
 func TestLibraryModeGating(t *testing.T) {
 	ix := NewBuiltinIndex()
 	if err := ix.Scan(); err != nil {
@@ -55,6 +68,12 @@ func TestLibraryModeGating(t *testing.T) {
 	cfg := CatalogConfig{WindowTokens: 200000, Pertinent: DefaultPertinentForRole("programming")}
 	if got := ix.RenderCatalogForMode(cfg, LibraryOff); got != "" {
 		t.Errorf("off must render no catalog, got %d chars", len(got))
+	}
+	if got := ix.RenderCatalogForMode(cfg, LibraryCards); got != "" {
+		t.Errorf("cards must render no catalog, got %d chars", len(got))
+	}
+	if p := CardsPointer(); p == "" || !strings.Contains(p, "search_skills") {
+		t.Errorf("cards pointer must name the pull tools, got %q", p)
 	}
 	if got := ix.RenderCatalogForMode(cfg, LibraryOn); got == "" {
 		t.Error("on must render the catalog")
@@ -71,11 +90,20 @@ func TestLibraryModeGating(t *testing.T) {
 	if got := ix.SuggestWithEnvForMode("debug failing test", EnvSignals{}, "m", 3, LibraryOn); len(got) != 0 {
 		t.Error("on must not env-suggest")
 	}
+	if got := ix.SuggestForMode("debug failing test", "m", 3, LibraryCards); len(got) != 0 {
+		t.Error("cards must not inject suggestions")
+	}
+	if got := ix.SuggestWithEnvForMode("debug failing test", EnvSignals{}, "m", 3, LibraryCards); len(got) != 0 {
+		t.Error("cards must not inject env suggestions")
+	}
 	if got := ix.SearchForMode("rust", "", LibraryOff); len(got) != 0 {
 		t.Error("off must not search")
 	}
 	if got := ix.SearchForMode("rust", "", LibraryOn); len(got) == 0 {
 		t.Error("on must search")
+	}
+	if got := ix.SearchForMode("rust", "", LibraryCards); len(got) == 0 {
+		t.Error("cards must keep search available on demand")
 	}
 	if _, err := ix.LoadForMode("shell-power-use", LibraryOff); err == nil {
 		t.Error("off must refuse loads")
@@ -84,6 +112,9 @@ func TestLibraryModeGating(t *testing.T) {
 	}
 	if _, err := ix.LoadForMode("shell-power-use", LibraryOn); err != nil {
 		t.Errorf("on must load: %v", err)
+	}
+	if _, err := ix.LoadForMode("shell-power-use", LibraryCards); err != nil {
+		t.Errorf("cards must load on demand: %v", err)
 	}
 }
 

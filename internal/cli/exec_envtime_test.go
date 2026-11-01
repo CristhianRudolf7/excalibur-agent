@@ -123,9 +123,11 @@ func TestExecEngineBudgetLineAndDiscipline(t *testing.T) {
 }
 
 // With the time switch off there is no budget line and no discipline
-// prompt: the ablation baseline.
+// prompt: the ablation baseline. The long-horizon pacing line has its
+// own switch, so the silent baseline disables both.
 func TestExecEngineTimeBudgetSwitchOff(t *testing.T) {
 	t.Setenv(engine.TimeBudgetSwitch, "0")
+	t.Setenv("EXCALIBUR_LONG_HORIZON", "off")
 	fake := providerfake.New("budgetline-off")
 	fake.Responses = doneImmediately()
 	out, err := RunExec(context.Background(), ExecOptions{

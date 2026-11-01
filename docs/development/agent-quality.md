@@ -1865,3 +1865,277 @@ contents, tests or solutions were used.
 - Existing suites green: `go test -race ./internal/ctxcompiler/
   ./internal/config/ ./internal/eval/ ./internal/engine/
   ./internal/cli/`; cross builds `GOOS=darwin/windows`.
+
+## W5: long-horizon persistence (Sections 7.3, 18.4, P1-P10)
+
+Owner: long-horizon workstream. Packages: `internal/tasks`
+(`longhorizon.go`, engine-independent) plus the finish/step seam of
+`internal/engine` (`longhorizon.go`, `Run` milestone fields,
+`Deps.LongHorizon`, `finishTurn`/`step`/`harvestBatch` hooks) and the
+L5 pacing/discipline wiring in `internal/cli/exec_engine.go`. The
+connectors are untouched: no change to `internal/providers/**`, the
+model gateway wire protocol (`internal/models`, `internal/gateway`),
+`internal/api`, `packages/contracts`, `integrations/**`, MCP/ACP
+servers, or the `bench` Harbor invocation. Evaluation records are
+standard evaluation and auditing (Section 23.2, Appendix F).
+
+### Problem evidence (read-only trial records, never task contents)
+
+From `analyze.py` over the frozen full run (275 trials, 31.3% pass)
+and the current agent-quality build:
+
+- On hour-scale tasks the agent averages 11-23 tool calls and declares
+  `completed`; on 2.1 failures it averages ~13 calls. Paired
+  measurements show earlier harness changes did not make the agent work
+  longer or deeper: ALL failures still end as `completed` while the
+  result is wrong.
+- The existing self-verification and artifact gates block completions
+  without fresh executable evidence, but they pass vacuously when no
+  criterion was ever extracted and they give the model no sense of how
+  much budget is left or what remains to be done.
+- Long commands block the run or end it instead of backgrounding and
+  polling: the `exec` tool supports `background` plus `exec_io
+  wait_for`, but nothing steers the model to use it or blocks a thin
+  finish while a session is still alive and unverified.
+
+### Mechanisms (all default ON)
+
+`internal/tasks/longhorizon.go` (stdlib plus the package's existing
+helpers only; no model calls, no network, no tool execution) with the
+engine seam in `internal/engine/longhorizon.go`:
+
+1. Time- and evidence-aware continuation: when the agent tries to
+   finish while significant budget remains (wall time when capped,
+   steps otherwise) and any extracted draft lacks fresh executable
+   evidence, or the deliverable was never exercised end to end after
+   a change, the run continues with a concise "what is still unproven"
+   message. Returns stay bounded by `MaxContinuations` (3); after the
+   bound the run enters closing mode (`tool_choice: none`) instead of
+   continuing. Fires both on a vacuous pass and when the honest end
+   would land while time remains; legacy runs without an instruction
+   stay on the pre-long-horizon path.
+2. Milestone plan for large tasks: large means long literal
+   instructions (`>=400` chars) or enough drafts (`>=3`). The plan is
+   explore, one implement milestone per draft (capped), verify, report
+   (generic 4-phase fallback without drafts), kept in task state
+   (`Run.lhMilestones`), pinned to the working notes, with one initial
+   "work the plan in order" note and a "milestone plan done/total; next
+   milestone Mx: ..." nudge every 8 steps while a milestone is still
+   pending.
+3. Budget pacing: a compact `pacing: elapsed ..., steps used/max
+   (... left), time ... left of ... (...% left), milestones done/total`
+   line in L5 every call (elapsed always renders, other segments only
+   when capped), combined with the existing BudgetState line. Fixed
+   instructions teach the model to pace itself against it and not to
+   finish while significant budget remains and evidence is thin.
+4. Long-command discipline: `exec` calls with long patterns (builds,
+   test suites, servers, installers, training, sleeps) launched without
+   `background:true` earn one volatile note per step naming the
+   background+poll rerun (`background:true` plus `exec_io
+   wait_for`/`read`); finish while a session is still alive and
+   unverified keeps blocking through the artifact gate, now with the
+   time-aware continuation naming the poll.
+
+### Switches
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_LONG_HORIZON` | `on`/`1`/`true`/`yes` enables | `on` | master: `off` restores the pre-long-horizon finish path, no pacing, no milestones, no background nudges (legacy L5 bytes) |
+| `EXCALIBUR_LONG_HORIZON_CONTINUATION` | `on`/`off` | `on` | continuation before `completed` |
+| `EXCALIBUR_LONG_HORIZON_MILESTONES` | `on`/`off` | `on` | milestone plan plus progress checks |
+| `EXCALIBUR_LONG_HORIZON_PACING` | `on`/`off` | `on` | pacing line in L5 |
+| `EXCALIBUR_LONG_HORIZON_BACKGROUND` | `on`/`off` | `on` | background+poll nudges |
+
+Tuning: `EXCALIBUR_LONG_HORIZON_MAX_CONT` (default 3),
+`EXCALIBUR_LONG_HORIZON_EVERY` (default 8),
+`EXCALIBUR_LONG_HORIZON_SIGNIFICANT_FRAC` (default 0.30),
+`EXCALIBUR_LONG_HORIZON_MIN_STEPS` (default 5),
+`EXCALIBUR_LONG_HORIZON_LARGE_*` thresholds. Measure `off` vs `on`
+on the same task set; watch success rate, tool calls per run (must
+grow on long tasks), share of failures ending `completed` vs honest
+states, continuation trips per run, and cost. See
+`docs/decisions/0053-long-horizon-persistence.md` for the vacuous-pass
+and read-only-task choices.
+
+### Research sources (fetched before coding, general engineering only)
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, fetched full text,
+  https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8→66.5 on TB2 with the model fixed. Adopted: build-verify loop
+  discipline with a `PreCompletionChecklist`-style exit interception
+  (our continuation is that checklist with a time-aware bound),
+  deterministic context injection for verification, environment
+  onboarding, loop-detection reconsider notes, time-budget warnings,
+  and the trace-analyzer warning against single-task overfitting
+  (hence paired per-task statistics via the measurement workstream).
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026, fetched
+  abstract, https://arxiv.org/abs/2603.28052): harness code (what to
+  store, retrieve, present) moves results as much as weights, with
+  larger gains on weaker models. Motivates the milestone plan kept in
+  task state and the pacing line (small stable context, explicit
+  budgets) over prompt growth.
+- Agentic Harness Engineering, arXiv 2604.25850 (cited, not fetched):
+  same direction — systematic harness search with standard evaluation
+  and auditing records (Section 23.2, Appendix F) as the objective
+  signal; continuation trips and milestone progress are that signal
+  for this lever.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop and
+  the missing-binary failure mode noted in the Section 23.2 analysis;
+  kept as the neutral baseline shape. Our background+poll discipline
+  is the same instinct made explicit (background long commands, poll
+  instead of busy-polling, never finish while alive and unverified).
+- Open-source harnesses (general engineering knowledge, no task
+  material used): mini-SWE-agent FAQ
+  (https://mini-swe-agent.com/latest/faq/ — bash-only tools suffice,
+  stateless subprocess execution motivates background sessions over
+  blocking calls); SWE-agent (short system prompt with explicit test
+  running — informs the verify-each-milestone rule); OpenHands loop
+  detection (repeated calls+errors); Codex/OpenCode `tool_choice:
+  none` closing (our post-bound closing mode); Aider architect/editor
+  split. What we took is behaviour-side only: plan-then-verify
+  discipline, explicit pacing, and bounded returns with honest
+  terminal states.
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing here tunes the agent against
+benchmark failures or derives prompts from task contents.
+
+### Contract and backend tests
+
+- `internal/tasks/longhorizon_test.go`: defaults and env overlay,
+  large-task heuristic, plan shape (explore/impl/verify/report,
+  draft-free fallback), continuation gaps (empty history, write
+  without check, exercised pass), significant-budget thresholds,
+  pacing format (capped and uncapped), long-command table and hint,
+  unproven-note shape, milestone progress and nudge.
+- `internal/engine/longhorizon_test.go`: shallow finish with time
+  left continues past the gate bound (trips recorded, note names the
+  gap); little time left stands down; master off restores the legacy
+  2-call bound; large tasks pin the plan to working notes while small
+  tasks stay plan-free; progress checks nudge every N steps; pacing
+  renders with milestone counts and stays silent with the switch off;
+  long commands nudge background+poll while short/backgrounded calls
+  stay silent; bound then closing forces `tool_choice: none`.
+- `internal/cli/exec_longhorizon_test.go`: pacing plus discipline
+  lines ride L5 by default; master off stays silent; large requests
+  carry pacing.
+- Existing suites unchanged in contract and green:
+  `go test -race ./internal/engine/ ./internal/tasks/
+  ./internal/cli/` (the `exec_envtime` silent-baseline test now
+  disables both time and long-horizon switches; e2e call counts
+  unchanged because draft-free read-verified work no longer counts as
+  unproven).
+
+## W5: skills that help small models (cards, not catalogs)
+
+Owner: skills workstream (branch `skills-redesign`). Packages:
+`internal/skills` (`mode.go`, `cards.go`, `skilltools.go`,
+`builtin/...`) plus the existing minimal additive seam in
+`internal/cli` (`exec_engine.go`, `exec_cards.go`). Connectors,
+gateway, API, bench invocation and the eval profile table are
+untouched. Decisions: `docs/decisions/0054-skills-cards-redesign.md`;
+contract: `docs/development/skills.md` (rationale section).
+
+### Problem evidence (read-only trial records, paired runs)
+
+All-on (74 trials, 40.5% pass) vs skills-off (74 trials, 47.3%):
+enabling the expanded library with auto-suggest lowers success by
+about 7-10 points. Triage of failures found knowledge gaps in only
+1 of 44 failures; the dominant causes are discipline and
+verification. Four mechanisms explain the drag:
+
+1. Prompt bloat on every call: the L1 catalog (~13K chars) plus 3
+   suggestions ride the stable prefix (first-call input ~4552 vs
+   ~1698 tokens; ~43K extra input tokens per trial).
+2. Almost nobody pulls: 11 of 74 on-trials called
+   search/load at all; 63 paid the catalog cost untouched.
+3. Suggestions mislead: lexical neighbours beat task neighbours
+   (chess got `docker-containers`; an R task got
+   `go-modules-toolchain`).
+4. On-demand use wastes steps: bare `search_skills {}` dumped all
+   256 skills inline; half the loads errored or loaded an
+   irrelevant browser skill.
+
+### Mechanisms (default ON)
+
+1. Cards mode (`EXCALIBUR_SKILLS=cards`, the new default): no
+   catalog and no suggestions injected in any prompt layer; the
+   only skills text is a one-line on-demand pointer (<400 chars)
+   on L1. `search_skills`/`load_skill` stay wired (pull-only).
+2. Error-triggered retrieval: a failed tool result is matched
+   against a deterministic precision-first table (concrete error
+   strings, missing-binary names; at most one card per failure)
+   and gains a compact excerpt (title, when-to-use line,
+   Procedure/Pitfalls/Verification, capped at 40 lines / 4000
+   chars, with a `load_skill` pointer). Clean outputs, running
+   sessions and runner errors never fire. `exec` failures are read
+   off the `exit:` header because exec always reports StatusOK.
+3. Search-dump guard (all modes): unscoped empty `search_skills`
+   returns short guidance with the group list instead of the full
+   catalog (StatusOK preserved).
+4. Content audit: all 42 trigger-reachable skills verified
+   card-grade (exact commands, pitfalls, verification; one
+   template fix: `systematic-debugging` gains `## Verification`);
+   advisory skills are pruned by default (never injected, never
+   error-fired) rather than rewritten.
+
+### Switches
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_SKILLS` | env `off`/`on`/`auto`/`cards` | `cards` | `off`: no index; `on`: catalog, no suggestions; `auto`: catalog + task-start suggestions (legacy bytes) |
+| `EXCALIBUR_SKILLS_ERROR_CARDS` | env `0/false/no/off` disables | on | no excerpts appended (cards mode otherwise unchanged) |
+| `EXCALIBUR_SKILLS_COMPACT` | env `1`/`true` | unset (full) | unchanged |
+
+Measure `cards` vs `off` vs `on` vs `auto` on the same task set
+(Appendix F): success rate, first-call input tokens, share of
+trials with any skill call, error-card fire rate (the
+`[skill card — error-triggered]` marker in `tool_calls.jsonl`
+blobs), per-cause triage drift. Records: `skills.json` gains
+`error_cards` (mode, compact, hash, count, suggestions kept).
+
+### Contract and backend tests
+
+- `internal/skills/cards_test.go`: trigger skills resolve, are not
+  archived, carry Procedure/Pitfalls/Verification; error patterns
+  fire exactly one card and clean output fires none; excerpts
+  within budget with commands/pitfalls/verification/full-skill
+  pointer; unknown skills build nothing; pointer brevity;
+  unscoped empty search guides without dumping, group listing
+  works.
+- `internal/skills/quality_test.go`: default cards, unknown falls
+  back to cards, gating per mode (cards: no catalog/suggestions,
+  search/load available), error-cards env parsing.
+- `internal/cli/exec_cards_test.go`: runner fires only on
+  failures (never success/running/runner-error), byte-identical
+  passthrough otherwise, switch silences; scripted `exec` run in
+  cards mode injects only the pointer and records the fired card
+  (`make-builds`) in ATIF plus `skills.json` (mode cards,
+  error_cards on, no suggestions).
+- Existing suites green: `go test -race ./...`, cross builds
+  `GOOS=darwin/windows`.
+
+### Research sources
+
+- LangChain, "Improving Deep Agents with harness engineering"
+  (Feb 2026, fetched in W1): prompt bloat dilutes the working
+  method; verification checklists beat more context — motivates
+  removing the injected catalog and keeping the verification
+  pointer minimal.
+- Meta-Harness, arXiv 2603.28052 (abstract fetched in W1): what
+  the harness presents matters as much as weights, with larger
+  gains on weaker models — motivates the no-inject default for the
+  small reference model.
+- mini-SWE-agent (surveyed in W1): minimal bash-only surface; few
+  well-designed tools beat many advertised ones — motivates the
+  one-line pull pointer over the 256-line catalog.
+- Terminus 2 (Harbor reference harness): single-tool terminal loop
+  as the neutral baseline our exec records already follow.
+- Agentic Harness Engineering (arXiv 2604.25850, cited from the
+  architecture refs): same direction; standard evaluation and
+  auditing records as the objective signal.
+
+Documentation describes standard evaluation and auditing records
+(Section 23.2, Appendix F); nothing here tunes the agent against
+benchmark failures or derives prompts from task contents.

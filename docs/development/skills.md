@@ -50,7 +50,7 @@ milestones' tests) implements Sections 12.1-12.5 and 12.8:
   (programming lists the engineering groups after the original
   five, in budget priority order; conversation unchanged); doubt
   goes to the decider (H12).
-- **Selection and loading (12.4)**: `Suggest` scores the task
+- **Selection, loading and cards (12.4)**: `Suggest` scores the task
   description with BM25-style weights over name, description and
   body headings plus the optional vector leg (`VectorScorer`, nil
   by default; H11 plugs embeddings in), returning at most 3
@@ -68,27 +68,43 @@ milestones' tests) implements Sections 12.1-12.5 and 12.8:
   light plural stemming keep terse model phrasing on vocabulary.
   `Search` implements `search_skills(query?, group?)` returning
   name, description, group and path; an omitted query lists the
-  group. `Load` implements `load_skill(name)` returning
+  group, while an unscoped empty query (no query and no group)
+  returns short guidance with the group list instead of dumping
+  the whole catalog. `Load` implements `load_skill(name)` returning
   the body for the end of history (L0-L2 hashes untouched),
   with declared deferred tools (resolved with the skill per
   13.3), requires, allowed-tools, and the available sections and
   references; `LoadSection` serves one `##` section and `LoadRef`
   serves one `references/` file, with errors that list what
-  exists. Mandatory instructions never
+  exists. In `cards` mode nothing is injected by default: the
+  model pulls short cards on demand, and `MatchError` maps a
+  failed tool output to one trigger skill (concrete error strings
+  and missing-binary names, precision-first, at most one card per
+  failure) while `CardExcerpt`/`ErrorCardFor` return the compact
+  card (title, when-to-use line, Procedure/Pitfalls/Verification,
+  capped at 40 lines / 4000 chars, with a `load_skill` pointer to
+  the full text). The `exec` seam appends the excerpt to the
+  failed result inside the recorder, so the records show exactly
+  when the mechanism fired. Mandatory instructions never
   travel as suggestions; they stay in the card's fixed
   instructions. `RecordOutcome` tracks per-model results with and
   without each skill and disables a group's suggestions for a
   model on negative evidence (minimum sample, gap threshold).
-- **Ablation switch**: `LibraryMode` (`off`/`on`/`auto`,
-  `EXCALIBUR_SKILLS`, default `auto`) gates the catalog, search,
-  load and auto-suggest so trials measure off vs on vs
-  on+auto-suggest; `EXCALIBUR_SKILLS_COMPACT=1` selects the
-  names-only catalog. `exec`/`eval` read both from the
+- **Ablation switch**: `LibraryMode` (`off`/`on`/`auto`/`cards`,
+  `EXCALIBUR_SKILLS`, default `cards`) gates the catalog, search,
+  load, auto-suggest and error-triggered cards so trials measure
+  off vs on vs on+auto-suggest vs cards; `EXCALIBUR_SKILLS_COMPACT=1`
+  selects the names-only catalog. `exec`/`eval` read both from the
   environment: `on`/`auto` render the programming L1 catalog into
   the snapshot, wire the real skill tools and write `skills.json`
-  (mode, compact flag, catalog hash, suggestions) plus a
-  `skills_wired` event; `auto` adds task-start suggestions from
-  the request and collected environment signals.
+  (mode, compact flag, `error_cards` flag, catalog hash, skill
+  count, suggestions) plus a `skills_wired` event; `auto` adds
+  task-start suggestions from the request and collected
+  environment signals; `cards` (default) injects only the
+  one-line on-demand pointer (`CardsPointer`), keeps search/load
+  wired, and appends at most one compact card excerpt to a failed
+  tool result when the output matches a concrete error pattern
+  (`EXCALIBUR_SKILLS_ERROR_CARDS=0` disables the excerpts).
 - **Built-in catalog (12.5)**: 256 English `SKILL.md` files under
   `internal/skills/builtin/<group>/<name>/`, one focused skill
   per catalog row, each with when-to-use, procedure, pitfalls and
@@ -131,6 +147,49 @@ until H11 vectors land. Quality-round interpretations in
 instead of one mega-group, focused `load_skill` slices,
 environment-aware auto-suggest without embeddings, the
 `EXCALIBUR_SKILLS` ablation switch, and the minimal exec seam.
+Cards-round interpretations in
+`docs/decisions/0054-skills-cards-redesign.md`: default `cards`
+(auto stays for ablation), precision-first error triggers,
+prune-by-default for advisory skills (see rationale below).
+
+## Design rationale: why cards (measured evidence)
+
+Paired runs of the pre-cards version (library on with auto-suggest
+vs library off, same task set) show the library hurting by about
+7-10 points (~40.5% vs ~47.3%), with triage finding knowledge gaps
+in only 1 of 44 failures. Four mechanisms explain it:
+
+1. Prompt bloat on every call: the L1 catalog (~13K chars) plus 3
+   suggestions ride the stable prefix and are re-sent per model
+   call (first-call input ~4552 vs ~1698 tokens; ~43K extra input
+   tokens per trial).
+2. Almost nobody pulls: only 11 of 74 on-trials called
+   search/load at all; 63 paid the catalog cost and never touched
+   a skill.
+3. Suggestions mislead: lexical neighbours beat task neighbours
+   (chess got `docker-containers`; an R task got
+   `go-modules-toolchain`).
+4. On-demand use wastes steps: bare `search_skills {}` dumped all
+   256 skills inline; half the loads errored or loaded an
+   irrelevant browser skill.
+
+Cards answer each mechanism: nothing injected by default
+(one-line pointer, <400 chars), pull-only search/load,
+error-triggered excerpts only on concrete failures (at most one
+card of at most 40 lines per failure), and guidance instead of a
+dump for unscoped empty search. The command-domain skills the
+trigger table can fire (42 names) were audited against the card
+bar (exact commands, pitfalls, verification) and all pass, with
+one template fix (`systematic-debugging` gains `## Verification`);
+a backend test pins every trigger skill's name, state and template
+sections. The vague tail (search/browser, marketing, finance,
+compliance, creative-tools, methodology prose) is advisory, not
+command reference: it is pruned by default (never injected, never
+error-fired) rather than rewritten into fake command lists, and
+stays available on demand in `on`/`auto` modes. Records to watch:
+first-call input tokens, share of trials with any skill call,
+error-card fire rate (the `[skill card — error-triggered]` marker
+in `tool_calls.jsonl` blobs), and per-cause triage drift.
 
 ## Backend tests
 
@@ -159,7 +218,22 @@ environment-aware auto-suggest without embeddings, the
   instruction text; synonyms map terse phrasing (`py packaging`)
   to catalog vocabulary; section/ref loads serve focused slices
   with sibling pointers; the mode switch gates catalog, search,
-  load and suggestions off/on/auto.
+  load and suggestions off/on/auto/cards.
+- `cards`: default is cards with unknown/unset falling back to
+  cards; cards renders no catalog and injects no suggestions while
+  search/load stay available; the pointer stays under 400 chars;
+  every trigger-table skill resolves, is not archived, and carries
+  Procedure/Pitfalls/Verification; error patterns fire exactly
+  one card (missing binaries, lock/permission/port/cert/link/git
+  failures, toolchain errors) and clean output fires none;
+  excerpts stay within 40 lines / 4000 chars with commands,
+  pitfalls, verification and a full-skill pointer; unscoped empty
+  search returns guidance (no dump) while group listing still
+  works. `internal/cli` covers the seam: cards fire only on
+  failures (never on success, running sessions or runner errors),
+  non-firing results pass byte-identical, the switch silences
+  excerpts, and a scripted `exec` run records mode cards with no
+  injected catalog/suggestions and the fired card in the records.
 - `install`: valid package activates and indexes; bad-name
   package rejected with diagnosis; same content reinstalls as
   `same-hash`; later content change detected, revalidated and

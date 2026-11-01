@@ -122,6 +122,11 @@ type Deps struct {
 	// artifact gate; nil selects the live OS implementations.
 	ArtifactStat tasks.StatFunc
 	ArtifactRead tasks.ReadFunc
+	// LongHorizon overrides the environment-backed long-horizon
+	// persistence switches (tasks.DefaultLongHorizonConfig): time-
+	// and evidence-aware continuation, milestone plan, budget pacing
+	// and background nudges. Nil selects the defaults (all on).
+	LongHorizon *tasks.LongHorizonConfig
 	// LeaseHeartbeat renews the run's file leases while it is
 	// running or waiting on a tool or subagents (Section 16.2),
 	// including during long tools. Nil disables heartbeats.
@@ -261,6 +266,22 @@ type Run struct {
 	// hooks; refined marks the single model refine pass as done.
 	drafts  []tasks.DraftCriterion
 	refined bool
+	// lhMilestones is the explicit milestone plan for large tasks
+	// (long horizon): ordered checkable phases kept in task state.
+	// Guarded by mu like the rest of the run state.
+	lhMilestones []tasks.LHMilestone
+	// lhInit marks the milestone plan decision as done (large with a
+	// plan, or small with no plan). Guarded by mu.
+	lhInit bool
+	// lhLarge marks tasks that estimated as large. Guarded by mu.
+	lhLarge bool
+	// lhTrips counts long-horizon continuation nudges consumed by
+	// this run. Guarded by mu.
+	lhTrips int
+	// lhClosing forces closing mode after the continuation bound is
+	// reached: the remaining finish attempts render tool_choice none.
+	// Guarded by mu.
+	lhClosing bool
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -743,6 +764,12 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		return true, nil
 	}
 	closing := e.checkBudgets(run, elapsed) == tasks.StatusClosing
+	// Long-horizon closing: after the continuation bound is reached
+	// the remaining finish attempts render tool_choice none so the
+	// run closes with a final report instead of new work.
+	if e.lhClosingNow(run) {
+		closing = true
+	}
 
 	req, compiled, err := e.deps.Context.BuildRequest(ctx, run, closing)
 	if err != nil {
@@ -756,6 +783,11 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	// layer renders request:\n... verbatim, so verification and
 	// contrast need no driver changes.
 	run.stashRequest(compiled.LayerText(ctxcompiler.LayerTask))
+	// Long-horizon persistence: the milestone plan decision needs the
+	// stashed request, and the progress check injects the next
+	// milestone for the following model call.
+	e.ensureLHMilestones(run)
+	e.lhProgressCheck(run)
 	if rec := e.recorder(run.ID); rec != nil {
 		_, _ = rec.ModelRequest(ctx, journal.HashRequest(prefixHash(compiled)))
 	}
@@ -890,6 +922,23 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bo
 	e.recordState(ctx, run, from, types.RunVerifying, "gate")
 	rep := e.gateCheck(run)
 	rep = e.selfVerify(ctx, run, rep, finalText)
+	// Long-horizon persistence: when significant budget remains and
+	// executable evidence is still thin, continue with a concise "what
+	// is still unproven" message instead of finishing shallow. This
+	// fires both on a vacuous pass and when the honest end would land
+	// while time remains. Bounded; after the bound the run closes
+	// instead of continuing.
+	if rep.OK {
+		if cont, note := e.lhShouldContinue(run, rep); cont {
+			run.mu.Lock()
+			back := run.state
+			_ = run.transition(types.RunRunning)
+			run.mu.Unlock()
+			e.recordState(ctx, run, back, types.RunRunning, "long-horizon continuation")
+			run.InjectNote(note)
+			return false, nil
+		}
+	}
 	run.mu.Lock()
 	run.LastGate = rep
 	attempts := run.GateAttempts
@@ -907,6 +956,18 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bo
 		run.mu.Unlock()
 		e.recordState(ctx, run, back, types.RunRunning, "gate retry")
 		run.InjectNote(verificationNote(rep))
+		return false, nil
+	}
+	// Gate attempts exhausted but significant budget remains and
+	// evidence is still thin: the long-horizon continuation extends
+	// the run instead of ending honest early.
+	if cont, note := e.lhShouldContinue(run, rep); cont {
+		run.mu.Lock()
+		back := run.state
+		_ = run.transition(types.RunRunning)
+		run.mu.Unlock()
+		e.recordState(ctx, run, back, types.RunRunning, "long-horizon continuation")
+		run.InjectNote(note)
 		return false, nil
 	}
 	return true, e.complete(ctx, run, tasks.HonestState(rep), tasks.CompactNote(rep))
@@ -1147,7 +1208,8 @@ func markNovelty(run *Run, batch []providers.ToolCall, results []tools.Result) b
 
 // harvestBatch pins one working note per tool outcome (paths,
 // failures) and injects at most one error-hint note per step (agent
-// quality). Both are bounded and switch-gated.
+// quality), plus the long-horizon background nudge for long commands.
+// Both are bounded and switch-gated.
 func (e *Engine) harvestBatch(run *Run, batch []providers.ToolCall, results []tools.Result) {
 	q := e.quality()
 	if q.WorkingNotes {
@@ -1156,6 +1218,10 @@ func (e *Engine) harvestBatch(run *Run, batch []providers.ToolCall, results []to
 			run.addFact(fact, q.MaxNotes)
 		}
 	}
+	// Long-horizon discipline: long commands belong in background
+	// sessions polled with exec_io instead of blocking or ending the
+	// run. One volatile note per step at most.
+	e.lhBackgroundNudge(run, batch, results)
 	if !q.LoopNudges || e.deps.ErrorHint == nil {
 		return
 	}

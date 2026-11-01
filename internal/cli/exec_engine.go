@@ -200,10 +200,10 @@ func skillNames(sugs []ctxcompiler.SkillView) []string {
 }
 
 // writeSkillsRecord persists the skills-library ablation record for
-// the run (mode, catalog hash, suggestions) next to the other trial
-// artifacts. A missing dir skips the write; failures never fail the
-// run.
-func writeSkillsRecord(dir string, mode skills.LibraryMode, compact bool, ix *skills.Index, sugs []ctxcompiler.SkillView) {
+// the run (mode, catalog hash, suggestions, error-cards switch)
+// next to the other trial artifacts. A missing dir skips the write;
+// failures never fail the run.
+func writeSkillsRecord(dir string, mode skills.LibraryMode, compact bool, errorCards bool, ix *skills.Index, sugs []ctxcompiler.SkillView) {
 	if dir == "" || ix == nil {
 		return
 	}
@@ -212,7 +212,7 @@ func writeSkillsRecord(dir string, mode skills.LibraryMode, compact bool, ix *sk
 		Why  string `json:"why"`
 	}
 	rec := map[string]any{
-		"mode": string(mode), "compact": compact,
+		"mode": string(mode), "compact": compact, "error_cards": errorCards,
 		"catalog_hash": ix.CatalogHash(), "catalog_skills": len(ix.Names()),
 	}
 	list := make([]suggestion, 0, len(sugs))
@@ -247,6 +247,32 @@ func writeExploreRecord(dir string, cfg repoexplore.Config, brief repoexplore.Br
 		return
 	}
 	_ = os.WriteFile(dir+"/explore.json", append(buf, '\n'), 0o644)
+}
+
+// writeLongHorizonRecord persists the long-horizon ablation record for
+// the run (switch, milestone plan, continuation trips) next to the
+// other trial artifacts. A missing dir skips the write; failures never
+// fail the run.
+func writeLongHorizonRecord(dir string, cfg tasks.LongHorizonConfig, plan []tasks.LHMilestone, trips int, closing, large bool) {
+	if dir == "" {
+		return
+	}
+	titles := make([]string, 0, len(plan))
+	for _, m := range plan {
+		titles = append(titles, m.ID+" "+m.Title)
+	}
+	rec := map[string]any{
+		"enabled": cfg.Enable, "continuation": cfg.EnableContinuation,
+		"milestones": cfg.EnableMilestones, "pacing": cfg.EnablePacing,
+		"background": cfg.EnableBackgroundNudge,
+		"max_cont":   cfg.MaxContinuations, "every": cfg.MilestoneEvery,
+		"large": large, "plan": titles, "trips": trips, "closing": closing,
+	}
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dir+"/longhorizon.json", append(buf, '\n'), 0o644)
 }
 
 // taskDBOps extracts the op names of a task_db batch call so the eval
@@ -451,12 +477,17 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// catalog, ranking and the EXCALIBUR_SKILLS switch): off keeps
 	// the historical behavior (no index, skill-tool stubs unwired),
 	// on wires the L1 catalog with working search_skills/load_skill
-	// but no injected suggestions, and auto (default) adds the
+	// but no injected suggestions, auto (legacy default) adds the
 	// task-start auto-suggest from the instruction plus
-	// project/PATH environment signals. Everything lands in the
-	// records (skills.json, skills_wired event) for the ablation.
+	// project/PATH environment signals, and cards (the default)
+	// wires working search/load with nothing injected: the model
+	// pulls short cards on demand and failed tool results gain one
+	// error-triggered card excerpt (EXCALIBUR_SKILLS_ERROR_CARDS=0
+	// disables the excerpts). Everything lands in the records
+	// (skills.json, skills_wired event) for the ablation.
 	skillsMode := skills.LibraryModeFromEnv(nil)
 	skillsCompact := compactSkillsCatalog()
+	skillsErrorCards := skills.ErrorCardsFromEnv(nil)
 	ctxCfg := ctxConfigForRun(layerCfg)
 	effWindow := ctxcompiler.LimitsForModel(settings.Model, ctxCfg).ContextWindow
 	if effWindow <= 0 {
@@ -473,13 +504,20 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		skillCatalog = skillsIndex.RenderCatalogForMode(skills.CatalogConfig{
 			WindowTokens: effWindow, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
 		}, skillsMode)
+		// Cards mode injects no catalog and no suggestions: the
+		// one-line pointer below is the only skills text in the
+		// prompt, teaching the pull pattern without the tokens.
+		if skillsMode.CardsEnabled() {
+			skillCatalog = skills.CardsPointer()
+		}
 		env := skills.CollectEnvSignals(opts.ProjectDir, exec.LookPath)
 		for _, s := range skillsIndex.SuggestWithEnvForMode(opts.Request, env, settings.Model, ctxCfg.SuggestedSkillsMax, skillsMode) {
 			suggestedSkills = append(suggestedSkills, ctxcompiler.SkillView{Name: s.Name, Why: s.Why})
 		}
-		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsIndex, suggestedSkills)
+		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsErrorCards, skillsIndex, suggestedSkills)
 		_ = run.EmitEvent("skills_wired", map[string]any{
 			"mode": string(skillsMode), "compact": skillsCompact,
+			"error_cards":  skillsErrorCards,
 			"catalog_hash": skillsIndex.CatalogHash(), "suggested": skillNames(suggestedSkills),
 		})
 	}
@@ -567,6 +605,18 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			"Run long builds, servers and watchers in background terminal sessions and poll them with exec_io wait_for instead of busy-polling; never wait on interactive prompts: prefer non-interactive flags (-y, --no-input, --yes) and avoid pagers or editors.",
 		)
 	}
+	// Long-horizon persistence (EXCALIBUR_LONG_HORIZON, default on):
+	// the pacing line shows elapsed/remaining budget every step, the
+	// milestone plan orders large work, and long commands belong in
+	// background sessions. The switch keeps the ablation baseline
+	// byte-identical when off.
+	if tasks.DefaultLongHorizonConfig().Enable {
+		fixedInstructions = append(fixedInstructions,
+			"Work long tasks to completion: every step shows a pacing line (elapsed, steps/time left, milestone progress); pace yourself against it and do not finish while significant budget remains and evidence is thin.",
+			"Follow the milestone plan in order when one is given (explore, implement each item, verify end to end, report); verify each milestone with an executable check before moving on.",
+			"Run long commands with background:true and poll with exec_io wait_for/read; never finish while a session is still alive and unverified — poll it, verify the service, then stop it or declare it intentionally persistent.",
+		)
+	}
 	snap := func(ctx context.Context, erun *engine.Run) (ctxcompiler.Snapshot, error) {
 		var workingNotes []string
 		if exploreNote != "" {
@@ -623,9 +673,15 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	var modelEndpoint engine.ModelEndpoint = gw
 	var toolRunner engine.ToolRunner = runner
+	// Cards mode appends one error-triggered skill card to failed
+	// tool results (inside the recorder, so the blob shows exactly
+	// when the mechanism fired). Other modes keep the legacy bytes.
+	if skillsMode.CardsEnabled() {
+		toolRunner = &skillCardsRunner{base: runner, index: skillsIndex, errorCards: skillsErrorCards}
+	}
 	if run.Recorder != nil {
 		modelEndpoint = &recordingModelEndpoint{base: gw, run: run, settings: settings}
-		toolRunner = &recordingToolRunner{base: runner, run: run}
+		toolRunner = &recordingToolRunner{base: toolRunner, run: run}
 		_ = run.Recorder.RecordTransition("created", "executing", "engine admitted")
 	}
 	eng := engine.New(engine.Deps{
@@ -634,14 +690,26 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			Config: ctxCfg, Counter: ctxcompiler.NewEstimator(0),
 			Snapshot: snap, ToolDefs: toolDefs, ReasoningEffort: effort,
 			ModelID: settings.Model,
-			// Remaining-budget line in L5 (Section 18.4): compact
-			// steps/tools/time/cost left, every call. Empty when
-			// nothing is capped, so uncapped runs add no bytes.
+			// Remaining-budget line in L5 (Section 18.4) plus the
+			// long-horizon pacing line (elapsed/remaining steps and
+			// time, milestone progress): compact steps/tools/time/
+			// cost left plus pacing, every call. Each half stays
+			// silent under its own switch so ablations add no bytes.
 			Budget: func(erun *engine.Run) string {
-				if !engine.TimeBudgetEnabled() {
-					return ""
+				now := time.Now().UTC()
+				base := ""
+				if engine.TimeBudgetEnabled() {
+					base = erun.BudgetLine(now)
 				}
-				return erun.BudgetLine(time.Now().UTC())
+				pacing := erun.LongHorizonPacing(now)
+				switch {
+				case base != "" && pacing != "":
+					return base + "; " + pacing
+				case base != "":
+					return base
+				default:
+					return pacing
+				}
 			},
 			// Full-window context control (11.3-11.4, owner
 			// decision 0051): masking and compaction run inside
@@ -765,6 +833,15 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		}
 	}
 	close(stopSampler)
+	// Long-horizon ablation record: milestone plan, continuation trips
+	// and closing flag land next to skills.json/explore.json so the
+	// mechanism is auditable per trial (Appendix F).
+	if plan, trips, closing, large, _ := erun.LongHorizonState(); true {
+		writeLongHorizonRecord(run.Dir, tasks.DefaultLongHorizonConfig(), plan, trips, closing, large)
+		_ = run.EmitEvent("longhorizon", map[string]any{
+			"large": large, "plan": len(plan), "trips": trips, "closing": closing,
+		})
+	}
 	usage := providers.Usage{
 		Input:  int64(erun.Tracker.Used.InputTokens),
 		Output: int64(erun.Tracker.Used.OutputTokens),

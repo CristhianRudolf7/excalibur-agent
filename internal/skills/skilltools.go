@@ -49,6 +49,14 @@ func (t *SearchSkillsTool) Invoke(_ context.Context, inv tools.Invocation) (tool
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
 	}
+	// An unscoped empty query would dump the whole catalog into
+	// the transcript (measured: one bare call costs the full
+	// 256-skill listing). Ask for a query or a group instead; the
+	// group list below is the complete navigation, a few hundred
+	// chars instead of tens of thousands.
+	if strings.TrimSpace(a.Query) == "" && strings.TrimSpace(a.Group) == "" {
+		return tools.Result{Status: tools.StatusOK, Output: "no skills match: give a query, or a group to list it (groups: " + strings.Join(GroupIDs(), ", ") + ")"}, nil
+	}
 	hits := t.Index.Search(a.Query, a.Group)
 	if len(hits) == 0 {
 		return tools.Result{Status: tools.StatusOK, Output: "no skills match"}, nil

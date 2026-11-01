@@ -45,3 +45,8 @@ A hypothesis log with discarded alternatives and the confirmed cause.
 
 - Do not change two variables per experiment.
 - Intermittents need loops and counts, not single runs.
+
+## Verification
+
+- The minimal trigger fails before the fix and passes after; toggling the confirmed cause toggles the symptom.
+- The hypothesis log records every discarded alternative with its disproving observation.
