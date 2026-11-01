@@ -341,6 +341,9 @@ type Run struct {
 	// accepted finish armed it, the second ends the run.
 	finishConfirmPending bool
 	confirmProgress      confirmationProgress
+	// loopRefusedResults identifies history sequences whose calls never executed.
+	// Keep their error results visible while excluding them from finish evidence.
+	loopRefusedResults map[int64]bool
 	// Finish holds the last accepted `finish` arguments; RawFinish
 	// holds the last attempted raw arguments (accepted or refused)
 	// and FinalText holds the model's raw final text for the records.
@@ -1414,6 +1417,9 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		out := withFooter(res.Output, e.timeFooterFor(run))
 		run.mu.Lock()
 		seq := run.nextHistorySeqLocked()
+		if refused[i] != "" {
+			run.markLoopRefusedLocked(seq)
+		}
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool,
 			Content:    out,
@@ -1565,6 +1571,7 @@ func (e *Engine) recordBlockedCall(run *Run, tc providers.ToolCall, res tools.Re
 	out := withFooter(res.Output, e.timeFooterFor(run))
 	run.mu.Lock()
 	seq := run.nextHistorySeqLocked()
+	run.markLoopRefusedLocked(seq)
 	run.History = append(run.History, ctxcompiler.ActivityEvent{
 		Seq: seq, Role: providers.RoleTool,
 		Content:    out,

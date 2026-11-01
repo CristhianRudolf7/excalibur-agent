@@ -190,8 +190,8 @@ func execCommand(args string) string {
 
 // deliverables collects the run's deliverables: the named outputs of the
 // instruction (absolute paths under the known roots, or under the workdir,
-// that the instruction asks to create) and the files written by the
-// history. A file that existed at run start is a deliverable only when
+// that the instruction asks to create). Agent-created scratch files do
+// not become requirements. A file that existed at run start is a deliverable only when
 // the instruction asks to modify it (D3a, items 77 and 100).
 func (e *Engine) deliverables(run *Run, request string, history []tasks.HistoryTool) []deliverable {
 	snap, started, workdir := run.finishRunView()
@@ -220,6 +220,10 @@ func (e *Engine) deliverables(run *Run, request string, history []tasks.HistoryT
 			continue
 		}
 		add(resolved)
+	}
+	// Compatibility switch for the former write-history inference.
+	if switchOn("EXCALIBUR_INSTRUCTION_DELIVERABLES") {
+		return out
 	}
 	for _, h := range history {
 		if !deliverableWriteTools[strings.ToLower(h.Name)] {

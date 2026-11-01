@@ -4867,3 +4867,52 @@ four words, and rank numeric limits ahead of descriptive obligations or named
 outputs. Scientific notation, comparators, percentages and limit words are
 recognized. Up to eight entries appear, preserving source order within a score.
 Disabling the switch restores the previous extraction.
+
+### Exec history confirmation
+
+`EXCALIBUR_GIT_HISTORY_CONFIRM` defaults on. An exec command that rewrites
+Git history or refs is refused before execution when the instruction does
+not request history changes. Repeating the exact command in the same run
+and workdir acknowledges the warning and permits execution. The existing
+`EXCALIBUR_GIT_HISTORY_WARNING` controls the result and finish checklist
+advisory independently. Setting the confirmation switch to `0` restores
+immediate execution. This protection applies to all exec callers.
+
+### Instruction deliverables
+
+`EXCALIBUR_INSTRUCTION_DELIVERABLES` defaults on. Finish checks take their
+deliverable set exclusively from strict extraction of the instruction's
+named output paths. Files written by the agent still inform edit freshness,
+but scratch scripts and other unnamed files do not become deliverables or
+require execution. Setting the switch to `0` restores write-history
+inference. This applies to all profiles.
+
+### Check refusal hints
+
+`EXCALIBUR_PLAIN_CHECK_HINTS` defaults on. Verification refusals that suggest
+repeating an exec check decode its command from the tool arguments and show
+plain shell text. Hints show only the first line, capped at 160 characters,
+with `…` when text is omitted. Setting the switch to `0` restores the
+previous JSON argument excerpts. This applies to all profiles.
+
+## Finish evidence after loop refusals
+
+`EXCALIBUR_FINISH_EXECUTED_ERRORS` defaults on. Explicit finish checks use the
+last executed tool result when a repeat guard rejects a later call. Guard
+refusals remain visible as error results in the conversation and audit history;
+they do not become evidence that a process failed. An actual failed command
+before the refusal still prevents completion. Setting the switch to `0` restores
+the previous last-result behavior. This applies to the explicit finish protocol;
+assistant completion policy is unchanged.
+
+`TestFinishAfterClockRepeatRefusal` uses a fixed engine clock and both constant
+and advancing clock-tool results. `TestRepeatRefusalPreservesExecutedFailure`
+covers both repeat guards, the original failing exit, and switch-off behavior.
+The CLI trajectory past 25 steps has an explicit 60-second budget and a bounded
+15-second test context; completion does not depend on crossing a clock second.
+
+The same executed-history view supplies deterministic artifact checks, verifier
+requests, blocked-claim evidence and actionable refusal hints. This prevents a
+rejected repeat of a successful verification command from failing the next
+finish. `TestFinishVerificationExcludesUnexecutedRepeat` checks this path and
+confirms the original refusal remains in the model/audit history.

@@ -354,16 +354,8 @@ func (e *Engine) handleTextOnly(ctx context.Context, run *Run, rawText string) (
 // itself never counts: a refused finish must not poison the next
 // attempt.
 func lastNonFinishError(run *Run) (output string, isError bool, found bool) {
-	run.mu.Lock()
-	defer run.mu.Unlock()
-	for i := len(run.History) - 1; i >= 0; i-- {
-		tr := run.History[i].ToolResult
-		if tr == nil || tr.Name == FinishToolName {
-			continue
-		}
-		return tr.Output, tr.IsError, true
-	}
-	return "", false, false
+	h, found := lastNonFinishEntry(run)
+	return h.Output, h.IsError, found
 }
 
 // blockedPathsExist checks a blocked claim deterministically: every
@@ -871,7 +863,7 @@ func (e *Engine) finishSafetyReason(run *Run) string {
 func lastNonFinishEntry(run *Run) (tasks.HistoryTool, bool) {
 	run.mu.Lock()
 	defer run.mu.Unlock()
-	history := historyTools(run.History)
+	history := historyTools(run.finishHistoryLocked())
 	for i := len(history) - 1; i >= 0; i-- {
 		if history[i].Name != FinishToolName {
 			return history[i], true
@@ -893,4 +885,28 @@ func historyCommand(h tasks.HistoryTool) string {
 func finishErrorEntryEnabled() bool {
 	v, set := envSwitch("EXCALIBUR_FINISH_ERROR_ENTRY")
 	return !set || v
+}
+
+// markLoopRefusedLocked preserves engine provenance instead of trusting process
+// output text. The finish gate must assess the last executed command, even when
+// a repeat refusal followed it. Callers hold r.mu.
+func (r *Run) markLoopRefusedLocked(seq int64) {
+	if r.loopRefusedResults == nil {
+		r.loopRefusedResults = make(map[int64]bool)
+	}
+	r.loopRefusedResults[seq] = true
+}
+
+// finishHistoryLocked returns an owned evidence view. The conversation keeps
+// every refusal, but unexecuted calls cannot pass or fail verification.
+// Callers hold r.mu.
+func (r *Run) finishHistoryLocked() []ctxcompiler.ActivityEvent {
+	out := make([]ctxcompiler.ActivityEvent, 0, len(r.History))
+	filter := switchOn("EXCALIBUR_FINISH_EXECUTED_ERRORS")
+	for _, ev := range r.History {
+		if !filter || !r.loopRefusedResults[ev.Seq] {
+			out = append(out, ev)
+		}
+	}
+	return out
 }

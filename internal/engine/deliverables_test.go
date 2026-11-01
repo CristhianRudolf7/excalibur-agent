@@ -418,3 +418,24 @@ func TestProgramDetectionExecutableAndNamedOutput(t *testing.T) {
 		t.Fatal("no-run instruction must be respected")
 	}
 }
+
+func TestDeliverablesExcludeAgentScratchPaths(t *testing.T) {
+	e := &Engine{}
+	run := &Run{Request: "Create /app/out.txt with the result.", Workdir: "/app"}
+	history := hist(
+		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/tmp/check.py","content":"print(1)"}`},
+		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/app/helper.py","content":"print(1)"}`},
+		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/app/out.txt","content":"result"}`},
+	)
+	files := e.deliverables(run, run.Request, history)
+	if len(files) != 1 || files[0].Path != "/app/out.txt" {
+		t.Fatalf("only instruction paths are deliverables: %+v", files)
+	}
+	if got := unexecutedProgramReasons(run.Request, history, files); len(got) != 0 {
+		t.Fatalf("scratch scripts cannot require execution: %v", got)
+	}
+	t.Setenv("EXCALIBUR_INSTRUCTION_DELIVERABLES", "0")
+	if got := e.deliverables(run, run.Request, history); len(got) != 3 {
+		t.Fatalf("compatibility switch must restore write inference: %+v", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
@@ -176,6 +177,8 @@ func TestBudgetsRecordedInProfileAndFiles(t *testing.T) {
 // needing more than 25 model calls completes instead of pausing. This
 // reproduces the measured early pause (25/74 paused after ~2 minutes).
 func TestEvalTimeOnlySurvivesPast25Steps(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	t.Setenv(engine.TimeBudgetSwitch, "1")
 	t.Setenv(engine.TimeBudgetOnlySwitch, "on")
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
@@ -201,9 +204,9 @@ func TestEvalTimeOnlySurvivesPast25Steps(t *testing.T) {
 	}
 	fake.Responses = append(fake.Responses, doneImmediately()...)
 	logs := t.TempDir()
-	out, err := RunExec(context.Background(), ExecOptions{
+	out, err := RunExec(ctx, ExecOptions{
 		Request: "run many checks then finish", LogsDir: logs,
-		Profile: ProfileEval, ProjectDir: t.TempDir(), Provider: fake,
+		Profile: ProfileEval, ProjectDir: t.TempDir(), Provider: fake, TimeoutSecs: 60,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +215,7 @@ func TestEvalTimeOnlySurvivesPast25Steps(t *testing.T) {
 		t.Fatalf("time-only eval must not pause on the legacy step cap (past-25 must complete), got paused: %s", out.Summary)
 	}
 	if out.State != types.RunCompleted {
-		t.Fatalf("state = %q, want completed past 25 steps", out.State)
+		t.Fatalf("state = %q, want completed past 25 steps (%s)", out.State, out.Summary)
 	}
 	sys := systemText(fake.ChatRequests[0])
 	if !strings.Contains(sys, "Closing mode: when time is almost exhausted") {

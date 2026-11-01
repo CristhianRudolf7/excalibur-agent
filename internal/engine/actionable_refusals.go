@@ -113,7 +113,7 @@ func (e *Engine) refusalItems(run *Run, reasons []string) []RefusalItem {
 	run.mu.Lock()
 	request := run.Request
 	drafts := append([]tasks.DraftCriterion(nil), run.drafts...)
-	history := historyTools(run.History)
+	history := historyTools(run.finishHistoryLocked())
 	run.mu.Unlock()
 	artifacts := tasks.ExtractArtifactRequirements(request, e.artifactConfig().MaxArtifacts)
 	var items []RefusalItem

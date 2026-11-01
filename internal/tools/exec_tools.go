@@ -133,7 +133,8 @@ type ExecTool struct {
 	// the store get_tool_output reads. Nil prints the session id instead.
 	Outputs OutputStore
 
-	ledger execLedger
+	ledger         execLedger
+	historyConfirm historyConfirmations
 }
 
 func (t *ExecTool) sessions() *SessionManager {
@@ -191,6 +192,10 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		} else if !filepath.IsAbs(a.Workdir) {
 			a.Workdir = filepath.Join(t.Workdir, a.Workdir)
 		}
+	}
+	instruction, _ := ctx.Value(runInstructionKey{}).(string)
+	if refusal := t.historyRefusal(ctx, command, a.Workdir, instruction); refusal != "" {
+		return Result{Status: StatusToolError, Output: refusal}, nil
 	}
 	env := a.Env
 	if t.SecretResolver != nil {
@@ -299,7 +304,6 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if exited && !alive && code == 0 && execWarningsEnabled() {
 		b.WriteString(zeroExitWarning(out))
 	}
-	instruction, _ := ctx.Value(runInstructionKey{}).(string)
 	if warning := GitHistoryRewriteWarning(command, instruction); warning != "" {
 		b.WriteString(warning + "\n")
 	}

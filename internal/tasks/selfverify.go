@@ -579,7 +579,7 @@ func suggestChecks(history []HistoryTool) string {
 			continue
 		}
 		if strings.ToLower(h.Name) == "exec" && strings.TrimSpace(h.Args) != "" {
-			return "re-run " + trimLen(h.Args, 80)
+			return "re-run " + rerunCommandHint(h.Args)
 		}
 	}
 	return "re-run the task checks"
@@ -812,4 +812,27 @@ func needsVerification(in GateInput, req SelfVerifyRequest, drafts []DraftCriter
 		return true
 	}
 	return false
+}
+
+// rerunCommandHint renders executable text rather than the tool's JSON envelope.
+// Keep refusal guidance short, including for multi-line shell programs.
+func rerunCommandHint(args string) string {
+	if !envBool("EXCALIBUR_PLAIN_CHECK_HINTS", true) {
+		return trimLen(args, 80)
+	}
+	command, ok := historyCommand(args)
+	if !ok {
+		return "the task checks"
+	}
+	command = strings.TrimSpace(command)
+	line, _, multiline := strings.Cut(command, "\n")
+	line = strings.TrimSuffix(line, "\r")
+	chars := []rune(line)
+	if len(chars) > 160 {
+		return string(chars[:160]) + "…"
+	}
+	if multiline {
+		return line + "…"
+	}
+	return line
 }

@@ -354,7 +354,7 @@ func strongHint(cmd, fmt []DraftCriterion, history []HistoryTool) string {
 				continue
 			}
 			if strings.ToLower(h.Name) == "exec" && strings.TrimSpace(h.Args) != "" {
-				parts = append(parts, "re-run "+trimLen(h.Args, 80))
+				parts = append(parts, "re-run "+rerunCommandHint(h.Args))
 			}
 		}
 	}

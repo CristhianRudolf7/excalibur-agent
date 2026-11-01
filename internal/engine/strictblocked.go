@@ -264,8 +264,11 @@ func isSelfCausedUnavailability(reason string, history []tasks.HistoryTool) bool
 // workHistory returns the run history without the finish control calls:
 // they are never work.
 func workHistory(run *Run) []tasks.HistoryTool {
+	run.mu.Lock()
+	history := run.finishHistoryLocked()
+	run.mu.Unlock()
 	var out []tasks.HistoryTool
-	for _, h := range historyTools(run.historyCopy()) {
+	for _, h := range historyTools(history) {
 		if h.Name != FinishToolName {
 			out = append(out, h)
 		}

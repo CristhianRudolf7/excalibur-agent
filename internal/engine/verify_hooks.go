@@ -257,7 +257,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	in := run.GateInput
 	steps := run.Steps
 	level := in.Level
-	history := append([]ctxcompiler.ActivityEvent(nil), run.History...)
+	history := run.finishHistoryLocked()
 	run.mu.Unlock()
 
 	drafts := tasks.ExtractDraftCriteria(request, cfg.MaxDrafts)
