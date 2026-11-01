@@ -4779,3 +4779,57 @@ for a format check (separators, decimal commas, units and header), plus a few
 parsed values next to raw text before computing. Other evidence rules use
 shorter wording to keep the full block within 2,600 characters. Turning the
 switch off omits this line; method V2 off retains the original golden block.
+
+## Provided check provenance (F7)
+
+`EXCALIBUR_SCOPE_PROVIDED_CHECKS` defaults on. Scope guard expectation
+tracking applies to files present in the initial snapshot and files under
+explicitly named test directories. Agent-authored inline checks and temporary
+scripts do not become task requirements after failing. For file checks, Python
+assertion messages, comments and insignificant whitespace are ignored; changes
+to conditions, expected literals and tolerances remain finish violations.
+Setting the switch to `0` restores legacy inline and verbatim tracking.
+This preserves the verification responsibilities in Sections 7.3 and 8.
+
+## Elided exec output digest (F8)
+
+`EXCALIBUR_EXEC_OUTPUT_DIGEST` defaults on. Elided terminal output includes
+its full line count and a compact list of search-result paths with hit counts,
+including hits outside the visible head and tail. The list shows up to 60 paths
+and reports how many remain. Long path displays are abbreviated. The digest
+shares the existing inline byte budget; full output remains available through
+`get_tool_output`. Set the switch to `0` to omit the digest.
+
+## Git history rewrite advisory (F9)
+
+`EXCALIBUR_GIT_HISTORY_WARNING` defaults on. Exec results warn when a command
+rewrites or discards Git history or refs and the literal instruction does not
+mention history, commits or rewriting. This covers filter-branch, filter-repo,
+interactive or root rebase, hard reset to another commit, forced push, amend,
+ref deletion, reflog expiration and immediate garbage collection pruning.
+The same advisory appears in the finish confirmation checklist after such a
+command. It never refuses execution or completion and does not alter exit status.
+The engine supplies the literal instruction through an additive tools context
+helper. Set the switch to `0` to omit both warnings.
+
+### Exec output limits (F10)
+
+`EXCALIBUR_EXEC_HEAD_LIMIT` defaults on. Completed exec output ending in a
+pipe to `head -n N`, `head -N`, or `head` (10 lines), or a final `grep -m N`
+stage, receives an advisory note when the captured output reaches that limit.
+The note recommends counting results or listing matching files before relying
+on the list. It uses output before harness elision. Only a single pipeline is
+inspected: intermediate stages and multi-command output cannot be counted
+reliably from the final terminal output. Set the switch to `off` to disable it.
+
+### Broad final verification (F11)
+
+`EXCALIBUR_BROAD_REVERIFICATION` defaults on. The L0 working method asks for
+an all-files broad pattern search after removing or replacing every occurrence.
+When the literal instruction combines `all`, `every`, or `any` with a removal,
+replacement, deletion, sanitization, or redaction verb, finish confirmation adds
+an advisory item asking for that search and its result. This item does not
+refuse completion. The guidance applies to interactive and autonomous work;
+`EXCALIBUR_METHOD_V2=off` still restores the legacy L0 method, and
+`EXCALIBUR_FINISH_CHECKLIST=off` still disables finish confirmation items.
+Set `EXCALIBUR_BROAD_REVERIFICATION=off` to disable both additions.

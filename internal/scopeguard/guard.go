@@ -19,6 +19,7 @@ var expectation = regexp.MustCompile(`(?m)^.*(?:assert\b|expected\b|expect\(|wan
 
 // Guard is owned by the run loop; callers serialize observations.
 type Guard struct {
+	CheckDirs         []string
 	GitPaths          map[string]string
 	Root              string
 	StatePath         string
@@ -183,6 +184,14 @@ func Start(root, instruction string) (*Guard, error) {
 	g.GitDiffBaseline = gitDiffHash(root)
 	g.GitPaths = gitChanges(root)
 	g.extract(instruction)
+	for _, p := range constraintPaths(instruction) {
+		p = g.resolve(strings.TrimRight(p, ".,"))
+		if checkPath.MatchString(p) {
+			if info, err := os.Stat(p); err == nil && info.IsDir() {
+				g.CheckDirs = append(g.CheckDirs, p)
+			}
+		}
+	}
 	for _, p := range g.namedInputs(instruction) {
 		p = g.resolve(p)
 		if info, e := os.Lstat(p); e == nil && (info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
@@ -260,7 +269,7 @@ func (g *Guard) Observe(failed bool) {
 func (g *Guard) observe(failed bool, include func(string) bool) {
 	for p, old := range g.failureChecks {
 		b, e := os.ReadFile(p)
-		if e != nil || strings.Join(expectation.FindAllString(string(b), -1), "\n") != old {
+		if e != nil || checkFingerprint(string(b)) != old {
 			g.violations = append(g.violations, "test-tampering: expected value changed after failed check in "+p)
 		}
 	}
@@ -280,6 +289,9 @@ func (g *Guard) observe(failed bool, include func(string) bool) {
 		if !d.Type().IsRegular() {
 			return nil
 		}
+		if providedChecksEnabled() && !g.providedCheck(p) {
+			return nil
+		}
 		if include != nil && !include(p) {
 			return nil
 		}
@@ -289,9 +301,9 @@ func (g *Guard) observe(failed bool, include func(string) bool) {
 		}
 		b, e := os.ReadFile(p)
 		if e == nil {
-			lines := expectation.FindAllString(string(b), -1)
-			if len(lines) > 0 {
-				g.failureChecks[p] = strings.Join(lines, "\n")
+			lines := checkFingerprint(string(b))
+			if lines != "" {
+				g.failureChecks[p] = lines
 			}
 		}
 		return nil
@@ -315,7 +327,7 @@ func (g *Guard) Check() string {
 	}
 	for p, old := range g.failureChecks {
 		b, e := os.ReadFile(p)
-		if e != nil || strings.Join(expectation.FindAllString(string(b), -1), "\n") != old {
+		if e != nil || checkFingerprint(string(b)) != old {
 			bad = append(bad, "test-tampering: expected value changed after failed check in "+p)
 		}
 	}

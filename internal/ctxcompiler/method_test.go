@@ -345,7 +345,7 @@ func TestWorkingMethodV2AddsEvidenceRules(t *testing.T) {
 		"9. Copy provided data first (cp -a)",
 		"An impossible claim needs the failing command and output",
 		"10. Test the success path too",
-		"11. Never hard-code example values",
+		"11. Never hard-code examples",
 		"12. Measure the way the instruction measures",
 		"13. Pass values between steps through files or pipes",
 		"14. Run a script you wrote on the real input",
@@ -393,5 +393,21 @@ func TestWorkingMethodDataFormatCheck(t *testing.T) {
 	t.Setenv("EXCALIBUR_METHOD_DATA_FORMAT", "off")
 	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("data format switch off")
+	}
+}
+
+func TestWorkingMethodBroadReverification(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "on")
+	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "")
+	want := "When asked to remove or replace every occurrence of something, verify at the end with a broad pattern search over all files, not only the exact values you already changed."
+	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("missing broad verification instruction")
+	}
+	if len(ctxcompiler.WorkingMethod()) > 2600 {
+		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
+	}
+	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "off")
+	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
+		t.Fatal("broad verification switch off")
 	}
 }

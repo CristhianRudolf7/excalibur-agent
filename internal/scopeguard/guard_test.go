@@ -131,7 +131,8 @@ func TestOnlyLocationsAndCounts(t *testing.T) {
 		t.Fatal(s)
 	}
 }
-func TestInlineTampering(t *testing.T) {
+func TestInlineTamperingLegacy(t *testing.T) {
+	t.Setenv("EXCALIBUR_SCOPE_PROVIDED_CHECKS", "0")
 	g, e := Start(t.TempDir(), "Compute the result")
 	if e != nil {
 		t.Fatal(e)
@@ -191,7 +192,8 @@ func TestResumeKeepsInitialSnapshot(t *testing.T) {
 	}
 }
 
-func TestShellFailurePersistsInlineOracle(t *testing.T) {
+func TestShellFailurePersistsInlineOracleLegacy(t *testing.T) {
+	t.Setenv("EXCALIBUR_SCOPE_PROVIDED_CHECKS", "0")
 	root := t.TempDir()
 	g, e := StartRun(root, "Compute a value", "inline-resume")
 	if e != nil {

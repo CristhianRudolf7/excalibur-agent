@@ -257,7 +257,7 @@ func TestExecElisionStoresFullOutputAndPagesWithRef(t *testing.T) {
 	if offset+elided+execTailKeep != len(full) {
 		t.Fatalf("marker offsets disagree: offset %d elided %d total %d", offset, elided, len(full))
 	}
-	if !strings.Contains(res.Output, full[:offset]) || !strings.HasSuffix(res.Output, full[len(full)-execTailKeep:]) {
+	if !strings.Contains(res.Output, full[:offset]) || !strings.HasSuffix(res.Output, full[len(full)-execTailKeep:]+execOutputDigest(full)) {
 		t.Fatal("inline output must keep the head and the last 2000 bytes")
 	}
 	if len(res.Output) > execInlineBudget+400 {

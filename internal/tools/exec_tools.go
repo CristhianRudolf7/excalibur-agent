@@ -299,6 +299,10 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if exited && !alive && code == 0 && execWarningsEnabled() {
 		b.WriteString(zeroExitWarning(out))
 	}
+	instruction, _ := ctx.Value(runInstructionKey{}).(string)
+	if warning := GitHistoryRewriteWarning(command, instruction); warning != "" {
+		b.WriteString(warning + "\n")
+	}
 	if ignored != "" {
 		b.WriteString(ignored)
 	}
@@ -334,6 +338,9 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	b.WriteString(body)
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteString("\n")
+	}
+	if exited && !alive {
+		b.WriteString(execHeadLimitNote(command, out))
 	}
 	if nonZero || !execErrorStatusEnabled() {
 		if hint := execFailureHint(command, a.Workdir, out); hint != "" {
@@ -838,12 +845,16 @@ func headTailInline(out string, budget int) string {
 		return out
 	}
 	marker := fmt.Sprintf("\n…[middle %d bytes elided; full output above the pipeline budget pages via get_tool_output]…\n", len(out)-budget)
-	keep := budget - len(marker)
+	digest := execOutputDigest(out)
+	if len(digest) > budget/2 {
+		digest = digest[:budget/2] + "\n"
+	}
+	keep := budget - len(marker) - len(digest)
 	if keep <= 0 {
 		return out[:budget]
 	}
 	head := keep / 2
-	return out[:head] + marker + out[len(out)-(keep-head):]
+	return out[:head] + marker + out[len(out)-(keep-head):] + digest
 }
 
 // clipExecOutput keeps the head and the last execTailKeep bytes of full
@@ -859,7 +870,8 @@ func clipExecOutput(full string, store OutputStore, fallback string) (string, st
 	if store != nil {
 		ref = store.Put(full)
 	}
-	headLen := execInlineBudget - execTailKeep - execMarkerReserve
+	digest := execOutputDigest(full)
+	headLen := execInlineBudget - execTailKeep - execMarkerReserve - len(digest)
 	if headLen < 0 {
 		headLen = 0
 	}
@@ -871,7 +883,7 @@ func clipExecOutput(full string, store OutputStore, fallback string) (string, st
 		tailStart++
 	}
 	marker := fmt.Sprintf("\n…[middle %d bytes elided; full output: get_tool_output ref=%s offset=%d]…\n", tailStart-headLen, ref, headLen)
-	return full[:headLen] + marker + full[tailStart:], ref
+	return full[:headLen] + marker + full[tailStart:] + digest, ref
 }
 
 // stripPipNotices drops pip's upgrade notices. They fill the output

@@ -118,11 +118,11 @@ const workingMethodSteps = `working method:
 // inputs, success paths, unseen instances, measurement, handoffs
 // between steps, services, sources and the task's own tools.
 const workingMethodEvidence = `9. Copy provided data first (cp -a) as originals. Edit inputs/tests only if asked.
-10. Test the success path too: include pass/fail cases.
-11. Never hard-code example values. Vary inputs/sizes/seeds; use an independent reference.
+10. Test the success path too; include failures.
+11. Never hard-code examples; vary inputs; use an independent reference.
 12. Measure the way the instruction measures: same metric, repeats and margin; state the value.
 13. Pass values between steps through files or pipes; never retype numbers, keys or hashes.
-14. Run a script you wrote on the real input after its last edit; compile/--help are not tests. Check replacements.
+14. Run a script you wrote on the real input after its last edit; compile/--help are not tests.
 15. Keep required services running: detach and log; probe the port in a new shell.
 16. If a source is unreachable, try mirrors or local copies. An impossible claim needs the failing command and output.
 17. Use only the task's own files and tools; avoid harness logs and host internals.
@@ -146,7 +146,12 @@ func WorkingMethod() string {
 	if envFlagDefaultOn(nil, "EXCALIBUR_METHOD_DATA_FORMAT") {
 		dataCheck = "Before computing on a data file, check its format (separators, decimal commas, units, header) and print a few parsed values next to the raw text.\n"
 	}
-	return workingMethodSteps + workingMethodEvidence + dataCheck + workingMethodRules
+	broadCheck := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_BROAD_REVERIFICATION") {
+		broadCheck = "When asked to remove or replace every occurrence of something, verify at the end with a broad pattern search over all files, not only the exact values you already changed.\n"
+	}
+	return workingMethodSteps + workingMethodEvidence + dataCheck + broadCheck +
+		"Rules: do not stop early; use tools. Use pinned working notes instead of re-reading large outputs."
 }
 
 // FamilyNote is the per-family variant appended after the shared

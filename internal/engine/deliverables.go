@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // switchOn reads a default-on EXCALIBUR_* switch: off, 0, false or no
@@ -609,6 +610,14 @@ var toleranceRe = regexp.MustCompile(`(?i)\b(atol|rtol|tol|tolerance|epsilon|eps
 func (e *Engine) softFinishWarnings(run *Run, request string, history []tasks.HistoryTool) []string {
 	snap, _, _ := run.finishRunView()
 	var out []string
+	for _, call := range history {
+		if call.Name == "exec" {
+			if warning := tools.GitHistoryRewriteWarning(execCommand(call.Args), request); warning != "" {
+				out = append(out, warning)
+				break
+			}
+		}
+	}
 	if InputSnapshotEnabled() && snap != nil {
 		for _, c := range snap.Changes(func(p string) bool { return asksToModify(request, p) }) {
 			out = append(out, "provided file "+c.Path+" was "+c.Kind+" and the instruction does not ask to change it: restore it or confirm the change is intended")

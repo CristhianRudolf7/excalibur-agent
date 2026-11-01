@@ -24,6 +24,12 @@ var checklistMarkerRe = regexp.MustCompile(`(?i)\b(must|should|exactly|at most|a
 // example, which the agent must reproduce exactly.
 var checklistNamedRe = regexp.MustCompile(`(?i)(\.(?:py|js|go|rs|json|csv|txt|md|sh|bin|so|png|html|xml|yaml|yml|toml)\b|/[\w.-]+/|\bexample\b|e\.g\.|for instance|such as|\bcommand\b)`)
 
+// These are instruction semantics, independent of any domain or file type.
+var broadOccurrenceRe = regexp.MustCompile(`(?i)\b(all|every|any)\b`)
+var broadRemovalRe = regexp.MustCompile(`(?i)\b(?:(?:remov|replac|delet|sanitiz)(?:e|es|ed|ing)|redact(?:s|ed|ing)?)\b`)
+
+const broadVerificationItem = "the instruction asks for every occurrence: show a final broad pattern search over the whole tree and its result"
+
 // checklistItems returns up to max requirement sentences of the
 // instruction, in order, without duplicates.
 func checklistItems(request string, max int) []string {
@@ -61,7 +67,12 @@ func (e *Engine) confirmationText(run *Run) string {
 	run.mu.Unlock()
 	var b strings.Builder
 	b.WriteString("finish checks passed.")
-	if items := checklistItems(request, checklistMaxItems); len(items) > 0 {
+	items := checklistItems(request, checklistMaxItems)
+	if switchOn("EXCALIBUR_BROAD_REVERIFICATION") && broadOccurrenceRe.MatchString(request) && broadRemovalRe.MatchString(request) {
+		// Advisory confirmation only: this never refuses a finish by itself.
+		items = append(items, broadVerificationItem)
+	}
+	if len(items) > 0 {
 		b.WriteString(" Before the run ends, confirm: ")
 		for i, it := range items {
 			if i > 0 {

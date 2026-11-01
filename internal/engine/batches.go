@@ -218,6 +218,7 @@ func (e *Engine) runOne(ctx context.Context, run *Run, tc providers.ToolCall) to
 }
 
 func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolCall, key string) tools.Result {
+	ctx = tools.WithRunInstruction(ctx, run.Request)
 	if key == "" {
 		key = e.deps.NewKey()
 	}
