@@ -170,6 +170,17 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if b.ToolDefs != nil {
 		defs = b.ToolDefs(run)
 	}
+	// Muse tool-description variant (agent quality): the Meta Model
+	// API discipline (exact JSON arguments in call order, finish
+	// only via the finish tool) rides the provider tool definitions
+	// for Muse runs. Every other family — including the GPT
+	// reference — keeps byte-identical definitions, and adapt-off
+	// keeps every family identical.
+	if q.FamilyAdapt && ctxcompiler.DetectFamily(snap.ModelID).Default() == ctxcompiler.PromptMuse {
+		for i := range defs {
+			defs[i].Description = ctxcompiler.AdaptToolDescription(ctxcompiler.PromptMuse, defs[i].Name, defs[i].Description)
+		}
+	}
 	req := compiled.ToChatRequest("", defs, b.MaxTokens, b.ReasoningEffort, toolChoice)
 	compiled.AppendActivityMessages(&req, snap.Activity)
 	return req, compiled, nil

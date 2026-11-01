@@ -243,6 +243,12 @@ func Compile(cfg Config, snap Snapshot, counter Counter) (Compiled, error) {
 func renderCore(cfg Config, snap Snapshot) string {
 	tools := append([]CoreTool(nil), snap.CoreTools...)
 	sort.SliceStable(tools, func(i, j int) bool { return tools[i].Name < tools[j].Name })
+	family := DetectFamily(snap.ModelID)
+	if cfg.FamilyAdapt {
+		for i := range tools {
+			tools[i].Description = AdaptToolDescription(family, tools[i].Name, tools[i].Description)
+		}
+	}
 	var b strings.Builder
 	b.WriteString("role: " + snap.Role + "\n")
 	b.WriteString("harness: " + snap.HarnessVersion + "\n")

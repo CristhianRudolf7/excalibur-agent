@@ -2268,3 +2268,227 @@ blobs), per-cause triage drift. Records: `skills.json` gains
 Documentation describes standard evaluation and auditing records
 (Section 23.2, Appendix F); nothing here tunes the agent against
 benchmark failures or derives prompts from task contents.
+
+## W7: arm comparison and interim estimates (Section 23.7, Appendix F)
+
+Owner: arm-diff workstream (branch `agent-quality`). Packages:
+`internal/eval` (`diff.go`, `interim.go`, report side only),
+`cmd/excalibur` (`bench_diff.go` dispatch plus the `diff`/`interim`
+branches in `bench.go`). The connectors are untouched: no change to
+`internal/providers/**`, the model gateway wire protocol
+(`internal/models`, `internal/gateway`), `internal/api`,
+`packages/contracts`, `integrations/**` (Harbor adapter, client
+templates), the MCP and ACP servers, or the `bench` Harbor
+invocation. Evaluation records are standard evaluation and auditing
+(Section 23.2, Appendix F).
+
+### Problem evidence (read-only trial records, never task contents)
+
+Paired `bench compare` answers "did arm B beat arm A?" but the arm
+loop then asks two follow-ups the compare output does not answer:
+which tasks flipped and why (the triage cause and evidence quote for
+the failing side), and whether a still-running arm is already out of
+reach (the paired estimate on tasks completed so far). Both must work
+from finished or partial run directories without spending paid
+trials, reusing the Section 23.7 paired bootstrap already in the
+tree.
+
+### Mechanisms
+
+1. `excalibur bench diff <runA> <runB> [--base baseline.json]`:
+   pairs two finished runs per task exactly like `bench compare`
+   (only shared tasks enter the paired statistics; one-sided tasks
+   are listed unpaired), reusing `BootstrapCI`, `PairedDiffCI` and
+   `AcceptImprovement`. On top it reports the per-task pass-rate
+   table (with the optional baseline rate per task for context), the
+   flipped tasks in both directions under the same all-or-nothing
+   flip convention as `compare` (`FlippedToKO`/`FlippedToOK`: one
+   side passes at least once while the other never passes), with
+   every failed trial on the failing side carrying its triage cause
+   and evidence quote, plus the mean step (model calls) / tool-call
+   / wall-time / token differences over the paired trials.
+   Output: `diff.json`, `diff.md`, and a one-line stdout summary.
+2. Flip triage: triage rows come from each run's `triage.jsonl`
+   when present, otherwise from a lazy deterministic pass
+   (`TriageRun` with `NoModel: true`, bounded by a 5-minute
+   budget) so `bench diff` stays offline and credential-free.
+   Trials that still have no triage row render `(no triage)`.
+3. `excalibur bench interim <run> --against <run|baseline.json>`:
+   the paired estimate on the tasks completed so far. The reference
+   is either another run directory (paired on the completed-task
+   intersection) or a baseline file
+   `{"baseline_rate": {task: rate}}` shared with `diff --base`.
+   Partial Harbor jobs still executing are supported:
+   `LoadPartialRunTrials` reads `trials.jsonl` when present, merges
+   any Harbor trial directories finished since (skipping rows
+   without a readable reward, i.e. still executing), and falls back
+   to `trial.json` files for quick/smoke partial dirs.
+4. Early-stop verdict: STOP when the paired difference CI upper
+   bound sits below the reference by more than the practical bar
+   (`Diff.High < -bar`; even the optimistic end of the interval is
+   worse by more than the bar), CONTINUE otherwise. Output:
+   `interim.json`, `interim.md` (per-task estimate table plus the
+   verdict), and a one-line stdout summary.
+
+### Switches
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_DIFF_TRIAGE` | env (`0/false/no/off` disables) / `--no-triage` flag | on | flip rows without cause/evidence (`(no triage)`) |
+| `EXCALIBUR_INTERIM_BAR` | env fraction, `--bar F` flag wins | `0.03` | different practical bar for the STOP/CONTINUE verdict |
+
+Measure each switch off against on over the same pair of runs:
+triage coverage (share of flipped trials with a cause), and the
+verdict at several bars for the interim estimate.
+
+### Contract and backend tests
+
+- `internal/eval/diff_test.go`: clear win with flips in both
+  directions (failing-side trial lists), triage attached from
+  `triage.jsonl`, lazy deterministic triage from Harbor-shaped
+  trial dirs (timeout cause with an evidence quote, no model),
+  `NoTriage` and `EXCALIBUR_DIFF_TRIAGE=0` suppression, baseline
+  file columns plus out-of-range/missing errors, no-shared-tasks
+  and empty-run errors, `diff.json` round trip and Markdown
+  sections.
+- `internal/eval/interim_test.go`: CONTINUE on a matching
+  reference run, STOP on an all-failing current run against a
+  passing baseline (degenerate CI at -1), partial overlap (only
+  completed shared tasks paired), Harbor partial scan (finished
+  `result.json` dirs picked up without `trials.jsonl`,
+  still-executing dirs ignored), missing-reference/empty-run/no-
+  overlap errors, `EXCALIBUR_INTERIM_BAR` precedence (env used when
+  the flag is unset, flag wins).
+- `cmd/excalibur/bench_diff_test.go`: `bench diff` and
+  `bench interim` (run and baseline references) end to end through
+  `run()`, writing `diff.json`/`diff.md` and
+  `interim.json`/`interim.md`; arity and missing-`--against` usage
+  errors.
+- Existing suites unchanged and green:
+  `go test -race ./internal/eval/ ./cmd/excalibur/`, plus the full
+  quality bar.
+
+### Research sources (surveyed before coding, general engineering only)
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8 to 66.5 on TB2 with the model fixed. Adopted: the
+  trace-analyzer loop (aggregate per-trial records into targeted
+  harness changes; diff flips with triage evidence are that loop's
+  read side), per-task paired deltas with an unpaired-task guard,
+  and the warning against overfitting single-task fixes.
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026,
+  https://arxiv.org/abs/2603.28052): harness code moves results as
+  much as weights, with larger gains on weaker models. Takeaway:
+  the outer loop is only as good as its paired statistics and its
+  early-stop signal — diff provides the former, interim the latter.
+- Agentic Harness Engineering, arXiv 2604.25850: same direction —
+  systematic harness search with standard evaluation and auditing
+  records (Section 23.2, Appendix F) as the objective signal.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop
+  kept as the neutral baseline shape; interim supports partial
+  Harbor jobs without touching the invocation.
+- Open-source harnesses (general engineering knowledge, no task
+  material used): OpenHands/SWE-agent loop and stopping criteria,
+  mini-SWE-agent minimal loop, Codex CLI/OpenCode `tool_choice:
+  none` closing and JSON repair, Aider architect/editor split —
+  behaviour-side only: paired statistics, deterministic-first
+  triage, and append-only records that stay valid for killed or
+  still-running trials.
+## Muse family adaptation (Meta Muse models)
+
+Owner: Muse-family workstream (branch `agent-quality`).
+Packages: `internal/ctxcompiler` (`method.go` `PromptMuse`,
+`DetectFamily`, `FamilyNote`, `AdaptToolDescription`, `renderCore`),
+`internal/engine` (`builder.go` Muse tool-definition rewrite).
+Decision record: `docs/decisions/0057-muse-family-adaptation.md`.
+The connectors stay untouched (`internal/providers/**`, the model
+gateway wire protocol, `internal/gateway`, `internal/api`,
+`packages/contracts`, `integrations/**`, MCP/ACP servers, the bench
+Harbor invocation): the variant changes prompt bytes and
+model-visible tool descriptions only.
+
+### Mechanism (default ON)
+
+Model ids starting with `muse-` or `meta-models/` (plus
+`muse-spark`/`muse-glimmer` substrings, case-insensitive) select
+`PromptMuse`; empty or unrecognized ids keep the GPT default, and
+the GPT reference bytes never move. For Muse runs, two things
+change:
+
+1. Working-method note (`FamilyNote`): exact-JSON arguments with no
+   invented fields or target names (copy allowed values from the
+   definition or the error); every parallel call answered with its
+   own result in call order; never invent results; finish only via
+   the `finish` tool with evidence from executed checks. It never
+   sets a `Reasoning strength:` line (that would override the
+   request effort) and never touches the wire protocol.
+2. Tool descriptions (`AdaptToolDescription`): only `exec` and
+   `finish` gain the Meta Model API discipline above; every other
+   tool is byte-identical across families. The rewrite applies to
+   the L0 core-tool lines (`renderCore`) and to the provider tool
+   definitions (`DefaultBuilder`), only when family adaptation is
+   on and the resolved model id is Muse.
+
+### Switch
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `ctxcompiler.Config.FamilyAdapt` / `engine.QualityConfig.FamilyAdapt` (`EXCALIBUR_Q_FAMILY`) | field / env | on | family-independent L0 and untouched tool definitions for every family, including Muse |
+
+Ablate `EXCALIBUR_Q_FAMILY=0` against the default on the same
+model/effort/task set (Appendix F); keep the variant only if it
+does not regress Muse runs and never moves GPT bytes.
+
+### Contract and backend tests
+
+- `internal/ctxcompiler/method_test.go`: Muse id detection
+  (`muse-spark-1.3`, case-insensitive, `meta-models/...` open
+  weights), Muse note in the distinct-per-family set, Muse note
+  content (exact JSON, call order, no invented results,
+  finish-only-via-tool, no reasoning-strength line),
+  GPT-reference byte stability (exact note literal, no Muse
+  wording), `AdaptToolDescription` identity for every non-Muse
+  family and for non-exec/finish tools, adapted L0 tool lines for
+  Muse only, adapt-off L0 identical across GPT and Muse.
+- `internal/engine/builder_quality_test.go`:
+  `TestBuilderMuseFamilyWiring` (Muse id selects the Muse L0 note
+  and the adapted exec/finish definitions, other tools
+  unchanged; GPT definitions byte-identical with adaptation on;
+  adapt-off restores identical definitions and L0 for Muse).
+- Existing suites unchanged and green: ctxcompiler determinism /
+  cache / compaction / masking, engine lifecycle / e2e / crash
+  (`go test -race ./internal/ctxcompiler/ ./internal/engine/`).
+
+### Research sources (fetched 2026-11-01, general engineering only)
+
+- Meta Model API, Muse Spark Open prompting guide
+  (`dev.meta.ai/docs/muse-spark-open/prompting`): roles, template
+  order (defaults, system prompt, tool definitions, numeric
+  reasoning strength, recipients `self`/`commentary`/tool/`user`);
+  rules-first system prompts; native tool calls with parallel
+  calls answered each in call order; `<|eom|>` vs `<|eot|>`
+  (never stop on `<|eom|>`); reasoning always on
+  (`reasoning_effort` low/medium/high/xhigh only).
+- Meta Model API, recommended settings
+  (`dev.meta.ai/docs/muse-spark-open/settings`): temperature 1.0,
+  top_p 1.0; strength low=8 (short tool loops), medium=32,
+  high=256, xhigh=512 default; `muse` reasoning/tool-call
+  parsers; streaming for long generations.
+- Meta Model API, tool calling (`dev.meta.ai/docs/tool-calling`):
+  Responses API recommended (reasoning preserved across tool
+  turns); Chat Completions supported; `tool_choice` must be
+  `"auto"` (`"none"` 400s — recorded as a proposal, wire
+  untouched); match `tool_call_id`s; always validate arguments
+  locally.
+- Hugging Face `meta-models/Muse-Spark-Open-816B-A42B` model card:
+  816B/42B MoE, 1M context, agentic training (planning, sequential
+  tools, failure recovery, long horizon); high/xhigh reasoning for
+  coding/agentic work; TB2.1 76.4 (Terminus 2).
+- Meta build-with-Muse-Spark-Open post: runtimes, hosted
+  providers, early tool-calling evidence.
+- LangChain harness-engineering post (Feb 2026): model-specific
+  prompt tailoring; shared working-method prior art.
+- Meta-Harness (arXiv 2603.28052) and Agentic Harness Engineering
+  (arXiv 2604.25850): model-specific harness optima, cross-family
+  transfer, gains in tools/middleware/memory.

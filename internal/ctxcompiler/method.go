@@ -42,18 +42,29 @@ const (
 	PromptGrok PromptFamily = "Grok"
 	// PromptQwen covers Alibaba Qwen models.
 	PromptQwen PromptFamily = "qwen"
+	// PromptMuse covers Meta Muse models (Muse Spark, Muse Glimmer,
+	// Muse Spark Open), served through the Meta Model API or
+	// OpenAI-compatible third-party endpoints.
+	PromptMuse PromptFamily = "muse"
 	// PromptUnknown means the model id matched no known family.
 	PromptUnknown PromptFamily = "unknown"
 )
 
 // DetectFamily maps a model id to its prompt family by substring
-// match on the lowercased id. Empty or unrecognized ids report
-// PromptUnknown; callers default them to PromptGPT.
+// and prefix match on the lowercased id. Empty or unrecognized ids
+// report PromptUnknown; callers default them to PromptGPT. Muse is
+// matched first on its id prefixes (`muse-`, `meta-models/`) so a
+// Muse id that happens to contain another family's substring still
+// selects the Muse variant.
 func DetectFamily(model string) PromptFamily {
 	m := strings.ToLower(model)
 	switch {
 	case m == "":
 		return PromptUnknown
+	case strings.HasPrefix(m, "muse-") || strings.HasPrefix(m, "meta-models/") ||
+		strings.Contains(m, "muse-spark") || strings.Contains(m, "muse-glimmer") ||
+		strings.Contains(m, "muse_spark"):
+		return PromptMuse
 	case strings.Contains(m, "claude"):
 		return PromptClaude
 	case strings.Contains(m, "gemini"):
@@ -113,8 +124,34 @@ func FamilyNote(f PromptFamily) string {
 		return "Style: follow tool schemas exactly (exact property names, no invented fields). Quote and escape shell commands carefully. Verify every change by executing it."
 	case PromptQwen:
 		return "Style: work in English, keep arguments minimal and exact, and verify each step by executing it before moving on."
+	case PromptMuse:
+		return "Style: keep tool arguments exact JSON with no invented fields or target names — copy allowed values from the definition or the error. Answer every parallel call with its own result in call order; never invent results. Finish only via the finish tool with evidence from executed checks."
 	default:
 		return "Style: batch independent read-only calls in one turn with exact JSON arguments. After acting, verify with an executable check before finishing."
+	}
+}
+
+// AdaptToolDescription returns the model-visible description of one
+// tool for a family. Every family except Muse receives the
+// description unchanged, so the GPT reference bytes never move. For
+// Muse the exec and finish tools carry the Meta Model API
+// discipline: exact JSON arguments answered in call order with no
+// invented results, and finish-only-via-tool (the API supports only
+// tool_choice auto, so a text-only stop is never a finish). All
+// other tools are identical across families; callers apply this only
+// when family adaptation is on so adapt-off output stays
+// family-independent.
+func AdaptToolDescription(f PromptFamily, name, desc string) string {
+	if f.Default() != PromptMuse {
+		return desc
+	}
+	switch name {
+	case "exec":
+		return desc + " Pass arguments as exact JSON (no invented fields); answer every parallel call with its own result in call order; never invent output — run the command and report what it returned."
+	case "finish":
+		return desc + " Muse finishes ONLY through this tool with summary and evidence from executed checks; never stop with a text-only answer."
+	default:
+		return desc
 	}
 }
 

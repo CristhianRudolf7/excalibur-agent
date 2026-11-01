@@ -80,12 +80,24 @@ func redact(s string) string {
 // variables and are never printed, logged or written to any artifact.
 func runBench(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags] | excalibur bench compare <runA> <runB> [flags] | excalibur bench triage <run-dir> [flags]")
+		return fmt.Errorf("usage: excalibur bench <tb21|tb40> <run|smoke|status|report> [flags] | excalibur bench compare <runA> <runB> [flags] | excalibur bench diff <runA> <runB> [flags] | excalibur bench interim <run> --against <ref> [flags] | excalibur bench triage <run-dir> [flags]")
 	}
 	// Compare is dataset-independent: it pairs two finished run
 	// directories (bench jobs or eval quick dirs).
 	if strings.ToLower(args[0]) == "compare" {
 		return runBenchCompare(args[1:])
+	}
+	// Diff is dataset-independent: per-task pass rates, flipped
+	// tasks with triage evidence, resource deltas and the paired
+	// bootstrap over two finished runs.
+	if strings.ToLower(args[0]) == "diff" {
+		return runBenchDiff(args[1:])
+	}
+	// Interim is dataset-independent: the paired estimate on the
+	// tasks completed so far with the STOP/CONTINUE verdict. It
+	// works on partial runs while they are still executing.
+	if strings.ToLower(args[0]) == "interim" {
+		return runBenchInterim(args[1:])
 	}
 	// Triage is dataset-independent: it classifies every reward-0
 	// trial under a run directory from agent records plus pass/fail.
