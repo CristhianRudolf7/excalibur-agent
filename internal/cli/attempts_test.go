@@ -17,10 +17,11 @@ import (
 
 // attemptAwareFake is a stateless-per-workdir scripted provider for the
 // attempts fan-out: it extracts the isolated workdir from the project
-// context in the request and serves write -> read -> done per workdir.
-// Sharing one instance across concurrent attempts stays isolated
-// because counts are keyed by workdir. Each attempt needs 3 model
-// calls (3 steps) to complete.
+// context in the request and serves write -> read -> finish -> finish
+// per workdir (explicit finish confirmation round). Sharing one
+// instance across concurrent attempts stays isolated because counts
+// are keyed by workdir. Each attempt needs 4 model calls (4 steps) to
+// complete.
 type attemptAwareFake struct {
 	mu     sync.Mutex
 	counts map[string]int
@@ -69,7 +70,11 @@ func (f *attemptAwareFake) Chat(_ context.Context, req providers.ChatRequest) (p
 		return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant,
 			ToolCalls: []providers.ToolCall{{ID: fmt.Sprintf("c%dr", callSeq), Name: "read_file", Arguments: args}}}}, nil
 	default:
-		return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}}, nil
+		// Explicit finish confirmation round: first accepted,
+		// second completes.
+		args, _ := json.Marshal(map[string]string{"summary": "winner written", "evidence": "write_file then read_file verified winner.txt"})
+		return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant,
+			ToolCalls: []providers.ToolCall{{ID: fmt.Sprintf("c%df", callSeq), Name: "finish", Arguments: args}}}}, nil
 	}
 }
 
@@ -244,12 +249,13 @@ func TestAttemptsBudgetSplit(t *testing.T) {
 // TestAttemptsFullBudgetCompletesWhereSplitWouldPause is the
 // container-like end-to-end reproduction for the EXCALIBUR_ATTEMPTS=3
 // paused-outcome bug: with the legacy ceil(parent/N) split, parent
-// MaxSteps=6 gives 2 steps per attempt, so a 3-step write/read/done
-// script pauses every attempt and the outer run ends paused with the
-// bare summary "paused [best of 3 attempts]". With the full-budget
-// default (each attempt gets 6 steps) the same run completes, the
-// winner's file is applied, and the outer excalibur/ records contain
-// every attempt's model/tool calls tagged by attempt.
+// MaxSteps=6 gives 2 steps per attempt, so a 4-step
+// write/read/finish/finish script pauses every attempt and the outer
+// run ends paused with the bare summary "paused [best of 3
+// attempts]". With the full-budget default (each attempt gets 6
+// steps) the same run completes, the winner's file is applied, and
+// the outer excalibur/ records contain every attempt's model/tool
+// calls tagged by attempt.
 func TestAttemptsFullBudgetCompletesWhereSplitWouldPause(t *testing.T) {
 	t.Setenv("EXCALIBUR_ATTEMPTS", "3")
 	// Default ON: full budget. The legacy split is covered by
@@ -281,11 +287,11 @@ func TestAttemptsFullBudgetCompletesWhereSplitWouldPause(t *testing.T) {
 		t.Fatalf("winner.txt = %q, %v (winner overlay must apply)", raw, err)
 	}
 	// Every attempt's calls merged into the outer records tagged by attempt:
-	// 2 tool calls (write+read) and 3 model calls per attempt.
+	// 4 tool calls (write+read+finish+finish) and 4 model calls per attempt.
 	for _, tc := range []struct {
 		name string
 		min  int
-	}{{"tool_calls.jsonl", 6}, {"model_calls.jsonl", 9}} {
+	}{{"tool_calls.jsonl", 12}, {"model_calls.jsonl", 12}} {
 		p := filepath.Join(logs, "excalibur", tc.name)
 		data, err := os.ReadFile(p)
 		if err != nil {
@@ -338,7 +344,7 @@ func TestAttemptsFullBudgetCompletesWhereSplitWouldPause(t *testing.T) {
 
 // TestAttemptsLegacySplitPauses documents the pre-fix paused outcome:
 // with EXCALIBUR_ATTEMPTS_FULL_BUDGET=0 the legacy ceil(parent/N) split
-// gives 2 steps per attempt for parent MaxSteps=6, so the same 3-step
+// gives 2 steps per attempt for parent MaxSteps=6, so the same 4-step
 // script pauses every attempt. The outer run must then end paused with
 // an honest budget reason (not an empty one) instead of silently
 // completing.
@@ -360,7 +366,7 @@ func TestAttemptsLegacySplitPauses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out.State != types.RunPaused {
-		t.Fatalf("legacy split state = %q, want paused (2 steps cannot run the 3-step script)", out.State)
+		t.Fatalf("legacy split state = %q, want paused (2 steps cannot run the 4-step script)", out.State)
 	}
 	if out.Reason != "budget" {
 		t.Fatalf("legacy split reason = %q, want budget", out.Reason)

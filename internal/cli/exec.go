@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
@@ -598,6 +599,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		return runAttemptsFanOut(ctx, opts, run, outcome, metrics, profile, settings, layerCfg, finalize)
 	}
 
+	engineSummary := ""
 	if opts.Work != nil {
 		if err := opts.Work(ctx, run); err != nil {
 			var q *NeedInputError
@@ -608,7 +610,8 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		}
 	} else if opts.Provider != nil {
 		gw := BuildGateway(eff, layerCfg, opts.Provider)
-		st, usage, err := runEnginePath(ctx, opts, run, eff, gw, layerCfg)
+		st, usage, summary, err := runEnginePath(ctx, opts, run, eff, gw, layerCfg)
+		engineSummary = summary
 		// Recorded runs already observed every model call (with real
 		// latency, including failures) through recordingModelEndpoint;
 		// the aggregate below only covers the unrecorded path so
@@ -626,19 +629,38 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		if st != "" && st != types.RunCompleted {
 			reason := ""
 			summary := string(st)
+			explicit := engine.ExplicitFinishSwitchOn()
 			if st == types.RunBlocked {
 				reason = "missing_data"
-				summary = "blocked: " + shortSummary(request)
+				if explicit && engineSummary != "" {
+					summary = engineSummary
+				} else if explicit {
+					summary = "blocked"
+				} else {
+					summary = "blocked: " + shortSummary(request)
+				}
 			} else if st == types.RunFailed {
 				reason = "work"
-				summary = fmt.Sprintf("failed: %s", shortSummary(request))
+				if explicit && engineSummary != "" {
+					summary = engineSummary
+				} else if explicit {
+					summary = "failed"
+				} else {
+					summary = fmt.Sprintf("failed: %s", shortSummary(request))
+				}
 			} else if st == types.RunPaused {
 				// The engine parks on budget exhaustion (steps, cost,
 				// time): keep the honest reason instead of an empty
 				// one so attempt records and final.json stay
 				// auditable.
 				reason = "budget"
-				summary = "paused: budget exhausted: " + shortSummary(request)
+				if explicit && engineSummary != "" {
+					summary = engineSummary
+				} else if explicit {
+					summary = "paused: budget exhausted"
+				} else {
+					summary = "paused: budget exhausted: " + shortSummary(request)
+				}
 			}
 			return finalize(st, reason, summary, "")
 		}
@@ -678,6 +700,15 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 			return finalize(state, reason, summary, outcome.Question)
 		}
 		return finalize(state, reason, summary, "")
+	}
+	// Explicit finish (agent quality): the delivery summary is the
+	// engine's `finish.summary` and never echoes the instruction. Off
+	// restores the legacy echo for ablation.
+	if engine.ExplicitFinishSwitchOn() {
+		if engineSummary != "" {
+			return finalize(types.RunCompleted, "", engineSummary, "")
+		}
+		return finalize(types.RunCompleted, "", "completed", "")
 	}
 	return finalize(types.RunCompleted, "", "completed: "+shortSummary(request), "")
 }

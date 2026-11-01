@@ -1997,6 +1997,104 @@ and read-only-task choices.
   discipline, explicit pacing, and bounded returns with honest
   terminal states.
 
+## W6: explicit finish protocol (Sections 7.3, 7.5)
+
+Owner: explicit-finish workstream (branch `explicit-finish`).
+Packages: `internal/engine` (`explicit_finish.go`, step loop),
+`internal/tools` (`finish.go` control tool), `internal/cli`
+(`exec_engine.go`, `exec.go` wiring and summary). The connectors are
+untouched: no change to `internal/providers/**`, the model gateway
+wire protocol (`internal/models`, `internal/gateway`),
+`internal/api`, `packages/contracts`, `integrations/**` (Harbor
+adapter, client templates), the MCP and ACP servers, or the `bench`
+Harbor invocation. Evaluation records are standard evaluation and
+auditing (Section 23.2, Appendix F).
+
+### Problem evidence (read-only trial records, current version)
+
+From the director's analysis of the current build: ~29% success;
+ALL failures end as `completed` (success declared on wrong results);
+the run ends when the model emits an assistant turn without tool
+calls (e.g. the agent ran its own check, got `exit: 1` with an
+ImportError, and the very next turn ended as `completed`). The final
+model text is not even recorded: the trajectory shows a
+harness-written `completed: <instruction text>`.
+
+### Mechanism (default ON)
+
+1. Runs end ONLY through `finish` (`summary`, `evidence`,
+   `status: completed|blocked`, `reason` when blocked) in
+   non-interactive profiles (every `exec` run: `default`,
+   `delegate`, `eval`). A text-only turn never ends the run: the
+   engine stores the raw text, injects `No tool call. Continue
+   working with tools, or call finish with evidence if everything is
+   verified.`, and counts the streak; after 3 in a row it enters
+   closing mode (tools stay available so `finish` remains callable).
+2. `finish` alone per turn (mixed batches refused without executing).
+   Validation: argument shape, then the agent's own last non-finish
+   command must not have errored, then the full verification (gate +
+   self-verify + required artifacts + strong verifier, same checks
+   as the old finish path) must pass. Refusals inject the reason and
+   are unbounded by `GateAttempts`; only the time/step budget bounds
+   them.
+3. Confirmation round: the first accepted `finish` arms the confirm
+   (`Re-read the instruction and confirm each requirement with
+   evidence, or continue working. Call finish again to end the
+   run.`); the second accepted `finish` completes (Running ->
+   Verifying -> terminal, honest states preserved).
+4. `blocked` only via `finish` (`status: blocked` + concrete reason);
+   paths in the reason (via the artifact extractor) are stat'ed and
+   the claim is refused when any exists.
+5. Records: `Run.Summary` is `finish.summary` (never the instruction
+   echo); `explicit_finish.json` (switch, finish calls, refusals,
+   streak, summary, evidence, status, reason, raw args, final text)
+   lands next to `skills.json`/`explore.json` plus an
+   `explicit_finish` event.
+6. `finish` is a harness control tool, not a benchmark tool: the
+   definition rides the model prefix when the switch is on and the
+   eval gate always allows it, but the frozen Section 23.2 table
+   (`DefaultEvalProfile`, `EffectiveTools`) and its hash never move
+   (see `docs/decisions/0055-explicit-finish.md`).
+
+### Switch
+
+| Switch | Values | Default | Effect |
+|---|---|---|---|
+| `EXCALIBUR_EXPLICIT_FINISH` | `on`/`1`/`true`/`yes` enables | `on` | `off` restores the legacy text-finish behaviour (gate on text-only turns, `completed: <instruction>` echo, no `finish` in the prefix) |
+
+Measure `off` vs `on` on the same task set; watch success rate, the
+share of failures ending `completed` vs honest states, finish
+refusals per run, and text-only streaks in the records.
+
+### Research sources for this section
+
+- LangChain, "Improving Deep Agents with harness engineering" (Feb
+  2026, https://blog.langchain.com/improving-deep-agents-with-harness-engineering/):
+  52.8 to 66.5 on TB2 with the model fixed. Adopted: the
+  pre-completion verification checklist (our refusal checks are that
+  checklist enforced at the step loop), loop-detection reconsider
+  notes, and the trace-analyzer warning against single-task
+  overfitting (hence paired per-task statistics via the measurement
+  workstream, not tuned prompts).
+- Meta-Harness, arXiv 2603.28052 (Lee et al., Mar 2026,
+  https://arxiv.org/abs/2603.28052): harness code (what to store,
+  retrieve, present) moves results as much as weights, with larger
+  gains on weaker models. Motivates the code-side finish gate over
+  prompt growth.
+- Agentic Harness Engineering, arXiv 2604.25850: same direction —
+  systematic harness search with standard evaluation and auditing
+  records (Section 23.2, Appendix F) as the objective signal.
+- Terminus 2 (Harbor reference harness): single-tool tmux loop with
+  a `task_complete`-style confirmation round. Our two-turn
+  confirmation mirrors that shape.
+- Open-source harnesses (general engineering knowledge, no task
+  material used): SWE-agent / mini-swe-agent explicit `submit` only
+  after tests pass (our `finish` with evidence), OpenHands loop
+  detection on repeated calls+errors, Codex/OpenCode `tool_choice:
+  none` closing shape (we keep tools available in closing so
+  `finish` remains callable), Aider architect/editor split behind
+  expert escalation.
+
 Documentation describes standard evaluation and auditing records
 (Section 23.2, Appendix F); nothing here tunes the agent against
 benchmark failures or derives prompts from task contents.
@@ -2026,6 +2124,37 @@ benchmark failures or derives prompts from task contents.
   disables both time and long-horizon switches; e2e call counts
   unchanged because draft-free read-verified work no longer counts as
   unproven).
+- `internal/engine/explicit_finish_test.go`: text-only never
+  completes (continuation + streak + forced closing, summary from
+  `finish`), failed-check-then-completed refused then recovered,
+  confirmation round (second summary wins), `finish`-alone
+  enforcement (mixed batch executes nothing), blocked completes as
+  `blocked/missing_data`, existing-path blocked refused, missing
+  artifact refused until the step budget pauses (unbounded refusals),
+  switch OFF restores single-final completion, invalid args refused.
+- `internal/cli/explicit_finish_test.go`: exec summary is
+  `finish.summary` (never the instruction echo),
+  `explicit_finish.json` pins the switch and arguments, `finish`
+  rides the prefix when on and hides when off, switch OFF restores
+  the legacy echo, failed-check then completed end to end through
+  the real pipeline.
+- Updated to the new contract: `exec_engine_test.go` (write/read,
+  surface clamp, deferred, skills now end with the two-turn finish),
+  `exec_envtime_test.go` / `exec_explore_test.go` (clock/brief turns
+  plus finish), `exec_retry_test.go` (transient retries plus the
+  finish confirmation), `attempts_test.go` (4-step
+  write/read/finish/finish per attempt), `acp_test.go` (summary
+  presence without the echo).
+- Existing suites unchanged and green: full `go test ./... -race`,
+  `gofmt -l .`, `go vet ./...`, `staticcheck ./...`,
+  `GOOS=darwin/windows go build ./...`,
+  `scripts/check-no-bare-go.sh`.
+- Live end-to-end (own small tasks, never Terminal-Bench):
+  `excalibur exec --profile eval` on hello-file and csv-sum style
+  tasks completes with `finish` in the prefix and
+  `explicit_finish.json` recording the accepted arguments
+  (credentials file, `gpt-6-luna` low effort; no paid trial beyond
+  these checks).
 
 ## W5: skills that help small models (cards, not catalogs)
 

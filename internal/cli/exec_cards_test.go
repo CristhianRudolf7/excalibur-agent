@@ -131,8 +131,10 @@ func TestExecEngineSkillsCards(t *testing.T) {
 			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "write_file", Arguments: args}}}},
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c3", Name: "read_file", Arguments: readArgs}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
 	}
+	// Explicit finish: the run ends ONLY through the two-turn
+	// `finish` confirmation, never through a text-only turn.
+	fake.Responses = append(fake.Responses, finishScript("wrote hello.txt", "write_file then read_file verified hello.txt")...)
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "build the project with make and write hello", LogsDir: logs,

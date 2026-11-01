@@ -36,8 +36,18 @@ func (f *flakyProvider) Chat(_ context.Context, req providers.ChatRequest) (prov
 			Err: fmt.Errorf("flaky %s failure", f.kind),
 		}
 	}
+	// Explicit finish: trivial runs still end ONLY through `finish`.
+	// After the transient retries clear, serve the two-turn finish
+	// confirmation (first accepted, second completes).
+	finished := f.calls - f.fails
+	args, _ := json.Marshal(map[string]string{"summary": "done", "evidence": "no tool work needed; request verified by inspection"})
+	id := fmt.Sprintf("f%d", finished)
+	if finished > 2 {
+		id = fmt.Sprintf("f%d", finished)
+	}
 	return providers.ChatResponse{
-		Message: providers.Message{Role: providers.RoleAssistant, Content: "done"},
+		Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: id, Name: "finish", Arguments: args}}},
 	}, nil
 }
 
@@ -77,15 +87,18 @@ func TestExecRetriesTransientProviderErrors(t *testing.T) {
 	if out.State != types.RunCompleted {
 		t.Fatalf("state = %q, want completed", out.State)
 	}
-	if fake.calls != 3 {
-		t.Fatalf("provider calls = %d, want 3 (initial + 2 retries)", fake.calls)
+	// Two transient failures retried inside the first model turn (3
+	// provider calls), then the two-turn finish confirmation (one more
+	// provider call for the second finish).
+	if fake.calls != 4 {
+		t.Fatalf("provider calls = %d, want 4 (initial + 2 retries + second finish)", fake.calls)
 	}
 	snap := readEvalMetrics(t, logs)
 	if snap.ModelRetries != 2 {
 		t.Fatalf("model_retries = %d, want 2", snap.ModelRetries)
 	}
-	if snap.CallsByRole["executor"] != 1 {
-		t.Fatalf("calls_by_role = %v, want one executor call", snap.CallsByRole)
+	if snap.CallsByRole["executor"] != 2 {
+		t.Fatalf("calls_by_role = %v, want two executor calls (finish confirmation round)", snap.CallsByRole)
 	}
 	if snap.ModelSeconds <= 0 {
 		t.Fatalf("model_seconds = %v, want the real call latency", snap.ModelSeconds)

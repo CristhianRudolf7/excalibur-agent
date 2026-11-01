@@ -47,6 +47,11 @@ type Profile struct {
 	Limit tasks.Limit
 	// ContextRole sizes the compiled context (11.2).
 	ContextRole string
+	// ExplicitFinish requires the explicit finish protocol: in
+	// non-interactive profiles (exec, delegate, eval) a run ends ONLY
+	// through a `finish` tool call. Interactive daemon runs leave it
+	// false and keep the old text-only finish.
+	ExplicitFinish bool
 }
 
 // ModelEndpoint is the single-model gateway seam (19.2-19.6). The
@@ -127,6 +132,10 @@ type Deps struct {
 	// and evidence-aware continuation, milestone plan, budget pacing
 	// and background nudges. Nil selects the defaults (all on).
 	LongHorizon *tasks.LongHorizonConfig
+	// ExplicitFinish overrides the EXCALIBUR_EXPLICIT_FINISH switch.
+	// Nil selects the defaults (on) with the environment overlay, so
+	// the protocol stays measurable on and off without a rebuild.
+	ExplicitFinish *ExplicitFinishConfig
 	// LeaseHeartbeat renews the run's file leases while it is
 	// running or waiting on a tool or subagents (Section 16.2),
 	// including during long tools. Nil disables heartbeats.
@@ -282,6 +291,34 @@ type Run struct {
 	// reached: the remaining finish attempts render tool_choice none.
 	// Guarded by mu.
 	lhClosing bool
+	// Explicit-finish protocol state (Section 7.3 closing). Guarded
+	// by mu like the rest of the run state.
+	// textOnlyStreak counts consecutive assistant turns without tool
+	// calls; after MaxTextOnlyStreak the run enters closing mode
+	// (tools stay available so `finish` remains callable).
+	textOnlyStreak int
+	// explicitClosing is set once the streak trips: the engine keeps
+	// passing closing=false to the builder (so the prefix stays
+	// stable and `finish` stays callable) and signals closing only
+	// through volatile notes.
+	explicitClosing bool
+	// finishConfirmPending marks the confirmation round: the first
+	// accepted finish armed it, the second ends the run.
+	finishConfirmPending bool
+	// Finish holds the last accepted `finish` arguments; RawFinish
+	// holds the last attempted raw arguments (accepted or refused)
+	// and FinalText holds the model's raw final text for the records.
+	Finish    *FinishArgs
+	RawFinish string
+	FinalText string
+	// FinishRefusals counts refused `finish` calls (unbounded: only
+	// the time/step budget bounds them).
+	FinishRefusals int
+	// FinishCalls counts attempted `finish` calls.
+	FinishCalls int
+	// LastRefusal is the latest `finish` refusal reason for the
+	// records (empty when the last attempt was accepted).
+	LastRefusal string
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -770,8 +807,14 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	if e.lhClosingNow(run) {
 		closing = true
 	}
+	// Explicit finish keeps the tool definitions in the request (so
+	// the cache prefix stays stable and `finish` remains callable):
+	// closing is signaled only through volatile notes, never through
+	// tool_choice none.
+	explicit := e.explicitFinishRequired(run)
+	builderClosing := closing && !explicit
 
-	req, compiled, err := e.deps.Context.BuildRequest(ctx, run, closing)
+	req, compiled, err := e.deps.Context.BuildRequest(ctx, run, builderClosing)
 	if err != nil {
 		if ctx.Err() != nil && run.interruptedNow() {
 			run.consumeInterrupt()
@@ -833,6 +876,27 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	}
 
 	if len(resp.Message.ToolCalls) > 0 {
+		if e.explicitFinishRequired(run) && hasFinishCall(resp.Message.ToolCalls) {
+			// A `finish` call is a tool turn: the text-only streak
+			// resets whether the call is accepted or refused.
+			run.resetTextStreak()
+			// Record the assistant message before the control
+			// handling so the trajectory keeps the model's words.
+			run.mu.Lock()
+			seq := run.nextHistorySeqLocked()
+			run.History = append(run.History, ctxcompiler.ActivityEvent{
+				Seq: seq, Role: providers.RoleAssistant, Content: resp.Message.Content,
+				ToolCalls: resp.Message.ToolCalls,
+			})
+			run.mu.Unlock()
+			if len(resp.Message.ToolCalls) > 1 {
+				run.recordFinishAttempt(string(resp.Message.ToolCalls[0].Arguments), resp.Message.Content)
+				run.recordFinishRefusal("finish refused: `finish` must be called alone, with no other tool calls in the same turn.")
+				run.InjectNote("finish refused: `finish` must be called alone, with no other tool calls in the same turn.")
+				return false, nil
+			}
+			return e.execFinishBatch(ctx, run, resp.Message.ToolCalls[0], resp.Message.Content)
+		}
 		// Record the assistant tool-call message before execution:
 		// the next model request must carry the function_call items
 		// its function_call_output items answer, or strict wires
@@ -845,9 +909,13 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			ToolCalls: resp.Message.ToolCalls,
 		})
 		run.mu.Unlock()
+		run.resetTextStreak()
 		return e.execTools(ctx, run, resp.Message.ToolCalls)
 	}
 
+	if e.explicitFinishRequired(run) {
+		return e.handleTextOnly(ctx, run, resp.Message.Content)
+	}
 	return e.finishTurn(ctx, run, resp.Message.Content)
 }
 

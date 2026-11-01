@@ -120,6 +120,7 @@ func BuiltinTools(deps *BuiltinDeps) []Tool {
 		&ClockTool{Now: deps.ClockNow},
 		&GetToolOutputTool{Outputs: outs, History: files.History},
 		&StatusTool{Provider: deps.Status, Sessions: sess},
+		&FinishTool{},
 	}
 	for _, s := range CoreStubDefinitions() {
 		def := s

@@ -15,10 +15,22 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
+// finishScript returns the two `finish` turns of the confirmation
+// round (agent quality): the first is accepted and triggers the
+// re-read turn, the second ends the run.
+func finishScript(summary, evidence string) []providers.ChatResponse {
+	mk := func(id string) providers.ChatResponse {
+		args, _ := json.Marshal(map[string]string{"summary": summary, "evidence": evidence})
+		return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
+			ToolCalls: []providers.ToolCall{{ID: id, Name: "finish", Arguments: args}}}}
+	}
+	return []providers.ChatResponse{mk("f1"), mk("f2")}
+}
+
 func scriptedWriteThenDone(target, content string) []providers.ChatResponse {
 	args, _ := json.Marshal(map[string]string{"path": target, "content": content})
 	readArgs, _ := json.Marshal(map[string]string{"path": target})
-	return []providers.ChatResponse{
+	out := []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "write_file", Arguments: args}}}},
 		// The closing self-verification requires a fresh executable
@@ -26,8 +38,10 @@ func scriptedWriteThenDone(target, content string) []providers.ChatResponse {
 		// 7.5): the agent reads the file back.
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c2", Name: "read_file", Arguments: readArgs}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "wrote " + target}},
 	}
+	// Explicit finish (agent quality): the run ends ONLY through
+	// `finish` with evidence, never through a text-only turn.
+	return append(out, finishScript("wrote "+target, "write_file then read_file verified "+target)...)
 }
 
 // TestExecEnginePathEndToEnd covers the embedded eval profile using
@@ -55,8 +69,8 @@ func TestExecEnginePathEndToEnd(t *testing.T) {
 	if err != nil || string(data) != "hello embedded" {
 		t.Fatalf("file = %q, err = %v", data, err)
 	}
-	if len(fake.ChatRequests) != 3 {
-		t.Fatalf("model calls = %d, want 3 (tool turn, verification turn, final)", len(fake.ChatRequests))
+	if len(fake.ChatRequests) != 4 {
+		t.Fatalf("model calls = %d, want 4 (two tool turns plus the two-turn finish confirmation)", len(fake.ChatRequests))
 	}
 	// The tool definitions ride the prefix in fixed order so the
 	// input cache is stable across steps.
@@ -101,8 +115,10 @@ func TestExecEngineEvalSurfaceClamp(t *testing.T) {
 		// with an in-surface check before finishing.
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c3", Name: "exec", Arguments: json.RawMessage(`{"command":"true"}`)}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done within surface"}},
 	}
+	// Explicit finish: the recovered in-surface check is the last
+	// command, so `finish` with evidence is accepted.
+	fake.Responses = append(fake.Responses, finishScript("done within surface", "exec true ok after contained rejections")...)
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "stay inside the eval surface", LogsDir: logs, Profile: ProfileEval,
@@ -219,8 +235,8 @@ func TestExecEnginePathDeferredCallTool(t *testing.T) {
 			ToolCalls: []providers.ToolCall{
 				{ID: "c3", Name: "call_tool", Arguments: callArgs},
 			}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done with history"}},
 	}
+	fake.Responses = append(fake.Responses, finishScript("done with history", "write_file then file_history via call_tool")...)
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "write and list history", LogsDir: logs, Profile: ProfileEval,
@@ -232,8 +248,8 @@ func TestExecEnginePathDeferredCallTool(t *testing.T) {
 	if out.State != types.RunCompleted {
 		t.Fatalf("state = %q", out.State)
 	}
-	if len(fake.ChatRequests) != 4 {
-		t.Fatalf("model calls = %d, want 4", len(fake.ChatRequests))
+	if len(fake.ChatRequests) != 5 {
+		t.Fatalf("model calls = %d, want 5 (three tool turns plus the two-turn finish confirmation)", len(fake.ChatRequests))
 	}
 	raw, err := os.ReadFile(out.ATIFPath)
 	if err != nil {
@@ -267,8 +283,8 @@ func TestExecEngineSkillsWiring(t *testing.T) {
 		// 7.5): the agent reads the file back.
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c3", Name: "read_file", Arguments: readArgs}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
 	}
+	fake.Responses = append(fake.Responses, finishScript("done", "load_skill then write_file then read_file verified")...)
 	logs := t.TempDir()
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "debug the failing python test and write hello", LogsDir: logs,

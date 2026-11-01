@@ -57,7 +57,13 @@ func newProfileGatedRunner(profile ProfileName, base engine.ToolRunner) *profile
 
 // check rejects tools and operations outside the eval surface. Other
 // profiles pass everything through: only eval has a frozen table.
+// `finish` is a harness control tool, not a benchmark tool: it is
+// always allowed when the explicit-finish switch is on, and the
+// frozen table never lists it so the profile hash never moves.
 func (g *profileGatedRunner) check(name string, args json.RawMessage) error {
+	if name == engine.FinishToolName && engine.ExplicitFinishSwitchOn() {
+		return nil
+	}
 	if g.profile != ProfileEval {
 		return nil
 	}
@@ -464,7 +470,7 @@ func (r *recordingToolRunner) Execute(ctx context.Context, name string, args jso
 // model turn and tool result is appended to the ATIF trajectory so
 // the Appendix F records show the real execution. It returns the
 // engine token usage for the metrics record.
-func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings models.ModelSettings, gw *models.Gateway, layerCfg config.Config) (types.RunState, providers.Usage, error) {
+func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings models.ModelSettings, gw *models.Gateway, layerCfg config.Config) (types.RunState, providers.Usage, string, error) {
 	profile := opts.Profile
 	if profile == "" {
 		profile = ProfileDefault
@@ -499,7 +505,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if skillsMode.CatalogEnabled() {
 		skillsIndex = skills.NewBuiltinIndex()
 		if err := skillsIndex.Scan(); err != nil {
-			return "", providers.Usage{}, fmt.Errorf("cli: scan skills catalog: %w", err)
+			return "", providers.Usage{}, "", fmt.Errorf("cli: scan skills catalog: %w", err)
 		}
 		skillCatalog = skillsIndex.RenderCatalogForMode(skills.CatalogConfig{
 			WindowTokens: effWindow, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
@@ -527,10 +533,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		Skills:    skillsIndex,
 	})
 	if err != nil {
-		return "", providers.Usage{}, fmt.Errorf("cli: wire embedded catalog: %w", err)
+		return "", providers.Usage{}, "", fmt.Errorf("cli: wire embedded catalog: %w", err)
 	}
 	if gw == nil {
-		return "", providers.Usage{}, fmt.Errorf("cli: engine path needs a gateway")
+		return "", providers.Usage{}, "", fmt.Errorf("cli: engine path needs a gateway")
 	}
 	baseRunner := engine.NewRegistryRunner(emb.Registry, emb.Exec)
 	var toolBase engine.ToolRunner = baseRunner
@@ -594,6 +600,17 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		"Complete the request with the available tools.",
 		"Verify the result by executing it (tests, compilers, scripts) before finishing.",
 	}
+	// Explicit finish protocol (agent quality): the run ends ONLY
+	// through a `finish` call with summary and evidence; text-only
+	// turns never end it. Gated by EXCALIBUR_EXPLICIT_FINISH
+	// (default on); off restores the legacy text-finish behaviour.
+	explicitFinish := engine.ExplicitFinishSwitchOn()
+	if explicitFinish {
+		fixedInstructions = append(fixedInstructions,
+			"When everything is verified, end the run with the `finish` tool: summary says what was done, evidence lists the commands run and their results proving each requirement.",
+			"Never stop with a text-only answer: without a `finish` call the run continues. Use status blocked with a concrete reason only when genuinely stuck.",
+		)
+	}
 	// Time and session discipline (Sections 7.3, 13.5): the hook
 	// below shows the remaining budget on every call; these lines
 	// teach the model to spend it well. Gated by
@@ -648,14 +665,20 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	toolDefs := func(erun *engine.Run) []providers.ToolDefinition {
 		var out []providers.ToolDefinition
 		for _, name := range emb.Catalog.CoreNames() {
-			if profile == ProfileEval && !allowed[name] {
+			// `finish` rides the prefix only when the protocol is
+			// on; off restores the legacy prefix byte-for-byte.
+			if name == engine.FinishToolName && !explicitFinish {
+				continue
+			}
+			if profile == ProfileEval && !allowed[name] && name != engine.FinishToolName {
 				continue
 			}
 			// Idle-tool pruning (agent quality): ack_directive
 			// while no directive is pending and clock under eval
 			// stay out of the prefix. Both remain executable, and
-			// the switches restore the legacy prefix.
-			if pruneFromPrefix(profile, emb, name) {
+			// the switches restore the legacy prefix. `finish`
+			// is never pruned: the protocol needs it visible.
+			if name != engine.FinishToolName && pruneFromPrefix(profile, emb, name) {
 				continue
 			}
 			tool, err := emb.Registry.Get(name)
@@ -746,6 +769,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	erun := engine.NewRun(string(run.RunID), string(run.TaskID), engine.Profile{
 		Name: "child", Role: types.RoleExecutor, ContextRole: "child",
 		Limit: tasks.Limit{MaxSteps: 25},
+		// Explicit finish (agent quality): exec runs are
+		// non-interactive, so they end ONLY through `finish` when
+		// the switch is on; off restores the legacy text finish.
+		ExplicitFinish: explicitFinish,
 	})
 	// Resolve relative artifact paths against the run project
 	// directory for the required-artifact completion gate.
@@ -814,22 +841,22 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	if err := eng.Admit(ctx, erun); err != nil {
 		close(stopSampler)
-		return "", providers.Usage{}, err
+		return "", providers.Usage{}, "", err
 	}
 	if _, err := rec.RunStarted(ctx, map[string]string{"task": opts.Request}); err != nil {
 		close(stopSampler)
-		return "", providers.Usage{}, err
+		return "", providers.Usage{}, "", err
 	}
 	if err := eng.Start(ctx, erun); err != nil {
 		close(stopSampler)
-		return "", providers.Usage{}, err
+		return "", providers.Usage{}, "", err
 	}
 	if err := eng.Run(ctx, erun); err != nil {
 		// An interrupt cancels the context without failing: the
 		// orchestrator owns the resulting state.
 		if ctx.Err() == nil {
 			close(stopSampler)
-			return "", providers.Usage{}, err
+			return "", providers.Usage{}, "", err
 		}
 	}
 	close(stopSampler)
@@ -873,13 +900,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				Arguments: string(ev.ToolResult.CallID),
 			}},
 		}, "tool_call"); err != nil {
-			return "", providers.Usage{}, err
+			return "", providers.Usage{}, "", err
 		}
 		if err := run.EmitStep(telemetry.ATIFStep{
 			Role:       "tool",
 			ToolResult: &telemetry.ATIFToolResult{CallID: ev.ToolResult.CallID, Name: ev.ToolResult.Name, Output: ev.Content},
 		}, "tool_result"); err != nil {
-			return "", providers.Usage{}, err
+			return "", providers.Usage{}, "", err
 		}
 	}
 	if run.Recorder != nil {
@@ -920,14 +947,77 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		}
 		_ = run.Recorder.RecordTransition("executing", string(erun.State()), rep.Summary)
 	}
+	// Explicit-finish records (agent quality): the switch, the
+	// model's raw final text and the `finish` arguments land next to
+	// skills.json / explore.json for the ablation.
+	writeExplicitFinishRecord(run.Dir, explicitFinish, erun)
+	_ = run.EmitEvent("explicit_finish", map[string]any{
+		"enabled": explicitFinish, "finish_calls": erun.FinishCalls,
+		"refusals": erun.FinishRefusals, "confirmed": erun.Finish != nil,
+	})
 	summary := rep.Summary
 	if summary == "" {
-		summary = "completed: " + shortSummary(opts.Request)
+		if explicitFinish {
+			// Never echo the instruction: the delivery summary
+			// is the `finish.summary`. Without one, name the
+			// honest terminal state generically.
+			switch erun.State() {
+			case types.RunCompleted:
+				summary = "completed"
+			case types.RunBlocked:
+				summary = "blocked"
+			case types.RunPaused:
+				summary = "paused: budget exhausted"
+			case types.RunFailed:
+				summary = "failed"
+			default:
+				summary = string(erun.State())
+			}
+		} else {
+			summary = "completed: " + shortSummary(opts.Request)
+		}
 	}
 	if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: summary}, "message"); err != nil {
-		return "", providers.Usage{}, err
+		return "", providers.Usage{}, "", err
 	}
-	return erun.State(), usage, nil
+	return erun.State(), usage, summary, nil
+}
+
+// writeExplicitFinishRecord persists the explicit-finish ablation
+// record for the run (switch, finish arguments, raw final text,
+// streak, refusals) next to the other trial artifacts. A missing dir
+// skips the write; failures never fail the run.
+func writeExplicitFinishRecord(dir string, enabled bool, erun *engine.Run) {
+	if dir == "" {
+		return
+	}
+	rec := map[string]any{"enabled": enabled}
+	if erun != nil {
+		rec["finish_calls"] = erun.FinishCalls
+		rec["refusals"] = erun.FinishRefusals
+		rec["text_only_streak"] = erun.TextOnlyStreak()
+		if erun.Finish != nil {
+			rec["summary"] = erun.Finish.Summary
+			rec["evidence"] = erun.Finish.Evidence
+			rec["status"] = erun.Finish.Status
+			rec["reason"] = erun.Finish.Reason
+			rec["raw_args"] = erun.Finish.RawArgs
+		}
+		if erun.FinalText != "" {
+			rec["final_text"] = erun.FinalText
+		}
+		if raw := erun.RawFinish; raw != "" {
+			rec["raw_finish"] = raw
+		}
+		if erun.LastRefusal != "" {
+			rec["last_refusal"] = erun.LastRefusal
+		}
+	}
+	buf, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(dir+"/explicit_finish.json", append(buf, '\n'), 0o644)
 }
 
 // probeHost extracts the host:port dialed by the env snapshot's

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"testing"
 	"time"
 )
@@ -152,7 +151,9 @@ func TestThreeRoutesAgree(t *testing.T) {
 				execOut.State, acpState, st.State)
 		}
 	}
-	if !strings.Contains(execOut.Summary, instruction) {
-		t.Fatalf("summary = %q", execOut.Summary)
+	// Explicit finish (agent quality): the delivery summary never
+	// echoes the instruction. The stub path completes generically.
+	if execOut.Summary == "" {
+		t.Fatal("summary must be present")
 	}
 }

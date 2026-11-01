@@ -81,8 +81,8 @@ func TestExecExploreInjectedOnce(t *testing.T) {
 	fake.Responses = []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "clock", Arguments: []byte(`{}`)}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
 	}
+	fake.Responses = append(fake.Responses, finishScript("done", "clock verified the brief context")...)
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "say hi", ProjectDir: dir, LogsDir: logs,
 		Profile: ProfileEval, Provider: fake,
@@ -93,8 +93,8 @@ func TestExecExploreInjectedOnce(t *testing.T) {
 	if out.State != types.RunCompleted {
 		t.Fatalf("state = %q", out.State)
 	}
-	if len(fake.ChatRequests) != 2 {
-		t.Fatalf("model calls = %d, want 2", len(fake.ChatRequests))
+	if len(fake.ChatRequests) != 3 {
+		t.Fatalf("model calls = %d, want 3 (tool turn plus the two-turn finish confirmation)", len(fake.ChatRequests))
 	}
 	first, second := systemText(fake.ChatRequests[0]), systemText(fake.ChatRequests[1])
 	for _, sys := range []string{first, second} {

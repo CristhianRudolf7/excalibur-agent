@@ -12,9 +12,9 @@ import (
 )
 
 func doneImmediately() []providers.ChatResponse {
-	return []providers.ChatResponse{
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
-	}
+	// Explicit finish (agent quality): trivial runs still end ONLY
+	// through `finish` with evidence, never through a text-only turn.
+	return finishScript("done", "no tool work needed; request verified by inspection")
 }
 
 func systemText(req providers.ChatRequest) string {
@@ -46,11 +46,12 @@ func block(sys string) string {
 // carries it, byte-identical across steps (Section 13.5, 11.1).
 func TestExecEngineEnvSnapshotInjectedOnce(t *testing.T) {
 	fake := providerfake.New("envsnap")
+	finishTail := finishScript("done", "clock verified the time")
 	fake.Responses = []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "clock", Arguments: []byte(`{}`)}}}},
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
 	}
+	fake.Responses = append(fake.Responses, finishTail...)
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: "what time is it", LogsDir: t.TempDir(),
 		Profile: ProfileEval, Provider: fake,
@@ -61,8 +62,8 @@ func TestExecEngineEnvSnapshotInjectedOnce(t *testing.T) {
 	if out.State != types.RunCompleted {
 		t.Fatalf("state = %q", out.State)
 	}
-	if len(fake.ChatRequests) != 2 {
-		t.Fatalf("model calls = %d, want 2", len(fake.ChatRequests))
+	if len(fake.ChatRequests) != 3 {
+		t.Fatalf("model calls = %d, want 3 (tool turn plus the two-turn finish confirmation)", len(fake.ChatRequests))
 	}
 	first, second := systemText(fake.ChatRequests[0]), systemText(fake.ChatRequests[1])
 	for _, want := range []string{"Environment snapshot", "os: ", "shell:", "workdir"} {

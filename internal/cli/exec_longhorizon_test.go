@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	providerfake "github.com/CristhianRudolf7/excalibur-agent/internal/providers/fake"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -61,9 +60,9 @@ func TestExecLongHorizonSwitchOff(t *testing.T) {
 func TestExecLongHorizonMilestones(t *testing.T) {
 	longReq := "Migrate the service to the new API: " + strings.Repeat("rewrite the handlers, update the tests, verify end to end. ", 20)
 	fake := providerfake.New("lh-milestones")
-	fake.Responses = []providers.ChatResponse{
-		{Message: providers.Message{Role: providers.RoleAssistant, Content: "done"}},
-	}
+	// Explicit finish: runs end ONLY through the two-turn `finish`
+	// confirmation, never through a text-only turn.
+	fake.Responses = finishScript("done", "no tool work needed; request verified by inspection")
 	out, err := RunExec(context.Background(), ExecOptions{
 		Request: longReq, LogsDir: t.TempDir(), Profile: ProfileEval,
 		Provider: fake, MaxSteps: 25,
@@ -77,7 +76,7 @@ func TestExecLongHorizonMilestones(t *testing.T) {
 	sys := systemText(fake.ChatRequests[0])
 	// The plan decision needs the stashed request, so the first call
 	// may not yet carry it; the second call (or the working notes)
-	// must. With a single final answer the run completes, but the
+	// must. The run ends through the two-turn `finish`, but the
 	// pacing line must already show milestone progress tracking.
 	if !strings.Contains(sys, "pacing:") {
 		t.Fatalf("large task must carry pacing, got:\n%s", sys)
