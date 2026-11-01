@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/scopeguard"
 	"strings"
 	"sync"
 	"time"
@@ -150,6 +151,15 @@ type Deps struct {
 	// (paused, blocked, waiting on the user) or terminates, so
 	// files are never immobilized (Section 16.2). Nil disables.
 	LeaseRelease func(runID string)
+	// PairRetry gates the single repair-and-retry when a strict wire
+	// rejects an orphan call/result pair with a 400 (Section 19.2).
+	// Nil means enabled with the EXCALIBUR_CONTEXT_PAIR_RETRY overlay
+	// (default ON); explicit false disables for ablations.
+	PairRetry *bool
+	// OnPairRetry observes one orphan-400 repair-and-retry with the
+	// repaired history orphan count and the first error text. Nil
+	// skips observing; the retry still applies.
+	OnPairRetry func(repaired int, firstErr string)
 }
 
 // Directive is a pending instruction for the run (15.7). Any
@@ -214,6 +224,13 @@ type Run struct {
 	MaskBatches int
 	// Compactions counts compactions applied to this run.
 	Compactions int
+	// PairRepairs counts orphan call/result halves converted to
+	// plain-text summaries for this run (pre-request repairs and
+	// orphan-400 history repairs combined).
+	PairRepairs int
+	// PairRetries counts orphan-400 repair-and-retry model calls for
+	// this run (at most one per step).
+	PairRetries int
 	Children    []tasks.GateChild
 	Contrast    *tasks.ContrastResult
 	Summary     string
@@ -222,7 +239,10 @@ type Run struct {
 	// compiled task layer on the first step so the closing hooks can
 	// extract checkable criteria and contrast the deliverable
 	// without any driver changes.
-	Request string
+	Request           string
+	scopeGuard        *scopeguard.Guard
+	scopeGuardStarted bool
+	scopeGuardError   string
 	// Workdir resolves relative artifact paths for the
 	// required-artifact gate; absolute requirement paths are used
 	// as-is. Embedded drivers set it to the run project directory.
@@ -338,6 +358,7 @@ type Run struct {
 	// timeOnlyClosingNoted marks the one-time wall-closing note in
 	// time-only mode so closing reminds once without spamming.
 	timeOnlyClosingNoted bool
+	deadlinePaced        uint8
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
 	safetyCapNoted bool
@@ -822,6 +843,8 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	run.mu.Unlock()
 
+	run.DeadlinePacing(e.deps.Clock())
+
 	// Time-only binding (W8): only the wall clock pauses the run.
 	// Safety-cap exhaustion (steps/cost/tokens) forces closing
 	// instead of pausing so the run works to the wall edge and leaves
@@ -898,6 +921,18 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	// layer renders request:\n... verbatim, so verification and
 	// contrast need no driver changes.
 	run.stashRequest(compiled.LayerText(ctxcompiler.LayerTask))
+	scopeWasStarted := run.scopeGuardStarted
+	e.startScopeGuard(run)
+	if run.scopeGuardError != "" {
+		return true, e.fail(ctx, run, run.scopeGuardError)
+	}
+	if !scopeWasStarted && run.scopeGuardStarted {
+		note := run.scopeGuardError
+		if run.scopeGuard != nil {
+			note = run.scopeGuard.Note()
+		}
+		req.Messages = append(req.Messages, providers.Message{Role: providers.RoleUser, Content: note})
+	}
 	// Long-horizon persistence: the milestone plan decision needs the
 	// stashed request, and the progress check injects the next
 	// milestone for the following model call.
@@ -924,13 +959,36 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			e.pauseDeadline(ctx, run)
 			return true, nil
 		}
-		if errors.Is(err, models.ErrProviderQuotaExhausted) {
-			if waitErr := e.Wait(ctx, run, types.WaitCapability); waitErr != nil {
-				return true, waitErr
+		// Strict-wire orphan rejection: repair the history (orphan
+		// halves become plain-text summaries) and retry the model
+		// call exactly once with the rebuilt request.
+		if retry, ok := e.retryOrphanPairs(ctx, run, builderClosing, err); ok {
+			resp, meta, compiled = retry.resp, retry.meta, retry.compiled
+		} else {
+			if retry.err != nil {
+				err = retry.err
 			}
-			return true, err
+			// An interrupt can arrive during the recovery call too.
+			if ctx.Err() != nil && run.interruptedNow() {
+				_, toolOnly := run.consumeInterrupt()
+				if toolOnly {
+					run.InjectNote("tool interrupted by the user; run decides how to continue")
+					return false, nil
+				}
+				return true, nil
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				e.pauseDeadline(ctx, run)
+				return true, nil
+			}
+			if errors.Is(err, models.ErrProviderQuotaExhausted) {
+				if waitErr := e.Wait(ctx, run, types.WaitCapability); waitErr != nil {
+					return true, waitErr
+				}
+				return true, err
+			}
+			return true, e.fail(ctx, run, "model call: "+err.Error())
 		}
-		return true, e.fail(ctx, run, "model call: "+err.Error())
 	}
 	run.mu.Lock()
 	run.Tracker.Observe(tasks.Usage{
@@ -1092,6 +1150,10 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bo
 	e.recordState(ctx, run, from, types.RunVerifying, "gate")
 	rep := e.gateCheck(run)
 	rep = e.selfVerify(ctx, run, rep, finalText)
+	if reason := scopeRefusal(run); reason != "" {
+		rep.OK = false
+		rep.Pendings = append(rep.Pendings, reason)
+	}
 	// Long-horizon persistence: when significant budget remains and
 	// executable evidence is still thin, continue with a concise "what
 	// is still unproven" message instead of finishing shallow. This
@@ -1205,6 +1267,11 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		}
 	}
 	results := e.runParallel(ctx, run, batch)
+	if run.scopeGuard != nil {
+		for i, r := range results {
+			run.scopeGuard.ObserveCall(batch[i].Name, string(batch[i].Arguments), r.Output, r.Status != tools.StatusOK || strings.Contains(r.Output, "AssertionError") || strings.Contains(r.Output, "FAIL"))
+		}
+	}
 	for i, tc := range batch {
 		res := results[i]
 		recordCall(run, callSig(tc))

@@ -51,11 +51,11 @@ func TestEffectiveBudgetsEvalTimeOnly(t *testing.T) {
 	if b2.WallSecs != 600 || b2.WallSource != "explicit" {
 		t.Fatalf("explicit wall = %d/%s", b2.WallSecs, b2.WallSource)
 	}
-	// Harbor override wins at 90%.
+	// Deadline-aware Harbor override keeps the full external timeout.
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "1000")
 	b3 := EffectiveBudgetsFor(ExecOptions{}, ProfileEval)
-	if b3.WallSecs != 900 || b3.WallSource != "harbor" {
-		t.Fatalf("harbor wall = %d/%s, want 900/harbor", b3.WallSecs, b3.WallSource)
+	if b3.WallSecs != 1000 || b3.WallSource != "HARBOR_AGENT_TIMEOUT_SEC" {
+		t.Fatalf("harbor wall = %d/%s, want 1000/HARBOR_AGENT_TIMEOUT_SEC", b3.WallSecs, b3.WallSource)
 	}
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	// Cost env override.
@@ -128,8 +128,8 @@ func TestBudgetsRecordedInProfileAndFiles(t *testing.T) {
 	if rec["time_budget_only"] != true {
 		t.Fatalf("profile.json must record time_budget_only=true, got %v", rec["time_budget_only"])
 	}
-	if rec["wall_secs"] != float64(900) {
-		t.Fatalf("profile wall_secs = %v, want 900", rec["wall_secs"])
+	if rec["wall_secs"] != float64(1000) {
+		t.Fatalf("profile wall_secs = %v, want 1000", rec["wall_secs"])
 	}
 	if rec["max_steps"] != float64(engine.SafetyMaxSteps) {
 		t.Fatalf("profile max_steps = %v, want %d", rec["max_steps"], engine.SafetyMaxSteps)
@@ -147,7 +147,7 @@ func TestBudgetsRecordedInProfileAndFiles(t *testing.T) {
 		if err := json.Unmarshal(buf, &b); err != nil {
 			t.Fatal(err)
 		}
-		if !b.TimeBudgetOnly || b.WallSecs != 900 || b.MaxSteps != engine.SafetyMaxSteps {
+		if !b.TimeBudgetOnly || b.WallSecs != 1000 || b.MaxSteps != engine.SafetyMaxSteps {
 			t.Fatalf("budgets.json wrong: %+v", b)
 		}
 	}

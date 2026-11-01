@@ -126,7 +126,18 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if owner == "" {
 		owner = "default"
 	}
+	if bound, ok := ctx.Value(commandDeadlineKey{}).(time.Duration); ok && bound > 0 {
+		// Quote the entire original command as one shell argument.
+		a.Command = fmt.Sprintf("timeout --signal=TERM --kill-after=1s %.3fs '%s' -c '%s'", max(bound.Seconds(), 0.001), strings.ReplaceAll(DetectShell(), "'", "'\"'\"'"), strings.ReplaceAll(a.Command, "'", "'\"'\"'"))
+		if yield == 0 || time.Duration(yield)*time.Millisecond > bound {
+			yield = int(bound / time.Millisecond)
+		}
+	}
 	start := time.Now()
+	waitCtx := context.Background()
+	if ctx.Value(commandDeadlineKey{}) != nil {
+		waitCtx = ctx
+	}
 	var s *Session
 	var out string
 	var alive bool
@@ -135,7 +146,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		// their own session so they survive the agent's exit.
 		s, out, alive = t.sessions().StartDetached(owner, a.Command, a.Workdir, env)
 	} else {
-		s, out, alive = t.sessions().Start(owner, a.Command, a.Workdir, a.TTY, yield, env)
+		s, out, alive = t.sessions().StartContext(waitCtx, owner, a.Command, a.Workdir, a.TTY, yield, env)
 	}
 	dur := time.Since(start)
 	var b strings.Builder

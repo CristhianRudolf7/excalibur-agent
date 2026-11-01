@@ -397,6 +397,9 @@ func historyEventForTool(seq int64, tc providers.ToolCall, res tools.Result) ctx
 func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, evidenceText string) string {
 	e.restoreRefusals(ctx, run)
 	var reasons []string
+	if reason := scopeRefusal(run); reason != "" {
+		reasons = append(reasons, reason)
+	}
 	if out, isErr, found := lastNonFinishError(run); found && isErr {
 		reason := "your last command errored (" + truncOneLine(out, 200) + "). Fix it and verify by executing before calling `finish` again."
 		if !ActionableRefusalsEnabled() {

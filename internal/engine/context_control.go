@@ -75,3 +75,38 @@ func (r *Run) compactionBlock() string {
 	defer r.mu.Unlock()
 	return r.CompactionBlock
 }
+
+// recordPairRepair adds n converted orphan halves to the run pairing
+// count. Callers hold no lock.
+func (r *Run) recordPairRepair(n int) {
+	if n <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.PairRepairs += n
+}
+
+// recordPairRetry counts one orphan-400 repair-and-retry. Callers hold
+// no lock.
+func (r *Run) recordPairRetry() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.PairRetries++
+}
+
+// repairHistoryPairs converts orphan call/result halves in the run
+// history to plain-text summaries so the next request carries complete
+// pairs, and returns the repaired orphan count. Seq numbers ride along
+// unchanged. Callers hold no lock.
+func (r *Run) repairHistoryPairs() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	repaired, rep := ctxcompiler.RepairActivity(r.History)
+	if rep.Repaired == 0 {
+		return 0
+	}
+	r.History = repaired
+	r.PairRepairs += rep.Repaired
+	return rep.Repaired
+}

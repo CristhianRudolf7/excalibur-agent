@@ -24,6 +24,13 @@ func (b *DefaultBuilder) compactEnabled() bool {
 	return ctxcompiler.CompactEnabled(nil)
 }
 
+func (b *DefaultBuilder) pairCheckEnabled() bool {
+	if b.PairCheck != nil {
+		return *b.PairCheck
+	}
+	return ctxcompiler.PairCheckEnabled(nil)
+}
+
 // applyContextControl runs observation masking (11.3) over the
 // combined snapshot+history activity before the first compile and
 // persists the masked history back to the run. snapshotLen is the

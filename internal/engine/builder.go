@@ -59,6 +59,13 @@ type DefaultBuilder struct {
 	// enabled with the EXCALIBUR_CONTEXT_COMPACT overlay (default
 	// ON); explicit false disables.
 	EnableCompact *bool
+	// PairCheck gates the pre-request call/result pairing invariant
+	// check (Section 19.2 strict wires). Nil means enabled with the
+	// EXCALIBUR_CONTEXT_PAIR_CHECK overlay (default ON); explicit
+	// false disables for ablations. When on, a request carrying an
+	// orphan function_call_output (or a call with no result) is
+	// repaired to plain-text summaries before it reaches the wire.
+	PairCheck *bool
 	// Pins returns pinned observation texts that masking must keep
 	// literal (pin_observation). Nil means no pins.
 	Pins func() []string
@@ -68,6 +75,9 @@ type DefaultBuilder struct {
 	// OnCompact records one compaction (trial recorder, journal).
 	// Nil skips recording; compaction still applies.
 	OnCompact func(from, to, kept int, note string)
+	// OnPairRepair records one pre-request pairing repair (trial
+	// recorder). Nil skips recording; the repair still applies.
+	OnPairRepair func(repaired int, note string)
 }
 
 // BuildRequest implements RequestBuilder.
@@ -183,6 +193,20 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	}
 	req := compiled.ToChatRequest("", defs, b.MaxTokens, b.ReasoningEffort, toolChoice)
 	compiled.AppendActivityMessages(&req, snap.Activity)
+	// Pairing invariant before every model request: strict wires
+	// reject a split call/result pair with a 400, so a request
+	// carrying an orphan half is repaired to plain-text summaries
+	// here (the run history itself is untouched; only the 400 retry
+	// path rewrites history).
+	if b.pairCheckEnabled() {
+		if rep := ctxcompiler.ValidateMessages(req.Messages); !rep.Valid() {
+			req.Messages, rep = ctxcompiler.RepairMessages(req.Messages)
+			run.recordPairRepair(rep.Repaired)
+			if b.OnPairRepair != nil {
+				b.OnPairRepair(rep.Repaired, rep.Note())
+			}
+		}
+	}
 	return req, compiled, nil
 }
 

@@ -224,6 +224,12 @@ func NewSessionManager(deps TerminalDeps) *SessionManager {
 
 // Start launches cmd for owner and waits up to yieldMs.
 func (m *SessionManager) Start(owner, cmd, dir string, usePTY bool, yieldMs int, env []string) (*Session, string, bool) {
+	return m.StartContext(context.Background(), owner, cmd, dir, usePTY, yieldMs, env)
+}
+
+// StartContext starts a session like Start, but cancellation releases the
+// initial wait so the run can write its final records promptly.
+func (m *SessionManager) StartContext(ctx context.Context, owner, cmd, dir string, usePTY bool, yieldMs int, env []string) (*Session, string, bool) {
 	if yieldMs < minYieldMs {
 		yieldMs = minYieldMs
 	}
@@ -246,7 +252,7 @@ func (m *SessionManager) Start(owner, cmd, dir string, usePTY bool, yieldMs int,
 	} else {
 		m.startPipe(s, cmd, dir, env)
 	}
-	out, alive := s.waitYield(time.Duration(yieldMs) * time.Millisecond)
+	out, alive := s.waitYield(ctx, time.Duration(yieldMs)*time.Millisecond)
 	return s, out, alive
 }
 
@@ -385,11 +391,11 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*S
 		s.Detached = false
 		s.LogPath = ""
 		m.startPipe(s, cmd, dir, env)
-		out, alive := s.waitYield(time.Duration(minYieldMs) * time.Millisecond)
+		out, alive := s.waitYield(context.Background(), time.Duration(minYieldMs)*time.Millisecond)
 		return s, out, alive
 	}
 	m.startDetachedPipe(s, cmd, dir, env, logPath)
-	out, alive := s.waitYield(time.Duration(minYieldMs) * time.Millisecond)
+	out, alive := s.waitYield(context.Background(), time.Duration(minYieldMs)*time.Millisecond)
 	return s, out, alive
 }
 
@@ -524,12 +530,17 @@ func (m *SessionManager) Surviving() []SurvivingProcess {
 	return out
 }
 
-func (s *Session) waitYield(d time.Duration) (string, bool) {
+func (s *Session) waitYield(ctx context.Context, d time.Duration) (string, bool) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
 	select {
+	case <-ctx.Done():
+		out, _ := s.ReadSince(0)
+		return out, s.snapshot()
 	case <-s.done:
 		out, _ := s.ReadSince(0)
 		return out, false
-	case <-time.After(d):
+	case <-timer.C:
 		out, _ := s.ReadSince(0)
 		return out, s.snapshot()
 	}

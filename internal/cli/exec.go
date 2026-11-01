@@ -113,9 +113,10 @@ type ExecOptions struct {
 
 // ExecRun is the live handle passed to the Work hook.
 type ExecRun struct {
-	TaskID types.TaskID
-	RunID  types.RunID
-	Dir    string
+	startedAt time.Time
+	TaskID    types.TaskID
+	RunID     types.RunID
+	Dir       string
 	// ProjectDir is the isolated working copy for this run (the
 	// best-of-N fan-out sets one copy per attempt). Work hooks must
 	// write through it to stay isolated.
@@ -329,6 +330,7 @@ func EvalToolAllowed(tool, op string) error {
 // the models gateway, or a stable harness error (exit 1) when
 // nothing is configured.
 func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
+	startedAt := time.Now().UTC()
 	profile := opts.Profile
 	if profile == "" {
 		profile = ProfileDefault
@@ -401,9 +403,13 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		defer cleanup()
 	}
 
-	if opts.TimeoutSecs > 0 {
+	wallSecs := opts.TimeoutSecs
+	if engine.DeadlineEnabled() {
+		wallSecs = EffectiveBudgetsFor(opts, profile).WallSecs
+	}
+	if wallSecs > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(opts.TimeoutSecs)*time.Second)
+		ctx, cancel = context.WithDeadline(ctx, startedAt.Add(time.Duration(wallSecs)*time.Second))
 		defer cancel()
 	}
 
@@ -515,6 +521,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 
 	run := &ExecRun{
 		TaskID: taskID, RunID: runID, Dir: runDir,
+		startedAt:  startedAt,
 		ProjectDir: opts.ProjectDir,
 		ATIF:       writer, Metrics: metrics,
 		emit: opts.Emit, emitJSON: opts.EmitJSON,
@@ -581,7 +588,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		defer finalMu.Unlock()
 		if ctx.Err() != nil {
 			state, reason, summary, question = stoppedByTimeout, "timeout", "stopped by timeout or signal", ""
-			if errors.Is(ctx.Err(), context.Canceled) {
+			if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(context.Cause(ctx), ErrTermination) {
 				reason = "signal"
 			}
 			// Delegated task callers use the shared durable state vocabulary.
@@ -858,6 +865,7 @@ func writeRunProfile(runDir string, profile ProfileName, cfg eval.EvalProfileCon
 		"max_output":           cfg.MaxOutput,
 		"wall_secs":            budgets.WallSecs,
 		"wall_source":          budgets.WallSource,
+		"deadline":             budgets.Deadline,
 		"max_steps":            budgets.MaxSteps,
 		"cost_cap_usd":         budgets.CostCapUSD,
 		"cost_source":          budgets.CostSource,

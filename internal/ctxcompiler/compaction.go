@@ -419,31 +419,83 @@ func SelectTail(events []ActivityEvent, budgetTokens int, counter Counter) []Act
 		total += cost
 		start = i
 	}
-	kept := sorted[start:]
-	// Re-attach a split pair head: a leading tool result whose call
-	// is the immediate predecessor joins the tail.
-	for start > 0 {
-		head := sorted[start]
-		prev := sorted[start-1]
-		if head.ToolResult == nil || len(prev.ToolCalls) == 0 {
-			break
-		}
-		match := false
-		for _, tc := range prev.ToolCalls {
-			if tc.ID == head.ToolResult.CallID {
-				match = true
+	// Pair-atomic window edge: a cut must never split a call/result
+	// pair (strict wires reject the orphan half with a 400). The
+	// atomic path extends the window back to the call of a leading
+	// result so the whole batch rides along, or drops a leading
+	// result whose call is gone entirely into the discarded span
+	// (which the compaction summary still covers). The legacy path
+	// keeps the single-pair re-attachment for ablations.
+	if PairAtomicEnabled(nil) {
+		start = atomicStart(sorted, start)
+	} else {
+		// Re-attach a split pair head: a leading tool result whose
+		// call is the immediate predecessor joins the tail.
+		for start > 0 {
+			head := sorted[start]
+			prev := sorted[start-1]
+			if head.ToolResult == nil || len(prev.ToolCalls) == 0 {
 				break
 			}
+			match := false
+			for _, tc := range prev.ToolCalls {
+				if tc.ID == head.ToolResult.CallID {
+					match = true
+					break
+				}
+			}
+			if !match {
+				break
+			}
+			start--
 		}
-		if !match {
-			break
-		}
-		start--
-		kept = sorted[start:]
 	}
+	kept := sorted[start:]
 	out := make([]ActivityEvent, len(kept))
 	copy(out, kept)
 	return out
+}
+
+// atomicStart adjusts a SelectTail cut so the kept suffix never begins
+// with a tool result whose call sits outside the suffix. A leading
+// result pulls its whole batch along: the cut moves back to the call
+// event, so multi-call batches (one assistant event, several results)
+// stay complete too. A leading result whose call no longer exists
+// anywhere in the input is dropped into the discarded span, which the
+// compaction summary and the HistoryStore still cover. A leading
+// assistant event needs no adjustment: every event newer than it is
+// kept, so its results ride along when they exist.
+func atomicStart(sorted []ActivityEvent, start int) int {
+	calls := make(map[string]int)
+	for i, event := range sorted {
+		for _, call := range event.ToolCalls {
+			calls[call.ID] = i
+		}
+	}
+	// Discard leading results with no call anywhere in the history.
+	for start < len(sorted) && sorted[start].ToolResult != nil {
+		if _, ok := calls[sorted[start].ToolResult.CallID]; ok {
+			break
+		}
+		start++
+	}
+	// Notes and pinned text can sit between a call and its results. Inspect
+	// the entire suffix, then repeat if extending it exposed another batch.
+	for {
+		next := start
+		for _, event := range sorted[start:] {
+			if event.ToolResult == nil {
+				continue
+			}
+			if i, ok := calls[event.ToolResult.CallID]; ok && i < next {
+				next = i
+			}
+		}
+		if next == start {
+			return start
+		}
+		start = next
+	}
 }
 
 // HistoryStore is the queryable past: compacted-away and condensed

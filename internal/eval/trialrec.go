@@ -31,6 +31,7 @@ import (
 //	loops.jsonl          loop-detector signals
 //	masking.jsonl        masking events
 //	compaction.jsonl     compaction events
+//	pairing.jsonl        call/result pairing repairs
 //	budget.jsonl         budget consumption over time
 //	environment.json     detected environment profile (once)
 //	resources.jsonl      resource samples
@@ -274,6 +275,20 @@ type CompactEvent struct {
 // RecordCompaction appends a compaction event.
 func (r *TrialRecorder) RecordCompaction(from, to, kept int, note string) error {
 	return r.append("compaction.jsonl", CompactEvent{At: time.Now().UTC(), FromSeq: from, ToSeq: to, KeptBytes: kept, Note: note})
+}
+
+// PairRepairEvent is one call/result pairing repair: orphan halves
+// converted to plain-text summaries (pre-request check or orphan-400
+// retry), so evaluation trials show when the invariant fired.
+type PairRepairEvent struct {
+	At       time.Time `json:"at"`
+	Repaired int       `json:"repaired"`
+	Note     string    `json:"note,omitempty"`
+}
+
+// RecordPairRepair appends a pairing repair event.
+func (r *TrialRecorder) RecordPairRepair(repaired int, note string) error {
+	return r.append("pairing.jsonl", PairRepairEvent{At: time.Now().UTC(), Repaired: repaired, Note: note})
 }
 
 // BudgetPoint is budget consumption at one instant.

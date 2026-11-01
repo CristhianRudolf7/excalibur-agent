@@ -7,15 +7,33 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 )
 
 // noSignalContext returns a context canceled by SIGINT/SIGTERM so a
-// user interrupt maps to the 130 canceled code (Section 6.5).
+// user interrupt maps to exit 130; SIGTERM carries the external-timeout cause.
 func noSignalContext() context.Context {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	_ = stop
+	if !engine.DeadlineEnabled() {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		_ = stop
+		return ctx
+	}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	safego.Go("cli-signals", nil, func() {
+		sig := <-signals
+		signal.Stop(signals)
+		if sig == syscall.SIGTERM {
+			cancel(cli.ErrTermination)
+		} else {
+			cancel(context.Canceled)
+		}
+	})
 	return ctx
 }
 

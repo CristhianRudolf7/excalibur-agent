@@ -15,6 +15,7 @@ import (
 // It is recorded in profile.json (so profile.sha256 moves with it) and
 // in budgets.json next to the other trial artifacts.
 type EffectiveBudgets struct {
+	Deadline       bool    `json:"deadline"`
 	TimeBudgetOnly bool    `json:"time_budget_only"`
 	StrictBlocked  bool    `json:"strict_blocked"`
 	WallSecs       int64   `json:"wall_secs"`
@@ -34,7 +35,11 @@ type EffectiveBudgets struct {
 // (steps 2000, cost EXCALIBUR_COST_CAP_USD default 20); otherwise the
 // legacy limits apply (steps 25 default, explicit --max-steps wins, no
 // cost cap unless --budget-usd is set).
-func EffectiveBudgetsFor(opts ExecOptions, profile ProfileName) EffectiveBudgets {
+func EffectiveBudgetsFor(opts ExecOptions, profile ProfileName) (result EffectiveBudgets) {
+	defer func() {
+		result.Deadline = engine.DeadlineEnabled()
+		result.WallSecs, result.WallSource = engine.ResolveDeadline(opts.TimeoutSecs, opts.Request, result.WallSecs, result.WallSource)
+	}()
 	isEval := profile == ProfileEval
 	timeOnly := engine.TimeBudgetOnlyEnabled(isEval)
 	strict := engine.StrictBlockedEnabled()

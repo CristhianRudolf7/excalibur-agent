@@ -811,11 +811,30 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				}
 				_ = run.Recorder.RecordCompaction(from, to, kept, note)
 			},
+			// Pairing invariant (Section 19.2 strict wires):
+			// pre-request repairs and orphan-400 retries land in
+			// pairing.jsonl so trials show when the invariant fired.
+			OnPairRepair: func(repaired int, note string) {
+				if run.Recorder == nil {
+					return
+				}
+				_ = run.Recorder.RecordPairRepair(repaired, note)
+			},
 		},
 		Tools:          toolRunner,
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
 		LeaseRelease:   wireengine.LeaseReleaseHook(emb.Leases),
+		OnPairRetry: func(repaired int, firstErr string) {
+			if run.Recorder == nil {
+				return
+			}
+			_ = run.Recorder.RecordPairRepair(repaired, "retry after "+firstErr)
+		},
 	})
+	if run.Recorder != nil {
+		_ = run.Recorder.RecordPairRepair(0, fmt.Sprintf("pairing configuration: atomic=%t check=%t retry=%t",
+			ctxcompiler.PairAtomicEnabled(nil), ctxcompiler.PairCheckEnabled(nil), ctxcompiler.PairRetryEnabled(nil)))
+	}
 	// Effective run-level budgets (W8, Sections 7.3, 18.4, 23.2):
 	// in eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the
 	// binding budget is the task wall clock (explicit --timeout,
@@ -840,12 +859,18 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// Resolve relative artifact paths against the run project
 	// directory for the required-artifact completion gate.
 	erun.Workdir = opts.ProjectDir
+	if engine.DeadlineEnabled() && !run.startedAt.IsZero() {
+		erun.StartedAt = run.startedAt
+	}
+	if erun.Workdir == "" {
+		erun.Workdir, _ = os.Getwd()
+	}
 	if effBudgets.WallSecs > 0 {
 		// An operator-derived or arm-default budget (no explicit
 		// flag) still bounds the wall clock: the context enforces
 		// the edge while the tracker owns closing mode and the
 		// honest paused report.
-		if opts.TimeoutSecs == 0 {
+		if opts.TimeoutSecs == 0 && !engine.DeadlineEnabled() {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, time.Duration(effBudgets.WallSecs)*time.Second)
 			defer cancel()
@@ -859,6 +884,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		"strict_blocked":   effBudgets.StrictBlocked,
 		"wall_secs":        effBudgets.WallSecs,
 		"wall_source":      effBudgets.WallSource,
+		"deadline":         effBudgets.Deadline,
 		"max_steps":        effBudgets.MaxSteps,
 		"cost_cap_usd":     effBudgets.CostCapUSD,
 		"cost_source":      effBudgets.CostSource,
@@ -931,6 +957,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		}
 	}
 	close(stopSampler)
+	scopeRecord := erun.ScopeGuardRecord()
+	if b, err := json.MarshalIndent(scopeRecord, "", "  "); err == nil {
+		_ = os.WriteFile(filepath.Join(run.Dir, "scope_guard.json"), append(b, '\n'), 0600)
+	}
+	_ = run.EmitEvent("scope_guard", scopeRecord)
 	// Long-horizon ablation record: milestone plan, continuation trips
 	// and closing flag land next to skills.json/explore.json so the
 	// mechanism is auditable per trial (Appendix F).

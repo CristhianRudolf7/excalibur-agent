@@ -248,10 +248,23 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 	}
 	run.SetCurrentTool(tc.Name, string(tc.Arguments), keys, timeout, cancel)
 	defer run.ClearCurrentTool()
+	if DeadlineEnabled() {
+		ctx = tools.WithCommandDeadline(ctx, 0)
+	}
 	var res tools.Result
 	for attempt := 0; ; attempt++ {
 		var err error
-		res, err = e.deps.Tools.Execute(ctx, tc.Name, tc.Arguments, tools.ExecuteOptions{IdempotencyKey: key})
+		if bound, refusal := run.deadlineCommand(e.deps.Clock(), tc.Name, tc.Arguments); refusal != "" {
+			res = tools.Result{Status: tools.StatusInputError, Output: refusal}
+		} else {
+			if bound > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, bound)
+				ctx = tools.WithCommandDeadline(ctx, bound)
+				defer cancel()
+			}
+			res, err = e.deps.Tools.Execute(ctx, tc.Name, tc.Arguments, tools.ExecuteOptions{IdempotencyKey: key})
+		}
 		if err != nil {
 			res = tools.Result{Status: tools.StatusToolError, Output: err.Error()}
 		}

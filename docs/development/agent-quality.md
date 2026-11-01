@@ -3665,3 +3665,406 @@ Integrated verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
 `staticcheck ./...`, complete `go test -race -p 1 ./...`, and Darwin/Windows
 `go build -p 2 ./...`. Heavy checks used `nice -n 19` and `GOMAXPROCS=2`.
 Logs are `/tmp/integrate-w17/{fmt,vet,static,race,darwin,windows}.log`.
+## W14: Task deadline awareness
+
+Switch: `EXCALIBUR_DEADLINE` defaults on; `off`, `0`, `false`, or `no`
+restores the prior deadline behavior. The effective switch, duration and source
+are recorded in `budgets.json` and `profile.json`, and the budgets event.
+Source priority is explicit `--timeout`, `HARBOR_AGENT_TIMEOUT_SEC`,
+`EXCALIBUR_TIMEOUT_SEC`, the instruction's “You have N
+seconds/minutes/hours”, then the existing configured budget. The full external
+timeout includes the closing reserve and starts at entry to `RunExec`, including setup. See decision 0060 for parsing and
+interruption details.
+
+At the next model boundary after 50%, 75%, and 90%, one pacing message reports
+remaining time and the required action. At 75% the agent must stop exploring
+and converge; at 90% it must preserve its best deliverable and call `finish`.
+Closing mode refuses new background commands, interactive command input and
+explicit waits longer than five seconds (or the remaining duration). Other new
+exec commands have an actual process timeout with the same bound. Existing
+sessions are not killed merely by entering closing mode. SIGTERM uses the
+existing finalization path and records `stopped_by_timeout` rather than leaving
+an unfinished record. Ordinary deadline expiry records `paused` with reason
+`timeout`, including when expiry occurs during a model call.
+
+Backend coverage: `TestDeadlineSources` checks source precedence, units,
+multiple limits, invalid/overflowing values and ablation;
+`TestDeadlinePacingAndClosing` checks thresholds, single delivery, remaining
+time, refusals and short checks; `TestInstructionDeadlineBudget` checks default
+and eval profiles; `TestTerminationFinalRecord` checks the existing final
+record path; `TestDeadlineExpiryFinalRecord` checks context expiry and
+`TestSIGTERMContext` checks the actual signal handler;
+`TestDeadlineStopsSessionAndPreservesShellQuoting` checks actual
+process termination and shell quoting.
+`TestDeadlineCancellationReleasesInitialWait` verifies that a 30-second initial
+yield returns promptly on cancellation, allowing final records to be written. Existing budget-record tests now expect
+the full external duration with deadline awareness enabled.
+
+Research reviewed for this bounded change:
+
+- [LangChain, Improving Deep Agents with harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering): explicitly describes time-budget warnings to shift agents toward verification. Its reported 52.8 to 66.5 change combines several interventions and does not establish a deadline-only effect.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052): treats stored and presented context as harness responsibilities. The task's deadline is deterministic environment context; no optimization machinery from the paper is added here.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850): motivates observable, attributable changes. The switch and recorded source support ordinary evaluation and auditing.
+- [Terminus 2 source](https://github.com/laude-institute/harbor/blob/main/src/harbor/agents/terminus_2/terminus_2.py): reference terminal harness with explicit command durations and trajectory records.
+- [mini-swe-agent control loop](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py): explicit wall-time limits and serialized state are useful comparisons for enforcing time outside the model.
+- [SWE-agent default prompt](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml): executable reproduction and verification provide the purpose of the closing reserve.
+- [OpenHands](https://github.com/OpenHands/OpenHands) and [Aider prompts](https://github.com/Aider-AI/aider/blob/main/aider/prompts.py): reviewed as examples of explicit execution context and command-output feedback; no behavior is imported from them.
+
+- [Codex CLI](https://github.com/openai/codex) and [OpenCode](https://github.com/anomalyco/opencode): reviewed as terminal-agent references; no prompts or stopping rules are imported.
+
+The read-only failure review was used only for timeout and missing-final-record
+behavior. No benchmark task contents, test files or solutions were inspected.
+
+Live smoke evidence (2026-11-01): two independent temporary-directory tasks
+created a sum file and an alphabetically sorted word list; both deliverables
+were checked from the host and were correct. Records at
+`/tmp/w14-live-g2y6lui9` show `deadline: true`, `wall_source: instruction`,
+120-second budgets, model `gpt-6-luna` and effort `low`. These initial checks
+exposed the pre-existing finish loop and expiry-label edge case; they ended
+with running/failed labels rather than successful completion. Deadline expiry
+normalization was then added and covered by `TestDeadlineExpiryFinalRecord`.
+A third real exec check at `/tmp/w14-deadline-final-d2kki5q3` created and verified
+a marker file, then received SIGTERM. Its existing final record reports
+`stopped_by_timeout`, reason `timeout`, and exit 143, with the instruction-derived
+60-second deadline enabled. This validates signal finalization, not task
+completion. No Terminal-Bench run was launched.
+
+After adding cancelable initial yields, the signal check was repeated with a
+single terminal command that writes a marker and then sleeps for 30 seconds,
+requesting a 30-second yield. SIGTERM arrived after the marker appeared. The
+process finalized in 0.215 seconds with exit 143 and `stopped_by_timeout`;
+the marker remained correct. Records: `/tmp/w14-deadline-final-dlz0_h0b`.
+
+Verification on the final code: formatting, `go vet`, default `staticcheck`,
+Darwin and Windows builds, and the no-bare-goroutine check passed. The full
+repository race suite passed on the continuation check with
+`nice -n 19 env GOMAXPROCS=2 go test -race -p 2 ./...` (exit 0; log:
+`/tmp/w14-deadline-iteration2-race.log`). This includes the unchanged daemon
+suite, which had exceeded its startup contexts during earlier contended runs.
+No daemon tests or timeouts were modified. Refreshed formatting, static-analysis
+and cross-build logs are at `/tmp/w14-iteration2-*.log`.
+## Scope guard and input protection
+
+`EXCALIBUR_SCOPE_GUARD=on|off` defaults to on. The engine snapshots the
+working tree before its first model/tool round and checks protected paths at
+both explicit and text finish. File fingerprints include contents and mode;
+Git diff baselines and finish hashes supplement the filesystem snapshot.
+Existing operator edits form the baseline. A snapshot failure stops the run
+before tools execute.
+
+The deterministic grammar recognizes prohibitions (`do not modify/delete/change`,
+`never edit`, `leave ... untouched`), named directories, globs and `all files`;
+`only modify/edit/change/write/create` limits changed paths. Required locations
+follow write/create/save/output/produce/store/place verbs. Explicit `exactly`,
+`at least`, `at most`, `more than`, `less than` and `no more than` counts apply
+to bytes, lines or JSON-array rows/records/entries when the clause names one
+file. Other numeric and universal constraints remain literal in verification
+context; arbitrary semantic thresholds are not inferred from prose.
+
+Named database, WAL/journal, archive and binary inputs are copied eagerly into
+unique private directories under `/tmp/excalibur-originals/`, retaining companion
+file layout. The first model request includes backup locations and copy-first
+probe guidance. Copies survive the run. This intentionally precedes even an
+apparently read-only database open. Failed checks retain their assertion and
+expected-value lines; edits to these lines and changed literals in repeated
+inline checks refuse finish with the file or original/replacement line.
+
+Backend fixtures cover protected-file modification/deletion/restoration,
+WAL loss with intact copies, failed-check expectation changes, valid source
+repairs, inline check changes, allowed edit locations, missing outputs, line
+counts, all-file protection and directory additions. These checks supplement
+the existing executable verification gate (Sections 7.5, 13.7 and 18.1).
+
+Research consulted: [LangChain](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering)
+reports gains from verification, tracing and context engineering;
+[Meta-Harness](https://arxiv.org/abs/2603.28052) discusses proactive environment
+context and gains for smaller models;
+[Agentic Harness Engineering](https://arxiv.org/abs/2604.25850) motivates explicit,
+auditable changes and layered evidence. These support external state and clear
+feedback, without adding an autonomous harness modification loop.
+[Terminus 2](https://github.com/harbor-framework/harbor/tree/main/src/harbor/agents/terminus_2)
+provides explicit completion handling;
+[mini-swe-agent](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/config/default.yaml)
+uses reproduction and verification before submission;
+[SWE-agent](https://github.com/SWE-agent/SWE-agent/blob/main/config/default.yaml)
+asks agents to restore modified tests at submission;
+[Aider](https://github.com/Aider-AI/aider/blob/main/aider/prompts.py)
+keeps command output as concrete evidence. No evaluation task content or hidden
+tests were used to author these mechanisms or fixtures.
+
+Guard baselines, copies and failed-check signatures are persisted atomically in
+private state files under `/tmp/excalibur-originals/`. Reusing a run ID restores
+its initial baseline; a changed instruction cannot silently replace it.
+`scope_guard.json` and the `scope_guard` event record activation, snapshot path,
+protected hashes, copies, constraints, Git diff hashes and the final violation.
+The explicit finish protocol keeps refusing violations within the run budget;
+the legacy text finish path uses the existing bounded gate and reports pending
+criteria instead of accepting completion.
+
+Additional references inspected:
+[OpenHands agent loop](https://github.com/OpenHands/software-agent-sdk/blob/main/openhands-sdk/openhands/sdk/agent/agent.py)
+keeps completion as an explicit tool action;
+[Codex base instructions](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/prompts/base_instructions/default.md)
+apply repository instructions by directory scope;
+[OpenCode session contract](https://github.com/anomalyco/opencode/blob/dev/specs/v2/session.md)
+separates durable admission and execution. These reinforce keeping the initial
+constraint state outside model context. The Git check also compares per-path
+raw diffs, catching index-only changes that leave working-tree bytes intact.
+Deletion-only prohibitions allow content edits, and extensionless filenames
+are recognized following explicit scope verbs.
+
+Live validation on 2026-11-01 used three original temporary fixtures and the
+operator credentials file with `gpt-6-luna` (default low effort), without any
+Terminal-Bench invocation:
+
+| Fixture | Outcome | Evidence |
+| --- | --- | --- |
+| Sum integers from a binary-named input; preserve a separate file | Correct sum and protected file; run paused at its 16-step cap after existing verification refusals | `/home/cristhian/.local/share/excalibur/run-run_01M6BFAS5BX5DZ2NNS16WAGZXG/` |
+| Repair a two-argument addition function; preserve its checks | Correct function and passing unchanged checks; run paused at its 16-step cap | `/home/cristhian/.local/share/excalibur/run-run_01M6BFBF25YSBSC9P32KPNSN53/` |
+| Copy preserved binary input into an output and compare | Completed; protected input unchanged; `cmp` passed | `/tmp/w14-live/home3/state/run-run_01M6BFRVEG4TT6KDEKFHMFT8QQ/` |
+
+The third run's `scope_guard.json` records `enabled: true`, one initial file,
+its protected fingerprint, a copy under `/tmp/excalibur-originals/`, a durable
+snapshot path and an empty final violation. Its recorded cost was $0.073203.
+The earlier two checks used the first implementation before the dedicated
+scope record was added; their preserved input and tool evidence remain on disk.
+These checks establish mechanism activation and behavior, not a benchmark score.
+
+The failed-check detector samples test/check files and directly named scripts;
+it does not freeze ordinary implementation variables named `expected` after a
+project test failure. External named inputs are compared at their own locations
+when enforcing an `only` rule. Backend regressions cover both cases.
+
+Input detection includes extensionless existing filenames. Executable bits,
+binary headers and embedded NUL bytes identify binary inputs even without a
+recognized extension; special files are excluded from probing and copying.
+Empty protected-directory deletion is checked separately from file hashes.
+
+CLI runs without `--project` use their current directory as the snapshot root;
+Git diff paths are relative to that root, including runs started in a repository
+subdirectory. A simulated CLI test verifies default activation and the report.
+
+Final-build live verification repeated the sum and copy fixture kinds with the
+same reference model and default low effort. Both completed with their expected
+artifacts and unchanged protected files. The records are
+`/tmp/w14-current-live/sum-home/state/run-run_01M6BGQC9A9M7ZQVS59BDQ0MFW/`
+and `/tmp/w14-current-live/copy-home/state/run-run_01M6BGS7Z33KZ39GFBAZ3C1ZX1/`.
+Each `scope_guard.json` confirms activation, preserved inputs, the initial
+snapshot, and no final violation. Recorded costs were $0.134097 and $0.113088.
+
+When the current directory is the filesystem root, there is no project working
+tree to enumerate. The guard snapshots explicitly named files and directories
+instead of traversing system and virtual filesystems. Tree-wide `only`/`all
+files` restrictions at that root require an explicit project directory. Tests
+cover this boundary and the existing container certificate handshake test passes.
+
+Explicitly protected directories include their metadata files, even when the
+ordinary working-tree snapshot excludes `.git`; a regression test confirms an
+untouched metadata directory passes and a later edit is refused.
+
+Final verification passed: `gofmt -l .` (empty), `go vet ./...`,
+`staticcheck ./...`, `go test ./... -race`, Darwin and Windows builds, and the
+bare-goroutine check. Commands ran at low priority with `GOMAXPROCS=1` and
+`GOFLAGS=-p=1` on the shared machine. Logs are under
+`/tmp/w14-scopeguard-finalcheck-*.log`. Earlier concurrent attempts exposed an
+existing storage busy-counter timing race and daemon migration deadlines; the
+complete final serial run passed without changes to those packages.
+
+## W14 integration with the later quality waves
+
+Both W14 workstreams were merged into the existing W17 tree. Deadline-aware
+terminal starts retain detached background service support and the self-signal
+guard. Scope findings join actionable finish refusal reasons, preserving the
+other gate checks and per-item audit records. A missing project flag resolves
+the scope snapshot against the current directory; the deadline still starts at
+CLI entry rather than after setup.
+
+The later final-record contract remains authoritative: standalone timeout and
+signal records use `stopped_by_timeout` and exit 4; delegated tasks retain shared
+paused/canceled states. Decision 0060-task-deadline records this integration
+resolution. Shared types, API, provider/tool interfaces and connectors are
+unchanged. Scope constraints use the bounded grammar and heuristic failed-check
+tracking documented in 0060-scope-guard; they do not establish arbitrary semantic
+requirements. The existing verifier and executable criteria remain necessary.
+
+Integrated validation passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
+`staticcheck ./...`, complete `go test -race -p 2 ./...`, Darwin and Windows
+`go build -p 2 ./...`, and the no-bare-goroutine check. Commands used
+`nice -n 19` and `GOMAXPROCS=2`; logs are `/tmp/integrate-w14/*.log`.
+
+Two real terminal checks used `gpt-6-luna`, low effort, in temporary Git
+repositories: an integer sum CLI and sorting a three-line input file. Host-side
+assertions passed and the protected input remained unchanged in both cases.
+Both `budgets.json` records show `deadline: true`, `wall_source: instruction`
+and 120 seconds; both `scope_guard.json` records show `enabled: true` with no
+violation. Records are `/tmp/integrate-w14/live/{sum,sort}-logs/`. Both reached
+their deadline and finalized as `stopped_by_timeout`, exit code 4 in records;
+they are mechanism checks with correct artifacts, not successful completion
+runs. The existing `exec --json` command returns process exit zero after printing
+the outcome, even for a nonzero outcome code; this discrepancy is reported for
+closure. No benchmark runs were launched.
+
+## W15: call/result pairing invariant (Section 19.2 strict wires)
+
+Owner: call-pairing workstream. Packages: `internal/ctxcompiler`
+(`pairing.go`, `compaction.go`), `internal/engine` (`builder.go`,
+`pairing.go`, `context_control.go`), `internal/eval` (`trialrec.go`),
+`internal/cli` (`exec_engine.go` wiring). Connectors
+(`internal/providers/**`, `internal/models`, `internal/gateway`),
+contracts, MCP/ACP and Harbor invocation unchanged.
+
+Strict wires reject split pairs: Responses answers HTTP 400 `No
+function call found for function call output with call_id ...` when
+a result has no call in the same request, and Chat Completions
+rejects the mirror (assistant `tool_calls` with no following tool
+message). Long runs cross masking and compaction thresholds, and a
+budget cut inside a multi-call batch (one assistant event, several
+results) or any upstream split fails the run. The invariant holds
+at three levels: compaction tails keep pairs atomically, every built
+request is validated and repaired to plain-text summaries before the
+wire, and a wire rejection repairs the run history the same way
+with exactly one retried model call.
+
+### Mechanisms (all default ON)
+
+1. Pair-atomic compaction tails: `SelectTail` extends a cut starting
+   at a tool result back to its call so the whole batch (call plus
+   every result) rides along; a result whose call is gone entirely
+   falls into the discarded span the summary still covers. Masking
+   replaces outputs in place and keeps every call identity, so it is
+   atomic by construction.
+2. Pre-request invariant check in `DefaultBuilder.BuildRequest`:
+   `ValidateMessages` over the projected request; orphans become
+   bounded plain-text summaries (`RepairMessages`), order and Seq
+   preserved. The run history itself is untouched here.
+3. Orphan-400 repair and single retry in the engine step loop:
+   `IsOrphanPairError` matches both wire directions only; on match
+   the history is repaired (`RepairActivity`), the request rebuilt
+   and the call retried once. A second rejection fails the run.
+   Counters `Run.PairRepairs`/`PairRetries` track both paths; both
+   hooks land in the new `pairing.jsonl` trial record via
+   `TrialRecorder.RecordPairRepair`.
+
+### Switches (call pairing)
+
+| Switch | Type | Default | Off restores |
+|---|---|---|---|
+| `EXCALIBUR_CONTEXT_PAIR_ATOMIC` | env | on | legacy single-pair tail re-attachment |
+| `EXCALIBUR_CONTEXT_PAIR_CHECK` | env / `DefaultBuilder.PairCheck` | on | no pre-request validation |
+| `EXCALIBUR_CONTEXT_PAIR_RETRY` | env / `engine.Deps.PairRetry` | on | fail fast on orphan 400 |
+
+Measure each switch off against on with the same model, effort and
+task set (Appendix F); keep a mechanism only if it does not regress
+the sample. Research: LangChain "Improving Deep Agents with harness
+engineering" (self-verification, tracing, loop detection, context
+engineering), Meta-Harness (arXiv 2603.28052: proactive snapshot
+removes wasted actions, larger gains on weaker models), Agentic
+Harness Engineering (arXiv 2604.25850), Terminus 2, OpenHands /
+SWE-agent / mini-swe-agent / Codex CLI / OpenCode / Aider (prompts,
+tool design, stopping criteria). No benchmark task contents, tests
+or solutions were used.
+
+### Contract and backend tests (call pairing)
+
+- `internal/ctxcompiler/pairing_test.go`: balanced validation,
+  orphan-result and orphan-call repair (both wires projected),
+  activity repair with Seq order, 400 matcher for both directions
+  plus non-matches, default-ON switches, multi-call batch atomic
+  tail, and a long synthetic run (100 pairs plus multi-call batches
+  every tenth turn) crossing masking and compaction thresholds with
+  pair-complete masking, compacted tail and request.
+- `internal/engine/pairing_test.go`: builder repairs an orphan
+  request and records it without rewriting history; check-off
+  switch; step retries an orphan 400 exactly once and completes;
+  second rejection fails with no loop; transient errors never retry;
+  disabled retry fails fast; nothing-to-repair fails without an
+  extra call.
+- Existing suites green; see decision
+  [0060](../decisions/0060-call-pairing-invariant.md) for the
+  architecture gap and the alternatives considered.
+
+
+### W15 continuation: wire regressions and recovery edge cases
+
+The compaction boundary scans all retained results, including results
+separated from their calls by pinned notes. The long synthetic regression
+also sends the compiled request through both actual OpenAI adapters to an
+`httptest` server that checks the serialized call IDs in both directions.
+It makes no external requests.
+
+A pairing HTTP 400 triggers one recovery attempt. When run-history repair
+finds no orphan (for example, snapshot-owned activity or an ordering
+rejection), the retry converts tool exchanges in the rebuilt request to
+bounded text summaries. This fallback preserves the switch and single-retry
+limit. Pairing configuration is recorded in `pairing.jsonl` even when no
+repair is needed. Unrelated HTTP 400 schema errors and HTTP 500 errors do
+not trigger pairing recovery.
+
+Research sources reviewed for context, without changing the director's
+design:
+
+- [LangChain harness engineering](https://www.langchain.com/blog/improving-deep-agents-with-harness-engineering):
+  trace observability, verification and context control are harness concerns.
+- [Meta-Harness](https://arxiv.org/abs/2603.28052):
+  context storage and presentation materially affect agent behavior.
+- [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850):
+  component observability and explicit hypotheses support attributable changes.
+- [Terminus 2](https://harborframework.com/docs/agents/terminus-2):
+  reference terminal harness and structured agent/environment interaction.
+- [SWE-agent history processors](https://github.com/SWE-agent/SWE-agent/blob/main/sweagent/agent/history_processors.py):
+  observation elision keeps history entries while replacing their content.
+- [mini-swe-agent loop](https://github.com/SWE-agent/mini-swe-agent/blob/main/src/minisweagent/agents/default.py)
+  and [Aider history](https://github.com/Aider-AI/aider/blob/main/aider/history.py):
+  explicit history management and stopping behavior.
+- Repository overviews for [OpenHands](https://github.com/OpenHands/OpenHands),
+  [OpenCode](https://github.com/anomalyco/opencode) and
+  [Codex CLI](https://github.com/openai/codex) were consulted for harness scope.
+  No prompts, examples or benchmark task material were imported.
+
+Live continuation checks used three original terminal tasks in temporary
+directories: write integers and assert their sum; implement a stdin line
+deduplicator and assert stable output order; write sorted lines and assert
+the exact file bytes. All three completed and their artifacts passed
+independent checks. The third used the eval profile directly through
+`excalibur exec` (no benchmark invocation): records at
+`/tmp/w15-live-three/records/excalibur` show `gpt-6-luna`, effort `low`,
+state `completed`, and `pairing configuration: atomic=true check=true
+retry=true`. No repair was needed on these short histories; masking,
+compaction and 400 recovery are exercised by synthetic backend tests.
+Interruption during the recovery request preserves full-stop and
+tool-only interrupt behavior.
+
+Continuation verification passed: empty `gofmt -l .`, `go vet ./...`,
+`staticcheck ./...`, repository-wide `go test -race -p 2 ./...`,
+Darwin and Windows `go build ./...`, and the no-bare-go check.
+After the final interruption test addition, package-scoped race tests,
+vet and staticcheck passed again for the affected packages.
+
+### W15 integration with current run controls
+
+The call-pairing workstream is integrated with the existing deadline, quota,
+interrupt and verifier telemetry controls. Both documentation histories are
+preserved. `TestDeadlineDuringPairRetry` verifies a budget pause if the deadline
+expires during recovery and checks that both calls retain `engine.step` audit
+metadata. `TestQuotaDuringPairRetry` verifies capability waiting when recovery
+exhausts provider quota. The three pairing switches above remain default ON.
+No shared contract, connector, MCP/ACP server or Harbor invocation changed.
+
+Integrated verification passed: empty `gofmt -l .`, `go vet -p 2 ./...`,
+`staticcheck ./...`, `go test -race -p 2 ./...`, Darwin and Windows
+`go build -p 2 ./...`, and the no-bare-go check. Commands ran at
+`nice -n 19` with `GOMAXPROCS=2`; logs are `/tmp/integrate-w15/*-final.log`.
+
+Two original terminal tasks used `excalibur exec`, `gpt-6-luna`, low effort,
+and temporary repositories. Independent checks passed for exact numeric-file
+bytes and sorted input lines; protected inputs remained unchanged. Both
+`pairing.jsonl` records show `atomic=true check=true retry=true`. Neither short
+history needed repair; synthetic tests exercise masking, compaction and strict
+wire recovery. Records are `/tmp/integrate-w15/live/{sum,sort}-logs/excalibur/`.
+Both runs exhausted their 60-second deadlines and recorded
+`stopped_by_timeout`, exit code 4, so these are activation and artifact checks,
+not successful completion runs. The numeric-file run also recorded an existing
+scope-guard rejection when an inline assertion command was reformatted. The
+existing `exec --json` process returned zero despite the recorded timeout code.
+Those broader closure behaviors remain for their owning workstreams. No
+Terminal-Bench run was launched.

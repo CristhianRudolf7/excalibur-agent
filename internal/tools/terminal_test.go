@@ -240,3 +240,48 @@ func TestExecIOListReadSignalClose(t *testing.T) {
 		t.Fatalf("close: %+v", cres)
 	}
 }
+
+func TestDeadlineStopsSessionAndPreservesShellQuoting(t *testing.T) {
+	t.Setenv("SHELL", "/bin/bash")
+	t.Setenv("EXCALIBUR_AUTOPROVISION", "off")
+	m := NewSessionManager(TerminalDeps{})
+	tool := &ExecTool{Sessions: m}
+	ctx := WithCommandDeadline(context.Background(), 300*time.Millisecond)
+	raw, _ := json.Marshal(map[string]any{"command": "[[ 1 == 1 ]] && printf '%s' \"quoted ' value\"; sleep 30", "yield_ms": 250})
+	res, err := tool.Invoke(ctx, Invocation{Arguments: raw})
+	if err != nil || !strings.Contains(res.Output, "quoted ' value") {
+		t.Fatal(res, err)
+	}
+	sessions := m.List("default")
+	if len(sessions) != 1 {
+		t.Fatal(sessions)
+	}
+	s := sessions[0]
+	defer m.Close(s.ID)
+	wait, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, _, exited, err := m.WaitFor(wait, s.ID, "", 3*time.Second, 0)
+	if err != nil || !exited {
+		t.Fatalf("long command survived closing bound: %v %v", exited, err)
+	}
+}
+
+func TestDeadlineCancellationReleasesInitialWait(t *testing.T) {
+	t.Setenv("EXCALIBUR_AUTOPROVISION", "off")
+	m := NewSessionManager(TerminalDeps{})
+	tool := &ExecTool{Sessions: m}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	res, err := tool.Invoke(WithCommandDeadline(ctx, 0), Invocation{Arguments: []byte(`{"command":"sleep 30","yield_ms":30000}`)})
+	elapsed := time.Since(start)
+	for _, s := range m.List("default") {
+		_ = m.Close(s.ID)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("cancellation waited for the full yield: %s", res.Output)
+	}
+}

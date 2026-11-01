@@ -101,6 +101,8 @@ func TestArtifactGatePassesWhenFileExists(t *testing.T) {
 }
 
 func TestArtifactGateOffPassesMissing(t *testing.T) {
+	// Disable the independent filesystem scope guard for this legacy ablation.
+	t.Setenv("EXCALIBUR_SCOPE_GUARD", "off")
 	ctx := context.Background()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "never.py")
