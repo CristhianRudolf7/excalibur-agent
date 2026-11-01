@@ -101,7 +101,9 @@ func TestEffectiveTools(t *testing.T) {
 	if len(core) == 0 || len(deferred) == 0 {
 		t.Fatal("eval needs core and deferred tools")
 	}
-	for _, want := range []string{"task_db", "exec", "subagent", "search_tools"} {
+	// Item-41 trim: the eval core keeps the tools that act in a single
+	// run; task_db and subagent are no longer exposed there.
+	for _, want := range []string{"exec", "search_tools", "call_tool"} {
 		found := false
 		for _, tool := range core {
 			if tool == want {

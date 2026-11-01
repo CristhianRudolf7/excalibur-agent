@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,10 @@ func TestCostCapParsing(t *testing.T) {
 	}
 }
 
+// The wall budget order is: the explicit --timeout, then
+// EXCALIBUR_EVAL_WALL_SECS, then 900 seconds. The Harbor
+// operator variables no longer set the budget: the Harbor adapter passes
+// its timeout as --timeout.
 func TestEvalWallSources(t *testing.T) {
 	t.Setenv(TimeBudgetSwitch, "1")
 	t.Setenv(TimeBudgetOnlySwitch, "1")
@@ -63,17 +68,31 @@ func TestEvalWallSources(t *testing.T) {
 	t.Setenv("EXCALIBUR_EVAL_WALL_SECS", "")
 	t.Setenv("EXCALIBUR_ARM_TIMEOUT_SEC", "")
 	t.Setenv("EXCALIBUR_ARM_WALL_SECS", "")
+	if DefaultEvalWallSecs != 900 {
+		t.Fatalf("default wall = %d, want 900", DefaultEvalWallSecs)
+	}
+	if secs, src := EvalWallSecs(0); secs != 900 || src != "default" {
+		t.Fatalf("default = %d/%s, want 900/default", secs, src)
+	}
 	if secs, src := EvalWallSecs(120); secs != 120 || src != "explicit" {
 		t.Fatalf("explicit = %d/%s, want 120/explicit", secs, src)
 	}
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "1000")
-	if secs, src := EvalWallSecs(0); secs != 900 || src != "harbor" {
-		t.Fatalf("harbor = %d/%s, want 900/harbor", secs, src)
+	if secs, src := EvalWallSecs(0); secs != 900 || src != "default" {
+		t.Fatalf("harbor operator variable must not set the budget: %d/%s", secs, src)
 	}
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	t.Setenv("EXCALIBUR_EVAL_WALL_SECS", "1800")
-	if secs, src := EvalWallSecs(0); secs != 1800 || src != "arm_default" {
-		t.Fatalf("arm fallback = %d/%s, want 1800/arm_default", secs, src)
+	if secs, src := EvalWallSecs(0); secs != 1800 || src != "env" {
+		t.Fatalf("env = %d/%s, want 1800/env", secs, src)
+	}
+	if secs, src := EvalWallSecs(120); secs != 120 || src != "explicit" {
+		t.Fatalf("explicit must win over the env: %d/%s", secs, src)
+	}
+	t.Setenv("EXCALIBUR_EVAL_WALL_SECS", "junk")
+	t.Setenv("EXCALIBUR_ARM_WALL_SECS", "600")
+	if secs, src := EvalWallSecs(0); secs != 900 || src != "default" {
+		t.Fatalf("legacy alias must not override default = %d/%s, want 900/default", secs, src)
 	}
 }
 
@@ -171,5 +190,28 @@ func TestTimeOnlyClosingNoteInjectedOnce(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("closing note missing in time-only closing: %v", run.VolatileNotes())
+	}
+}
+
+// Pin the historical explanation: 23 consumed steps leave 2/25 (<10%),
+// so the next request had no eligible tools even with an hour left.
+func TestHistorical23CallClosing(t *testing.T) {
+	for _, timeOnly := range []bool{false, true} {
+		t.Run(fmt.Sprint(timeOnly), func(t *testing.T) {
+			model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("done")}}
+			e, js := testEngine(model, scriptedRunner(), passingGate())
+			e.deps.SelfVerify = selfVerifyOffCfg()
+			e.deps.Artifacts = artifactOffCfg()
+			run := testRun(Profile{Limit: tasks.Limit{MaxSteps: 25, MaxSeconds: 3600}, TimeBudgetOnly: timeOnly})
+			run.Tracker.Observe(tasks.Usage{Steps: 23})
+			startRun(t, e, run, js)
+			if err := e.Run(context.Background(), run); err != nil {
+				t.Fatal(err)
+			}
+			builder := e.deps.Context.(*fakeBuilder)
+			if len(builder.closing) != 1 || builder.closing[0] == timeOnly {
+				t.Fatalf("closing=%v timeOnly=%v", builder.closing, timeOnly)
+			}
+		})
 	}
 }

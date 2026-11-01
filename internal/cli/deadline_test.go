@@ -10,16 +10,21 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 )
 
-func TestInstructionDeadlineBudget(t *testing.T) {
+// A duration stated in the instruction is not the enforced limit, so it
+// never sets the wall budget: the default budget applies.
+func TestInstructionDeadlineIgnored(t *testing.T) {
 	t.Setenv(engine.DeadlineSwitch, "on")
-	for _, key := range engine.HarborTimeoutEnvs {
-		t.Setenv(key, "")
-	}
+	t.Setenv(engine.EvalWallEnvNames[0], "")
 	for _, profile := range []ProfileName{ProfileDefault, ProfileEval} {
 		b := EffectiveBudgetsFor(ExecOptions{Request: "You have 15 minutes to complete this task"}, profile)
-		if b.WallSecs != 900 || b.WallSource != "instruction" {
+		if b.WallSecs != engine.DefaultEvalWallSecs || b.WallSource != "default" {
 			t.Fatal(b)
 		}
+	}
+	// The explicit timeout still wins over the default.
+	b := EffectiveBudgetsFor(ExecOptions{Request: "You have 15 minutes", TimeoutSecs: 120}, ProfileEval)
+	if b.WallSecs != 120 || b.WallSource != "explicit" {
+		t.Fatal(b)
 	}
 }
 
@@ -58,7 +63,7 @@ func TestDeadlineExpiryFinalRecord(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	out, err := RunExec(context.Background(), ExecOptions{
-		Request: "You have 1 second to complete this task", ProjectDir: t.TempDir(), LogsDir: t.TempDir(), Profile: ProfileEval,
+		Request: "Wait for the process deadline", TimeoutSecs: 1, ProjectDir: t.TempDir(), LogsDir: t.TempDir(), Profile: ProfileEval,
 		Work: func(ctx context.Context, _ *ExecRun) error { <-ctx.Done(); return ctx.Err() },
 	})
 	if err != nil {

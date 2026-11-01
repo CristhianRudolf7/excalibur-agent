@@ -124,6 +124,10 @@ type ExecTool struct {
 	// means the default provisioner honoring EXCALIBUR_AUTOPROVISION
 	// (default auto). Tests inject fakes here.
 	Provisioner *Provisioner
+	// Workdir is the run's project directory: commands without a
+	// workdir (or with a relative one) run there, like the file tools
+	// resolve relative paths (EXCALIBUR_RUN_WORKDIR).
+	Workdir string
 	// Outputs stores the full text of elided output so the ref printed
 	// in the elision marker resolves through get_tool_output. It must be
 	// the store get_tool_output reads. Nil prints the session id instead.
@@ -178,6 +182,13 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	// command is the text the model wrote; a.Command may be rewritten
 	// below by the command-deadline wrapper.
 	command := a.Command
+	if t.Workdir != "" && RunWorkdirEnabled() {
+		if a.Workdir == "" {
+			a.Workdir = t.Workdir
+		} else if !filepath.IsAbs(a.Workdir) {
+			a.Workdir = filepath.Join(t.Workdir, a.Workdir)
+		}
+	}
 	env := a.Env
 	if t.SecretResolver != nil {
 		resolved, err := resolveEnvSecrets(ctx, t.SecretResolver, env)

@@ -3,16 +3,21 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
+// DeadlineSwitch gates the real-deadline plumbing: pacing against the
+// wall budget, closing-mode bounds on new commands and the process
+// context deadline. Default ON.
 const DeadlineSwitch = "EXCALIBUR_DEADLINE"
 
+// TimeFooterSwitch gates the one-line time footer that ends every tool
+// result of a time-only run. Default ON.
+const TimeFooterSwitch = "EXCALIBUR_TIME_FOOTER"
+
+// DeadlineEnabled reports whether the real-deadline plumbing applies.
 func DeadlineEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(DeadlineSwitch))) {
 	case "0", "off", "false", "no":
@@ -22,45 +27,44 @@ func DeadlineEnabled() bool {
 	}
 }
 
-var instructionDeadline = regexp.MustCompile(`(?i)\byou\s+have\s+([0-9]+(?:\.[0-9]+)?)\s+(seconds?|minutes?|hours?)\b`)
+// TimeFooterEnabled reports whether tool results carry the time footer.
+func TimeFooterEnabled() bool { return envDefaultOn(TimeFooterSwitch) }
 
-// ResolveDeadline preserves the external timeout, reserving closing time inside it.
-func ResolveDeadline(explicit int64, instruction string, fallback int64, source string) (int64, string) {
-	if !DeadlineEnabled() {
-		return fallback, source
-	}
-	if explicit > 0 {
-		return explicit, "explicit"
-	}
-	for _, key := range HarborTimeoutEnvs {
-		f, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv(key)), 64)
-		if err == nil && f >= 1 && f < float64(math.MaxInt64/int64(time.Second)) {
-			return int64(f), key
-		}
-	}
-	matches := instructionDeadline.FindAllStringSubmatch(instruction, -1)
-	var shortest int64
-	for _, m := range matches {
-		f, _ := strconv.ParseFloat(m[1], 64)
-		switch strings.ToLower(m[2])[0] {
-		case 'm':
-			f *= 60
-		case 'h':
-			f *= 3600
-		}
-		if f >= 1 && f < float64(math.MaxInt64/int64(time.Second)) && (shortest == 0 || int64(f) < shortest) {
-			shortest = int64(f)
-		}
-	}
-	if shortest > 0 {
-		return shortest, "instruction"
-	}
-	return fallback, source
+// pacingStep is one pacing threshold of the wall budget and the advice
+// given once when it is reached.
+type pacingStep struct {
+	percent int
+	advice  string
 }
 
-// DeadlinePacing emits each threshold once, even if a slow action crossed several.
+// pacingSteps are the thresholds at 50, 75 and 90 percent of the wall
+// budget, in ascending order. Each is announced once per run.
+var pacingSteps = []pacingStep{
+	{50, "check that the deliverables exist."},
+	{75, "stop exploring; verify and finish."},
+	{90, "finish now with what works; do not start new work."},
+}
+
+// crossPacingLocked marks every pacing threshold that elapsed has reached
+// and returns the newly reached indexes into pacingSteps, ascending.
+// Callers hold r.mu.
+func (r *Run) crossPacingLocked(elapsed, total time.Duration) []int {
+	var out []int
+	for i, step := range pacingSteps {
+		bit := uint8(1) << i
+		if elapsed >= total*time.Duration(step.percent)/100 && r.deadlinePaced&bit == 0 {
+			r.deadlinePaced |= bit
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+// DeadlinePacing injects the pacing advice as volatile notes. It is the
+// legacy channel: when the time footer is active the advice rides on the
+// footer of the next tool result instead, so the agent sees one signal.
 func (r *Run) DeadlinePacing(now time.Time) {
-	if !DeadlineEnabled() {
+	if !DeadlineEnabled() || r.footerActive() {
 		return
 	}
 	r.mu.Lock()
@@ -68,18 +72,9 @@ func (r *Run) DeadlinePacing(now time.Time) {
 	elapsed := now.Sub(r.StartedAt)
 	var notes []string
 	if total > 0 {
-		for i, percent := range []int{50, 75, 90} {
-			if elapsed >= total*time.Duration(percent)/100 && r.deadlinePaced&(1<<i) == 0 {
-				r.deadlinePaced |= 1 << i
-				instruction := "Check progress and prioritize the remaining acceptance checks."
-				if percent == 75 {
-					instruction = "Stop exploring; converge on a working deliverable and verify it."
-				}
-				if percent == 90 {
-					instruction = "Leave the best deliverable in place and call finish now. Do not start long commands."
-				}
-				notes = append(notes, fmt.Sprintf("Task deadline %d%%: %s. %s", percent, FormatRemaining(total-elapsed), instruction))
-			}
+		for _, i := range r.crossPacingLocked(elapsed, total) {
+			step := pacingSteps[i]
+			notes = append(notes, fmt.Sprintf("Task deadline %d%%: %s. Next: %s", step.percent, FormatRemaining(total-elapsed), step.advice))
 		}
 	}
 	r.mu.Unlock()
@@ -88,8 +83,77 @@ func (r *Run) DeadlinePacing(now time.Time) {
 	}
 }
 
-// deadlineCommand bounds every new terminal action in closing mode. The short
-// context also stops commands whose runtime cannot be inferred from shell text.
+// footerActive reports whether tool results of this run carry the time
+// footer: a time-only run with a wall budget and the switch on.
+func (r *Run) footerActive() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Profile.TimeBudgetOnly && r.Tracker.Limit.MaxSeconds > 0 && TimeFooterEnabled()
+}
+
+// timeFooter renders the time footer for a tool result observed at now:
+// `[time: 4m10s used, about 10m50s left]`, followed by the pacing advice
+// of the highest threshold this result crossed, once per threshold. It
+// returns "" when the footer does not apply.
+func (r *Run) timeFooter(now time.Time) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.Profile.TimeBudgetOnly || r.Tracker.Limit.MaxSeconds <= 0 || !TimeFooterEnabled() {
+		return ""
+	}
+	total := time.Duration(r.Tracker.Limit.MaxSeconds) * time.Second
+	elapsed := now.Sub(r.StartedAt)
+	if elapsed < 0 {
+		elapsed = 0
+	}
+	left := total - elapsed
+	if left < 0 {
+		left = 0
+	}
+	line := fmt.Sprintf("[time: %s used, about %s left]", clockSpan(elapsed), clockSpan(left))
+	if crossed := r.crossPacingLocked(elapsed, total); len(crossed) > 0 {
+		step := pacingSteps[crossed[len(crossed)-1]]
+		line += fmt.Sprintf(" Pacing %d%%: %s", step.percent, step.advice)
+	}
+	return line
+}
+
+// clockSpan renders a duration in whole seconds, compactly: 45s, 4m10s,
+// 1h05m. Durations round down so the line never promises more time than
+// exists.
+func clockSpan(d time.Duration) string {
+	secs := int64(d / time.Second)
+	if secs < 0 {
+		secs = 0
+	}
+	switch {
+	case secs >= 3600:
+		return fmt.Sprintf("%dh%02dm", secs/3600, (secs%3600)/60)
+	case secs >= 60:
+		return fmt.Sprintf("%dm%02ds", secs/60, secs%60)
+	default:
+		return fmt.Sprintf("%ds", secs)
+	}
+}
+
+// withFooter appends the footer as the last line of a tool output. An
+// empty output becomes the footer alone.
+func withFooter(output, footer string) string {
+	switch {
+	case footer == "":
+		return output
+	case output == "":
+		return footer
+	case strings.HasSuffix(output, "\n"):
+		return output + footer
+	default:
+		return output + "\n" + footer
+	}
+}
+
+// deadlineCommand bounds every new terminal action in closing mode. The
+// short context also stops commands whose runtime cannot be inferred
+// from shell text.
 func (r *Run) deadlineCommand(now time.Time, name string, args json.RawMessage) (time.Duration, string) {
 	if name == "call_tool" {
 		var wrapped struct {
@@ -104,6 +168,12 @@ func (r *Run) deadlineCommand(now time.Time, name string, args json.RawMessage) 
 		return 0, ""
 	}
 	r.mu.Lock()
+	// Autonomous exec/eval pacing is advisory until the real deadline.
+	// The process context owns the hard wall limit.
+	if r.Profile.TimeBudgetOnly {
+		r.mu.Unlock()
+		return 0, ""
+	}
 	total := time.Duration(r.Tracker.Limit.MaxSeconds) * time.Second
 	elapsed := now.Sub(r.StartedAt)
 	r.mu.Unlock()

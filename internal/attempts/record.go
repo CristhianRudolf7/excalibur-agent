@@ -22,8 +22,11 @@ type AttemptRecord struct {
 	GateAttempts int      `json:"gate_attempts"`
 	Verified     int64    `json:"verified_checks"`
 	DurationSecs float64  `json:"duration_secs"`
+	ChangedFiles int      `json:"changed_files"`
 	FilesChanged []string `json:"files_changed,omitempty"`
 	DiffStat     string   `json:"diff_stat,omitempty"`
+	Deliverable  []string `json:"deliverable_missing,omitempty"`
+	Passes       bool     `json:"passes"`
 	Winner       bool     `json:"winner"`
 }
 
@@ -34,6 +37,16 @@ type Record struct {
 	Winner    int             `json:"winner"`
 	CreatedAt time.Time       `json:"at"`
 	Attempts  []AttemptRecord `json:"attempts"`
+	// Isolated is true when the attempts ran in copies of a real
+	// working directory (the default for a project run).
+	Isolated bool `json:"isolated"`
+	// AppliedFiles lists the paths promoted from the winner into the
+	// real directory, and AppliedFileCount their number.
+	AppliedFiles     []string `json:"applied_files,omitempty"`
+	AppliedFileCount int      `json:"applied_file_count"`
+	// Fallback names why the run fell back to a single attempt in the
+	// real directory (empty when it did not).
+	Fallback string `json:"fallback,omitempty"`
 }
 
 // RecordVersion pins the attempts.json schema.
@@ -49,8 +62,10 @@ func ToRecord(outcomes []Outcome, winner int) Record {
 			Question:  o.Question,
 			ToolCalls: o.ToolCalls, ToolErrors: o.ToolErrors,
 			GateAttempts: o.GateAttempts, Verified: o.Verified,
-			DurationSecs: o.DurationSecs, FilesChanged: o.FilesChanged,
-			DiffStat: o.DiffStat, Winner: o.Index == winner,
+			DurationSecs: o.DurationSecs, ChangedFiles: o.ChangedCount,
+			FilesChanged: o.FilesChanged, DiffStat: o.DiffStat,
+			Deliverable: o.Deliverable, Passes: o.Passes(),
+			Winner: o.Index == winner,
 		})
 	}
 	return rec
@@ -87,7 +102,8 @@ func OutcomeFromRecord(r AttemptRecord) Outcome {
 		Question:  r.Question,
 		ToolCalls: r.ToolCalls, ToolErrors: r.ToolErrors,
 		GateAttempts: r.GateAttempts, Verified: r.Verified,
-		DurationSecs: r.DurationSecs, FilesChanged: r.FilesChanged,
-		DiffStat: r.DiffStat,
+		DurationSecs: r.DurationSecs, ChangedCount: r.ChangedFiles,
+		FilesChanged: r.FilesChanged, DiffStat: r.DiffStat,
+		Deliverable: r.Deliverable,
 	}
 }

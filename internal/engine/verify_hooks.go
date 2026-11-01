@@ -172,7 +172,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	}
 	if e.deps.Models == nil {
 		if tasks.VerifierVerdictEnabled() {
-			return false, []string{"independent verifier unavailable; result is unverified"}
+			return e.verifierUnverified(run, "independent verifier unavailable; result is unverified")
 		}
 		return true, nil
 	}
@@ -204,14 +204,19 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	resp, _, err := e.verifierChat(ctx, run, "verifier.strong", prompt, smaller, maxTokens, func(reply string) bool { return tasks.ParseStrongVerdict(reply, drafts).Explicit })
 	if err != nil {
 		if tasks.VerifierVerdictEnabled() {
-			return false, []string{"independent verifier unavailable or produced no verdict; result is unverified; retry verification"}
+			return e.verifierUnverified(run, "independent verifier unavailable or produced no verdict; result is unverified; retry verification")
 		}
 		if cfg.EnableGeneralizeChecks {
 			e.recordGeneralization(ctx, run, "", []string{"verifier unavailable"})
-			return false, []string{"generalisation verifier unavailable; retry verification"}
+			return e.verifierUnverified(run, "generalisation verifier unavailable; retry verification")
 		}
 		return true, nil
 	}
+	if e.softVerifier(run) && !tasks.ParseStrongVerdict(resp.Message.Content, drafts).Explicit {
+		e.noteAdvisory(run, "verifier verdict was empty or truncated; not counted")
+		return true, nil
+	}
+
 	if cfg.EnableGeneralizeChecks {
 		pending := tasks.GeneralizationPendings(resp.Message.Content)
 		e.recordGeneralization(ctx, run, resp.Message.Content, pending)
@@ -220,6 +225,10 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 	}
 	verdict := tasks.ParseStrongVerdict(resp.Message.Content, drafts)
+	if !verdict.Explicit && e.softVerifier(run) {
+		// D6: an empty or truncated verdict is advisory only.
+		e.noteAdvisory(run, "verifier verdict was empty or truncated; not counted")
+	}
 	if !verdict.Explicit || verdict.Pass {
 		return true, nil
 	}
@@ -236,6 +245,11 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport, finalText string) tasks.GateReport {
 	cfg := e.selfVerifyConfig()
 	if !cfg.Enable {
+		// D3 hard checks remain mandatory for autonomous explicit finishes,
+		// independently of the optional self-verification layer.
+		if e.explicitFinishRequired(run) {
+			return e.applyArtifacts(run, gate, workHistory(run), run.Request, finalText, run.Workdir)
+		}
 		return gate
 	}
 	run.mu.Lock()
@@ -280,7 +294,14 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	// letting a wrong result finish as completed.
 	if merged.OK {
 		historyView := historyTools(history)
-		if ok, reasons := e.runStrongVerifier(ctx, run, cfg, kept, historyView, finalText); !ok {
+		ok, reasons := e.runStrongVerifier(ctx, run, cfg, kept, historyView, finalText)
+		if !ok && e.softVerifier(run) && !run.takeVerifierRefusal() {
+			// D6: the LLM gate refuses at most once per run; later
+			// verdicts are advisory and reach the checklist.
+			e.noteAdvisory(run, "verifier disagreement: "+strings.Join(reasons, "; "))
+			ok = true
+		}
+		if !ok {
 			merged.Pendings = append(merged.Pendings,
 				"independent verifier disagreement: "+strings.Join(reasons, "; "))
 			merged.OK = false
@@ -315,25 +336,21 @@ func (e *Engine) applyArtifacts(run *Run, gate tasks.GateReport, history []tasks
 	}
 	if !ActionableRefusalsEnabled() {
 		pendings := tasks.ApplyArtifactGate(cfg, tasks.ArtifactRequest{Request: request, History: history, FinalText: finalText, Workdir: workdir, Stat: e.deps.ArtifactStat, Read: e.deps.ArtifactRead})
+		pendings = append(pendings, e.deliverableHardReasons(run, request, history)...)
 		if len(pendings) > 0 {
 			gate.Pendings = append(gate.Pendings, pendings...)
 			gate.OK = false
 		}
 		return gate
 	}
-	reqs := tasks.ExtractArtifactRequirements(request, cfg.MaxArtifacts)
-	kept := make([]tasks.ArtifactRequirement, 0, len(reqs))
-	for _, a := range reqs {
-		if !run.requirementDropped(a.ID) {
-			kept = append(kept, a)
-		}
-	}
+	kept := e.finishRequirements(run, request)
 	// Check each item separately to preserve all unmet items beyond the legacy cap.
 	var pendings []string
 	for _, a := range kept {
 		pendings = append(pendings, tasks.CheckArtifactFiles([]tasks.ArtifactRequirement{a}, history, workdir, e.deps.ArtifactStat, e.deps.ArtifactRead)...)
 	}
 	pendings = append(pendings, tasks.CheckBackgroundSessions(history, request, finalText)...)
+	pendings = append(pendings, e.deliverableHardReasons(run, request, history)...)
 	if len(pendings) == 0 {
 		return gate
 	}
@@ -363,4 +380,48 @@ func (e *Engine) recordGeneralization(ctx context.Context, run *Run, report stri
 			Pending []string `json:"pending,omitempty"`
 		}{true, report, pending}), "", "", "")
 	}
+}
+
+// verifierUnverified reports an unverified verifier outcome: advisory
+// under the soft verifier (D6: never a refusal by itself), otherwise a
+// refusal with the reason.
+func (e *Engine) verifierUnverified(run *Run, reason string) (bool, []string) {
+	if e.softVerifier(run) {
+		e.noteAdvisory(run, reason)
+		return true, nil
+	}
+	return false, []string{reason}
+}
+
+// takeVerifierRefusal grants the once-per-run refusal of the LLM gate
+// (D6): true the first time, false afterwards (the verdict is advisory).
+func (r *Run) takeVerifierRefusal() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.fin.verifierRefusals > 0 {
+		return false
+	}
+	r.fin.verifierRefusals++
+	return true
+}
+
+// noteAdvisory keeps one advisory verifier note for the confirmation
+// checklist (at most three distinct notes).
+func (e *Engine) noteAdvisory(run *Run, note string) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	for _, existing := range run.fin.advisory {
+		if existing == note {
+			return
+		}
+	}
+	if len(run.fin.advisory) < 3 {
+		run.fin.advisory = append(run.fin.advisory, note)
+	}
+}
+
+// softVerifier limits the autonomous finish policy to explicit-finish profiles.
+// Interactive assistant and daemon-owned verification keep their contracts.
+func (e *Engine) softVerifier(run *Run) bool {
+	return SoftVerifierEnabled() && e.explicitFinishRequired(run)
 }

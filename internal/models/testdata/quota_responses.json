@@ -1,0 +1,14 @@
+[
+  {"name":"OpenAI TPM", "provider":"openai", "status":429, "body":{"error":{"message":"Rate limit reached for gpt-6-luna on tokens per min (TPM). Please try again in 1s. Visit billing to increase your limit; payment required for a higher tier.","type":"tokens","param":null,"code":"rate_limit_exceeded"}}},
+  {"name":"OpenAI insufficient quota", "provider":"openai", "status":429, "exhausted":true, "body":{"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}},
+  {"name":"observed credit balance exhausted", "provider":"openai", "status":429, "exhausted":true, "body":{"error":{"type":"insufficient_quota","code":"credit_balance_exhausted"}}},
+  {"name":"Baseten capacity", "provider":"generic", "status":429, "body":{"error":"Too many requests. Model concurrency limit exceeded."}},
+  {"name":"Modal capacity", "provider":"generic", "status":429, "body":{"detail":"Rate limit exceeded"}},
+  {"name":"unrelated provider billing text", "provider":"generic", "status":429, "body":{"error":{"type":"insufficient_quota","code":"billing_error","message":"insufficient credits"}}},
+  {"name":"OpenAI auth", "provider":"openai", "status":403, "body":{"error":{"type":"insufficient_quota","code":"billing_error"}}},
+  {"name":"non error", "provider":"openai", "status":200, "body":{"error":{"code":"insufficient_quota"}}},
+  {"name":"server failure", "provider":"openai", "status":503, "body":{"error":{"code":"billing_error"}}},
+  {"name":"HTTP payment required", "provider":"generic", "status":402, "exhausted":true, "body":{"error":{"message":"Payment required"}}},
+  {"name":"numeric code", "provider":"openai", "status":429, "body":{"error":{"code":402,"message":"insufficient_quota"}}},
+  {"name":"substring code", "provider":"openai", "status":429, "body":{"error":{"code":"not_insufficient_quota","message":"billing_error"}}}
+]

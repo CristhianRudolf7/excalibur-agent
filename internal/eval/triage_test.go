@@ -64,6 +64,11 @@ func writeTriageTrial(t *testing.T, parent string, f triageFixture) string {
 	if err := os.WriteFile(filepath.Join(dir, "verifier", "reward.txt"), []byte(f.reward+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A verifier that ran leaves a pytest ctrf report. Without it the trial is
+	// an infrastructure failure (verifier_no_results), not an agent failure.
+	if err := os.WriteFile(filepath.Join(dir, "verifier", "ctrf.json"), []byte(`{"results":{"summary":{"tests":3,"passed":1,"failed":2}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	traj, _ := json.Marshal(map[string]any{
 		"steps": []map[string]any{{"role": "user", "content": f.instruction}},
 	})
@@ -212,7 +217,7 @@ func TestTriageEnvMissingExitZero(t *testing.T) {
 	}
 }
 
-func TestTriageSkipsNoReward(t *testing.T) {
+func TestTriageClassifiesNoReward(t *testing.T) {
 	run := t.TempDir()
 	dir := filepath.Join(run, "noreward__A")
 	exDir := filepath.Join(dir, "agent", "excalibur")
@@ -234,11 +239,11 @@ func TestTriageSkipsNoReward(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.Total != 2 || stats.Passed != 1 || stats.Failed != 0 || stats.Skipped != 1 {
-		t.Fatalf("stats = %+v, want total=2 passed=1 failed=0 skipped=1", stats)
+	if stats.Total != 2 || stats.Passed != 1 || stats.Failed != 0 || stats.Skipped != 0 || stats.Infra != 1 {
+		t.Fatalf("stats = %+v, want total=2 passed=1 failed=0 skipped=0 infra=1", stats)
 	}
-	if len(results) != 0 {
-		t.Fatalf("results = %+v, want no rows for skipped trials", results)
+	if len(results) != 1 || results[0].Cause != TriageInfra {
+		t.Fatalf("results = %+v, want one infrastructure row", results)
 	}
 }
 

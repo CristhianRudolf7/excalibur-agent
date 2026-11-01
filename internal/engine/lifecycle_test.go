@@ -398,14 +398,16 @@ func TestClosingModeKeepsPrefixAndStopsTools(t *testing.T) {
 	}
 }
 
-func TestLoopEscalationNoteExpertBlocked(t *testing.T) {
+func TestLoopEscalationNoteExpertNeverBlocks(t *testing.T) {
+	// Legacy loop path (loop guard v2 off): the identical-repeat rule
+	// escalates through the expert. A loop never ends the run, so the
+	// third stage must not block (backlog 99).
+	t.Setenv(LoopGuardV2Switch, "0")
 	ctx := context.Background()
 	same := toolResp(toolCall("c", "lookup", `{"q":"x"}`))
 	// Eight identical calls: the exact-repeat blocker rejects the
-	// second one, so the detector sees six executions and the
-	// note, escalate, blocked stages land one step later than the
-	// pre-blocker trajectory. Expert is still consulted exactly
-	// once at stage 2.
+	// second one, so the detector sees six executions. Expert is
+	// consulted exactly once at stage 2.
 	model := &fakeEndpoint{responses: []providers.ChatResponse{same, same, same, same, same, same, same, same}}
 	runner := scriptedRunner()
 	runner.add("lookup", types.EffectReadOnly, types.IdemPure,
@@ -421,7 +423,10 @@ func TestLoopEscalationNoteExpertBlocked(t *testing.T) {
 	if err := e.Run(ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	mustState(t, run, types.RunBlocked)
+	if run.State() == types.RunBlocked {
+		t.Fatal("a loop must never block the run")
+	}
+	mustState(t, run, types.RunCompleted)
 	if expertCalls != 1 {
 		t.Fatalf("expert consulted %d times, want 1 (stage 2)", expertCalls)
 	}

@@ -111,8 +111,13 @@ func (p *TriggerPump) Ingest(ctx context.Context, ev Event) []TriggerHit {
 // the pump. Sources are the §21.3 feeds (mail, channels, webhooks,
 // file watcher, calendar, capability completions) already normalized
 // to Events by the daemon adapters.
-func (p *TriggerPump) Run(ctx context.Context, sources ...<-chan Event) {
+//
+// The returned channel closes when the pump goroutine exits (context
+// done or no sources left), so the daemon can wait for a clean stop.
+func (p *TriggerPump) Run(ctx context.Context, sources ...<-chan Event) <-chan struct{} {
+	done := make(chan struct{})
 	safego.Go("agenda-trigger-pump", nil, func() {
+		defer close(done)
 		cases := make([]<-chan Event, len(sources))
 		copy(cases, sources)
 		for {
@@ -145,6 +150,7 @@ func (p *TriggerPump) Run(ctx context.Context, sources ...<-chan Event) {
 			}
 		}
 	})
+	return done
 }
 
 // Normalizers turn raw §21.3 source payloads into Events with stable

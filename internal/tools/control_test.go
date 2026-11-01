@@ -66,8 +66,8 @@ func TestStatusRendersSnapshotAndSessions(t *testing.T) {
 	_ = m.Close(s.ID)
 	empty := &StatusTool{}
 	res2, _ := empty.Invoke(context.Background(), Invocation{})
-	if !strings.Contains(res2.Output, "not wired") {
-		t.Fatalf("stub message: %q", res2.Output)
+	if res2.Status != StatusOK || !strings.Contains(res2.Output, "no runs") || strings.Contains(res2.Output, "not wired") {
+		t.Fatalf("empty status must say there are no runs: %+v", res2)
 	}
 }
 

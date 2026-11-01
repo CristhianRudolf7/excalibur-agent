@@ -88,7 +88,7 @@ func TestArtifactGatePassesWhenFileExists(t *testing.T) {
 	history := writeHistory(path)
 	history = append(history,
 		ctxcompiler.ActivityEvent{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 -c 'import run'"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 -c 'import run; run.run_tasks()'"}`)}},
 		ctxcompiler.ActivityEvent{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: path + " ok"}},
 	)

@@ -67,8 +67,8 @@ func runBenchTriage(args []string) error {
 	for c, n := range byCause {
 		causes = append(causes, c+"="+itoa(n))
 	}
-	fmt.Fprintf(os.Stdout, "triaged=%d passed=%d failed=%d skipped=%d judge=%d errors=%d (%s) in %s and %s\n",
-		stats.Total, stats.Passed, stats.Failed, stats.Skipped,
+	fmt.Fprintf(os.Stdout, "triaged=%d passed=%d failed=%d infra=%d skipped=%d judge=%d errors=%d (%s) in %s and %s\n",
+		stats.Total, stats.Passed, stats.Failed, stats.Infra, stats.Skipped,
 		stats.JudgeCalls, stats.JudgeErrors,
 		strings.Join(causes, " "), jsonlPath, mdPath)
 	return nil

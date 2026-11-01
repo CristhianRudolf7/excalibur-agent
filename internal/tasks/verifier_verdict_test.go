@@ -19,7 +19,14 @@ func TestMetadataProbesDoNotExerciseBehaviour(t *testing.T) {
 			t.Fatalf("behaviour rejected: %s", command)
 		}
 	}
+	// Size checks are observations: they do not exercise a deliverable
+	// even with the verdict ablation on (the legacy marker rule counted
+	// `wc ` as a check; EXCALIBUR_EXERCISE_STRICT removes that).
 	t.Setenv("EXCALIBUR_VERIFIER_VERDICT", "off")
+	if IsExercisingCall(HistoryTool{Name: "exec", Args: `{"command":"wc -c check.py"}`, Output: "17"}) {
+		t.Fatal("size check must not exercise under the strict rule")
+	}
+	t.Setenv("EXCALIBUR_EXERCISE_STRICT", "off")
 	if !IsExercisingCall(HistoryTool{Name: "exec", Args: `{"command":"wc -c check.py"}`, Output: "17"}) {
 		t.Fatal("ablation ignored")
 	}
@@ -50,5 +57,24 @@ func TestBehaviouralRequirementsRejectMetadataOnly(t *testing.T) {
 	history = append(history, HistoryTool{Name: "exec", Args: `{"command":"python3 -c 'assert actual == expected'"}`, Output: "ok"})
 	if len(BehaviouralEvidencePending("Program prints 17", history)) != 0 {
 		t.Fatal("behavioural check rejected")
+	}
+}
+
+// The retry of an empty or truncated verdict doubles the output
+// budget, bounded by the cap; the switch off keeps the first budget.
+func TestVerdictRetryBudget(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERDICT_RETRY", "")
+	if got := VerdictRetryBudget(8192); got != 16384 {
+		t.Fatalf("retry budget = %d, want 16384", got)
+	}
+	if got := VerdictRetryBudget(20000); got != verdictRetryCap {
+		t.Fatalf("retry budget must be capped at %d, got %d", verdictRetryCap, got)
+	}
+	if got := VerdictRetryBudget(0); got != 0 {
+		t.Fatalf("non-positive budgets pass through, got %d", got)
+	}
+	t.Setenv("EXCALIBUR_VERDICT_RETRY", "off")
+	if got := VerdictRetryBudget(8192); got != 8192 {
+		t.Fatalf("switch off must keep the original budget, got %d", got)
 	}
 }

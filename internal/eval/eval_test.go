@@ -176,9 +176,10 @@ func TestProfileContract(t *testing.T) {
 	if !p.SingleModel {
 		t.Fatal("eval must be single-model")
 	}
-	// Tool table of Section 23.2: task_db present without project ops
-	// (gating is engine-side), assistant tools absent.
-	for _, want := range []string{"task_db", "exec", "subagent", "search_tools"} {
+	// Tool table of Section 23.2 after the item-41 trim: the core tools
+	// that act in a single run stay, assistant tools absent, and the
+	// four tools that cannot act here are gone (see evalTrimmedTools).
+	for _, want := range []string{"exec", "search_tools", "call_tool", "search_skills", "load_skill"} {
 		found := false
 		for _, tool := range p.EnabledTools {
 			if tool == want {
@@ -189,7 +190,7 @@ func TestProfileContract(t *testing.T) {
 			t.Fatalf("core tool %s missing", want)
 		}
 	}
-	for _, banned := range []string{"send_message", "ask_user", "email", "browser_navigate"} {
+	for _, banned := range append([]string{"send_message", "ask_user", "email", "browser_navigate"}, TrimmedFromEvalTools()...) {
 		for _, tool := range p.EnabledTools {
 			if tool == banned {
 				t.Fatalf("assistant tool %s exposed in eval", banned)

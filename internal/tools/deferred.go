@@ -331,7 +331,7 @@ func tokenize(s string) []string {
 var searchToolsSchema = schemaFor(map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"query": map[string]any{"type": "string", "description": "Verb object domain, e.g. 'merge pdf pages'; empty lists popular deferred tools"},
+		"query": map[string]any{"type": "string", "description": "Verb object domain, e.g. 'merge pdf pages'; empty lists the deferred tools with one-line descriptions"},
 		"k":     map[string]any{"type": "integer", "minimum": 1, "maximum": 5},
 	},
 	"required":             []string{"query"},
@@ -376,6 +376,9 @@ func (t *SearchToolsTool) Invoke(_ context.Context, inv Invocation) (Result, err
 		return Result{Status: StatusToolError, Output: "deferred catalog not wired"}, nil
 	}
 	if strings.TrimSpace(a.Query) == "" {
+		if StubRepliesEnabled() {
+			return Result{Status: StatusOK, Output: deferredCatalogueText(cat)}, nil
+		}
 		return Result{Status: StatusOK, Output: popularDeferred(cat, a.K)}, nil
 	}
 	hits := cat.Search(a.Query, a.K)
@@ -397,6 +400,23 @@ func (t *SearchToolsTool) Invoke(_ context.Context, inv Invocation) (Result, err
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
 	return Result{Status: StatusOK, Output: string(raw)}, nil
+}
+
+// deferredCatalogueText lists every deferred tool with its one-line
+// purpose, for an empty search_tools query. Schemas come from a query
+// that names a verb, object and domain.
+func deferredCatalogueText(cat *DeferredCatalog) string {
+	var b strings.Builder
+	b.WriteString("deferred tools (name: one-line purpose); search with a verb-object-domain query to get a tool's schema\n")
+	for _, n := range cat.DeferredNames() {
+		t, err := cat.reg.Get(n)
+		if err != nil {
+			continue
+		}
+		def := t.Definition()
+		fmt.Fprintf(&b, "- %s: %s\n", def.Name, clipText(strings.TrimSpace(strings.SplitN(def.Description, "\n", 2)[0]), 120))
+	}
+	return b.String()
 }
 
 // popularDeferred lists the first deferred tools alphabetically when

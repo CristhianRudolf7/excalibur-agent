@@ -176,6 +176,14 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\b(glpat-[A-Za-z0-9\-_]{10,}|ghp_[A-Za-z0-9]{10,})\b`),
 }
 
+// ContainsRedactionMarker reports whether s carries a redaction marker:
+// a vault value or a known key format that was replaced for the model.
+// The marker stands for a hidden value, so write paths refuse text that
+// contains one instead of persisting the placeholder into a file.
+func ContainsRedactionMarker(s string) bool {
+	return strings.Contains(s, RedactSecretPrefix)
+}
+
 // MarkerFor reports the marker used for a secret name.
 func (r *Redactor) MarkerFor(name string) string {
 	r.mu.RLock()

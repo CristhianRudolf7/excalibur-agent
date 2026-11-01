@@ -4207,3 +4207,513 @@ read paths. The older provisioning tests (`autoprovision_test.go`,
 `autoprovision_w9_test.go`) were updated to the new result shape and to the
 read-path contract. Ordinary tests use fake runners and never touch the host's
 apt or dpkg state.
+
+## Terminal sessions, environment, signals and process safety
+
+This section covers the terminal session layer behind `exec` and `exec_io`, the
+environment given to non-interactive sessions, signal handling for kills
+issued by the agent, and the boundary of the task. Every behaviour below is
+either on by default or is a correction to an erroneous value, and each
+behaviour named in the table has its own switch.
+
+### Exit status of signalled processes
+
+A session whose process ends from a signal reports `128 + signal number`, the
+shell convention, instead of `-1`. `Session.ExitSignal` returns the number and
+`SignalName` renders the conventional name (for example `SIGSEGV`). The header
+rendering of the name belongs to the exec result. This is a correction of an
+erroneous value and has no switch.
+
+### Standard input and prompts
+
+Non-tty sessions read standard input from the null device, explicitly. A
+program that asks a question reads end of file at once. A session that stays
+silent while a process in its tree holds a terminal device open (the shape of
+a prompt reading `/dev/tty`) receives a note in its output saying that the
+prompt cannot be answered there. Switch `EXCALIBUR_PROMPT_DETECT` (default on).
+
+### Autonomous session environment
+
+Inside an exec scope (`excalibur exec`, which the eval and exec profiles use)
+non-tty sessions receive defaults that only unattended runs need:
+`PIP_DISABLE_PIP_VERSION_CHECK=1`, `PIP_BREAK_SYSTEM_PACKAGES=1`,
+`PIP_ROOT_USER_ACTION=ignore`, and a fixed git author and committer identity
+when neither the environment nor the repository configuration provides one.
+Outside an exec scope nothing changes. Switch `EXCALIBUR_AUTONOMOUS_ENV`
+(default on).
+
+### Signal guard
+
+The guard refuses a signal command whose target is the harness, one of its
+process groups, or any ancestor of the harness process. It also refuses a
+`pgrep` pattern whose matches reach a signal sender through a pipeline, such
+as `pgrep -f pattern | xargs kill`. A `pkill` or `killall` pattern that matches
+a live session of the same run is not refused: the command runs and its output
+names the session it reaches. The switch `EXCALIBUR_SELF_KILL_GUARD` (default
+on) controls all of these.
+
+### Helper sessions and detached services
+
+Sessions started with `background:true` detach into their own session and
+survive the agent's exit (`EXCALIBUR_DETACH_BACKGROUND`, default on). Other
+sessions are helpers: at run end their process groups receive SIGTERM and,
+after the usual margin, SIGKILL, so no helper outlives the run. Switch
+`EXCALIBUR_STOP_HELPERS` (default on). The run record lists the surviving
+services as before.
+
+The package exposes `ActiveSessions` and `ServiceSessions`, which report the
+process id, command, liveness, start time, last output time, detachment and
+whether the session's process tree contains a package manager or a build step.
+`ProbePort` makes a fresh TCP connection to 127.0.0.1 and ::1. The finish
+checks of the completion gate consume these accessors; this package only
+provides them.
+
+### Argument vector of the exec request
+
+`excalibur exec` moves the request text out of its argument vector before any
+other work. The text is written to a private file (mode 0600), the process
+execs itself with `--instruction-file <path>` in place of the request, and the
+environment variable `EXCALIBUR_INSTRUCTION_FILE` names the file. The
+re-executed process reads the file once, removes it, unsets the variable and
+does not hand off again. Process listings therefore never show the request.
+Switch `EXCALIBUR_HIDE_INSTRUCTION_ARGV` (default on). The hand-off applies
+only to the binary entry point on Linux.
+
+### Task boundary
+
+Inside an exec scope, a command or a file read is refused when it reaches
+outside the task: paths under another process's root (`/proc/<pid>/root`,
+judged through the harness's own root as well), container runtime storage
+(`/run/containerd`, `/var/lib/containerd`, `/var/lib/docker`), the harness's
+own log and state directories, `nsenter`, `chroot` into a host root, and bind
+mounts of host paths. Symbolic links are resolved for reads. The refusal text
+is `refused: outside the task boundary; work with the files the task provides`.
+Switch `EXCALIBUR_TASK_BOUNDARY` (default on). The check is lexical on the words
+of a command, so a path assembled at run time is not seen.
+
+| Switch | Default | Scope | Effect |
+| --- | --- | --- | --- |
+| `EXCALIBUR_PROMPT_DETECT` | on | every non-tty session | Notes a silent session that holds a terminal device |
+| `EXCALIBUR_AUTONOMOUS_ENV` | on | exec scope | pip and git defaults for non-tty sessions |
+| `EXCALIBUR_STOP_HELPERS` | on | every run | Ends non-detached sessions at run end |
+| `EXCALIBUR_TASK_BOUNDARY` | on | exec scope | Refuses commands and reads outside the task |
+| `EXCALIBUR_HIDE_INSTRUCTION_ARGV` | on | `excalibur exec` on Linux | Moves the request out of argv |
+| `EXCALIBUR_SELF_KILL_GUARD` | on | every session | Harness and ancestor protection; warnings for own sessions |
+| `EXCALIBUR_DETACH_BACKGROUND` | on | background sessions | Detaches background services |
+| `EXCALIBUR_NONINTERACTIVE_ENV` | on | every non-tty session | Pager and prompt defaults (unchanged) |
+
+Backend coverage: the terminal session tests cover signal exit status, the null
+standard input, the prompt note with and without a terminal device and with
+the switch off, run-end stop of helpers and preservation of services, the
+session accessors and process flags, and the probe. The signal guard tests
+cover pgrep pipelines, an ancestor outside the platform's group rules, session
+warnings and the allowed cases. The boundary tests cover the refused and
+allowed command forms, scope and switch behaviour, symbolic links, the read
+tool and the exec tool. The environment tests cover the defaults in and out of
+scope, precedence of existing identities and of the repository configuration,
+and the switch. The hand-off tests cover file mode, the loop guard, a real
+re-execution through a helper process, and the entry point.
+
+Package C verification: repository-wide vet and native, Darwin and Windows
+builds pass. Race tests pass for the terminal tools, engine, CLI, binary entry
+point and platform packages. The instruction hand-off also creates a missing
+temporary directory in minimal containers; its regression test checks the
+private file permissions and successful consumption.
+
+## File, output and status tools; redaction write guard
+
+This section covers the file tools (`read_file`, `write_file`, `edit_file`, `apply_patch`), `get_tool_output`, `status`, the listed-but-unwired tool stubs, `search_tools` with an empty query, `vision_extract`, and a write-side guard for redaction markers.
+
+### Behaviour
+
+- **Fingerprints.** `expected_fp` is optional. The harness records the fingerprint of every read and write in a run and checks an existing file against that record. A supplied fingerprint is an extra claim: a write proceeds when the file matches either the record or the claim. Empty and placeholder values (`*`, `**`, `UNAVAILABLE`, `none`, `unknown`, `-`) count as absent. A real external change is still refused. The refusal shows the current first lines and the fingerprint to retry with, so one retry succeeds.
+- **Paths.** Relative paths in the file tools resolve against the run's project directory when the run declares one. Without a declared directory they resolve against the process working directory, as before.
+- **edit_file.** A miss names the three most similar lines with their numbers. An ambiguous match lists every line it occurs on and accepts an optional 1-based `occurrence`. Exact matches are counted first; normalized and trimmed matches apply only when no exact match exists.
+- **write_file content.** A JSON object or array given as `content` is written as indented JSON, keeping the key order the model wrote. A single-line `.json`, `.toml`, `.yaml`, `.yml`, `.ini`, `.cfg`, `.py` or `.sh` text that fails to parse, but parses once its literal `\n` sequences become newlines, is refused with `content has literal \n sequences; send real newlines`. A written `.json`, `.toml`, `.yaml` or `.yml` file that does not parse adds a warning line to the result. `.py` and `.sh` checks use the host `python3` and `sh` in syntax-only mode; they are skipped when the interpreter is absent.
+- **get_tool_output.** Accepts a stored blob ref, a call id `call-N` printed by `list`, a terminal session id `sess-N` (its full log, paged with `offset` and `limit`), or `{"list": true}`, which shows the newest stored outputs with their size and producing call, then the terminal sessions. Unknown refs name every valid form.
+- **status.** Reads only. It shows each session's last three lines and never runs or suggests the provisioner.
+- **Listed but unwired tools.** Answer with a non-error statement that says nothing was done and what to use instead (for example, `ack_directive` reports that no directives are pending). They no longer name another subsystem.
+- **search_tools with an empty query.** Lists every deferred tool with a one-line purpose. Schemas come from a named query.
+- **vision_extract.** With no vision model configured, returns an error. It does not return placeholder text.
+- **Redaction write guard.** `write_file`, `edit_file`, `apply_patch` and `exec` calls whose arguments contain a redaction marker (`‹secret:`) are refused before they run, including nested calls through `call_tool`. Output redaction is unchanged; the guard stops a marker from being written back into a file or a command.
+
+### Switches
+
+| Switch | Default | Effect when off |
+| --- | --- | --- |
+| `EXCALIBUR_FP_AUTO` | on | Explicit `expected_fp` is compared as given; `*` skips the check with a note. |
+| `EXCALIBUR_TOOL_OUTPUT_REFS` | on | Only blob refs resolve (session ids still resolve under `EXCALIBUR_TOOL_FRICTION_REPAIR`); no list mode; earlier error wording. |
+| `EXCALIBUR_REDACTION_WRITE_GUARD` | on | Marker-containing writes and commands run as before. |
+| `EXCALIBUR_VISION_HONEST` | on | `vision_extract` uses the placeholder backend. |
+| `EXCALIBUR_STRUCTURED_WRITE_CHECK` | on | No literal-escape refusal and no parse warnings. |
+| `EXCALIBUR_RUN_WORKDIR` | on | Relative paths resolve against the process working directory. |
+| `EXCALIBUR_EDIT_HINTS` | on | Earlier edit_file wording; `occurrence` ignored. |
+| `EXCALIBUR_STUB_REPLIES` | on | Unwired tools return an error without the owner wording; `search_tools` empty query returns the earlier popular list. |
+
+Object content in `write_file` is normalized under the existing `EXCALIBUR_TOOL_TOLERANT_ARGS` switch.
+
+### Backend coverage
+
+`internal/tools/filetools_test.go`: recorded-state writes, explicit and placeholder fingerprints, retry fingerprint, external-change refusals, legacy fingerprint switch, nearest-line misses, ambiguous matches and occurrence, relative paths against the run directory, object content, literal-escape refusal and parse warnings, shell and INI checks, vision without a model.
+
+`internal/tools/outputrefs_test.go`: call ids, list mode with producers and sessions, session paging, error text naming valid forms, the output-refs switch, passive status and its switch, stub replies, the search catalogue, `call_tool` running a direct tool, and the redaction write guard for `write_file`, `edit_file`, `apply_patch`, `exec` and nested calls, with its switch.
+
+`internal/vault/redact_test.go`: `ContainsRedactionMarker`.
+
+Earlier tests updated because they encoded the replaced behaviour: `TestWildcardFingerprint` (the `*` placeholder is now checked, not skipped), `TestEditThreeLevels` (ambiguous-match wording with line numbers), `TestSessionOutputCompatibility` (session refs need both switches off for the legacy refusal), `TestStatusRendersSnapshotAndSessions` (empty status wording), `TestProvisionStatusSessionTail` (status never provisions), and `TestEmbeddedSurfaceDisabled` (unwired stubs reply without error).
+
+### Limits
+
+- The vision backend stays unconfigured in this checkout; `vision_extract` reports that no model is configured. Real image extraction needs the provider contract to accept image parts; the text-only contract in this checkout does not.
+- Relative paths in `grep`, `glob` and `exec` still resolve against the process working directory unless the caller passes a workdir.
+
+## Run loop, time and spend (loop guard v2, time footer, spend caps)
+
+This section documents the run-loop and budget behaviour of non-interactive
+runs (`exec`, `delegate`, `eval`). Interactive master turns do not use these
+budgets.
+
+### Wall budget
+
+The wall budget of a non-interactive run is the real limit it is held to, and
+it resolves in this order:
+
+1. the explicit `--timeout` given to the process;
+2. `EXCALIBUR_EVAL_WALL_SECS`, when positive;
+3. 900 seconds.
+
+The Harbor operator variables and an instruction-stated duration no longer set
+the budget. The Harbor adapter passes its task timeout as `--timeout`. No
+closing factor is applied to the budget: pacing and closing are read from the
+budget itself (see the footer below). `budgets.json` records `wall_secs` and
+`wall_source` (`explicit`, `env` or `default`).
+
+### Time footer
+
+When the run is time-only and has a wall budget, every tool result ends with
+one compact line:
+
+```
+[time: 4m10s used, about 10m50s left]
+```
+
+At 50, 75 and 90 percent of the budget the line also carries one pacing note,
+once per threshold: "check that the deliverables exist" (50%), "stop exploring;
+verify and finish" (75%) and "finish now with what works; do not start new
+work" (90%). Elapsed and remaining times round down. The footer does not reach
+the trial records; it only shapes what the model reads. Switch:
+`EXCALIBUR_TIME_FOOTER` (default on). With the footer off, the pacing advice
+returns as volatile notes.
+
+### Exact-call guard (loop guard v2)
+
+Switch: `EXCALIBUR_LOOP_GUARD_V2` (default on). The guard counts one exact call
+by its tool, its normalized arguments and a fingerprint of its result. The
+fingerprint blanks volatile tokens (exec duration, session id, process id and
+clock times) so one observation compares equal across runs.
+
+- Pure `echo`, `printf`, `true` and `sleep` commands compare by result alone.
+- Any workspace change resets the counts: a successful write or edit, a shell
+  command that redirects to a file or calls a file-writing utility, a
+  provisioner install, or input sent to a live session. A change does not lift
+  an active refusal window.
+- The third identical occurrence adds the note "you ran this exact call 3 times
+  with the same result; change approach".
+- The sixth identical occurrence adds a note and refuses that exact call for the
+  next five turns. A refused call does not run; its result is the refusal text.
+- A session that is still running (`alive: true`, `exited: false`) is progress,
+  not a repeat, and is never counted.
+- Repeated `finish` refusals with an unchanged reason count toward the same
+  key, including normalized finish arguments, and open the same bounded refusal
+  window after the sixth occurrence.
+
+The guard never ends a run. It replaces the single-call repeat blocker and the
+identical-repeat rule of the loop detector while on. With the switch off, both
+behave as before, and the loop detector's staged response is no longer
+terminal: the third and later stages repeat the strategy note.
+
+### Spend caps
+
+Switch: `EXCALIBUR_SPEND_CAP` (default on). In time-only runs two caps apply:
+
+- the USD cost cap, `EXCALIBUR_COST_CAP_USD` (default 20);
+- the input-token cap per run, `EXCALIBUR_INPUT_TOKEN_CAP` (default 8,000,000).
+
+At 100 percent of a cap the agent receives one closing note: finish within the
+next three turns. At 125 percent the run stops as paused with the budget
+motive, and the report names the cap ("cost" or "input_tokens"). The step
+safety cap no longer counts the USD cost cap. `budgets.json` records
+`input_token_cap` and `spend_caps`.
+
+### Default and delegate exec runs
+
+Default and delegate `exec` runs use the same wall budget and spend caps as
+eval runs (decision 0069). Set `EXCALIBUR_TIME_BUDGET_ONLY=0` to restore the
+legacy step and cost limits.
+
+### Tests
+
+Backend tests: `internal/tasks/loops_test.go` (guard keys, counts, refusal
+window, state change, pure and writing commands, live sessions, finish tally,
+near-repeat escalation); `internal/engine/loopguard_test.go` (refusal window
+end to end, live sessions, state change, pure commands, footer and pacing on a
+fake clock, cost and input-token caps, switches off);
+`internal/engine/deadline_test.go` and `timebudgetonly_test.go` (budget order,
+footer format, thresholds); `internal/cli/budgetsonly_test.go` (budgets record).
+
+The clock tool stays hidden in eval and delegate prefixes while time footers
+carry the elapsed and remaining time. The full assistant prefix retains it.
+Active session output also bypasses the older near-repeat and cycle rules,
+so ongoing builds and installs do not trigger strategy-change notes.
+
+### Finish verdicts and deliverable review
+
+For explicit-finish runs, `EXCALIBUR_FINISH_VERDICT_RESULT` (default on)
+puts the refusal, confirmation checklist, or terminal acceptance in the
+finish tool result. A refused finish with no intervening tool work repeats
+the reasons without another verifier call. Correcting invalid finish
+arguments permits validation without a file edit.
+
+`EXCALIBUR_DELIVERABLE_CHECKS` (default on) checks named outputs, the last
+verification, program execution after edits, running work, proof placeholders,
+and declared local services. `EXCALIBUR_INPUT_SNAPSHOT` (default on) captures
+provided inputs up to 50 MB and reports unexpected changes as warnings.
+`EXCALIBUR_FINISH_CHECKLIST` (default on) lists concrete instruction
+requirements and inspection warnings in the confirmation round.
+`EXCALIBUR_SOFT_VERIFIER` (default on) limits verifier refusals to one;
+later or incomplete verdicts are advisory. These checks apply to explicit
+finish profiles; interactive assistant profiles retain their existing flow.
+
+A mandatory safety bound ends explicit-finish runs with pending items after
+25 consecutive refused finishes without other tool work. Runs with no
+configured budget stop after 200 turns. The report records the safety
+reason. These bounds prevent unbounded history growth from a repeating
+provider and remain active independently of optional review switches.
+
+## Provider resilience, run records and evaluation reporting
+
+This section covers the provider retry policy, the credential quarantine, the
+run and trial records, and how evaluation reports classify infrastructure
+failures. Model calls use the gateway policy in `internal/models`; the records
+are written by `internal/eval` and `internal/cli`.
+
+## Attempts isolation and promotion (best-of-N)
+
+Best-of-N (Section 18.2) runs every attempt in its own full copy of the real
+working directory. The real directory is written only by the promotion of the
+selected attempt, so the attempts cannot overwrite one another or the deliverable
+paths of the request.
+
+### Mechanisms
+
+- **Full copies.** Each attempt copies the real directory in full, including
+  ignored and untracked build products and `.git`, under an attempt root that
+  keeps the real path layout (`<root>/app` for `/app`). The attempt-local
+  `.excalibur` state is never copied. Git worktrees are no longer used: they
+  carry only the committed tree and drop the untracked inputs an attempt needs.
+- **Workdir mapping.** Absolute paths under the real directory, relative path
+  arguments and shell commands in an attempt's tool calls resolve onto that
+  attempt's copy before the tool runs. A command with no `workdir` runs in the
+  copy. The instruction text the model reads is never rewritten. Records keep
+  the arguments the model sent.
+- **Selection.** Attempts are ranked, in order, by: the named outputs of the
+  request exist in the copy and the attempt did not fail; the attempt changed
+  files (an attempt that changed nothing never wins over one with passing
+  changes); more verified checks; fewer changed files; completion state; fewer
+  tool errors; launch order. The named outputs come from the same extraction the
+  completion gate uses (`tasks.ExtractArtifactRequirements`) and are checked with
+  its checks (`tasks.CheckArtifactFiles`).
+- **Promotion.** Only the winner's changes move into the real directory:
+  changed, added and deleted paths, measured against the baseline taken before
+  the copies. Each replaced entry is backed up first. The plan is refused before
+  any write when it would replace a directory that still holds entries the winner
+  did not change. After the copy the real directory is re-hashed and every applied
+  path is compared with the winner. Any failure restores the previous state.
+- **Real-directory audit.** Changes to the real directory made during the fan-out
+  (a command that escaped the mapping) are reported in an
+  `attempts_real_dir_touched` event. They are not promoted and not reverted.
+- **Fallback.** When the promotion fails, or the apply moves zero files for a
+  winner that changed files, the run records the reason and runs one normal
+  attempt in the real directory with the remaining time. The fallback's records
+  are merged with the attempt index one past the last attempt and
+  `fallback: true`. A named output still missing after the promotion (re-checked
+  on the real directory) ends the run as `completed_with_pending`.
+- **Records.** `attempts.json` adds `isolated`, `applied_files`,
+  `applied_file_count`, `fallback`, and per attempt `changed_files`,
+  `deliverable_missing` and `passes`. The outer `tool_calls.jsonl`,
+  `model_calls.jsonl` and `gate_attempts.jsonl` carry every attempt's rows with an
+  `attempt` tag.
+
+### Switches
+
+| Switch | Default | Effect |
+| --- | --- | --- |
+| `EXCALIBUR_PROVIDER_RETRY_V2` | on (`0` disables) | Exponential retry with jitter, Retry-After honored, network failures retried, one continuation for an output-limit cut. |
+| `EXCALIBUR_MODEL_REQUEST_TIMEOUT` | `300` seconds | Deadline for one provider request; `0` disables it. A timed-out request is retried. |
+| `EXCALIBUR_QUOTA_PROBE` | on (`0` disables) | A quota or billing response quarantines its credential only after a minimal probe on the same credential repeats the evidence. |
+| `EXCALIBUR_RUN_RECORDS_V2` | on (`0` disables) | Real exec outcomes, output tails and elision metadata, final finish details, and protection of completed trial finals. |
+| `EXCALIBUR_EVAL_INFRA_CLASSIFICATION` | on (`0` disables) | Report and triage identify infrastructure trials independently of reward, including trials without a reward. |
+
+The existing `EXCALIBUR_EXHAUSTED_KEYS` and `EXCALIBUR_BUDGET_RETRIES`
+switches keep their meaning. The per-request deadline remains active when
+budget retries are disabled.
+
+### Retry policy
+
+- Rate limits (429) and overloads (5xx) are retried with exponential backoff:
+  1 s, 2 s, 4 s and so on, capped at 60 s. Each step is jittered down by up to
+  20 %. A server `Retry-After` or "try again in" hint replaces the computed step.
+- Connection resets, request timeouts and decode failures are retried up to six
+  tries per endpoint. Rate limits and overloads keep retrying until the caller's
+  wall budget ends; the sleep is cut at the deadline, so the total wait never
+  exceeds the remaining budget.
+- Authentication, billing and input errors are not retried.
+- A response cut at the output limit gets one follow-up call before the gateway's
+  existing token doubling. A cut tool call is sent again unchanged; cut text is
+  continued from the partial answer with an instruction to finish concisely.
+  Usage from both calls is summed.
+
+### Credential quarantine
+
+- A quota or billing response (HTTP 402, or OpenAI-style 429 with a recognized
+  billing identifier) is not enough on its own. With the probe on, a minimal
+  request on the same credential must repeat the evidence before the credential
+  is quarantined for the process.
+- Rate limits never quarantine and are never probed.
+- After a confirmed exhaustion the fallback credential serves the call. The
+  switch is counted in `CallMeta.CredentialSwitches` and recorded on the model
+  call as `credential_switches`.
+
+### Run records
+
+- `tool_calls.jsonl`: `exit_code` and `is_error` for the exec tool come from the
+  exit status in the output header. `header_exit` records that status (absent
+  for a running session). `model_elided` is true only when the model received an
+  elision marker. `stdout_inline` is a 4 KiB head preview; longer outputs also
+  keep `stdout_tail` (the last 2 KiB). The blob holds the complete model-facing
+  text.
+- `model_calls.jsonl`: `provider_error_reason` names the failure with an
+  allow-listed token (`billing`, `rate_limited`, `http_5xx`, `timeout`, `tls`,
+  `auth`, `connection`, ...). Messages are never recorded.
+- `final.json` (trial record): `final_exit` is the exit status of the last exec
+  command; `summary`, `final_text` and `finish_evidence` carry the accepted
+  finish.
+- `events.jsonl`: `run_finished` carries `final_text` and `evidence` when the
+  run completed through finish. A run that is stopped by its deadline or a signal
+  always ends with one `run_finished` row whose state is `timeout`.
+- The run summary is the finish summary or a generic state name (`completed`,
+  `failed`, `blocked`, `paused: budget exhausted`). It never repeats the task
+  request.
+- Once a finish is accepted, a later provider or engine error is recorded as a
+  `post_finish_error` event with its class only; the run state stays completed.
+
+### Infrastructure classification
+
+`bench report` and `bench triage` mark a trial as infrastructure when:
+
+- the agent install failed (sha256 mismatch on the installed binary);
+- the environment did not start (container compose failure);
+- the trial made no successful model call and recorded a provider error;
+  billing and quota responses are reported as `provider_billing`;
+- the verifier produced no test results (no pytest ctrf report, zero tests,
+  a verifier timeout or no reward file);
+- the trial was cancelled before the harness recorded a terminal state.
+
+Infrastructure trials are excluded from the headline pass rate, pass@k, pass^k
+and the per-task rates. The report also gives the rate with infrastructure
+trials included at their recorded reward, and lists the infrastructure reasons.
+
+Verifier output is inspected only for CTRF test counts or a completed pytest
+summary with a positive outcome count. Test names and verifier text are never
+sent to the triage model.
+
+## Harness reliability H: self-checks, error cards, eval tool surface and working method
+
+This section records four changes, decided in
+`docs/decisions/0069-checks-cards-method-tool-surface.md`.
+
+### Error-triggered skill cards (EXCALIBUR_CARDS_STRICT, default on)
+
+A card is appended to a failed tool result only when all of the following hold.
+The exec result has a non-zero numeric exit in its first header, and the output matches a
+concrete error pattern for the card. The command is not a probe: `test`, `[`,
+`which`, `command -v`, `grep`, `diff` and similar checks, where a non-zero exit
+is a normal answer. The same output does not show a successful install or a
+verified working command for the binary the error names. The card name has not
+fired earlier in the same run. Each card fires at most once per run. The
+switch off restores the earlier rule.
+
+### Verifier verdict retry (EXCALIBUR_VERDICT_RETRY, default on)
+
+An empty or truncated verifier reply is retried once. The retry doubles the
+output budget, capped at 32768 tokens, and keeps the smaller prompt. A verdict
+still missing after the retry is journaled as `verifier_no_verdict` with its
+shape: call site, budget, output tokens, and whether the reply was empty or
+truncated. The reply text is not recorded. The call returns
+`tasks.ErrVerifierNoVerdict`. This distinguishes missing evidence from an
+explicit verdict. Advisory handling in the finish gate belongs to the finish
+work package; this change alone does not implement that handling. The switch off keeps the original budget
+on the retry.
+
+### Exercise predicate (EXCALIBUR_EXERCISE_STRICT, default on)
+
+`tasks.ExercisesDeliverable` decides whether a command ran, queried or parsed
+something on real input. The following do not count: help and version output
+(`--help`, `-h`, `--version`, for interpreters and local programs), syntax-only
+checks and compilation alone (`gcc`, `javac`, `rustc`, `go build`,
+`cargo build`, `bash -n`, `gcc -fsyntax-only`, `py_compile`, `node --check`, `ruby -c`,
+`perl -c`, `php -l`), `python -c` code that only imports modules, and display or
+observation commands (`cat`, `ls`, `stat`, `test`, `wc`, `echo`). A command
+counts when at least one of its simple commands is an exercise. The predicate is
+exported for the finish gate. The switch off restores the marker rule.
+
+### Working method evidence rules (EXCALIBUR_METHOD_V2, default on)
+
+The working method keeps its original eight steps and adds nine short rules
+(steps 9 to 17): copy provided data before changing it, test the success path,
+check beyond the examples with an independent reference, measure the way the
+instruction measures, pass values through files or pipes, run scripts on real
+input after their last edit, keep required services running, try other routes to
+a source, and use only the task's own files and tools. The block stays under
+about 2,600 characters because it is the shared L0 prefix. The switch off
+reproduces the original block byte for byte, which a golden test pins.
+
+### Eval tool surface
+
+The eval core table drops `ack_directive`, `leave_continuation_note`,
+`subagent` and `task_db`. The reasons are recorded in
+`docs/decisions/0069-checks-cards-method-tool-surface.md`. The assistant and
+delegate profiles keep the earlier core through `cli.EffectiveTools`.
+
+| `EXCALIBUR_ATTEMPTS` | `1` (off) | Number of attempts; `1` keeps the single-run path. |
+| `EXCALIBUR_ATTEMPTS_DELIVERABLE` | on | Named outputs decide selection and the post-promotion re-check. `0` selects on the change and verification signals only. |
+| `EXCALIBUR_ATTEMPTS_FALLBACK` | on | A failed promotion falls back to one normal attempt in the real directory. `0` ends the run as failed. |
+| `EXCALIBUR_ATTEMPTS_PATH_MAP` | on | Maps each attempt's tool paths onto its copy. `0` is an ablation only: absolute paths reach the real directory again. |
+| `EXCALIBUR_ATTEMPTS_FULL_BUDGET` | on | Each attempt keeps the full step and USD budget. `0` restores the legacy split. |
+| `EXCALIBUR_ATTEMPTS_MERGE_RECORDS` | on | Merge the attempts' records into the outer trial records. |
+
+The switches are read on every run. They apply only to fan-out runs, so the
+assistant profiles keep the single-run path unless `EXCALIBUR_ATTEMPTS` is
+greater than one.
+
+### Known limits
+
+- Path mapping covers path-valued arguments and shell command text that names
+  the real directory literally. A path computed at run time (for example from an
+  environment variable, or inside a script the attempt runs) is not mapped and
+  can reach the real directory. The audit event reports such writes.
+- The copies are full, so the disk cost is one copy of the directory per attempt.
+- Ignored files are promoted when the winner changed them: the promotion does not
+  filter by `.gitignore`, so build products are included.
+- Commits and other changes inside `.git` are not promoted; the attempt's
+  repository state is not carried back to the real directory.
+
+### Tests
+
+`internal/attempts` covers the copy layout and isolation, build-product
+promotion, mode and link preservation, deletions, rollback after an injected
+failure, the refused replacement of a populated directory, escaped writes, the
+workdir mapping rules, the deliverable checks and the switches.
+`internal/cli/attempts_isolation_test.go` covers losing attempts that never reach
+the real directory, named-output selection, the apply failure fallback with and
+without its switch, the tool-path runner and the artifact checks through the map.

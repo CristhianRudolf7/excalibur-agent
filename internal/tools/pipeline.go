@@ -14,6 +14,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 )
 
 // Pipeline budgets from Section 13.4 and Appendix B.
@@ -42,8 +43,33 @@ type OutputStore interface {
 // MemoryOutputStore is an in-memory OutputStore for tests and the
 // embedded profile. Production wires the blob store behind it.
 type MemoryOutputStore struct {
-	mu   sync.Mutex
-	data map[string]string
+	mu      sync.Mutex
+	data    map[string]string
+	records []OutputRecord
+	seq     int
+}
+
+// OutputTag names the call that produced a stored output. It is kept
+// with the output so get_tool_output can list refs with their producer.
+type OutputTag struct {
+	Tool    string
+	Summary string
+}
+
+// OutputRecord describes one stored output: its ref, the call id that
+// produced it (call-N), the producing tool and call summary, and size.
+type OutputRecord struct {
+	Ref     string
+	Call    string
+	Tool    string
+	Summary string
+	Bytes   int
+}
+
+// TaggedOutputStore is implemented by stores that keep the producer of
+// each output. The executor uses it when available.
+type TaggedOutputStore interface {
+	PutTagged(tag OutputTag, full string) string
 }
 
 // NewMemoryOutputStore returns an empty store.
@@ -53,6 +79,12 @@ func NewMemoryOutputStore() *MemoryOutputStore {
 
 // Put implements OutputStore.
 func (s *MemoryOutputStore) Put(full string) string {
+	return s.PutTagged(OutputTag{}, full)
+}
+
+// PutTagged stores full output with its producer and returns its blob
+// reference. Identical output keeps its first record and call id.
+func (s *MemoryOutputStore) PutTagged(tag OutputTag, full string) string {
 	sum := sha256.Sum256([]byte(full))
 	ref := "blob-sha256:" + hex.EncodeToString(sum[:])
 	s.mu.Lock()
@@ -60,8 +92,42 @@ func (s *MemoryOutputStore) Put(full string) string {
 	if s.data == nil {
 		s.data = map[string]string{}
 	}
+	if _, seen := s.data[ref]; !seen {
+		s.seq++
+		s.records = append(s.records, OutputRecord{
+			Ref: ref, Call: fmt.Sprintf("call-%d", s.seq),
+			Tool: tag.Tool, Summary: tag.Summary, Bytes: len(full),
+		})
+	}
 	s.data[ref] = full
 	return ref
+}
+
+// Records lists stored outputs newest first, at most limit of them
+// (limit <= 0 lists all).
+func (s *MemoryOutputStore) Records(limit int) []OutputRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]OutputRecord, 0, len(s.records))
+	for i := len(s.records) - 1; i >= 0; i-- {
+		out = append(out, s.records[i])
+		if limit > 0 && len(out) == limit {
+			break
+		}
+	}
+	return out
+}
+
+// ResolveCall maps a call id (call-N) to the blob reference it stored.
+func (s *MemoryOutputStore) ResolveCall(call string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.records {
+		if r.Call == call {
+			return r.Ref, true
+		}
+	}
+	return "", false
 }
 
 // Get implements OutputStore.
@@ -155,6 +221,9 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 		}
 		return Result{Status: StatusInputError, Output: out}, nil
 	}
+	if refusal := redactionWriteRefusal(name, normalized); refusal != "" {
+		return Result{Status: StatusInputError, Output: refusal}, nil
+	}
 
 	timeout := def.Timeout
 	if opts.Timeout > 0 {
@@ -228,7 +297,7 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 	if len(repairs) > 0 {
 		res.Output = "argument normalization: " + strings.Join(repairs, "; ") + "\n" + res.Output
 	}
-	res = e.normalize(res, def)
+	res = e.normalize(res, def, OutputTag{Tool: name, Summary: callSummary(name, normalized)})
 
 	if e.Journal != nil {
 		_ = e.Journal.RecordResult(ctx, inv, res)
@@ -257,7 +326,7 @@ func (e *Executor) finishInvocation(out toolOutcome, _ Definition) (Result, erro
 	return out.res, nil
 }
 
-func (e *Executor) normalize(res Result, def Definition) Result {
+func (e *Executor) normalize(res Result, def Definition, tag OutputTag) Result {
 	if res.Status == "" {
 		res.Status = StatusOK
 	}
@@ -274,7 +343,9 @@ func (e *Executor) normalize(res Result, def Definition) Result {
 	if int64(len(res.Output)) > budget {
 		full := res.Output
 		var ref string
-		if e.Outputs != nil {
+		if tagged, ok := e.Outputs.(TaggedOutputStore); ok {
+			ref = tagged.PutTagged(tag, full)
+		} else if e.Outputs != nil {
 			ref = e.Outputs.Put(full)
 		} else {
 			sum := sha256.Sum256([]byte(full))
@@ -661,6 +732,56 @@ func checkNumericBounds(v any, sch map[string]any, path string) error {
 		}
 	}
 	return nil
+}
+
+// redactionWriteRefusalText is returned when a write-side call carries a
+// redaction marker: the marker stands for a value hidden from the model,
+// so writing it would persist a placeholder into the workspace.
+const redactionWriteRefusalText = "refused: the text contains a redaction marker, which stands for a secret value hidden from you; edit the file with a pattern-based command (for example sed -E with a regex) that does not need the hidden value"
+
+// redactionWriteRefusal refuses write_file, edit_file, apply_patch and
+// exec calls whose arguments contain a redaction marker
+// (EXCALIBUR_REDACTION_WRITE_GUARD, default on). Output redaction is
+// unchanged; this guard only stops the marker from being written back.
+// Nested calls through call_tool pass through the same executor path.
+func redactionWriteRefusal(name string, args json.RawMessage) string {
+	switch name {
+	case "write_file", "edit_file", "apply_patch", "exec":
+	default:
+		return ""
+	}
+	if !RedactionWriteGuardEnabled() {
+		return ""
+	}
+	var v any
+	if err := json.Unmarshal(args, &v); err != nil {
+		return ""
+	}
+	if containsRedactionMarker(v) {
+		return redactionWriteRefusalText
+	}
+	return ""
+}
+
+// containsRedactionMarker walks decoded JSON values for marker text.
+func containsRedactionMarker(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return vault.ContainsRedactionMarker(t)
+	case map[string]any:
+		for _, x := range t {
+			if containsRedactionMarker(x) {
+				return true
+			}
+		}
+	case []any:
+		for _, x := range t {
+			if containsRedactionMarker(x) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // RecoveryClass maps Section 17.2 to an executor decision for a tool

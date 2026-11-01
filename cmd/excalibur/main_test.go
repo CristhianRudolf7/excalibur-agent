@@ -21,9 +21,9 @@ func TestRunUnknown(t *testing.T) {
 }
 
 func TestRunNotImplemented(t *testing.T) {
-	cases := [][]string{
-		{"vault", "lock"},
-	}
+	// Every vault subcommand is implemented (see vault_test.go), so no
+	// case of this family reports not-implemented any more.
+	cases := [][]string{}
 	for _, args := range cases {
 		if code := run(args); code != ExitNotImplemented {
 			t.Fatalf("run(%v) exit = %d, want %d", args, code, ExitNotImplemented)

@@ -42,8 +42,11 @@ func TestPruneClockEval(t *testing.T) {
 	if !pruneFromPrefix(ProfileEval, emb, "clock") {
 		t.Fatal("clock must be pruned from the eval prefix")
 	}
-	if pruneFromPrefix(ProfileDelegate, emb, "clock") {
-		t.Fatal("clock must stay in the delegate prefix")
+	if !pruneFromPrefix(ProfileDelegate, emb, "clock") {
+		t.Fatal("clock must be pruned from the delegate prefix")
+	}
+	if pruneFromPrefix(ProfileDefault, emb, "clock") {
+		t.Fatal("assistant clock must stay visible")
 	}
 	if pruneFromPrefix(ProfileEval, emb, "exec") {
 		t.Fatal("working tools must never be pruned")

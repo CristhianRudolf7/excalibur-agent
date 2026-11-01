@@ -11,8 +11,10 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
@@ -91,18 +93,19 @@ type Session struct {
 	UsePTY  bool
 	Started time.Time
 
-	mu       sync.Mutex
-	buf      bytes.Buffer
-	full     bytes.Buffer
-	done     chan struct{}
-	exitErr  error
-	exited   bool
-	lastUse  time.Time
-	pty      platform.PTYSession
-	proc     *os.Process
-	Detached bool
-	LogPath  string
-	Pid      int
+	mu         sync.Mutex
+	buf        bytes.Buffer
+	full       bytes.Buffer
+	done       chan struct{}
+	exitErr    error
+	exited     bool
+	lastUse    time.Time
+	lastOutput time.Time
+	pty        platform.PTYSession
+	proc       *os.Process
+	Detached   bool
+	LogPath    string
+	Pid        int
 }
 
 func (s *Session) appendOut(p []byte) {
@@ -111,6 +114,7 @@ func (s *Session) appendOut(p []byte) {
 	s.buf.Write(p)
 	s.full.Write(p)
 	s.lastUse = time.Now()
+	s.lastOutput = s.lastUse
 	// Bound the live buffer to MaxBufferedOutput head+tail style: keep
 	// first and last quarters when over budget.
 	if int64(s.buf.Len()) > MaxBufferedOutput {
@@ -146,8 +150,10 @@ func (s *Session) snapshot() (alive bool) {
 
 // Exit reports the process exit code when the session finished:
 // (code, true) after completion, (0, false) while still running.
-// Start failures surface as code 127 with the start error in the
-// output so callers can render exit/duration up front.
+// A process ended by a signal reports 128+signal, the shell convention,
+// instead of the -1 that exec.ExitError gives for signal deaths. Start
+// failures surface as code 127 with the start error in the output so
+// callers can render exit/duration up front.
 func (s *Session) Exit() (int, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -158,12 +164,65 @@ func (s *Session) Exit() (int, bool) {
 		return 0, true
 	}
 	if ee, ok := s.exitErr.(*exec.ExitError); ok {
+		if sig, signaled := exitSignalOf(ee); signaled {
+			return 128 + sig, true
+		}
 		return ee.ExitCode(), true
 	}
 	if strings.Contains(s.exitErr.Error(), "start error") {
 		return 127, true
 	}
 	return 1, true
+}
+
+// ExitSignal reports the signal number that ended the session process,
+// when a signal ended it. Use SignalName for the printable name.
+func (s *Session) ExitSignal() (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.exited {
+		return 0, false
+	}
+	if ee, ok := s.exitErr.(*exec.ExitError); ok {
+		return exitSignalOf(ee)
+	}
+	return 0, false
+}
+
+// exitSignalOf returns the terminating signal of a finished process.
+func exitSignalOf(ee *exec.ExitError) (int, bool) {
+	ws, ok := ee.Sys().(syscall.WaitStatus)
+	if !ok || !ws.Signaled() {
+		return 0, false
+	}
+	return int(ws.Signal()), true
+}
+
+// SignalName returns the conventional name of a signal number, such as
+// SIGSEGV for 11. Unknown numbers render as SIG<n>.
+func SignalName(sig int) string {
+	if name, ok := signalNames[sig]; ok {
+		return name
+	}
+	return "SIG" + strconv.Itoa(sig)
+}
+
+// rootPID returns the process id of the session's shell, or 0.
+func (s *Session) rootPID() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pidLocked()
+}
+
+// pidLocked returns the session's root pid. The caller holds s.mu.
+func (s *Session) pidLocked() int {
+	if s.Pid > 0 {
+		return s.Pid
+	}
+	if s.proc != nil {
+		return s.proc.Pid
+	}
+	return 0
 }
 
 // SnapshotFull returns the full buffered output for header
@@ -264,8 +323,7 @@ func (m *SessionManager) nextSeq() uint64 {
 }
 
 func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
-	if err := guardSignals(cmd); err != nil {
-		s.appendOut([]byte(err.Error()))
+	if err := m.preflight(s, cmd); err != nil {
 		s.markDone(err)
 		return
 	}
@@ -274,7 +332,7 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 	if dir != "" {
 		c.Dir = dir
 	}
-	c.Env = pipeEnv(env)
+	c.Env = pipeEnvIn(dir, env)
 	c.SysProcAttr = sysProcAttr()
 	if m.deps.Group != nil {
 		m.deps.Group.Configure(c)
@@ -282,6 +340,17 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 	if m.deps.Isolator != nil {
 		_ = m.deps.Isolator.Isolate(c)
 	}
+	// Stdin is /dev/null, never an inherited descriptor: a program that
+	// asks a question reads end of file at once instead of blocking the
+	// session (item 34). Interactive input goes through a tty:true session.
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		s.appendOut([]byte("start error: open devnull: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	defer devNull.Close()
+	c.Stdin = devNull
 	stdout, err := c.StdoutPipe()
 	if err != nil {
 		s.appendOut([]byte("start error: " + err.Error()))
@@ -316,8 +385,7 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 }
 
 func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
-	if err := guardSignals(cmd); err != nil {
-		s.appendOut([]byte(err.Error()))
+	if err := m.preflight(s, cmd); err != nil {
 		s.markDone(err)
 		return
 	}
@@ -400,8 +468,7 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string) (*S
 }
 
 func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []string, logPath string) {
-	if err := guardSignals(cmd); err != nil {
-		s.appendOut([]byte(err.Error()))
+	if err := m.preflight(s, cmd); err != nil {
 		s.markDone(err)
 		return
 	}
@@ -410,7 +477,7 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 	if dir != "" {
 		c.Dir = dir
 	}
-	c.Env = pipeEnv(env)
+	c.Env = pipeEnvIn(dir, env)
 	c.SysProcAttr = detachedSysProcAttr()
 	// Never arm Pdeathsig or group-kill for detached services: the
 	// point is survival after the agent exits. Isolator and priority
@@ -541,10 +608,40 @@ func (s *Session) waitYield(ctx context.Context, d time.Duration) (string, bool)
 		out, _ := s.ReadSince(0)
 		return out, false
 	case <-timer.C:
+		s.noteTerminalWait()
 		out, _ := s.ReadSince(0)
 		return out, s.snapshot()
 	}
 }
+
+// noteTerminalWait says so when a silent, non-PTY session is attached to a
+// terminal device. Such a process is most likely waiting for a prompt that
+// reads /dev/tty, which no one answers in a non-interactive run. The note
+// is part of the session output, so the model sees it with the yield.
+// Switch: EXCALIBUR_PROMPT_DETECT (default on).
+func (s *Session) noteTerminalWait() {
+	if !promptDetectEnabled() || s.UsePTY {
+		return
+	}
+	s.mu.Lock()
+	silent := !s.exited && s.lastOutput.IsZero()
+	pid := s.pidLocked()
+	s.mu.Unlock()
+	if !silent || pid <= 0 {
+		return
+	}
+	for _, p := range readProcessTable().tree(pid) {
+		if processHoldsTerminal(p.PID) {
+			s.appendOut([]byte("note: session is waiting for terminal input (a prompt reading /dev/tty); it cannot be answered here. Close it with exec_io and rerun the step with a non-interactive option, or use tty:true to answer through exec_io write.\n"))
+			return
+		}
+	}
+}
+
+// PromptDetectSwitch gates the terminal-prompt note (item 34).
+const PromptDetectSwitch = "EXCALIBUR_PROMPT_DETECT"
+
+func promptDetectEnabled() bool { return switchDefaultOn(PromptDetectSwitch) }
 
 // Get returns the session by id.
 func (m *SessionManager) Get(id SessionID) (*Session, bool) {
@@ -801,6 +898,54 @@ func (m *SessionManager) Close(id SessionID) error {
 	return nil
 }
 
+// StopHelperEnvSwitch gates the run-end stop of helper sessions (item 46).
+const StopHelperEnvSwitch = "EXCALIBUR_STOP_HELPERS"
+
+// StopHelperSessions ends the non-detached sessions of this run when the
+// run ends. Each helper's process group gets SIGTERM and, if members remain
+// after the usual margin, SIGKILL. Detached background services (W10) are
+// left alone: keeping them running after the agent exits is the purpose of
+// detaching them. The switch EXCALIBUR_STOP_HELPERS (default on) keeps
+// helpers alive when off. It returns the sessions it stopped.
+func (m *SessionManager) StopHelperSessions() []SessionID {
+	if !switchDefaultOn(StopHelperEnvSwitch) {
+		return nil
+	}
+	m.mu.Lock()
+	var helpers []*Session
+	for _, sid := range m.order {
+		if s, ok := m.sessions[sid]; ok && !s.Detached {
+			helpers = append(helpers, s)
+		}
+	}
+	m.mu.Unlock()
+	var stopped []SessionID
+	for _, s := range helpers {
+		s.mu.Lock()
+		pid := s.pidLocked()
+		s.mu.Unlock()
+		if pid <= 0 || !groupAlive(pid) {
+			continue
+		}
+		stopGroup(pid)
+		stopped = append(stopped, s.ID)
+	}
+	return stopped
+}
+
+// stopGroup terminates the process group pgid: SIGTERM first, then SIGKILL
+// once the usual kill margin has passed with members still alive.
+func stopGroup(pgid int) {
+	_ = signalGroup(pgid, false)
+	deadline := time.Now().Add(termKillMargin)
+	for groupAlive(pgid) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if groupAlive(pgid) {
+		_ = signalGroup(pgid, true)
+	}
+}
+
 func (m *SessionManager) evictIfNeeded(owner string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -884,9 +1029,13 @@ func (m *SessionManager) evictIfNeeded(owner string) {
 const NonInteractiveEnvSwitch = "EXCALIBUR_NONINTERACTIVE_ENV"
 
 // nonInteractiveEnvEnabled reports whether the extra defaults apply.
-func nonInteractiveEnvEnabled() bool {
-	v, ok := os.LookupEnv(NonInteractiveEnvSwitch)
-	if !ok || len(v) == 0 {
+func nonInteractiveEnvEnabled() bool { return switchDefaultOn(NonInteractiveEnvSwitch) }
+
+// switchDefaultOn reads a boolean EXCALIBUR_* switch that is on unless it
+// is set to 0, off, false or no.
+func switchDefaultOn(name string) bool {
+	v, ok := os.LookupEnv(name)
+	if !ok || len(strings.TrimSpace(v)) == 0 {
 		return true
 	}
 	switch strings.ToLower(strings.TrimSpace(v)) {
@@ -897,8 +1046,18 @@ func nonInteractiveEnvEnabled() bool {
 	}
 }
 
+// AutonomousEnvSwitch gates the defaults that only autonomous runs need:
+// the pip and git settings below. They apply in sessions of an exec scope
+// (`excalibur exec`, eval and exec profiles) and nowhere else. Default ON.
+const AutonomousEnvSwitch = "EXCALIBUR_AUTONOMOUS_ENV"
+
 // pipeEnv forces non-interactive pager settings (Section 13.5).
-func pipeEnv(extra []string) []string {
+func pipeEnv(extra []string) []string { return pipeEnvIn("", extra) }
+
+// pipeEnvIn builds the environment of a non-tty session started in dir.
+// The directory matters only for the git identity check, which reads the
+// repository configuration the session will see.
+func pipeEnvIn(dir string, extra []string) []string {
 	base := os.Environ()
 	over := map[string]string{"PAGER": "cat", "GIT_PAGER": "cat", "TERM": "dumb", "NO_COLOR": "1"}
 	if nonInteractiveEnvEnabled() {
@@ -910,7 +1069,94 @@ func pipeEnv(extra []string) []string {
 		over["APT_LISTCHANGES_FRONTEND"] = "none"
 		over["NEEDRESTART_MODE"] = "a"
 	}
+	if switchDefaultOn(AutonomousEnvSwitch) && CurrentExecScope().Active {
+		for k, v := range autonomousSessionEnv(base, dir) {
+			over[k] = v
+		}
+	}
 	return mergeEnv(base, over, extra)
+}
+
+// autonomousSessionEnv returns the defaults for an autonomous run. pip skips
+// its version check and may install into an externally managed system
+// interpreter instead of stopping (items 11 and 70). Git gets a fixed author
+// and committer identity only where neither the environment nor the
+// repository configuration supplies one (item 62).
+func autonomousSessionEnv(base []string, dir string) map[string]string {
+	over := map[string]string{
+		"PIP_DISABLE_PIP_VERSION_CHECK": "1",
+		"PIP_BREAK_SYSTEM_PACKAGES":     "1",
+		"PIP_ROOT_USER_ACTION":          "ignore",
+	}
+	var missing []string
+	for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
+		if !envKeySet(base, key) {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		hasName, hasEmail := gitConfiguredIdentity(base, dir)
+		for _, key := range missing {
+			switch {
+			case strings.HasSuffix(key, "_NAME") && !hasName:
+				over[key] = agentGitName
+			case strings.HasSuffix(key, "_EMAIL") && !hasEmail:
+				over[key] = agentGitEmail
+			}
+		}
+	}
+	return over
+}
+
+// Fixed identity for commits made by autonomous runs when none is set.
+const (
+	agentGitName  = "Excalibur Agent"
+	agentGitEmail = "excalibur@localhost"
+)
+
+// envKeySet reports whether the environment list defines key.
+func envKeySet(env []string, key string) bool {
+	for _, kv := range env {
+		if k, _, ok := strings.Cut(kv, "="); ok && k == key {
+			return true
+		}
+	}
+	return false
+}
+
+// gitConfiguredIdentity asks git whether user.name and user.email are set
+// for dir. A missing git binary or a failing lookup reports nothing
+// configured, so the fixed defaults apply and stay useful once git is
+// installed later.
+func gitConfiguredIdentity(base []string, dir string) (name, email bool) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		return false, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, git, "config", "--get-regexp", `^user\.(name|email)$`)
+	cmd.Env = base
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		return false, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		key, value, _ := strings.Cut(line, " ")
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		switch key {
+		case "user.name":
+			name = true
+		case "user.email":
+			email = true
+		}
+	}
+	return name, email
 }
 
 func ptyEnv(extra []string) []string {

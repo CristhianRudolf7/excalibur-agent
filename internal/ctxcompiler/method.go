@@ -1,6 +1,8 @@
 package ctxcompiler
 
-import "strings"
+import (
+	"strings"
+)
 
 // Working method and model-family adaptation (Sections 7.3, 11.1,
 // 19.1-19.2).
@@ -90,13 +92,17 @@ func (f PromptFamily) Default() PromptFamily {
 	return f
 }
 
-// WorkingMethod is the shared working method taught to every model:
-// understand, explore, plan, implement in small steps, test, verify,
-// finish, with explicit thoroughness and error-recovery rules. It is
-// written for small models: short numbered steps, concrete verbs,
-// and no assumed background beyond the tool definitions.
-func WorkingMethod() string {
-	return `working method:
+// EnvMethodV2 is the switch for the evidence rules appended to the
+// working method (default ON). EXCALIBUR_METHOD_V2=off restores the
+// original eight-step block byte for byte, for ablations.
+const EnvMethodV2 = "EXCALIBUR_METHOD_V2"
+
+// MethodV2Enabled reports whether the evidence rules (steps 9 to 17)
+// are part of the working method.
+func MethodV2Enabled() bool { return envFlagDefaultOn(nil, EnvMethodV2) }
+
+// workingMethodSteps is the original eight-step method, unchanged.
+const workingMethodSteps = `working method:
 1. Understand: restate the goal and the done criteria in your own words. If the request names files, paths or commands, use exactly those.
 2. Explore first: list and read the relevant files before changing anything. Do not guess APIs, paths or behavior; check them with a tool.
 3. Plan briefly: keep a short ordered todo (3-7 steps) of what you will do and how you will verify each step. Update it as you learn.
@@ -105,7 +111,38 @@ func WorkingMethod() string {
 6. On any error: read the whole error message, find the exact failing line or parameter, fix that one thing, and retry once. Never retry an identical call blindly; if it fails twice, change strategy (different tool, different arguments, or read the relevant code first).
 7. On a tool-parameter error (unknown name, missing required field, bad enum): fix exactly the named parameter, copying allowed values from the tool definition or the error message. Never invent enum values or target names.
 8. Finish only when every requirement is verified: summarize what you verified and how. Never declare success without evidence, and never present partial work as done.
-Rules: be thorough and persistent; do not stop early. Prefer real tool calls over narration. Keep the context small: rely on the pinned working notes for paths, decisions and failures instead of re-reading large outputs.`
+`
+
+// workingMethodEvidence are the evidence rules added by
+// EXCALIBUR_METHOD_V2. Each line is short and general: provided
+// inputs, success paths, unseen instances, measurement, handoffs
+// between steps, services, sources and the task's own tools.
+const workingMethodEvidence = `9. Copy provided data first (cp -a) to preserve originals. Never edit given inputs or tests unless asked.
+10. Test the success path too: craft an input that must pass the rules and one that must fail.
+11. Never hard-code example values. Compare varied inputs, sizes and seeds with an independent reference.
+12. Measure the way the instruction measures: same metric, repeated runs, margin; state the value.
+13. Pass values between steps through files or pipes; never retype numbers, keys or hashes by hand.
+14. Run a script you wrote on the real input after its last edit; compile/--help are not tests. Assert each patch replacement.
+15. Keep required services running: detach (nohup/setsid), log to a file; check the port from a new shell.
+16. If a source is unreachable, try mirrors, archives, git or local copies. An impossible claim needs the failing command and output.
+17. Use only the task's own files and tools; do not read harness logs or host internals.
+`
+
+// workingMethodRules closes the block for both variants.
+const workingMethodRules = `Rules: be thorough and persistent; do not stop early. Prefer real tool calls over narration. Keep the context small: rely on the pinned working notes for paths, decisions and failures instead of re-reading large outputs.`
+
+// WorkingMethod is the shared working method taught to every model:
+// understand, explore, plan, implement in small steps, test, verify,
+// finish, with explicit thoroughness and error-recovery rules. It is
+// written for small models: short numbered steps, concrete verbs,
+// and no assumed background beyond the tool definitions. With
+// EXCALIBUR_METHOD_V2 on (default) the evidence rules follow step 8;
+// off returns the original block exactly.
+func WorkingMethod() string {
+	if !MethodV2Enabled() {
+		return workingMethodSteps + workingMethodRules
+	}
+	return workingMethodSteps + workingMethodEvidence + workingMethodRules
 }
 
 // FamilyNote is the per-family variant appended after the shared

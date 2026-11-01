@@ -21,7 +21,7 @@ func TestOverloadServerWaits(t *testing.T) {
 		status                    int
 	}{
 		{"retry seconds", "Retry-After", "0.01", "slow", 429},
-		{"retry date", "Retry-After", time.Now().Add(2 * time.Second).UTC().Format(http.TimeFormat), "slow", 429},
+		{"retry date", "Retry-After", "DATE", "slow", 429},
 		{"reset tokens", "x-ratelimit-reset-tokens", "10ms", "slow", 429},
 		{"reset requests", "x-ratelimit-reset-requests", "0.01", "slow", 429},
 		{"text ms", "", "", "Please try again in 10ms", 429},
@@ -34,7 +34,13 @@ func TestOverloadServerWaits(t *testing.T) {
 				keys = append(keys, r.Header.Get("Authorization"))
 				if len(keys) <= 4 {
 					if tc.header != "" {
-						w.Header().Set(tc.header, tc.value)
+						value := tc.value
+						if value == "DATE" {
+							// Computed per request: a fixed date would be in the past
+							// after the first wait and fall back to exponential waits.
+							value = time.Now().Add(2 * time.Second).UTC().Format(http.TimeFormat)
+						}
+						w.Header().Set(tc.header, value)
 					}
 					w.WriteHeader(tc.status)
 					fmt.Fprintf(w, `{"error":{"message":%q}}`, tc.text)
@@ -98,6 +104,8 @@ func TestOverloadBudgetAndSwitch(t *testing.T) {
 }
 
 func TestRetryDelayBounds(t *testing.T) {
+	// Legacy schedule (v2 off): capped at 30 s.
+	t.Setenv("EXCALIBUR_PROVIDER_RETRY_V2", "0")
 	e := &providers.ProviderError{Kind: providers.KindRateLimited, Err: errors.New("slow")}
 	if d := retryDelay(e, time.Second, 1000000); d != 30*time.Second {
 		t.Fatalf("cap %v", d)

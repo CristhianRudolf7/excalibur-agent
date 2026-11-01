@@ -88,3 +88,21 @@ func TestRedact_LockedKeepsPatterns(t *testing.T) {
 		t.Fatalf("pattern leaked while locked: %q", red)
 	}
 }
+
+// TestContainsRedactionMarker covers the write-side guard predicate: a
+// vault value marker and the pattern marker are detected, plain text is
+// not.
+func TestContainsRedactionMarker(t *testing.T) {
+	r := NewRedactor()
+	if !ContainsRedactionMarker("key=" + r.MarkerFor("github-token")) {
+		t.Fatal("vault value marker must be detected")
+	}
+	if !ContainsRedactionMarker("token: " + RedactPatternMarker) {
+		t.Fatal("pattern marker must be detected")
+	}
+	for _, plain := range []string{"", "ordinary text", "sk-redacted-by-name", "secret: value"} {
+		if ContainsRedactionMarker(plain) {
+			t.Fatalf("plain text %q must not be treated as a marker", plain)
+		}
+	}
+}

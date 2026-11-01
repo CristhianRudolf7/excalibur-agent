@@ -25,7 +25,23 @@ func (t *StubTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if t.Provider != nil {
 		return t.Provider(ctx, inv)
 	}
-	return Result{Status: StatusToolError, Output: fmt.Sprintf("tool %q is owned by another subsystem (not wired in H3)", t.Def.Name)}, nil
+	if !StubRepliesEnabled() {
+		return Result{Status: StatusToolError, Output: fmt.Sprintf("tool %q has no backend in this run", t.Def.Name)}, nil
+	}
+	return Result{Status: StatusOK, Output: stubReply(t.Def.Name)}, nil
+}
+
+// stubReply answers a listed but unwired tool without an error. It says
+// what happened (nothing) and what to do instead, so the agent does not
+// read an unwired tool as a failed step or as a completed one.
+func stubReply(name string) string {
+	switch name {
+	case "ack_directive":
+		return "no directives are pending in this run; nothing to acknowledge"
+	case "leave_continuation_note":
+		return "continuation notes are not kept in this run; nothing was saved"
+	}
+	return fmt.Sprintf("%s has no backend in this run, so nothing was done; continue with the file and exec tools", name)
 }
 
 func (t *StubTool) ResourceKeys(_ json.RawMessage) ([]string, error) { return nil, nil }
@@ -115,7 +131,7 @@ func BuiltinTools(deps *BuiltinDeps) []Tool {
 		&ApplyPatchTool{Deps: files},
 		&GrepTool{},
 		&GlobTool{},
-		&ExecTool{Sessions: sess, Outputs: outs},
+		&ExecTool{Sessions: sess, Outputs: outs, Workdir: files.runWorkdir()},
 		&ExecIOTool{Sessions: sess},
 		&ClockTool{Now: deps.ClockNow},
 		&GetToolOutputTool{Outputs: outs, History: files.History, Sessions: sess},

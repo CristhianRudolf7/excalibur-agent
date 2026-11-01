@@ -9,54 +9,79 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 )
 
-// Time-based run budgets and strict blocked policy (director's W8 design).
+// Time-based run budgets and strict blocked policy.
 //
-// In non-interactive profiles (exec, delegate, eval) the binding budget
-// is the task wall-clock limit with closing mode at 90%; token and step
-// limits are safety caps sized so they cannot bind before the wall
-// clock. A run must never end paused in eval except on the hard wall
-// clock. The strict blocked policy accepts `finish status=blocked` only
-// with deterministic evidence of an external impossibility.
+// In non-interactive runs (exec, delegate, eval) the binding budget is
+// the wall-clock limit of the run; token and step limits are safety
+// caps sized so they cannot bind before the wall clock. The spend caps
+// (USD cost and input tokens) are the exception: they are enforced in
+// time-only runs as well, with a closing note at 100 percent and a
+// paused stop at 125 percent. A run never ends paused except on the
+// wall clock or a spend cap. The strict blocked policy accepts
+// `finish status=blocked` only with deterministic evidence of an
+// external impossibility.
 
 // TimeBudgetOnlySwitch gates the wall-clock-only binding budget.
 const TimeBudgetOnlySwitch = "EXCALIBUR_TIME_BUDGET_ONLY"
 
-// CostCapSwitch configures the per-trial safety cost cap in USD.
+// CostCapSwitch configures the per-trial spend cap in USD.
 const CostCapSwitch = "EXCALIBUR_COST_CAP_USD"
+
+// SpendCapSwitch gates the spend caps in time-only runs: the USD cost
+// cap and the input-token cap (default ON).
+const SpendCapSwitch = "EXCALIBUR_SPEND_CAP"
+
+// InputTokenCapSwitch configures the per-run input-token cap.
+const InputTokenCapSwitch = "EXCALIBUR_INPUT_TOKEN_CAP"
 
 // StrictBlockedSwitch gates the strict blocked policy.
 const StrictBlockedSwitch = "EXCALIBUR_STRICT_BLOCKED"
 
-// Safety caps: sized so they cannot bind before the wall clock under
-// normal pricing and pacing.
+// Safety caps and budget defaults.
 const (
 	// SafetyMaxSteps is the non-binding step safety cap in time-only mode.
 	SafetyMaxSteps = 2000
-	// DefaultCostCapUSD is the default per-trial safety cost cap.
+	// DefaultCostCapUSD is the default per-trial spend cap.
 	DefaultCostCapUSD = 20.0
-	// DefaultEvalWallSecs is the arm wall budget when neither an
-	// explicit --timeout nor a Harbor/operator override is known.
-	DefaultEvalWallSecs = 3600
+	// DefaultInputTokenCap is the default per-run input-token cap.
+	DefaultInputTokenCap = 8_000_000
+	// DefaultEvalWallSecs is the wall budget of a non-interactive run
+	// with neither an explicit --timeout nor EXCALIBUR_EVAL_WALL_SECS:
+	// the common agent timeout of terminal benchmarks, so the budget
+	// the agent sees matches the limit the harness enforces.
+	DefaultEvalWallSecs = 900
+	// SpendCloseShare is the share of a spend cap at which the agent
+	// is asked to finish within a few turns.
+	SpendCloseShare = 1.0
+	// SpendStopShare is the share of a spend cap at which the run
+	// stops as paused with the budget motive.
+	SpendStopShare = 1.25
 )
 
-// EvalWallEnvNames configures the arm wall fallback.
-var EvalWallEnvNames = []string{"EXCALIBUR_EVAL_WALL_SECS", "EXCALIBUR_ARM_TIMEOUT_SEC", "EXCALIBUR_ARM_WALL_SECS"}
+// EvalWallEnvNames are the variables that set the wall budget of a
+// non-interactive run when no --timeout is given; the first positive
+// value wins.
+var EvalWallEnvNames = []string{"EXCALIBUR_EVAL_WALL_SECS"}
 
 // TimeOnlyClosingNote is the volatile note injected once when the wall
 // clock enters closing mode: leave the best deliverable and finish.
 const TimeOnlyClosingNote = "closing mode: time is almost exhausted; leave the best deliverable in place, verify what exists quickly, and call `finish` with evidence now. Do not start new work."
 
-// SafetyCapNote is injected when a safety cap (steps/cost) would have
-// paused the run in legacy mode: the wall clock still binds, so the run
-// keeps working toward the wall edge instead of pausing.
-const SafetyCapNote = "budget note: a safety cap (steps/cost) is reached but the wall clock still binds; keep working toward the wall edge, leave the best deliverable in place, and call `finish` with evidence."
+// SafetyCapNote is injected when a step safety cap would have paused
+// the run in legacy mode: the wall clock still binds, so the run keeps
+// working toward the wall edge instead of pausing.
+const SafetyCapNote = "budget note: a safety cap (steps) is reached but the wall clock still binds; keep working toward the wall edge, leave the best deliverable in place, and call `finish` with evidence."
+
+// SpendCloseNote is injected once when a spend cap (USD or input
+// tokens) reaches its closing share.
+const SpendCloseNote = "budget note: a spend cap is reached; finish within the next three turns. Leave the best deliverable in place, verify it, and call `finish` with evidence. Do not start new work."
 
 // TimeBudgetOnlyEnabled reports whether wall-clock-only binding
-// applies. An explicit env value wins; otherwise eval defaults ON and
-// every other profile defaults OFF. When the time-budget plumbing
-// itself is disabled (EXCALIBUR_TIME_BUDGET=0), time-only stays off so
-// ablations restore the legacy silent baseline.
-func TimeBudgetOnlyEnabled(isEval bool) bool {
+// applies. An explicit env value wins; otherwise non-interactive runs
+// default ON and interactive turns default OFF. When the time-budget
+// plumbing itself is disabled (EXCALIBUR_TIME_BUDGET=0), time-only
+// stays off so ablations restore the legacy silent baseline.
+func TimeBudgetOnlyEnabled(nonInteractive bool) bool {
 	if !TimeBudgetEnabled() {
 		return false
 	}
@@ -68,7 +93,7 @@ func TimeBudgetOnlyEnabled(isEval bool) bool {
 			return false
 		}
 	}
-	return isEval
+	return nonInteractive
 }
 
 // StrictBlockedEnabled reports whether the strict blocked policy
@@ -101,10 +126,43 @@ func CostCapUSD() float64 {
 	return f
 }
 
-// EvalWallFallback returns the configured arm wall budget in seconds:
-// EXCALIBUR_EVAL_WALL_SECS (aliases EXCALIBUR_ARM_TIMEOUT_SEC,
-// EXCALIBUR_ARM_WALL_SECS) when positive, else DefaultEvalWallSecs.
-func EvalWallFallback() int64 {
+// InputTokenCap parses EXCALIBUR_INPUT_TOKEN_CAP; unset, unparseable or
+// non-positive values fall back to DefaultInputTokenCap.
+func InputTokenCap() int64 {
+	raw, ok := os.LookupEnv(InputTokenCapSwitch)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return DefaultInputTokenCap
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil || n <= 0 {
+		return DefaultInputTokenCap
+	}
+	return n
+}
+
+// SpendCapEnabled reports whether the time-only spend caps (USD cost
+// and input tokens) apply. Default ON; EXCALIBUR_SPEND_CAP=0 turns them
+// off so only the wall clock binds.
+func SpendCapEnabled() bool { return envDefaultOn(SpendCapSwitch) }
+
+// envDefaultOn reads one default-ON switch: unset, empty or any value
+// other than 0, false, no or off keeps the mechanism on.
+func envDefaultOn(name string) bool {
+	raw, ok := os.LookupEnv(name)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+// EvalWallEnvSecs returns the wall budget set through EvalWallEnvNames
+// in seconds, or 0 when none is set to a positive value.
+func EvalWallEnvSecs() int64 {
 	for _, key := range EvalWallEnvNames {
 		raw, ok := os.LookupEnv(key)
 		if !ok || strings.TrimSpace(raw) == "" {
@@ -117,26 +175,27 @@ func EvalWallFallback() int64 {
 			return int64(f)
 		}
 	}
-	return DefaultEvalWallSecs
+	return 0
 }
 
-// EvalWallSecs resolves the effective eval wall budget and its source:
-// the explicit flag first, else the Harbor/operator override (already
-// the 90% closing value from ResolveMaxSeconds), else the configured
-// arm fallback. Source is one of explicit, harbor, arm_default.
+// EvalWallSecs resolves the wall budget of a non-interactive run and
+// its source, in this order: the explicit --timeout given to the
+// process, EXCALIBUR_EVAL_WALL_SECS, then
+// DefaultEvalWallSecs. The budget is the real limit: pacing reads it at
+// 50, 75 and 90 percent, and the agent never cuts a run short before
+// it. Source is one of explicit, env, default.
 func EvalWallSecs(explicit int64) (int64, string) {
 	if explicit > 0 {
 		return explicit, "explicit"
 	}
-	if secs := ResolveMaxSeconds(0); secs > 0 {
-		return secs, "harbor"
+	if secs := EvalWallEnvSecs(); secs > 0 {
+		return secs, "env"
 	}
-	return EvalWallFallback(), "arm_default"
+	return DefaultEvalWallSecs, "default"
 }
 
 // timeOnlyStatus evaluates only the wall clock: OK, closing below 10%
-// remainder, or exhausted at zero. Safety caps (steps/cost/tokens)
-// never bind in this mode.
+// remainder, or exhausted at zero. Safety caps never bind in this mode.
 func timeOnlyStatus(limit tasks.Limit, elapsed time.Duration) tasks.Status {
 	if limit.MaxSeconds <= 0 {
 		return tasks.StatusOK
@@ -159,6 +218,35 @@ func timeOnlyExhaustedBy(limit tasks.Limit, elapsed time.Duration) []string {
 		return []string{"time"}
 	}
 	return nil
+}
+
+// spendLevel reports how far the run is into its spend caps in
+// time-only mode: 0 below the closing share, 1 at or above it, 2 at or
+// above the stop share. over names the caps at the stop share ("cost",
+// "input_tokens"). It is 0 with the spend caps switched off or outside
+// time-only mode. Callers hold no lock.
+func (r *Run) spendLevel() (level int, over []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.Profile.TimeBudgetOnly || !SpendCapEnabled() {
+		return 0, nil
+	}
+	check := func(name string, used, capacity float64) {
+		if capacity <= 0 {
+			return
+		}
+		ratio := used / capacity
+		if ratio >= SpendCloseShare && level < 1 {
+			level = 1
+		}
+		if ratio >= SpendStopShare {
+			over = append(over, name)
+			level = 2
+		}
+	}
+	check("cost", r.Tracker.Used.CostUSD, r.Tracker.Limit.MaxCostUSD)
+	check("input_tokens", float64(r.Tracker.Used.InputTokens), float64(r.inputTokenCap))
+	return level, over
 }
 
 // TimeOnlyForRecord reports the run's time-only flag for trial

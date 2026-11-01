@@ -85,7 +85,7 @@ func TestExplicitFinishToolInPrefix(t *testing.T) {
 }
 
 // Switch OFF restores the old behaviour: a text-only turn completes,
-// the summary echoes the instruction, and `finish` stays out of the
+// the summary reports completion, and `finish` stays out of the
 // prefix.
 func TestExplicitFinishSwitchOffRestoresOld(t *testing.T) {
 	t.Setenv("EXCALIBUR_EXPLICIT_FINISH", "off")
@@ -103,8 +103,8 @@ func TestExplicitFinishSwitchOffRestoresOld(t *testing.T) {
 	if out.State != types.RunCompleted {
 		t.Fatalf("state = %q, want completed (old text finish)", out.State)
 	}
-	if out.Summary != "completed: do the thing" {
-		t.Fatalf("switch off must restore the legacy echo summary, got %q", out.Summary)
+	if out.Summary != "completed" {
+		t.Fatalf("summary must not echo the instruction, got %q", out.Summary)
 	}
 	for _, req := range fake.ChatRequests {
 		for _, td := range req.Tools {

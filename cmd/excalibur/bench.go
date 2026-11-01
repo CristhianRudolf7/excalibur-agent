@@ -221,7 +221,7 @@ func runBenchReport(dataset eval.BenchDataset, args []string) error {
 		return fmt.Errorf("usage: excalibur bench %s report <run-dir> [--out DIR] [--k N]", dataset)
 	}
 	runDir := rest[0]
-	trials, err := loadBenchTrials(runDir)
+	trials, err := eval.LoadReportTrials(runDir)
 	if err != nil {
 		return err
 	}
@@ -245,19 +245,17 @@ func runBenchReport(dataset eval.BenchDataset, args []string) error {
 	if err := os.WriteFile(filepath.Join(dest, "report.md"), []byte(md), 0o644); err != nil {
 		return fmt.Errorf("bench report: %w", err)
 	}
-	fmt.Fprintf(os.Stdout, "trials=%d tasks=%d success=%.3f [%.3f, %.3f] pass@%d=%.3f pass^%d=%.3f cost/success=$%.4f\n",
-		rep.Trials, rep.Tasks, rep.Success.Mean, rep.Success.Low, rep.Success.High,
-		rep.K, rep.PassAtK, rep.K, rep.PassPowK, rep.CostPerSuccess)
+	// Both rates are reported: the headline excludes infrastructure trials,
+	// the with-infra rate retains every recorded reward.
+	fmt.Fprintf(os.Stdout, "trials=%d scored=%d infra=%d tasks=%d success=%.3f [%.3f, %.3f] success_with_infra=%.3f pass@%d=%.3f pass^%d=%.3f cost/success=$%.4f\n",
+		rep.Trials, rep.ScoredTrials, rep.InfraTrials, rep.Tasks, rep.Success.Mean, rep.Success.Low, rep.Success.High,
+		rep.SuccessWithInfra.Mean, rep.K, rep.PassAtK, rep.K, rep.PassPowK, rep.CostPerSuccess)
 	fmt.Fprintf(os.Stdout, "report in %s/report.json and report.md\n", dest)
 	return nil
 }
 
 // loadBenchTrials reads the run-level trials.jsonl index when present,
 // falling back to trial.json files (eval report shape).
-func loadBenchTrials(runDir string) ([]eval.TrialOutcome, error) {
-	return eval.LoadRunTrials(runDir)
-}
-
 // runBenchCompare implements `excalibur bench compare <runA> <runB>`:
 // the paired per-task comparison of Section 23.7 with the acceptance
 // rule, over bench jobs or eval quick dirs alike.

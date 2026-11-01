@@ -51,7 +51,10 @@ func TestSessionOutputCompatibility(t *testing.T) {
 	if err != nil || got.Status != StatusOK || !strings.Contains(got.Output, "output") {
 		t.Fatalf("%+v %v", got, err)
 	}
+	// Session refs also resolve under the output-refs switch, so the
+	// legacy refusal needs both switches off.
 	t.Setenv("EXCALIBUR_TOOL_FRICTION_REPAIR", "off")
+	t.Setenv("EXCALIBUR_TOOL_OUTPUT_REFS", "off")
 	got, _ = get.Invoke(context.Background(), Invocation{Arguments: raw})
 	if got.Status != StatusInputError {
 		t.Fatal(got)

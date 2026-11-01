@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
@@ -92,9 +93,12 @@ type Daemon struct {
 	addr     string
 	stop     chan struct{}
 	stopOnce sync.Once
-	crashes  []time.Time
-	safeMode bool
-	quarant  map[string]bool
+	// svcCancel ends the service loops; svcDone closes as each exits.
+	svcCancel context.CancelFunc
+	svcDone   []<-chan struct{}
+	crashes   []time.Time
+	safeMode  bool
+	quarant   map[string]bool
 }
 
 // New returns a daemon. Admission sizes to NumCPU-ReservedCPUs with
@@ -196,10 +200,19 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 	if d.dep.Orch != nil {
 		d.dep.Orch.Start(ctx)
 	}
-	d.startServices(ctx)
+	// Service loops end with the daemon, not with the caller's ctx
+	// alone: Stop cancels them and waits for each to exit.
+	svcCtx, svcCancel := context.WithCancel(ctx)
+	svcDone := d.startServices(svcCtx)
+	d.mu.Lock()
+	d.svcCancel = svcCancel
+	d.svcDone = svcDone
+	d.mu.Unlock()
 	if d.dep.Gate != nil {
 		addr, err := d.dep.Gate.Start()
 		if err != nil {
+			svcCancel()
+			waitDone(svcDone, serviceStopTimeout)
 			return "", err
 		}
 		d.mu.Lock()
@@ -225,23 +238,54 @@ func (d *Daemon) crashLog() *CrashLog {
 	return NewCrashLog(d.cfg.DataDir)
 }
 
+// serviceStopTimeout bounds how long Stop waits for service loops.
+const serviceStopTimeout = 5 * time.Second
+
 // startServices launches the assembled service loops: the agenda
-// timer, the trigger pump sources, the memory review loop and the
-// RAM watchdog. Nil services are skipped.
-func (d *Daemon) startServices(ctx context.Context) {
+// timer, the trigger pump, the memory review loop, the retention loop
+// and the RAM watchdog. Nil services are skipped. It returns one done
+// channel per loop that runs in its own goroutine.
+func (d *Daemon) startServices(ctx context.Context) []<-chan struct{} {
 	svc := d.dep.Services
 	if svc == nil {
-		return
+		return nil
 	}
+	var done []<-chan struct{}
 	if svc.Agenda != nil {
 		svc.Agenda.Start()
 	}
+	if svc.Triggers != nil {
+		var sources []<-chan agenda.Event
+		if svc.Events != nil {
+			sources = append(sources, svc.Events)
+		}
+		done = append(done, svc.Triggers.Run(ctx, sources...))
+	}
 	if svc.Review != nil {
-		svc.Review.Start(ctx, svc.ReviewScopes)
+		done = append(done, svc.Review.Start(ctx, svc.ReviewScopes))
+	}
+	if svc.Retention != nil {
+		done = append(done, svc.Retention.Start(ctx))
 	}
 	if svc.Dog != nil {
-		svc.Dog.Start(ctx)
+		done = append(done, svc.Dog.Start(ctx))
 	}
+	return done
+}
+
+// waitDone blocks until every channel closes or the timeout passes.
+// It reports whether all loops exited in time.
+func waitDone(chans []<-chan struct{}, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for _, c := range chans {
+		select {
+		case <-c:
+		case <-deadline.C:
+			return false
+		}
+	}
+	return true
 }
 
 // Stop performs the controlled shutdown: intake stops first (the gate
@@ -262,6 +306,16 @@ func (d *Daemon) Stop(ctx context.Context) error {
 	}
 	if svc := d.dep.Services; svc != nil && svc.Agenda != nil {
 		svc.Agenda.Stop()
+	}
+	d.mu.Lock()
+	cancel, done := d.svcCancel, d.svcDone
+	d.svcCancel, d.svcDone = nil, nil
+	d.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		if !waitDone(done, serviceStopTimeout) && first == nil {
+			first = fmt.Errorf("daemon: service loops did not stop within %s", serviceStopTimeout)
+		}
 	}
 	if d.cfg.RuntimeDir != "" {
 		RemoveAddrFile(d.cfg.RuntimeDir)

@@ -1,49 +1,34 @@
 package engine
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 )
 
-// Strict blocked policy (director's W8 design, non-interactive profiles).
+// Strict blocked policy (director's W8 design, non-interactive profiles),
+// reworked in work package D (D7).
 //
-// `finish status=blocked` is accepted only with deterministic evidence
-// of an external impossibility observed in the agent's own tool history:
-// a required network resource unreachable or 404 after retries, a
-// required file or tool provably absent and not installable, or an
-// explicit permission denial outside the agent's control.
+// `finish status=blocked` is refused while time remains unless the claim
+// survives the general rules below. Every rule is a property of the run
+// (what was attempted, what the instruction names, how much wall budget
+// is left, whether the deliverable checks pass). None is a vocabulary of
+// a particular task:
 //
-// "My solution fails validation" is never a valid blocked reason while
-// time remains: the harness refuses with a structured recovery prompt
-// (failing check and its output, three materially different approaches,
-// pick one, continue). Refusals are counted in FinishRefusals plus the
-// dedicated StrictBlockedRefusals counter surfaced in the trial
-// records.
+//	closing  less than 10% of the wall budget is left: never blocked.
+//	(a)      no edit, write or install was attempted: the claim is untested.
+//	(b)      a named deliverable can still be created and no call touched it.
+//	(e)      the run itself stopped the service the reason says is gone.
+//	(c)      more than half of the wall budget remains and the reason does
+//	         not quote a failing command, its output, or the external marker
+//	         that a failing output of this run shows.
+//	(d)      the deliverable checks pass: the work is done, finish completed.
+//
+// Each refusal is one numbered reason in the finish tool result (D1).
 
-// strictNetworkMarks are deterministic network-failure signals in tool
-// outputs (lowercased, substring match).
-var strictNetworkMarks = []string{
-	"connection refused", "connection reset", "connection timed out",
-	"could not resolve", "name resolution", "network is unreachable",
-	"no route to host", "dns", "404", "not found", "failed to fetch",
-	"could not connect", "timed out", "timeout",
-}
-
-// strictPermissionMarks are deterministic permission-denial signals.
-var strictPermissionMarks = []string{
-	"permission denied", "operation not permitted", "access denied",
-	"eacces", "eperm", "403", "forbidden",
-}
-
-// strictMissingMarks name a missing file or tool.
-var strictMissingMarks = []string{
-	"command not found", "no such file", "not found", "missing",
-	"not installed", "cannot find", "can't find",
-}
-
-// strictInstallMarks prove an install was attempted.
+// strictInstallMarks name install commands and provisioner reports.
 var strictInstallMarks = []string{
 	"apt-get", "apt ", "pip install", "uv pip", "npm install",
 	"yarn add", "pnpm add", "gem install", "cargo add", "go get",
@@ -93,137 +78,162 @@ func (e *Engine) timeRemains(run *Run) bool {
 	return true
 }
 
-// hasExternalEvidence checks the blocked reason plus the agent's own
-// tool history for deterministic external-impossibility evidence.
-func hasExternalEvidence(reason string, history []tasks.HistoryTool) bool {
-	rl := strings.ToLower(reason)
-	var outputs strings.Builder
-	failCount := 0
-	for _, h := range history {
-		if h.IsError || h.Output != "" {
-			outputs.WriteString("\n")
-			outputs.WriteString(strings.ToLower(h.Output))
-			outputs.WriteString("\n")
-			outputs.WriteString(strings.ToLower(h.Args))
-			if h.IsError {
-				failCount++
-			}
-		}
+// wallRemaining returns the share of the wall budget still unused and
+// whether the run has a wall budget at all. Without one there is no
+// remaining share to compare, so rule (c) does not apply.
+func (e *Engine) wallRemaining(run *Run) (float64, bool) {
+	run.mu.Lock()
+	limit := run.Tracker.Limit
+	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
+	run.mu.Unlock()
+	if limit.MaxSeconds <= 0 {
+		return 0, false
 	}
-	hl := outputs.String()
+	total := time.Duration(limit.MaxSeconds) * time.Second
+	left := total - elapsed
+	if left <= 0 {
+		return 0, true
+	}
+	return float64(left) / float64(total), true
+}
 
-	// Permission denial outside the agent's control: reason names it
-	// and the history shows it.
-	if containsAnyLower(rl, strictPermissionMarks) != "" &&
-		containsAnyLower(hl, strictPermissionMarks) != "" {
+// changeAttempted reports whether the run wrote, edited or installed
+// anything: a write or edit call, a mutating exec, or an install command.
+func changeAttempted(history []tasks.HistoryTool) bool {
+	if tasks.LastArtifactChange(history) >= 0 {
 		return true
 	}
-	// Network resource unreachable/404: reason names a network
-	// resource or failure and the history shows a network failure.
-	networkInReason := containsAnyLower(rl, strictNetworkMarks) != "" ||
-		strings.Contains(rl, "http://") || strings.Contains(rl, "https://") ||
-		strings.Contains(rl, "url") || strings.Contains(rl, "host") ||
-		strings.Contains(rl, "network") || strings.Contains(rl, "connection")
-	networkInHistory := containsAnyLower(hl, strictNetworkMarks) != ""
-	if networkInReason && networkInHistory {
-		// Retries: at least two failed tool calls, or one failure
-		// plus an explicit retry marker in the reason.
-		if failCount >= 2 {
-			return true
+	for _, h := range history {
+		if strings.ToLower(h.Name) != "exec" {
+			continue
 		}
-		if strings.Contains(rl, "retry") || strings.Contains(rl, "retries") ||
-			strings.Contains(rl, "after") || strings.Contains(hl, "retry") {
-			return true
-		}
-		// A single crisp 404/connection-refused still counts when
-		// both sides name it.
-		if strings.Contains(hl, "404") || strings.Contains(hl, "connection refused") ||
-			strings.Contains(hl, "could not resolve") || strings.Contains(hl, "network is unreachable") {
-			return true
-		}
-	}
-	// Required file/tool provably absent and not installable: the
-	// reason names the missing piece, the history shows the miss,
-	// and the history shows an install was attempted (and failed) or
-	// the network is down so no install is possible.
-	if containsAnyLower(rl, strictMissingMarks) != "" &&
-		containsAnyLower(hl, strictMissingMarks) != "" {
-		if containsAnyLower(hl, strictInstallMarks) != "" {
-			return true
-		}
-		if containsAnyLower(hl, strictNetworkMarks) != "" {
+		if containsAnyLower(strings.ToLower(h.Args), strictInstallMarks) != "" ||
+			containsAnyLower(strings.ToLower(h.Output), strictInstallMarks) != "" {
 			return true
 		}
 	}
 	return false
 }
 
-// validationMarks are deterministic signals that a blocked reason
-// describes the agent's own validation failure rather than an
-// external impossibility (lowercased, substring match). W10 extends
-// the W8 set with the two premature-blocked shapes seen in the
-// v9-default records: the qemu-alpine-ssh self-stop ("stopped",
-// "timed out", "criterion is unmet") and the extract-elf missing
-// reference ("reference", "coverage", "mapping").
-var validationMarks = []string{
-	"fail", "error", "verif", "test ", "tests ", "implement",
-	"bug", "incorrect", "wrong", "not work", "does not work",
-	"no valid", "still", "unable to", "cannot", "hull",
-	"exception", "traceback", "assertion",
-	"reference", "coverage", "mapping", "agreement",
-	"timed out", "timeout", "stopped", "unmet", "criterion",
-	"could not complete", "not serving", "end-to-end", "end to end",
-	"unavailable", "not available", "did not reach", "not reach",
-	"mismatch",
-}
-
-// looksLikeValidationFailure reports whether the blocked reason reads
-// as "my solution fails validation" after the agent already did work:
-// the reason names a failure and the history holds tool calls.
-func looksLikeValidationFailure(reason string, history []tasks.HistoryTool) bool {
-	if len(history) == 0 {
-		return false
+// inKnownRoot reports whether an absolute path is under a deliverable
+// root or under the run workdir.
+func inKnownRoot(p, workdir string) bool {
+	if w := strings.TrimRight(workdir, "/"); w != "" && (p == w || strings.HasPrefix(p, w+"/")) {
+		return true
 	}
-	rl := strings.ToLower(reason)
-	for _, m := range validationMarks {
-		if strings.Contains(rl, m) {
+	for _, root := range tasks.DeliverableRoots {
+		if p == root || strings.HasPrefix(p, root+"/") {
 			return true
 		}
 	}
 	return false
 }
 
-// isReferenceMissingClaim reports whether the blocked reason claims a
-// missing reference solution, mapping or coverage target (W10): the
-// reference is the hidden verifier, never a task input, so such a
-// claim is always a validation failure, never an external
-// impossibility.
-func isReferenceMissingClaim(reason string) bool {
-	rl := strings.ToLower(reason)
-	if !strings.Contains(rl, "reference") {
-		return false
+// untouchedDeliverable returns the first named output that does not exist
+// yet, can still be created (its parent exists or it lies under a known
+// root or the workdir), and that no call has touched. "" when none.
+func (e *Engine) untouchedDeliverable(run *Run, request string, history []tasks.HistoryTool) string {
+	_, _, workdir := run.finishRunView()
+	stat := e.deps.ArtifactStat
+	if stat == nil {
+		stat = tasks.DefaultStat
 	}
-	for _, m := range []string{"missing", "absent", "not present", "not supplied", "no reference", "solution", "mapping", "coverage", "agreement"} {
-		if strings.Contains(rl, m) {
+	for _, r := range tasks.ExtractArtifactRequirementsIn(request, e.artifactConfig().MaxArtifacts, workdir) {
+		if r.Kind != tasks.ArtifactOutput || r.Path == "" {
+			continue
+		}
+		resolved := resolveFinishPath(workdir, r.Path)
+		if fs, err := stat(resolved); err == nil && fs.Exists {
+			continue
+		}
+		parentFS, err := stat(filepath.Dir(resolved))
+		creatable := (err == nil && parentFS.IsDir) || inKnownRoot(resolved, workdir)
+		if !creatable || touched(history, resolved) {
+			continue
+		}
+		return resolved
+	}
+	return ""
+}
+
+// touched reports whether any call named the path (full or base name).
+func touched(history []tasks.HistoryTool, path string) bool {
+	base := filepath.Base(path)
+	for _, h := range history {
+		if strings.Contains(h.Args, path) || mentionsFile(h.Args, base) || mentionsFile(h.Output, base) {
 			return true
 		}
 	}
-	return true
+	return false
 }
 
-// isSelfCausedUnavailability reports whether the blocked reason claims
-// a service is unavailable after the agent itself stopped or killed it
-// (W10, qemu-alpine-ssh shape): the history shows a kill/close/signal
-// of the required process and the reason names the resulting
-// unavailability. Killing a process the task requires is a failure,
-// not an external impossibility.
+// reasonQuotesFailure reports whether the blocked reason quotes a failing
+// command together with an output line from the same failed call.
+func reasonQuotesFailure(reason string, history []tasks.HistoryTool) bool {
+	rl := strings.ToLower(reason)
+	for _, h := range history {
+		failed := h.IsError
+		if !failed && strings.ToLower(h.Name) == "exec" {
+			failed, _ = execFailed(h)
+		}
+		if !failed {
+			continue
+		}
+		outLower := strings.ToLower(h.Output)
+		cmd := strings.ToLower(execCommand(h.Args))
+		if cmd == "" || !strings.Contains(rl, cmd) {
+			continue
+		}
+		for _, line := range strings.Split(outLower, "\n") {
+			if t := strings.TrimSpace(line); len(t) >= 12 && strings.Contains(rl, t) {
+				return true
+			}
+		}
+
+	}
+	return false
+}
+
+// deliverablesPass reports whether the deliverables exist and the finish
+// checks pass for them (D3 hard checks and the artifact gate). It is the
+// "the work is done" test of rule (d).
+func (e *Engine) deliverablesPass(run *Run, request string, history []tasks.HistoryTool) bool {
+	if !DeliverableChecksEnabled() {
+		return false
+	}
+	if len(e.deliverables(run, request, history)) == 0 {
+		return false
+	}
+	if len(e.deliverableHardReasons(run, request, history)) > 0 {
+		return false
+	}
+	_, _, workdir := run.finishRunView()
+	stat := e.deps.ArtifactStat
+	if stat == nil {
+		stat = tasks.DefaultStat
+	}
+	for _, d := range e.deliverables(run, request, history) {
+		fs, err := stat(d.Path)
+		if err != nil || !fs.Exists || (!fs.IsDir && fs.Size == 0) {
+			return false
+		}
+	}
+	reqs := e.finishRequirements(run, request)
+	return len(tasks.CheckArtifactFiles(reqs, history, workdir, stat, e.deps.ArtifactRead)) == 0
+}
+
+// isSelfCausedUnavailability reports whether the blocked reason claims a
+// service is unavailable after the run itself stopped, killed or closed
+// it: the history shows a kill, signal or close, and the reason names the
+// resulting unavailability. Killing a process the task requires is a
+// failure, not an external impossibility.
 func isSelfCausedUnavailability(reason string, history []tasks.HistoryTool) bool {
 	if len(history) == 0 {
 		return false
 	}
 	rl := strings.ToLower(reason)
 	unavail := false
-	for _, m := range []string{"stopped", "killed", "was stopped", "not available", "unavailable", "no longer", "not serving", "timed out", "timeout", "did not reach", "could not complete", "unmet"} {
+	for _, m := range []string{"stopped", "killed", "not available", "unavailable", "no longer", "not serving", "timed out", "timeout", "did not reach", "could not complete", "unmet"} {
 		if strings.Contains(rl, m) {
 			unavail = true
 			break
@@ -240,26 +250,32 @@ func isSelfCausedUnavailability(reason string, history []tasks.HistoryTool) bool
 			strings.Contains(hl, "pkill") || strings.Contains(hl, "killall") {
 			return true
 		}
-		if strings.Contains(strings.ToLower(h.Args), "kill") && strings.Contains(rl, "qemu") {
+	}
+	// A reason that admits the run stopped the service is self-caused
+	// even when the kill is not in the history.
+	for _, m := range []string{"was stopped", "i stopped", "we stopped"} {
+		if strings.Contains(rl, m) {
 			return true
 		}
-	}
-	// Even without an explicit kill in history, a reason that admits
-	// the agent stopped the required service is self-caused.
-	if strings.Contains(rl, "was stopped") || strings.Contains(rl, "qemu was stopped") ||
-		strings.Contains(rl, "i stopped") || strings.Contains(rl, "we stopped") {
-		return true
 	}
 	return false
 }
 
-// strictBlockedRefusal builds the structured recovery prompt for a
-// blocked claim without deterministic external evidence while time
-// remains (W8 strict policy plus W10 run-end fixes). Empty means the
-// claim carries external evidence or is the legacy empty-history
-// operator-missing-data case, and may proceed. Closing mode (no time
-// remains) never accepts blocked: the run must end with `finish`
-// status=completed and the best deliverable in place.
+// workHistory returns the run history without the finish control calls:
+// they are never work.
+func workHistory(run *Run) []tasks.HistoryTool {
+	var out []tasks.HistoryTool
+	for _, h := range historyTools(run.historyCopy()) {
+		if h.Name != FinishToolName {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// strictBlockedRefusal applies the D7 rules to a blocked claim. Empty
+// means the claim may be accepted. Non-interactive runs only; the switch
+// off restores acceptance.
 func (e *Engine) strictBlockedRefusal(run *Run, reason string) string {
 	if !StrictBlockedEnabled() {
 		return ""
@@ -269,109 +285,46 @@ func (e *Engine) strictBlockedRefusal(run *Run, reason string) string {
 	if !e.explicitFinishRequired(run) {
 		return ""
 	}
-	// Closing mode: time is almost exhausted. Never end blocked;
-	// leave the best deliverable and complete.
+	// Closing: time is almost exhausted. Never end blocked.
 	if !e.timeRemains(run) {
-		return "finish refused (strict blocked): closing mode: time is almost exhausted; leave the best deliverable in place, verify what exists quickly, and call `finish` with status completed and evidence now. Do not declare blocked in closing."
+		return "strict blocked: closing mode, less than 10% of the wall budget is left; do not declare blocked. Leave the best deliverable in place, verify it quickly, and call finish with status completed."
 	}
-	history := historyTools(run.historyCopy())
-	// The `finish` control calls themselves never count as work:
-	// filter them so the legacy empty-history operator case
-	// (TestExplicitFinishBlocked) still sees no prior work even
-	// though the current attempt is already in history.
-	workHistory := history[:0:0]
-	for _, h := range history {
-		if h.Name == FinishToolName {
-			continue
-		}
-		workHistory = append(workHistory, h)
+	run.mu.Lock()
+	request := run.Request
+	run.mu.Unlock()
+	history := workHistory(run)
+	if !changeAttempted(history) {
+		return "strict blocked: no edit, write or install was attempted, so the claim is untested; inspect the named inputs and try the task before declaring blocked."
 	}
-	if hasExternalEvidence(reason, workHistory) {
-		return ""
+	if path := e.untouchedDeliverable(run, request, history); path != "" {
+		return "strict blocked: the named deliverable " + path + " can still be created and no call has touched it; create it as stated before declaring blocked."
 	}
-	// Reference-solution claims are never external (W10): refuse with
-	// the validation recovery shape so the agent keeps working with
-	// the best deliverable instead of declaring blocked.
-	if isReferenceMissingClaim(reason) {
-		return e.validationRecoveryPrompt(run, reason, "the reference solution is the hidden verifier, never a task input: missing-reference is not a valid blocked reason")
+	if isSelfCausedUnavailability(reason, history) {
+		return "strict blocked: the run itself stopped or killed the service the reason calls unavailable. That is a failure, not an external impossibility: restart it, verify it serves, and keep working."
 	}
-	// Self-caused unavailability is never external (W10): the agent
-	// killed or stopped the service the task requires.
-	if isSelfCausedUnavailability(reason, workHistory) {
-		return e.validationRecoveryPrompt(run, reason, "killing or stopping a process the task requires is a failure, not an external impossibility: restart the service, verify it serves, and keep working")
+	if share, known := e.wallRemaining(run); known && share > 0.5 && !reasonQuotesFailure(reason, history) {
+		return "strict blocked: more than half of the wall budget remains and the reason does not quote a failing command or its output; show the failing output that proves the impossibility, or keep working."
 	}
-	// Legacy operator-missing-data stays accepted only with no prior
-	// work (empty non-finish history) and no validation language, e.g.
-	// "need /data/secret.csv from the operator" (TestExplicitFinishBlocked).
-	// Any blocked after real work needs deterministic external evidence.
-	if len(workHistory) == 0 && !looksLikeValidationFailure(reason, workHistory) {
-		return ""
+	if e.deliverablesPass(run, request, history) {
+		return "strict blocked: the deliverable checks pass, so the work is done; finish with status completed and the evidence."
 	}
-	if len(workHistory) == 0 {
-		// Empty work history but validation-shaped (e.g. reference claim
-		// without prior calls): still refuse, since no external
-		// evidence exists.
-		return e.validationRecoveryPrompt(run, reason, "")
-	}
-	// Non-empty work history without external evidence: refuse. The
-	// validation-shaped case gets the three-approaches recovery
-	// prompt; the qemu-shaped unevidenced case (no validation
-	// keywords yet no external proof) gets the same treatment with
-	// the generic external-evidence wording so it is never accepted
-	// with 0 refusals.
-	if !looksLikeValidationFailure(reason, workHistory) {
-		return e.genericBlockedRefusal(run, reason)
-	}
-	return e.validationRecoveryPrompt(run, reason, "")
+	return ""
 }
 
-// validationRecoveryPrompt builds the structured three-approaches
-// recovery prompt for a validation-failure blocked claim.
-func (e *Engine) validationRecoveryPrompt(run *Run, reason, extra string) string {
-	lastOut, isErr, found := lastNonFinishError(run)
-	failing := "no failing command recorded"
-	if found {
-		if isErr {
-			failing = truncOneLine(lastOut, 300)
-		} else {
-			failing = "last command succeeded (" + truncOneLine(lastOut, 200) + "); verification still fails"
-		}
+// blockedReasons returns the refusal reasons for a blocked claim: a
+// named path that exists refutes it, then the strict blocked rules apply.
+// Empty means the claim may be accepted.
+func (e *Engine) blockedReasons(run *Run, args FinishArgs) []string {
+	if existing := e.blockedPathsExist(run, args.Reason); existing != "" {
+		return []string{"blocked claim refused: path " + existing + " exists. Re-read the filesystem result and continue working instead of declaring blocked."}
 	}
-	var b strings.Builder
-	b.WriteString("finish refused (strict blocked): ")
-	b.WriteString(truncOneLine(reason, 200))
-	b.WriteString(" names no external impossibility while time remains. ")
-	if extra != "" {
-		b.WriteString(extra)
-		b.WriteString(". ")
+	if refusal := e.strictBlockedRefusal(run, args.Reason); refusal != "" {
+		// Count strict refusals separately for the trial records; the
+		// generic FinishRefusals counter is bumped by the caller.
+		run.mu.Lock()
+		run.StrictBlockedRefusals++
+		run.mu.Unlock()
+		return []string{refusal}
 	}
-	b.WriteString("Failing check/output: ")
-	b.WriteString(failing)
-	b.WriteString(". List three materially different approaches to fix it, pick one, and execute its first step now. ")
-	b.WriteString("Do not declare blocked for validation failures while time remains; leave the best deliverable in place and keep working.")
-	return b.String()
-}
-
-// genericBlockedRefusal refuses an unevidenced blocked claim that does
-// not match the validation shape (W10 qemu shape): no external
-// impossibility was demonstrated, so the agent must keep working.
-func (e *Engine) genericBlockedRefusal(run *Run, reason string) string {
-	lastOut, isErr, found := lastNonFinishError(run)
-	failing := "no failing command recorded"
-	if found {
-		if isErr {
-			failing = truncOneLine(lastOut, 300)
-		} else {
-			failing = "last command succeeded (" + truncOneLine(lastOut, 200) + "); verification still fails"
-		}
-	}
-	var b strings.Builder
-	b.WriteString("finish refused (strict blocked): ")
-	b.WriteString(truncOneLine(reason, 200))
-	b.WriteString(" names no deterministic external impossibility (required network resource unreachable/404 after retries, required file/tool provably absent and not installable, explicit permission denial) while time remains. ")
-	b.WriteString("Failing check/output: ")
-	b.WriteString(failing)
-	b.WriteString(". Demonstrate the external impossibility with retries and evidence, or list three materially different approaches to fix it, pick one, and execute its first step now. ")
-	b.WriteString("Do not declare blocked without deterministic external evidence; leave the best deliverable in place and keep working. Killing or stopping a required service is a failure, not a blocked reason.")
-	return b.String()
+	return nil
 }

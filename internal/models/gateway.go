@@ -168,6 +168,9 @@ type CallMeta struct {
 	Fallback bool `json:"fallback"`
 	// Retried is true when any retry happened.
 	Retried bool `json:"retried"`
+	// CredentialSwitches counts moves to the fallback credential
+	// after a confirmed quota or billing exhaustion (EXCALIBUR_QUOTA_PROBE).
+	CredentialSwitches int `json:"credential_switches,omitempty"`
 	// CostUSD is the price-table cost of the serving call.
 	CostUSD      float64 `json:"cost_usd"`
 	PriceVersion string  `json:"price_version,omitempty"`
@@ -351,7 +354,8 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 				Provider: ref.Provider, Model: ref.Model, Role: role, Lane: lane,
 				RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 				Attempts: attempts, Fallback: i > 0, Retried: attempts > 1,
-				CostUSD: cost, PriceVersion: g.cfg.PriceVersion,
+				CredentialSwitches: waits.Switches,
+				CostUSD:            cost, PriceVersion: g.cfg.PriceVersion,
 			}, nil
 		}
 		lastErr = err
@@ -363,6 +367,7 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 				Provider: ref.Provider, Model: ref.Model, Role: role, Lane: lane,
 				RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 				Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
+				CredentialSwitches: waits.Switches,
 			}, err
 		}
 	}
@@ -376,6 +381,7 @@ func (g *Gateway) CallWithLane(ctx context.Context, lane Lane, role types.ModelR
 		Provider: failedRef.Provider, Model: failedRef.Model, Role: role, Lane: lane,
 		RetryWaitCount: waits.Count, RetryWaitSeconds: waits.Duration.Seconds(),
 		Attempts: failedAttempts, Fallback: failedFallback, Retried: failedAttempts > 1,
+		CredentialSwitches: waits.Switches,
 	}, lastErr
 }
 
@@ -428,11 +434,13 @@ func (g *Gateway) tryEndpoint(ctx context.Context, ref ModelRef, req providers.C
 			}
 			return providers.ChatResponse{}, attempts, err
 		case providers.KindTransient, providers.KindRateLimited:
-			if attempt >= maxAttempts && (g.cfg.DisableBudgetRetries || !budgetRetry(err)) {
+			if attempt >= maxAttempts && (g.cfg.DisableBudgetRetries || !budgetRetryAllowed(err, attempt)) {
 				return providers.ChatResponse{}, attempts, err
 			}
 			credentialAttempt++
 			wait := retryDelay(perr, base, attempt)
+			// The sleep below ends when the caller's wall deadline does, so
+			// the total wait never exceeds the remaining wall budget.
 			started := time.Now()
 			sleepErr := providers.SleepContext(ctx, wait)
 			if stats, ok := ctx.Value(retryStatsKey{}).(*retryWaitStats); ok {

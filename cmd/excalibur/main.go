@@ -47,13 +47,6 @@ type command struct {
 	run     func(args []string) error
 }
 
-// notImpl returns a run func that always fails as not implemented.
-func notImpl(name string) func([]string) error {
-	return func([]string) error {
-		return fmt.Errorf("%s: %w", name, errNotImplemented)
-	}
-}
-
 func commands() map[string]command {
 	taskSub := map[string]command{
 		"start":  {summary: "Create a task and return immediately", run: taskStart},
@@ -75,19 +68,19 @@ func commands() map[string]command {
 		"stop":  {summary: "Stop the daemon", run: runDaemonStop},
 	}
 	vaultSub := map[string]command{
-		"set":      {summary: "Create or update a secret (value via tty/stdin only)", run: notImpl("vault set")},
-		"get":      {summary: "Reveal a secret (explicit request only)", run: notImpl("vault get")},
-		"list":     {summary: "List secret metadata, never values", run: notImpl("vault list")},
-		"show":     {summary: "Show one entry's metadata", run: notImpl("vault show")},
-		"edit":     {summary: "Change scopes, tools or domains", run: notImpl("vault edit")},
-		"rm":       {summary: "Delete a secret (confirmed, irreversible)", run: notImpl("vault rm")},
-		"generate": {summary: "Generate a random value", run: notImpl("vault generate")},
-		"lock":     {summary: "Lock the vault", run: notImpl("vault lock")},
-		"unlock":   {summary: "Unlock the vault", run: notImpl("vault unlock")},
-		"rotate":   {summary: "Rotate the data-encryption key", run: notImpl("vault rotate")},
-		"export":   {summary: "Export an encrypted backup", run: notImpl("vault export")},
-		"import":   {summary: "Import an encrypted backup", run: notImpl("vault import")},
-		"usage":    {summary: "Show where a secret was used", run: notImpl("vault usage")},
+		"set":      {summary: "Create or update a secret (value via tty or --stdin only)", run: runVaultSet},
+		"get":      {summary: "Reveal a secret (explicit request only)", run: runVaultGet},
+		"list":     {summary: "List secret metadata, never values", run: runVaultList},
+		"show":     {summary: "Show one entry's metadata", run: runVaultShow},
+		"edit":     {summary: "Change scopes, tools or domains", run: runVaultEdit},
+		"rm":       {summary: "Delete a secret (confirmed, irreversible)", run: runVaultRM},
+		"generate": {summary: "Generate a random value", run: runVaultGenerate},
+		"lock":     {summary: "Lock the vault", run: runVaultLock},
+		"unlock":   {summary: "Unlock the vault", run: runVaultUnlock},
+		"rotate":   {summary: "Rotate the data-encryption key", run: runVaultRotate},
+		"export":   {summary: "Export an encrypted backup", run: runVaultExport},
+		"import":   {summary: "Import an encrypted backup", run: runVaultImport},
+		"usage":    {summary: "Show where a secret was used", run: runVaultUsage},
 	}
 	extSub := map[string]command{
 		"new":     {summary: "Scaffold an extension", run: runExt("new")},

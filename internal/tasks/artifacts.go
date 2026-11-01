@@ -43,6 +43,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ArtifactKind names what a requirement points at.
@@ -190,6 +191,13 @@ func hasNegation(sentence string) bool {
 // capped at maxArtifacts. It never calls a model and never inspects
 // any benchmark material.
 func ExtractArtifactRequirements(request string, maxArtifacts int) []ArtifactRequirement {
+	return ExtractArtifactRequirementsIn(request, maxArtifacts, "")
+}
+
+// ExtractArtifactRequirementsIn is ExtractArtifactRequirements with the
+// run workdir: absolute paths under the workdir are deliverable
+// candidates even outside the known roots (D3a).
+func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir string) []ArtifactRequirement {
 	if maxArtifacts < 1 {
 		maxArtifacts = 8
 	}
@@ -200,6 +208,9 @@ func ExtractArtifactRequirements(request string, maxArtifacts int) []ArtifactReq
 	seen := map[string]bool{}
 	var out []ArtifactRequirement
 	add := func(kind ArtifactKind, path string, port int, url, detail, source string, expect []string) {
+		if DeliverableChecksEnabled() && filepath.IsAbs(path) && len(StrictAbsolutePaths(path, workdir)) == 0 {
+			return
+		}
 		norm := strings.ToLower(string(kind) + "|" + path + "|" + strconv.Itoa(port) + "|" + url)
 		if norm == "" || seen[norm] {
 			return
@@ -217,7 +228,11 @@ func ExtractArtifactRequirements(request string, maxArtifacts int) []ArtifactReq
 	}
 	sentences := splitSentences(text)
 	// Absolute paths first: the strongest, most checkable items.
-	for _, p := range absPathRe.FindAllString(text, -1) {
+	absPaths := absPathRe.FindAllString(text, -1)
+	if DeliverableChecksEnabled() {
+		absPaths = StrictAbsolutePaths(text, workdir)
+	}
+	for _, p := range absPaths {
 		cleaned := strings.TrimRight(p, ".,;:")
 		sent := sentenceWith(sentences, cleaned)
 		if isExampleUse(sent, cleaned) || isBarePatternToken(cleaned) {
@@ -333,6 +348,64 @@ func ExtractArtifactRequirements(request string, maxArtifacts int) []ArtifactReq
 		out[i].ID = "A" + strconv.Itoa(i+1)
 	}
 	return out
+}
+
+// DeliverableRoots are the directories a required absolute path may
+// live under (D3a). Anything else is not checked as a deliverable,
+// except paths under the run workdir.
+var DeliverableRoots = []string{"/app", "/home", "/tmp", "/root", "/srv", "/opt", "/data", "/workspace", "/output", "/var/www"}
+
+// dateShapeRe matches a date-shaped segment that is a value rather than
+// a deliverable location.
+var dateShapeRe = regexp.MustCompile(`\d{4}/\d{2}/\d{2}`)
+
+// StrictAbsolutePaths returns the absolute paths named in text that
+// may be checked as deliverables: the match must not continue a longer
+// token on its left (a URL, `data/2025/02/14`), must not be date-shaped,
+// and must sit under a known root or under workdir. Trailing
+// punctuation is trimmed. Paths are returned in text order.
+func StrictAbsolutePaths(text, workdir string) []string {
+	var out []string
+	for _, loc := range absPathRe.FindAllStringIndex(text, -1) {
+		p := strings.TrimRight(text[loc[0]:loc[1]], ".,;:")
+		if loc[0] > 0 && (unicode.IsLetter(rune(text[loc[0]-1])) || unicode.IsDigit(rune(text[loc[0]-1])) || strings.ContainsRune("_.:/-", rune(text[loc[0]-1]))) {
+			continue
+		}
+		if dateShapeRe.MatchString(p) {
+			continue
+		}
+		if len(strings.Split(strings.Trim(p, "/"), "/")) < 2 || !underKnownRoot(filepath.Clean(p), workdir) {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// underKnownRoot reports whether an absolute path is under one of the
+// deliverable roots or under the run workdir.
+func underKnownRoot(p, workdir string) bool {
+	if w := strings.TrimRight(workdir, "/"); w != "" && (p == w || strings.HasPrefix(p, w+"/")) {
+		return true
+	}
+	for _, root := range DeliverableRoots {
+		if p == root || strings.HasPrefix(p, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// DeliverableChecksEnabled reports the EXCALIBUR_DELIVERABLE_CHECKS
+// switch (default on). Off restores the unrestricted absolute-path
+// extraction of the gate.
+func DeliverableChecksEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_DELIVERABLE_CHECKS"))) {
+	case "off", "0", "false", "no":
+		return false
+	default:
+		return true
+	}
 }
 
 // attachContentExpectations links stated row content (a CSV header,

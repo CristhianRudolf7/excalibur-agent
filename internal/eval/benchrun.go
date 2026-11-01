@@ -124,6 +124,10 @@ type BenchTrialIndex struct {
 	Trial        string  `json:"trial"`
 	Reward       float64 `json:"reward"`
 	FailCategory string  `json:"fail_category"`
+	// InfraReason is set when the trial measured the infrastructure rather
+	// than the agent (TrialInfraReason). Such trials are excluded from the
+	// headline pass rate.
+	InfraReason string `json:"infra_reason,omitempty"`
 
 	InputTokens  int64   `json:"input_tokens"`
 	CacheRead    int64   `json:"cache_read"`
@@ -183,9 +187,18 @@ func RenderReportMarkdown(rep Report, manifest RunManifest) string {
 	out += "Harbor: " + manifest.HarborVersion + " (" + manifest.HarborCommit + ")\n\n"
 	out += "## Summary\n\n"
 	out += "Trials: " + itoa(rep.Trials) + " tasks: " + itoa(rep.Tasks) + "\n\n"
-	out += "Success: " + ftoa(rep.Success.Mean) + " 95%CI [" + ftoa(rep.Success.Low) + ", " + ftoa(rep.Success.High) + "]\n\n"
+	out += "Trials scored: " + itoa(rep.ScoredTrials) + " infrastructure (excluded): " + itoa(rep.InfraTrials) + "\n\n"
+	out += "Success without infra: " + ftoa(rep.Success.Mean) + " 95%CI [" + ftoa(rep.Success.Low) + ", " + ftoa(rep.Success.High) + "]\n\n"
+	out += "Success with infra included: " + ftoa(rep.SuccessWithInfra.Mean) + "\n\n"
 	out += "pass@k: " + ftoa(rep.PassAtK) + " (k=" + itoa(rep.K) + ") pass^k: " + ftoa(rep.PassPowK) + "\n\n"
 	out += "Tokens/success: " + ftoa(rep.TokensPerSuccess) + " cost/success: $" + ftoa(rep.CostPerSuccess) + "\n\n"
+	if rep.InfraTrials > 0 {
+		out += "## Infrastructure\n\n"
+		for reason, n := range rep.InfraReasons {
+			out += "- " + reason + ": " + itoa(n) + "\n"
+		}
+		out += "\n"
+	}
 	out += "## Failures\n\n"
 	for cat, n := range rep.Failures {
 		out += "- " + cat + ": " + itoa(n) + "\n"

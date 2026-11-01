@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
-// Time-budget hooks (Sections 7.3, 18.4, 23.2, Appendix B).
+// Legacy time-budget hooks (Sections 7.3, 18.4, 23.2, Appendix B).
+// Non-interactive time-only runs resolve their real wall budget through
+// EvalWallSecs instead of the legacy closing factor below.
 //
 // Harbor never forwards the task timeout into the container (it kills
 // the agent host-side), so the harness reads the operator override

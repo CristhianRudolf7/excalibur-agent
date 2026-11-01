@@ -122,7 +122,7 @@ func TestStrongVerifierFallbackPassesOnGibberishWithGeneralizationOff(t *testing
 		{Seq: 1, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: "wrote /app/filter.py"}},
 		{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 -c 'import filter'","workdir":"/app"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/filter.py hello","workdir":"/app"}`)}},
 		{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/filter.py ok"}},
 	}
@@ -152,7 +152,7 @@ func TestStrongVerifierSkippedWhenDaemonOwnsVerdict(t *testing.T) {
 		{Seq: 1, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: "wrote /app/filter.py"}},
 		{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 -c 'import filter'","workdir":"/app"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/filter.py hello","workdir":"/app"}`)}},
 		{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/filter.py ok"}},
 	}

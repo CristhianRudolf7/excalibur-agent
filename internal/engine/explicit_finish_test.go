@@ -9,7 +9,6 @@
 package engine
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -54,7 +53,7 @@ func selfVerifyOffCfg() *tasks.SelfVerifyConfig {
 // continuation note, counts the streak, and enters closing mode after
 // 3 in a row.
 func TestExplicitFinishTextOnlyNeverCompletes(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		finalResp("working on it"),
 		finalResp("still working"),
@@ -104,7 +103,7 @@ func TestExplicitFinishTextOnlyNeverCompletes(t *testing.T) {
 // check, gets exit 1, and the very next turn must NOT end the run as
 // completed. `finish` is refused while the last command errored.
 func TestExplicitFinishRefusedAfterFailedCheck(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("c1", "exec", `{"command":"python3 -c 'import foo'"}`)),
 		finalResp("looks broken but I will declare done"),
@@ -152,7 +151,7 @@ func TestExplicitFinishRefusedAfterFailedCheck(t *testing.T) {
 // Confirmation round: the first accepted `finish` arms the confirm,
 // the second ends the run.
 func TestExplicitFinishConfirmationRound(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("f1", "finish", finishArgs("s1", "e1"))),
 		toolResp(toolCall("f2", "finish", finishArgs("s2", "e2"))),
@@ -171,7 +170,7 @@ func TestExplicitFinishConfirmationRound(t *testing.T) {
 	}
 	found := false
 	for _, n := range run.VolatileNotes() {
-		if strings.Contains(n, "Re-read the instruction") {
+		if strings.HasPrefix(n, "finish checks passed.") {
 			found = true
 		}
 	}
@@ -186,7 +185,7 @@ func TestExplicitFinishConfirmationRound(t *testing.T) {
 // `finish` must be called alone: mixed with other tools it is refused
 // without executing anything.
 func TestExplicitFinishMustBeAlone(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(
 			toolCall("c1", "exec", `{"command":"true"}`),
@@ -226,12 +225,17 @@ func TestExplicitFinishMustBeAlone(t *testing.T) {
 // Blocked via `finish` with status blocked and a concrete reason ends
 // the run as blocked.
 func TestExplicitFinishBlocked(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
+	// D7: a blocked claim needs an attempt first; the install attempt that
+	// failed (exit 1 in its header) is the evidence the reason quotes.
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
-		toolResp(toolCall("f1", "finish", finishBlockedArgs("stuck", "tried ls", "need /data/secret.csv from the operator"))),
-		toolResp(toolCall("f2", "finish", finishBlockedArgs("stuck", "tried ls", "need /data/secret.csv from the operator"))),
+		toolResp(toolCall("c1", "exec", `{"command":"pip install secretpkg"}`)),
+		toolResp(toolCall("f1", "finish", finishBlockedArgs("stuck", "tried pip install", "need the secretpkg package from the operator: pip reports No matching distribution found"))),
 	}}
-	e, js := testEngine(model, scriptedRunner(), passingGate())
+	runner := scriptedRunner()
+	runner.add("exec", types.EffectExec, types.IdemNonIdempotent,
+		tools.Result{Status: tools.StatusOK, Output: "exit: 1  duration: 0.4s  session: sess-1  alive: false\nERROR: No matching distribution found for secretpkg"})
+	e, js := testEngine(model, runner, passingGate())
 	e.deps.SelfVerify = selfVerifyOffCfg()
 	e.deps.Artifacts = artifactOffCfg()
 	run := explicitRun()
@@ -247,7 +251,7 @@ func TestExplicitFinishBlocked(t *testing.T) {
 
 // A blocked claim naming a path that exists is refused.
 func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "present.txt")
 	if err := os.WriteFile(existing, []byte("x"), 0o644); err != nil {
@@ -255,12 +259,17 @@ func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
 	}
 	blocked := finishBlockedArgs("stuck", "tried", "need "+existing+" which is missing")
 	okArgs := finishArgs("done", "verified")
+	// A finish after a refusal needs tool work in between (D2: the
+	// no-change rule answers an unchanged finish from the same reasons).
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("f1", "finish", blocked)),
+		toolResp(toolCall("c1", "exec", `{"command":"ls `+dir+`"}`)),
 		toolResp(toolCall("f2", "finish", okArgs)),
 		toolResp(toolCall("f3", "finish", okArgs)),
 	}}
-	e, js := testEngine(model, scriptedRunner(), passingGate())
+	runner := scriptedRunner()
+	runner.add("exec", types.EffectExec, types.IdemNonIdempotent, tools.Result{Status: tools.StatusOK, Output: "exit: 0\nok"})
+	e, js := testEngine(model, runner, passingGate())
 	e.deps.SelfVerify = selfVerifyOffCfg()
 	e.deps.Artifacts = artifactOffCfg()
 	run := explicitRun()
@@ -286,7 +295,7 @@ func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
 // Missing required artifacts refuse `finish`: no finish without the
 // file the instruction demands.
 func TestExplicitFinishRefusedOnMissingArtifact(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "output.txt")
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
@@ -334,7 +343,7 @@ func TestExplicitFinishRefusedOnMissingArtifact(t *testing.T) {
 // Switch OFF restores the old behaviour: a text-only turn runs the
 // gate and completes.
 func TestExplicitFinishSwitchOff(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("done")}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	off := DefaultExplicitFinishConfig()
@@ -356,7 +365,7 @@ func TestExplicitFinishSwitchOff(t *testing.T) {
 
 // Invalid `finish` arguments are refused with the reason.
 func TestExplicitFinishInvalidArgs(t *testing.T) {
-	ctx := context.Background()
+	ctx := finishTestContext(t)
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("f1", "finish", `{"summary":"","evidence":""}`)),
 		toolResp(toolCall("f2", "finish", finishArgs("s", "e"))),
@@ -373,5 +382,40 @@ func TestExplicitFinishInvalidArgs(t *testing.T) {
 	mustState(t, run, types.RunCompleted)
 	if run.FinishRefusals != 1 {
 		t.Fatalf("refusals = %d, want 1 (empty summary)", run.FinishRefusals)
+	}
+}
+
+// A provider that repeats refused finishes cannot grow history forever.
+func TestFinishOnlyProviderSafetyStop(t *testing.T) {
+	responses := make([]providers.ChatResponse, 30)
+	for i := range responses {
+		responses[i] = toolResp(toolCall("f", "finish", `{}`))
+	}
+	model := &fakeEndpoint{responses: responses}
+	e, js := testEngine(model, scriptedRunner(), passingGate())
+	e.deps.SelfVerify = selfVerifyOffCfg()
+	e.deps.Artifacts = artifactOffCfg()
+	run := explicitRun()
+	startRun(t, e, run, js)
+	if err := e.Run(finishTestContext(t), run); err != nil {
+		t.Fatal(err)
+	}
+	mustState(t, run, types.RunCompletedPending)
+	if model.calls() != 25 {
+		t.Fatalf("calls=%d, want 25", model.calls())
+	}
+}
+
+func TestFinishSafetyUnbudgetedTurns(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	run := explicitRun()
+	run.Tracker.Limit = tasks.Limit{}
+	run.Steps = 201
+	if reason := e.finishSafetyReason(run); !strings.Contains(reason, "200 turns") {
+		t.Fatal(reason)
+	}
+	run.Tracker.Limit.MaxSteps = 300
+	if reason := e.finishSafetyReason(run); reason != "" {
+		t.Fatal(reason)
 	}
 }

@@ -1,3 +1,5 @@
+//go:build live
+
 // Container proof for the embedded root CAs (Section 23.2, defect
 // w8-bench-fixes/1): the static bench binary runs in a FROM-scratch
 // image with no CA certificates and still completes a TLS handshake
@@ -25,6 +27,9 @@ func dockerAvailable(ctx context.Context) bool {
 }
 
 func TestBenchBinaryCarriesRootCAs(t *testing.T) {
+	if os.Getenv("EXCALIBUR_LIVE") != "1" {
+		t.Skip("set EXCALIBUR_LIVE=1 for the provider TLS probe")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if !dockerAvailable(ctx) {
@@ -32,7 +37,7 @@ func TestBenchBinaryCarriesRootCAs(t *testing.T) {
 	}
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "excalibur")
-	build := exec.CommandContext(ctx, "go", "build", "-o", bin, ".")
+	build := exec.CommandContext(ctx, "nice", "-n", "19", "go", "build", "-p", "2", "-o", bin, ".")
 	build.Dir = "."
 	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
 	if out, err := build.CombinedOutput(); err != nil {

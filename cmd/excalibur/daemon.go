@@ -15,21 +15,28 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store/migrations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
 // daemonPidFile is the process rendezvous beside daemon.addr.
 const daemonPidFile = "daemon.pid"
+
+// vaultPassphraseFileEnv names the passphrase file that unlocks the
+// vault at daemon start (0600, Section 20.1 unattended start).
+const vaultPassphraseFileEnv = "EXCALIBUR_VAULT_PASSPHRASE_FILE"
 
 // runDaemonStart boots the full daemon in the foreground (Sections
 // 3.2, 17.3): store, orchestrator, agenda, memory, capabilities,
@@ -60,6 +67,32 @@ func runDaemonStart(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// The secrets vault opens first: provider keys and tool secrets
+	// resolve through it (Section 20.1). A declared passphrase file
+	// unlocks it for unattended starts; otherwise the keyring does when
+	// reachable, and a locked vault leaves the harness running.
+	var v *vault.Vault
+	if data != "" {
+		pf := strings.TrimSpace(os.Getenv(vaultPassphraseFileEnv))
+		var kr platform.Keyring
+		if pf == "" {
+			kr = daemonKeyring()
+		}
+		var err error
+		v, err = daemon.OpenVault(ctx, daemon.VaultOpenOptions{
+			Path: filepath.Join(data, "vault.db"), Keyring: kr, PassphraseFile: pf,
+		})
+		if err != nil {
+			return fmt.Errorf("daemon start: %w", err)
+		}
+		defer func() { _ = v.Close() }()
+		if v.IsLocked() {
+			fmt.Fprintln(os.Stderr, "daemon: vault locked; secrets wait until `excalibur vault unlock`")
+		} else {
+			fmt.Fprintf(os.Stderr, "daemon: vault open (%s)\n", v.KEKKind())
+		}
+	}
+
 	bus := telemetry.NewBus(nil)
 	orchStore := orchestrator.NewMemoryStore()
 	orch := orchestrator.New(orchestrator.DefaultConfig(), orchStore, orchestrator.NoopJournal{})
@@ -80,18 +113,26 @@ func runDaemonStart(args []string) error {
 	}
 	var modelGateway *models.Gateway
 	var choiceDec daemon.ChoiceDecider
-	if !modelSettings.Stub() && modelSettings.Configured() {
-		p, berr := cli.BuildProvider(ctx, modelSettings, nil)
-		if berr != nil {
-			return fmt.Errorf("daemon start: %w", berr)
-		}
-		defer func() { _ = p.Close() }()
-		modelGateway = cli.BuildGateway(modelSettings, layerCfg, p)
-		defer modelGateway.Close()
-		choiceDec = cli.BuildDecider(modelSettings, modelGateway)
-		fmt.Fprintf(os.Stderr, "daemon: models %s\n", modelSettings.Describe())
-	} else {
+	switch {
+	case modelSettings.Stub() || !modelSettings.Configured():
 		fmt.Fprintln(os.Stderr, "daemon: no model provider configured; intake and memory run deterministic")
+	default:
+		p, berr := cli.BuildProvider(ctx, modelSettings, daemon.VaultSecretResolver(v))
+		switch {
+		case berr != nil && v != nil && v.IsLocked():
+			// A provider key held in the vault cannot resolve while the
+			// vault is locked: the daemon starts deterministic and the
+			// provider needs a restart after `excalibur vault unlock`.
+			fmt.Fprintf(os.Stderr, "daemon: model provider waits for the vault: %v\n", berr)
+		case berr != nil:
+			return fmt.Errorf("daemon start: %w", berr)
+		default:
+			defer func() { _ = p.Close() }()
+			modelGateway = cli.BuildGateway(modelSettings, layerCfg, p)
+			defer modelGateway.Close()
+			choiceDec = cli.BuildDecider(modelSettings, modelGateway)
+			fmt.Fprintf(os.Stderr, "daemon: models %s\n", modelSettings.Describe())
+		}
 	}
 	decider := daemon.NewModelDecider(choiceDec, []string{"general"})
 	m := master.New(master.Config{Turns: master.DefaultTurnConfig()}, master.NewMemStore(), master.NewLexicon(), decider, ctrls, nil, notifier)
@@ -121,7 +162,43 @@ func runDaemonStart(args []string) error {
 	if db != nil {
 		jrnl = &journal.SQLStore{W: db, R: db}
 	}
-	svc, err := daemon.Assemble(daemon.AssembleOptions{Store: orchStore, Jrnl: jrnl, Bus: bus})
+	// One orchestrator serves the Services stack, the agenda and the
+	// trigger launchers, so every component sees the same runs.
+	// Memory with the provider embedder only when configured; without
+	// keys it degrades to lexical/temporal/relational retrieval
+	// (Section 10.8) instead of failing to start. Embedding requests
+	// never carry reasoning effort.
+	var memSvc *memory.Service
+	if db != nil {
+		memSvc = memory.NewService(db)
+		if emb, eerr := cli.BuildEmbedder(modelSettings, nil); eerr != nil {
+			fmt.Fprintf(os.Stderr, "daemon: embeddings disabled: %v\n", eerr)
+		} else if emb != nil {
+			memSvc = memory.NewService(db, memory.WithEmbedder(emb))
+			fmt.Fprintf(os.Stderr, "daemon: embeddings via %s\n", emb.Model())
+		}
+	}
+
+	ix := skills.NewIndex(skills.Roots{}, skills.BuiltinFS())
+	_ = ix.Scan()
+
+	// Projects persist in the main database (Section 9.2): the registry
+	// reloads them after every restart.
+	projects, err := daemon.OpenProjectRegistry(db)
+	if err != nil {
+		return fmt.Errorf("daemon start: %w", err)
+	}
+	// Daemon runs step through the configured gateway; without one the
+	// engine stays unconfigured and its steps fail with a clear error.
+	var endpoint engine.ModelEndpoint
+	if modelGateway != nil {
+		endpoint = modelGateway
+	}
+	svc, err := daemon.Assemble(daemon.AssembleOptions{
+		Store: orchStore, Orch: orch, Jrnl: jrnl, Bus: bus,
+		Models: endpoint, ModelID: modelSettings.Model,
+		Memory: memSvc, Skills: ix, Vault: v, Projects: projects,
+	})
 	if err != nil {
 		return fmt.Errorf("daemon start: %w", err)
 	}
@@ -152,24 +229,8 @@ func runDaemonStart(args []string) error {
 		}
 	}
 	pump := agenda.NewTriggerPump(trigEng, trigLauncher)
-
-	// Memory with the provider embedder only when configured; without
-	// keys it degrades to lexical/temporal/relational retrieval
-	// (Section 10.8) instead of failing to start. Embedding requests
-	// never carry reasoning effort.
-	var memSvc *memory.Service
-	if db != nil {
-		memSvc = memory.NewService(db)
-		if emb, eerr := cli.BuildEmbedder(modelSettings, nil); eerr != nil {
-			fmt.Fprintf(os.Stderr, "daemon: embeddings disabled: %v\n", eerr)
-		} else if emb != nil {
-			memSvc = memory.NewService(db, memory.WithEmbedder(emb))
-			fmt.Fprintf(os.Stderr, "daemon: embeddings via %s\n", emb.Model())
-		}
-	}
-
-	ix := skills.NewIndex(skills.Roots{}, skills.BuiltinFS())
-	_ = ix.Scan()
+	// Daemon-side event adapters push normalized events here (21.3).
+	events := make(chan agenda.Event, 64)
 
 	tasks, err := daemon.NewTaskService(orch, orchStore)
 	if err != nil {
@@ -180,11 +241,27 @@ func runDaemonStart(args []string) error {
 		Caps:     daemon.NewCapabilityRoutes(nil),
 		Memory:   memSvc,
 		Skills:   ix,
-		Projects: workspace.NewRegistry(),
+		Projects: projects,
 		History:  workspace.NewHistory(),
 		Config:   &daemon.FileConfig{},
 		Metrics:  &daemon.MetricsStore{},
+		Vault:    v,
 	})
+
+	// Services that run for the daemon lifetime (Sections 5.2, 10.6,
+	// 21.1-21.3, 21.9, 4.7). Each is armed here, so Start launches it
+	// and Stop waits for it.
+	svc.Agenda = ag
+	svc.Triggers = pump
+	svc.Events = events
+	svc.Dog = &daemon.RAMWatchdog{Sampler: daemonSampler(), Orch: orch, Threshold: daemonRAMThreshold()}
+	if memSvc != nil {
+		svc.Review = &daemon.MemoryReviewLoop{Service: memSvc}
+		svc.ReviewScopes = []string{"general"}
+	}
+	if db != nil {
+		svc.Retention = daemonRetention(db, data)
+	}
 
 	gcfg := gateway.DefaultConfig()
 	gcfg.Listen = *listen
@@ -195,9 +272,9 @@ func runDaemonStart(args []string) error {
 			BootStore:  &daemon.OrchestratorRunStore{Store: orchStore},
 			Reconciler: &daemon.EngineReconciler{Engine: svc.Engine, Jrnl: svc.Jrnl, Store: orchStore},
 			AgendaBoot: ag,
+			Services:   svc,
 			OnBoot:     func(rep *daemon.BootReport) { fmt.Fprintln(os.Stderr, "boot:", rep.Notice) },
 		})
-	_ = pump
 	addr, err := d.Start(ctx)
 	if err != nil {
 		return err
@@ -249,4 +326,45 @@ func runDaemonStop(args []string) error {
 	}
 	fmt.Printf("stopped daemon %d\n", pid)
 	return nil
+}
+
+// daemonRAMThreshold returns the RSS level that trips the RAM watchdog
+// (Section 5.2). EXCALIBUR_RAM_THRESHOLD_MB sets it in MiB; otherwise
+// it is three quarters of physical RAM where the platform reports it,
+// and zero (watchdog inert) elsewhere.
+func daemonRAMThreshold() uint64 {
+	if raw := strings.TrimSpace(os.Getenv("EXCALIBUR_RAM_THRESHOLD_MB")); raw != "" {
+		if mb, err := strconv.ParseUint(raw, 10, 64); err == nil && mb > 0 {
+			return mb << 20
+		}
+	}
+	if total := physicalRAMBytes(); total > 0 {
+		return total / 4 * 3
+	}
+	return 0
+}
+
+// daemonRetention arms the Section 4.7 pass over the main database:
+// journals and tool blobs past their horizons, then a VACUUM INTO
+// backup in the rotation (4.6). Telemetry is not a separate database
+// in this daemon yet, so its trim does not run here.
+func daemonRetention(db *store.DB, data string) *daemon.RetentionLoop {
+	layout := store.NewLayout(data)
+	return &daemon.RetentionLoop{
+		Scheduler: daemon.NewRetentionScheduler(3),
+		Phases: daemon.RetentionPhases{
+			CompactJournals: func(ctx context.Context) error {
+				return store.ApplyRetention(ctx, db, nil, db.Blob(), store.DefaultRetention())
+			},
+			BackupAll: func(ctx context.Context) error {
+				_, err := store.Backup(ctx, db.Path(), layout.BackupsDir(), layout.MainBackupPrefix())
+				return err
+			},
+		},
+		OnReport: func(rep daemon.RetentionReport, err error) {
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "daemon: retention pass done in %d ms\n", rep.DurationMillis)
+			}
+		},
+	}
 }

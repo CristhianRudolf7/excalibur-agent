@@ -41,6 +41,9 @@ const (
 	TriageMisunderstood = "misunderstood-instruction"
 	TriageKnowledgeGap  = "knowledge-gap"
 	TriageOther         = "other"
+	// TriageInfra marks a failed trial that measured the infrastructure
+	// (TrialInfraReason); TriageResult.Domain carries the infra reason.
+	TriageInfra = "infra"
 )
 
 // triageCauses lists every valid cause for validation.
@@ -55,6 +58,7 @@ var triageCauses = map[string]bool{
 	TriageMisunderstood: true,
 	TriageKnowledgeGap:  true,
 	TriageOther:         true,
+	TriageInfra:         true,
 }
 
 // TriageResult is one triaged failure: the main cause, a short
@@ -83,6 +87,7 @@ type TriageStats struct {
 	Passed      int `json:"passed"`
 	Failed      int `json:"failed"`
 	Skipped     int `json:"skipped"`
+	Infra       int `json:"infra"`
 	JudgeCalls  int `json:"judge_calls"`
 	JudgeErrors int `json:"judge_errors"`
 }
@@ -1136,6 +1141,18 @@ func TriageRun(ctx context.Context, runDir string, opts TriageOptions) ([]Triage
 	stats := TriageStats{Total: len(trials)}
 	for _, dir := range trials {
 		reward, ok := readTrialReward(dir)
+		if reason := TrialInfraReason(dir, reward); reason != "" {
+			// Infrastructure failures are not agent failures: they keep their
+			// own cause and are excluded from the failed count.
+			stats.Infra++
+			out = append(out, TriageResult{
+				Task: stringBefore(filepath.Base(dir), "__"), Trial: filepath.Base(dir),
+				Reward: reward, Cause: TriageInfra, Domain: reason,
+				Evidence:   "infrastructure: " + reason + " (see the trial's harness and verifier records)",
+				FinalState: "unknown", DecidedBy: "infra-rule",
+			})
+			continue
+		}
 		if !ok {
 			stats.Skipped++
 			continue

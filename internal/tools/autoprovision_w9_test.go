@@ -134,6 +134,8 @@ func TestProvisionVerificationFailure(t *testing.T) {
 }
 
 func TestProvisionStatusSessionTail(t *testing.T) {
+	// A status read is passive: it reports the session's own tail and
+	// never runs or suggests the provisioner, in any provisioning mode.
 	m := NewSessionManager(TerminalDeps{})
 	m.Start("default", "printf 'sh: 1: file: not found\n'", t.TempDir(), false, 1000, nil)
 	ran := 0
@@ -142,7 +144,7 @@ func TestProvisionStatusSessionTail(t *testing.T) {
 		return "", 1
 	}}}
 	result, err := tool.Invoke(context.Background(), Invocation{})
-	if err != nil || !strings.Contains(result.Output, "install needed: command 'file' (run exec to provision)") {
+	if err != nil || !strings.Contains(result.Output, "install needed: command 'file' (run exec to provision)") || strings.Contains(result.Output, "provision:") || !strings.Contains(result.Output, "tail: sh: 1: file: not found") {
 		t.Fatalf("%v %s", err, result.Output)
 	}
 	if ran != 0 {

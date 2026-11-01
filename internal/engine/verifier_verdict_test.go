@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -65,7 +66,9 @@ func TestRecordedTruncationsCannotPass(t *testing.T) {
 			if ok != recover || (!ok && len(reasons) == 0) {
 				t.Fatalf("ok=%v reasons=%v", ok, reasons)
 			}
-			if len(m.requests) != 2 || m.requests[0].MaxTokens != 8192 || m.requests[1].MaxTokens != 8192 {
+			// The first attempt keeps the verdict budget; the retry
+			// doubles it (EXCALIBUR_VERDICT_RETRY).
+			if len(m.requests) != 2 || m.requests[0].MaxTokens != 8192 || m.requests[1].MaxTokens != 16384 {
 				t.Fatal(m.requests)
 			}
 			if len(m.requests[1].Messages[0].Content) >= len(m.requests[0].Messages[0].Content) {
@@ -120,5 +123,61 @@ func TestMissingEmbeddedVerifierRespectsOwnershipAndApplicability(t *testing.T) 
 	r.Request = "Say hello"
 	if ok, _ := e.runStrongVerifier(context.Background(), r, cfg, nil, nil, ""); !ok {
 		t.Fatal("non-applicable embedded verifier blocked")
+	}
+}
+
+// An empty verdict (zero output tokens, no error) gets one retry at a
+// larger budget, and a verdict on the retry is accepted.
+func TestEmptyVerdictRetriesWithLargerBudget(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERDICT_RETRY", "")
+	m := &verdictEndpoint{responses: []providers.ChatResponse{
+		{Usage: providers.Usage{Output: 0}},
+		finalResp("D1: PASS - asserted output\nVERDICT: PASS"),
+	}}
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.Models = m
+	valid := func(reply string) bool { return tasks.ParseStrongVerdict(reply, nil).Explicit }
+	resp, _, err := e.verifierChat(context.Background(), testRun(Profile{}), "verifier.strong", "full prompt", "small prompt", 512, valid)
+	if err != nil || !valid(resp.Message.Content) {
+		t.Fatalf("retry verdict must be accepted: err=%v content=%q", err, resp.Message.Content)
+	}
+	if len(m.requests) != 2 || m.requests[0].MaxTokens != 8192 || m.requests[1].MaxTokens != 16384 {
+		t.Fatalf("retry must double the budget, got %+v", m.requests)
+	}
+	if m.requests[1].Messages[0].Content != "small prompt" {
+		t.Fatal("retry keeps the smaller prompt")
+	}
+}
+
+// A verdict still missing after the retry is the sentinel "no
+// verdict": it is never a pass, and it is not a provider error.
+func TestEmptyVerdictTwiceIsNoVerdict(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERDICT_RETRY", "")
+	m := &verdictEndpoint{responses: []providers.ChatResponse{{}, {Usage: providers.Usage{Output: 0}}}}
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.Models = m
+	valid := func(reply string) bool { return tasks.ParseStrongVerdict(reply, nil).Explicit }
+	_, _, err := e.verifierChat(context.Background(), testRun(Profile{}), "verifier.strong", "full", "small", 512, valid)
+	if !errors.Is(err, tasks.ErrVerifierNoVerdict) {
+		t.Fatalf("err = %v, want ErrVerifierNoVerdict", err)
+	}
+	if len(m.requests) != 2 || m.requests[1].MaxTokens != 16384 {
+		t.Fatalf("exactly one retry at the larger budget expected, got %+v", m.requests)
+	}
+}
+
+// With EXCALIBUR_VERDICT_RETRY=off the retry keeps the original
+// budget (the behaviour before the switch existed).
+func TestVerdictRetryOffKeepsOriginalBudget(t *testing.T) {
+	t.Setenv("EXCALIBUR_VERDICT_RETRY", "off")
+	m := &verdictEndpoint{responses: []providers.ChatResponse{{}, {}}}
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.Models = m
+	valid := func(reply string) bool { return tasks.ParseStrongVerdict(reply, nil).Explicit }
+	if _, _, err := e.verifierChat(context.Background(), testRun(Profile{}), "verifier.strong", "full", "small", 512, valid); !errors.Is(err, tasks.ErrVerifierNoVerdict) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(m.requests) != 2 || m.requests[0].MaxTokens != 8192 || m.requests[1].MaxTokens != 8192 {
+		t.Fatalf("switch off must keep 8192 on the retry, got %+v", m.requests)
 	}
 }

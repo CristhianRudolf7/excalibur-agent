@@ -56,3 +56,24 @@ func TestDivideBudget(t *testing.T) {
 		t.Fatal("parent must not mutate")
 	}
 }
+
+func TestNewSwitchesDefaultOnAndDisable(t *testing.T) {
+	for _, name := range []string{DeliverableSwitch, FallbackSwitch, PathMapSwitch, FullBudgetSwitch, MergeRecordsSwitch} {
+		t.Setenv(name, "")
+	}
+	if !DeliverableEnabled() || !FallbackEnabled() || !PathMapEnabled() {
+		t.Fatal("deliverable, fallback and path mapping default ON")
+	}
+	for _, off := range []string{"0", "off", "false", "no", " NO "} {
+		t.Setenv(DeliverableSwitch, off)
+		t.Setenv(FallbackSwitch, off)
+		t.Setenv(PathMapSwitch, off)
+		if DeliverableEnabled() || FallbackEnabled() || PathMapEnabled() {
+			t.Fatalf("%q must disable the switches", off)
+		}
+	}
+	t.Setenv(PathMapSwitch, "1")
+	if !PathMapEnabled() {
+		t.Fatal("explicit on value must enable")
+	}
+}

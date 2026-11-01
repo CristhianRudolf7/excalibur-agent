@@ -409,6 +409,7 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		callSite = "model." + string(role)
 	}
 	_ = m.run.Recorder.RecordModelCall(eval.ModelCall{
+		ProviderReason: models.ProviderErrorReason(err), CredentialSwitches: meta.CredentialSwitches,
 		MaxOutputTokens: req.MaxTokens, VerifierVerdict: tasks.VerifierVerdictEnabled(),
 		CallSite: callSite, FinishReason: finishReason, FinishReasonSource: "inferred_from_contract", UsageAvailable: resp.Usage != (providers.Usage{}),
 		Seq: m.run.modelSeq, Role: string(role), Model: model, Effort: effort,
@@ -566,6 +567,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		RunID: string(run.RunID), Project: opts.ProjectDir, Vault: opts.Vault,
 		Delegated: profile == ProfileDelegate,
 		Skills:    skillsIndex,
+		Workdir:   opts.ProjectDir,
 	})
 	if err != nil {
 		return "", providers.Usage{}, "", fmt.Errorf("cli: wire embedded catalog: %w", err)
@@ -575,6 +577,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	baseRunner := engine.NewRegistryRunner(emb.Registry, emb.Exec)
 	var toolBase engine.ToolRunner = baseRunner
+	// Best-of-N attempts map their paths onto their own copy before the
+	// tool runs (nil outside attempts). Recording wraps this, so the
+	// records keep the arguments the model sent.
+	toolBase = attemptPathRunnerFor(toolBase, opts.attemptMap)
 	if emb.Surface != nil && emb.Surface.History != nil {
 		toolBase = &historyToolRunner{base: toolBase, log: emb.Surface.History}
 	}
@@ -659,8 +665,8 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	// Wall-clock-only binding (W8): closing mode must leave the best
 	// deliverable in place and call `finish`. Gated by
-	// EXCALIBUR_TIME_BUDGET_ONLY (default ON in eval).
-	if engine.TimeBudgetOnlyEnabled(profile == ProfileEval) {
+	// EXCALIBUR_TIME_BUDGET_ONLY (default ON for embedded exec).
+	if engine.TimeBudgetOnlyEnabled(true) {
 		fixedInstructions = append(fixedInstructions,
 			"Closing mode: when time is almost exhausted, leave the best deliverable in place, verify what exists quickly, and call `finish` with status completed and evidence now. Do not start new work. Never end blocked in closing; never end paused except on the hard wall clock.",
 		)
@@ -828,6 +834,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		Tools:          toolRunner,
 		LeaseHeartbeat: wireengine.LeaseHeartbeatHook(emb.Leases),
 		LeaseRelease:   wireengine.LeaseReleaseHook(emb.Leases),
+		// Required-artifact checks resolve through the attempt map too
+		// (nil outside attempts: the default filesystem checks).
+		ArtifactStat: attemptArtifactStat(opts.attemptMap),
+		ArtifactRead: attemptArtifactRead(opts.attemptMap),
 		OnPairRetry: func(repaired int, firstErr string) {
 			if run.Recorder == nil {
 				return
@@ -840,10 +850,10 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			ctxcompiler.PairAtomicEnabled(nil), ctxcompiler.PairCheckEnabled(nil), ctxcompiler.PairRetryEnabled(nil)))
 	}
 	// Effective run-level budgets (W8, Sections 7.3, 18.4, 23.2):
-	// in eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the
+	// in exec/delegate/eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the
 	// binding budget is the task wall clock (explicit --timeout,
-	// else the Harbor 90% override, else the configured arm
-	// fallback) with safety caps that cannot bind before the wall;
+	// else EXCALIBUR_EVAL_WALL_SECS, else 900 seconds) with
+	// advisory safety caps and enforced cost/input-token spend caps;
 	// otherwise the legacy limits apply. The tracker trips closing
 	// mode below 10% and pauses with the budget motive at zero.
 	effBudgets := EffectiveBudgetsFor(opts, profile)
@@ -956,8 +966,12 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		// An interrupt cancels the context without failing: the
 		// orchestrator owns the resulting state.
 		if ctx.Err() == nil {
-			close(stopSampler)
-			return "", providers.Usage{}, "", err
+			if !acceptedFinishSurvives(erun.State()) {
+				close(stopSampler)
+				return "", providers.Usage{}, "", err
+			}
+			// The error is recorded by class only, never by message.
+			_ = run.EmitEvent("post_finish_error", map[string]any{"class": models.ProviderErrorReason(err)})
 		}
 	}
 	close(stopSampler)
@@ -1057,6 +1071,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// model's raw final text and the `finish` arguments land next to
 	// skills.json / explore.json for the ablation.
 	writeExplicitFinishRecord(run.Dir, explicitFinish, erun)
+	// The finish detail the trial record and run_finished carry: the
+	// delivery summary, the model's final text and the cited evidence.
+	run.FinalText = erun.FinalText
+	if erun.Finish != nil {
+		run.FinishSummary = erun.Finish.Summary
+		run.FinishEvidence = erun.Finish.Evidence
+	}
 	_ = run.EmitEvent("explicit_finish", map[string]any{
 		"enabled": explicitFinish, "finish_calls": erun.FinishCalls,
 		"refusals": erun.FinishRefusals, "confirmed": erun.Finish != nil,
@@ -1065,6 +1086,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// (pid, command, log) that outlive the agent, next to the other
 	// trial artifacts.
 	if emb.Sessions != nil {
+		// Non-detached helper sessions end with the run (item 46); detached
+		// background services are left running by design.
+		emb.Sessions.StopHelperSessions()
 		surviving := emb.Sessions.Surviving()
 		writeServicesRecord(run.Dir, surviving, tools.DetachBackgroundEnabled())
 		_ = run.EmitEvent("services", map[string]any{
@@ -1093,13 +1117,21 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				summary = string(erun.State())
 			}
 		} else {
-			summary = "completed: " + shortSummary(opts.Request)
+			summary = "completed"
 		}
 	}
 	if err := run.EmitStep(telemetry.ATIFStep{Role: "assistant", Content: summary}, "message"); err != nil {
 		return "", providers.Usage{}, "", err
 	}
 	return erun.State(), usage, summary, nil
+}
+
+// acceptedFinishSurvives reports whether an engine error may be recorded
+// without failing the run because the run already completed through an
+// accepted finish (item 48). A provider or engine error after acceptance
+// cannot change the completed state, the trial record or run_finished.
+func acceptedFinishSurvives(state types.RunState) bool {
+	return state == types.RunCompleted
 }
 
 // writeExplicitFinishRecord persists the explicit-finish ablation

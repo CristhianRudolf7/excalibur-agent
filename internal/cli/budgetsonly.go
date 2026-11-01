@@ -23,25 +23,30 @@ type EffectiveBudgets struct {
 	MaxSteps       int     `json:"max_steps"`
 	CostCapUSD     float64 `json:"cost_cap_usd"`
 	CostSource     string  `json:"cost_source"`
+	InputTokenCap  int64   `json:"input_token_cap"`
+	SpendCaps      bool    `json:"spend_caps"`
 	MaxTokens      int     `json:"max_tokens"`
 	MaxToolCalls   int     `json:"max_tool_calls"`
 	Profile        string  `json:"profile"`
 }
 
-// EffectiveBudgetsFor resolves the run-level budgets for opts/profile:
-// in eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the binding
-// budget is the task wall clock (explicit --timeout, else the Harbor
-// 90% override, else the configured arm fallback) with safety caps
-// (steps 2000, cost EXCALIBUR_COST_CAP_USD default 20); otherwise the
-// legacy limits apply (steps 25 default, explicit --max-steps wins, no
-// cost cap unless --budget-usd is set).
+// EffectiveBudgetsFor resolves the run-level budgets for opts/profile.
+// In non-interactive runs (exec, delegate, eval) with
+// EXCALIBUR_TIME_BUDGET_ONLY=on (default) the binding budget is the wall
+// clock: the explicit --timeout, else EXCALIBUR_EVAL_WALL_SECS, else 900
+// seconds. Steps are a safety cap (2000). The spend caps apply: USD cost
+// (EXCALIBUR_COST_CAP_USD, default 20) and input tokens
+// (EXCALIBUR_INPUT_TOKEN_CAP, default 8,000,000), unless
+// EXCALIBUR_SPEND_CAP is off. Otherwise the legacy limits apply (steps 25
+// default, explicit --max-steps wins, no cost cap unless --budget-usd is
+// set).
 func EffectiveBudgetsFor(opts ExecOptions, profile ProfileName) (result EffectiveBudgets) {
 	defer func() {
 		result.Deadline = engine.DeadlineEnabled()
-		result.WallSecs, result.WallSource = engine.ResolveDeadline(opts.TimeoutSecs, opts.Request, result.WallSecs, result.WallSource)
 	}()
-	isEval := profile == ProfileEval
-	timeOnly := engine.TimeBudgetOnlyEnabled(isEval)
+	// Every profile here is a non-interactive exec run, including
+	// the default and delegate profiles. Master turns do not use this resolver.
+	timeOnly := engine.TimeBudgetOnlyEnabled(true)
 	strict := engine.StrictBlockedEnabled()
 	if !timeOnly {
 		steps := 25
@@ -96,6 +101,7 @@ func EffectiveBudgetsFor(opts ExecOptions, profile ProfileName) (result Effectiv
 		TimeBudgetOnly: true, StrictBlocked: strict,
 		WallSecs: wall, WallSource: wallSource,
 		MaxSteps: steps, CostCapUSD: cost, CostSource: costSource,
+		InputTokenCap: engine.InputTokenCap(), SpendCaps: engine.SpendCapEnabled(),
 		MaxTokens: 0, MaxToolCalls: 0, Profile: string(profile),
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
@@ -240,28 +241,11 @@ var _ orchestrator.Runner = (*EngineRunner)(nil)
 // Models, context and gate plug through engine.Deps by their owners;
 // boot reconciliation uses this engine as built.
 func NewEngine() *engine.Engine {
-	return buildEngine(capabilities.DefaultRegistry())
-}
-
-func buildEngine(caps *capabilities.Registry) *engine.Engine {
-	reg := tools.NewMapRegistry()
-	_ = tools.RegisterBuiltins(reg, tools.DefaultBuiltinDeps())
-	if caps != nil {
-		for _, id := range caps.IDs() {
-			if c, ok := caps.Lookup(id); ok {
-				if ts, err := tools.ToolsFromCapability(capabilityInvoker{id: id, cap: c}); err == nil {
-					for _, t := range ts {
-						_ = reg.Register(t)
-					}
-				}
-			}
-		}
+	eng, _, err := buildEngine(engineWiring{Caps: capabilities.DefaultRegistry()})
+	if err != nil {
+		panic(err)
 	}
-	return engine.New(engine.Deps{
-		Tools: &daemonToolRunner{ex: tools.NewExecutor(reg), reg: reg},
-		Gate:  engine.GateFunc(func(*engine.Run) tasks.GateReport { return tasks.GateReport{} }),
-		Clock: time.Now,
-	})
+	return eng
 }
 
 // MemoryReviewLoop runs the Section 10.6 daily review in the 21.9
@@ -277,8 +261,9 @@ type MemoryReviewLoop struct {
 	now      func() time.Time
 }
 
-// Start runs the loop until ctx ends in one safego.Go goroutine.
-func (l *MemoryReviewLoop) Start(ctx context.Context, scopes []string) {
+// Start runs the loop until ctx ends in one safego.Go goroutine. The
+// returned channel closes when the goroutine exits.
+func (l *MemoryReviewLoop) Start(ctx context.Context, scopes []string) <-chan struct{} {
 	interval := l.Interval
 	if interval <= 0 {
 		interval = 15 * time.Minute
@@ -287,7 +272,9 @@ func (l *MemoryReviewLoop) Start(ctx context.Context, scopes []string) {
 	if now == nil {
 		now = time.Now
 	}
+	done := make(chan struct{})
 	safego.Go("daemon-memory-review", nil, func() {
+		defer close(done)
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -299,6 +286,7 @@ func (l *MemoryReviewLoop) Start(ctx context.Context, scopes []string) {
 			}
 		}
 	})
+	return done
 }
 
 func (l *MemoryReviewLoop) once(ctx context.Context, scopes []string, now time.Time) {
@@ -338,7 +326,8 @@ type RAMWatchdog struct {
 }
 
 // Start runs the watchdog until ctx ends in one safego.Go goroutine.
-func (w *RAMWatchdog) Start(ctx context.Context) {
+// The returned channel closes when the goroutine exits.
+func (w *RAMWatchdog) Start(ctx context.Context) <-chan struct{} {
 	interval := w.Interval
 	if interval <= 0 {
 		interval = time.Second
@@ -347,7 +336,9 @@ func (w *RAMWatchdog) Start(ctx context.Context) {
 	if now == nil {
 		now = time.Now
 	}
+	done := make(chan struct{})
 	safego.Go("daemon-watchdog", nil, func() {
+		defer close(done)
 		t := time.NewTicker(interval)
 		defer t.Stop()
 		for {
@@ -360,6 +351,7 @@ func (w *RAMWatchdog) Start(ctx context.Context) {
 			}
 		}
 	})
+	return done
 }
 
 func (w *RAMWatchdog) once(tm time.Time) {
@@ -385,6 +377,13 @@ type Services struct {
 	Store    orchestrator.Store
 	Jrnl     journal.Store
 	Engine   *engine.Engine
+	// Tools is the daemon tool surface the engine executes; Catalog is
+	// its deferred catalog (search_tools, call_tool).
+	Tools   *tools.MapRegistry
+	Catalog *tools.DeferredCatalog
+	// Exec runs tool calls for the engine: secret resolution and output
+	// redaction are installed on it (Section 20.1).
+	Exec     *tools.Executor
 	Caps     *capabilities.Registry
 	Memory   *memory.Service
 	Skills   *skills.Index
@@ -393,6 +392,12 @@ type Services struct {
 	Decider  ChoiceDecider
 	Review   *MemoryReviewLoop
 	Dog      *RAMWatchdog
+	// Retention runs the Section 4.7 retention and backup pass in the
+	// maintenance window (21.9). Nil disables it.
+	Retention *RetentionLoop
+	// Events feeds the trigger pump (21.3): daemon-side adapters push
+	// normalized events here. Nil runs the pump without a source.
+	Events chan agenda.Event
 	// ReviewScopes arms the daily-review loop (21.9); empty disables it.
 	ReviewScopes []string
 }
@@ -400,6 +405,20 @@ type Services struct {
 // AssembleOptions overrides pieces of the assembled stack. Nil pieces
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
+	// Models is the configured model endpoint for daemon runs. Nil
+	// leaves the engine unconfigured: its steps fail with a clear
+	// error instead of a missing-endpoint panic.
+	Models engine.ModelEndpoint
+	// ModelID names the configured model for prompt and limits
+	// selection (19.1).
+	ModelID string
+	// Vault binds secret resolution for tools and output redaction
+	// (Section 20.1). Nil keeps pattern-only redaction.
+	Vault *vault.Vault
+	// Orch is the orchestrator the stack drives. Nil builds one over
+	// Store; callers that also register agents on it (agenda,
+	// triggers) must pass theirs so every component shares one.
+	Orch     *orchestrator.Orchestrator
 	Store    orchestrator.Store
 	Jrnl     journal.Store
 	OrchJrnl orchestrator.Journal
@@ -431,13 +450,36 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	if s.Jrnl == nil {
 		s.Jrnl = journal.NewMemStore()
 	}
-	jrnl := opts.OrchJrnl
-	if jrnl == nil {
-		jrnl = orchestrator.NoopJournal{}
+	if opts.Orch != nil {
+		s.Orch = opts.Orch
+	} else {
+		jrnl := opts.OrchJrnl
+		if jrnl == nil {
+			jrnl = orchestrator.NoopJournal{}
+		}
+		s.Orch = orchestrator.New(orchestrator.DefaultConfig(), s.Store, jrnl)
 	}
-	s.Orch = orchestrator.New(orchestrator.DefaultConfig(), s.Store, jrnl)
 	s.Caps = capabilities.DefaultRegistry()
-	s.Engine = buildEngine(s.Caps)
+	var orchStore *orchestrator.MemoryStore
+	if ms, ok := s.Store.(*orchestrator.MemoryStore); ok {
+		orchStore = ms
+	}
+	root, err := s.Orch.RegisterMaster("subagent-root", types.GeneralScope())
+	if err != nil {
+		return nil, fmt.Errorf("daemon: register subagent root: %w", err)
+	}
+	eng, dt, err := buildEngine(engineWiring{
+		Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID,
+		Vault: opts.Vault, Memory: opts.Memory, Skills: opts.Skills,
+		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.Engine = eng
+	s.Tools = dt.Registry
+	s.Catalog = dt.Catalog
+	s.Exec = dt.Exec
 	if opts.Skills != nil {
 		s.Skills = opts.Skills
 	} else {

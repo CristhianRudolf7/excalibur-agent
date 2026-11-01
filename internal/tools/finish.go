@@ -86,7 +86,9 @@ func (t *FinishTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
 	if _, reason := ParseFinishArgs(inv.Arguments); reason != "" {
 		return Result{Status: StatusInputError, Output: reason}, nil
 	}
-	return Result{Status: StatusOK, Output: "finish recorded by the harness"}, nil
+	// The engine's finish protocol replaces this text with the verdict
+	// (refusal, checks passed, or accepted) before the model sees it.
+	return Result{Status: StatusOK, Output: "finish received: the harness verifies it and returns the verdict as this tool result"}, nil
 }
 
 func (t *FinishTool) ResourceKeys(_ json.RawMessage) ([]string, error) { return nil, nil }

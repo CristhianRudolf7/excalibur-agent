@@ -355,6 +355,9 @@ type Run struct {
 	// StrictBlockedRefusals counts `finish status=blocked` refusals
 	// under the strict blocked policy (W8) for the trial records.
 	StrictBlockedRefusals int
+	// fin holds the finish-protocol state (refusal fingerprint,
+	// verifier budget, input snapshot). Guarded by mu.
+	fin finishState
 	// timeOnlyClosingNoted marks the one-time wall-closing note in
 	// time-only mode so closing reminds once without spamming.
 	timeOnlyClosingNoted bool
@@ -362,6 +365,12 @@ type Run struct {
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
 	safetyCapNoted bool
+	// spendNoted marks the one-time spend-cap closing note.
+	spendNoted bool
+	// inputTokenCap is the per-run input-token cap (time-only runs).
+	inputTokenCap int64
+	// exact is the exact-call guard (loop guard v2). Guarded by mu.
+	exact *tasks.ExactCallGuard
 }
 
 // NewRun returns a created run with its profile budgets installed.
@@ -369,11 +378,13 @@ func NewRun(id, taskID string, p Profile) *Run {
 	now := time.Now().UTC()
 	return &Run{
 		ID: id, TaskID: taskID, Profile: p,
-		state:       types.RunCreated,
-		Tracker:     tasks.Tracker{Limit: p.Limit},
-		Loop:        tasks.NewLoopDetector(),
-		StartedAt:   now,
-		HeartbeatAt: now,
+		state:         types.RunCreated,
+		Tracker:       tasks.Tracker{Limit: p.Limit},
+		Loop:          tasks.NewLoopDetector(),
+		StartedAt:     now,
+		HeartbeatAt:   now,
+		inputTokenCap: InputTokenCap(),
+		exact:         tasks.NewExactCallGuard(),
 	}
 }
 
@@ -642,6 +653,9 @@ func (e *Engine) Start(ctx context.Context, run *Run) error {
 		return err
 	}
 	run.HeartbeatAt = e.deps.Clock().UTC()
+	if run.Loop != nil {
+		run.Loop.ExactRepeatsByGuard = e.quality().LoopGuardV2
+	}
 	e.recordState(ctx, run, from, types.RunRunning, "")
 	return nil
 }
@@ -843,11 +857,15 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	run.mu.Unlock()
 
+	if reason := e.finishSafetyReason(run); reason != "" {
+		return true, e.completeWithPending(ctx, run, []string{reason})
+	}
+
 	run.DeadlinePacing(e.deps.Clock())
 
 	// Time-only binding (W8): only the wall clock pauses the run.
-	// Safety-cap exhaustion (steps/cost/tokens) forces closing
-	// instead of pausing so the run works to the wall edge and leaves
+	// Step safety-cap exhaustion is advisory; spend caps retain their
+	// closing and pause thresholds. The run works to the wall edge and leaves
 	// the best deliverable in place with `finish`.
 	timeOnly := func() bool {
 		run.mu.Lock()
@@ -859,18 +877,24 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			e.pauseBudget(ctx, run)
 			return true, nil
 		}
-		if e.checkBudgets(run, elapsed) == tasks.StatusExhausted {
-			// A safety cap would have paused the legacy run: note
+		// Spend caps (USD cost, input tokens): at the closing share the
+		// agent is asked to finish; at the stop share the run pauses
+		// with the budget motive.
+		spendOn := SpendCapEnabled()
+		if spendOn {
+			level, _ := run.spendLevel()
+			if level >= 2 {
+				e.pauseBudget(ctx, run)
+				return true, nil
+			}
+			if level == 1 {
+				run.injectOnce(&run.spendNoted, SpendCloseNote)
+			}
+		}
+		if e.safetyCapExhausted(run, elapsed, spendOn) {
+			// A step safety cap would have paused the legacy run: note
 			// once and keep working toward the wall edge.
-			run.mu.Lock()
-			noted := run.safetyCapNoted
-			if !noted {
-				run.safetyCapNoted = true
-			}
-			run.mu.Unlock()
-			if !noted {
-				run.InjectNote(SafetyCapNote)
-			}
+			run.injectOnce(&run.safetyCapNoted, SafetyCapNote)
 		}
 	} else {
 		if status := e.checkBudgets(run, elapsed); status == tasks.StatusExhausted {
@@ -923,6 +947,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	run.stashRequest(compiled.LayerText(ctxcompiler.LayerTask))
 	scopeWasStarted := run.scopeGuardStarted
 	e.startScopeGuard(run)
+	e.startInputSnapshot(run)
 	if run.scopeGuardError != "" {
 		return true, e.fail(ctx, run, run.scopeGuardError)
 	}
@@ -1033,10 +1058,27 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 				run.recordFinishAttempt(string(resp.Message.ToolCalls[0].Arguments), resp.Message.Content)
 				reason := e.refuseFinish(ctx, run, []string{"`finish` must be called alone, with no other tool calls in the same turn."})
 				run.recordFinishRefusal(reason)
+				e.recordCallResults(run, resp.Message.ToolCalls, reason)
 				run.InjectNote(reason)
 				return false, nil
 			}
-			return e.execFinishBatch(ctx, run, resp.Message.ToolCalls[0], resp.Message.Content)
+			if e.quality().LoopGuardV2 {
+				if msg, refused := run.guardRefusal(resp.Message.ToolCalls[0]); refused {
+					e.recordBlockedCall(run, resp.Message.ToolCalls[0], tools.Result{Status: tools.StatusInputError, Output: msg})
+					return false, nil
+				}
+			}
+			stop, err := e.execFinishBatch(ctx, run, resp.Message.ToolCalls[0], resp.Message.Content)
+			// A repeated finish with no change counts toward the loop
+			// guard key: the note comes at the third identical result.
+			refusal := ""
+			if !stop {
+				refusal = run.lastRefusal()
+			}
+			if note := run.observeFinish(resp.Message.ToolCalls[0], refusal, e.quality().LoopGuardV2); note != "" {
+				run.InjectNote(note)
+			}
+			return stop, err
 		}
 		// Record the assistant tool-call message before execution:
 		// the next model request must carry the function_call items
@@ -1069,6 +1111,37 @@ func (e *Engine) checkBudgets(run *Run, elapsed time.Duration) tasks.Status {
 	return dup.Evaluate()
 }
 
+// safetyCapExhausted reports whether a step safety cap is reached in
+// time-only mode. With the spend caps on, the USD cost cap is not a
+// safety cap: it has its own closing and stop rules (spendLevel).
+func (e *Engine) safetyCapExhausted(run *Run, elapsed time.Duration, spendOn bool) bool {
+	run.mu.Lock()
+	dup := run.Tracker
+	run.mu.Unlock()
+	dup.Used.Elapsed = elapsed
+	if spendOn {
+		dup.Limit.MaxCostUSD = 0
+	}
+	return dup.Evaluate() == tasks.StatusExhausted
+}
+
+// injectOnce volatile-notes text the first time flag is claimed.
+// Callers hold no lock.
+func (r *Run) injectOnce(flag *bool, note string) {
+	r.mu.Lock()
+	noted := *flag
+	*flag = true
+	r.mu.Unlock()
+	if !noted {
+		r.InjectNote(note)
+	}
+}
+
+// timeFooterFor renders the time footer of a tool result observed now.
+func (e *Engine) timeFooterFor(run *Run) string {
+	return run.timeFooter(e.deps.Clock())
+}
+
 // pauseDeadline persists a wall-clock stop even after the call context expires.
 func (e *Engine) pauseDeadline(ctx context.Context, run *Run) {
 	run.mu.Lock()
@@ -1084,7 +1157,10 @@ func (e *Engine) pauseDeadline(ctx context.Context, run *Run) {
 func (e *Engine) pauseBudget(ctx context.Context, run *Run) {
 	run.mu.Lock()
 	from := run.state
-	_ = run.transition(types.RunPaused)
+	if err := run.transition(types.RunPaused); err != nil {
+		run.mu.Unlock()
+		return
+	}
 	run.pauseReason = types.PauseBudget
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	dup := run.Tracker
@@ -1094,8 +1170,10 @@ func (e *Engine) pauseBudget(ctx context.Context, run *Run) {
 	run.mu.Unlock()
 	if timeOnly {
 		// In wall-clock-only mode the honest report names the wall
-		// clock even if a safety cap tripped on the same step.
+		// clock, plus any spend cap that reached its stop share.
 		exhausted = timeOnlyExhaustedBy(dup.Limit, elapsed)
+		_, over := run.spendLevel()
+		exhausted = append(exhausted, over...)
 		if len(exhausted) == 0 {
 			exhausted = []string{"time"}
 		}
@@ -1111,7 +1189,12 @@ func (e *Engine) pauseBudget(ctx context.Context, run *Run) {
 func (e *Engine) fail(ctx context.Context, run *Run, cause string) error {
 	run.mu.Lock()
 	from := run.state
-	_ = run.transition(types.RunFailed)
+	// A terminal run (an accepted finish) keeps its recorded state:
+	// a later provider error never downgrades it (items 47, 48).
+	if err := run.transition(types.RunFailed); err != nil {
+		run.mu.Unlock()
+		return fmt.Errorf("engine: run %s failed after %s: %s", run.ID, from, cause)
+	}
 	run.mu.Unlock()
 	e.recordState(ctx, run, from, types.RunFailed, cause)
 	if e.deps.LeaseRelease != nil {
@@ -1230,7 +1313,7 @@ func (e *Engine) complete(ctx context.Context, run *Run, to types.RunState, reas
 
 // execTools runs one batch plan with write-ahead journaling, history
 // append and loop observation (7.3-7.4). It returns stop=true when a
-// loop escalation blocks the run.
+// execution fails or a non-loop stop is requested.
 func (e *Engine) execTools(ctx context.Context, run *Run, calls []providers.ToolCall) (bool, error) {
 	batches, err := e.PlanBatches(ctx, run, calls)
 	if err != nil {
@@ -1245,16 +1328,21 @@ func (e *Engine) execTools(ctx context.Context, run *Run, calls []providers.Tool
 }
 
 // execBatch executes one parallel batch in request order (7.4).
+//
+// Loop guard v2 (default on) refuses a call that sits inside its refusal
+// window and counts every executed call by its exact key; the legacy
+// exact-repeat blocker applies only when the guard is switched off.
+// Every call's result reaches the model with the time footer appended.
 func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.ToolCall) (bool, error) {
 	q := e.quality()
-	// Exact-repeat blocker (agent quality): a single-call batch that
-	// repeats the previous single call byte-for-byte, with a
-	// deterministic outcome, is rejected once per run and signature
-	// instead of executing. Retryable outcomes (transient, timeout,
-	// canceled) are never blocked: an immediate retry may be the
-	// correct repair. Multi-call batches pass through: the blocker
-	// only covers the unambiguous one-call repeat.
-	if len(batch) == 1 && q.RepeatBlock {
+	// Exact-repeat blocker (agent quality, loop guard v2 off): a
+	// single-call batch that repeats the previous single call
+	// byte-for-byte, with a deterministic outcome, is rejected once per
+	// run and signature instead of executing. Retryable outcomes
+	// (transient, timeout, canceled) are never blocked: an immediate
+	// retry may be the correct repair. Multi-call batches pass through:
+	// the blocker only covers the unambiguous one-call repeat.
+	if len(batch) == 1 && q.RepeatBlock && !q.LoopGuardV2 {
 		if msg, blocked := checkRepeatBlock(run, batch[0]); blocked {
 			res := tools.Result{Status: tools.StatusInputError, Output: msg}
 			e.recordBlockedCall(run, batch[0], res)
@@ -1266,23 +1354,75 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			return false, nil
 		}
 	}
-	results := e.runParallel(ctx, run, batch)
+	// Calls inside a refusal window are not executed: their result is
+	// the refusal text. The rest of the batch runs as usual.
+	refused := make([]string, len(batch))
+	var runCalls []providers.ToolCall
+	var runIdx []int
+	for i, tc := range batch {
+		if q.LoopGuardV2 {
+			if msg, ok := run.guardRefusal(tc); ok {
+				refused[i] = msg
+				continue
+			}
+		}
+		runCalls = append(runCalls, tc)
+		runIdx = append(runIdx, i)
+	}
+	results := make([]tools.Result, len(batch))
+	if len(runCalls) > 0 {
+		ran := e.runParallel(ctx, run, runCalls)
+		for j, i := range runIdx {
+			results[i] = ran[j]
+		}
+	}
+	for i, msg := range refused {
+		if msg != "" {
+			results[i] = tools.Result{Status: tools.StatusInputError, Output: msg}
+		}
+	}
 	if run.scopeGuard != nil {
 		for i, r := range results {
+			if refused[i] != "" {
+				continue
+			}
 			run.scopeGuard.ObserveCall(batch[i].Name, string(batch[i].Arguments), r.Output, r.Status != tools.StatusOK || strings.Contains(r.Output, "AssertionError") || strings.Contains(r.Output, "FAIL"))
 		}
 	}
+	liveProgress := false
 	for i, tc := range batch {
 		res := results[i]
 		recordCall(run, callSig(tc))
+		out := withFooter(res.Output, e.timeFooterFor(run))
 		run.mu.Lock()
 		seq := run.nextHistorySeqLocked()
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool,
-			Content:    res.Output,
-			ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: res.Status != tools.StatusOK},
+			Content:    out,
+			ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: out, IsError: res.Status != tools.StatusOK},
 		})
 		run.mu.Unlock()
+		if refused[i] != "" {
+			// A refused call never executed, so it stays out of the
+			// detector windows, as the legacy blocker did.
+			for _, d := range run.Loop.ObserveNoInfo(false) {
+				if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
+					return stop, err
+				}
+			}
+			continue
+		}
+		if q.LoopGuardV2 {
+			if note := run.observeExact(tc, res); note != "" {
+				run.InjectNote(note)
+			}
+		}
+		// Running build/install output must not trigger legacy near-repeat,
+		// cycle or no-information rules either. The exact guard also skips it.
+		if q.LoopGuardV2 && tasks.LiveSessionOutput(res.Output) {
+			liveProgress = true
+			continue
+		}
 		for _, d := range run.Loop.ObserveTool(tasks.ToolEvent{
 			Tool: tc.Name, Args: string(tc.Arguments), Result: res.Output,
 			Error: toolErrorOf(res),
@@ -1295,7 +1435,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 	rememberSingle(run, batch, results)
 	if q.StuckRecovery {
 		informative := markNovelty(run, batch, results)
-		for _, d := range run.Loop.ObserveNoInfo(informative) {
+		for _, d := range run.Loop.ObserveNoInfo(informative || liveProgress) {
 			if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
 				return stop, err
 			}
@@ -1314,7 +1454,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 	// stuck-recovery mechanism skips it and tracks novelty from
 	// tool results instead. Off restores the legacy observation.
 	hasSignal := progressFn != nil || prog != (tasks.ProgressState{})
-	if !q.StuckRecovery || hasSignal {
+	if (!q.StuckRecovery || hasSignal) && !liveProgress {
 		for _, d := range run.Loop.ObserveProgress(prog) {
 			if stop, err := e.onDetection(ctx, run, d); err != nil || stop {
 				return stop, err
@@ -1401,12 +1541,13 @@ func isDeterministic(res tools.Result) bool {
 // not pollute the R1/R2 windows.
 func (e *Engine) recordBlockedCall(run *Run, tc providers.ToolCall, res tools.Result) {
 	recordCall(run, callSig(tc))
+	out := withFooter(res.Output, e.timeFooterFor(run))
 	run.mu.Lock()
 	seq := run.nextHistorySeqLocked()
 	run.History = append(run.History, ctxcompiler.ActivityEvent{
 		Seq: seq, Role: providers.RoleTool,
-		Content:    res.Output,
-		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: true},
+		Content:    out,
+		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: out, IsError: true},
 	})
 	run.mu.Unlock()
 	e.harvestBatch(run, []providers.ToolCall{tc}, []tools.Result{res})
@@ -1516,16 +1657,12 @@ func (e *Engine) onDetection(ctx context.Context, run *Run, d tasks.Detection) (
 		pin(d.Note)
 		return false, nil
 	case tasks.ActionBlock:
-		run.mu.Lock()
-		from := run.state
-		_ = run.transition(types.RunBlocked)
-		run.blockReason = types.BlockLoop
-		run.mu.Unlock()
-		e.recordState(ctx, run, from, types.RunBlocked, "loop: "+d.Note)
-		if e.deps.LeaseRelease != nil {
-			e.deps.LeaseRelease(run.ID)
-		}
-		return true, nil
+		// A loop never ends the run (backlog 99). The third and later
+		// stages repeat the strategy-switch note without another expert
+		// consult, so they cost no model call.
+		run.InjectNote(escalateNote(q, d, ""))
+		pin(d.Note)
+		return false, nil
 	default:
 		return false, nil
 	}

@@ -116,18 +116,7 @@ func DivideBudget(parent *float64, n int) *float64 {
 const FullBudgetSwitch = "EXCALIBUR_ATTEMPTS_FULL_BUDGET"
 
 // FullBudgetEnabled reports whether attempts get the full budget.
-func FullBudgetEnabled() bool {
-	v, ok := os.LookupEnv(FullBudgetSwitch)
-	if !ok || strings.TrimSpace(v) == "" {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "off", "false", "no":
-		return false
-	default:
-		return true
-	}
-}
+func FullBudgetEnabled() bool { return switchDefaultOn(FullBudgetSwitch) }
 
 // MergeRecordsSwitch gates merging every attempt's model/tool calls
 // into the outer trial records tagged by attempt. Default ON: without
@@ -140,8 +129,46 @@ const MergeRecordsSwitch = "EXCALIBUR_ATTEMPTS_MERGE_RECORDS"
 
 // MergeRecordsEnabled reports whether the fan-out merges per-attempt
 // records into the outer recorder.
-func MergeRecordsEnabled() bool {
-	v, ok := os.LookupEnv(MergeRecordsSwitch)
+func MergeRecordsEnabled() bool { return switchDefaultOn(MergeRecordsSwitch) }
+
+// DeliverableSwitch gates the deliverable hard checks in self-selection:
+// an attempt whose named outputs (paths, executables, outputs with
+// content, from the same extraction the completion gate uses) are
+// missing from its own copy does not win over one that has them.
+// Default ON. EXCALIBUR_ATTEMPTS_DELIVERABLE=0 selects on the
+// verified-check and change signals only.
+const DeliverableSwitch = "EXCALIBUR_ATTEMPTS_DELIVERABLE"
+
+// DeliverableEnabled reports whether selection runs the deliverable checks.
+func DeliverableEnabled() bool { return switchDefaultOn(DeliverableSwitch) }
+
+// FallbackSwitch gates the recovery path: when the winner's changes
+// cannot be promoted into the real directory (apply error, verification
+// failure, or "applied 0 file(s)" for a winner that changed files), the
+// run falls back to one normal attempt in the real directory with the
+// remaining time. Default ON. EXCALIBUR_ATTEMPTS_FALLBACK=0 keeps the
+// failure as the run's outcome.
+const FallbackSwitch = "EXCALIBUR_ATTEMPTS_FALLBACK"
+
+// FallbackEnabled reports whether a failed promotion falls back to a
+// single attempt in the real directory.
+func FallbackEnabled() bool { return switchDefaultOn(FallbackSwitch) }
+
+// PathMapSwitch gates the workdir mapping: absolute paths under the
+// real directory, relative paths and shell commands in an attempt's
+// tool calls resolve to that attempt's copy. Default ON. With it off
+// the copies still isolate the attempts' own relative work, but
+// absolute paths reach the real directory again (ablation only).
+const PathMapSwitch = "EXCALIBUR_ATTEMPTS_PATH_MAP"
+
+// PathMapEnabled reports whether attempts map tool paths onto their copy.
+func PathMapEnabled() bool { return switchDefaultOn(PathMapSwitch) }
+
+// switchDefaultOn reads an on/off switch that defaults to ON. The
+// values 0, off, false and no turn it off; anything else (or unset)
+// keeps it on.
+func switchDefaultOn(name string) bool {
+	v, ok := os.LookupEnv(name)
 	if !ok || strings.TrimSpace(v) == "" {
 		return true
 	}

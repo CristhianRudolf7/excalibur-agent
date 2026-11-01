@@ -13,8 +13,8 @@
 // execution of any check the agent itself ran for a requirement
 // failed after the last change, when required artifacts are missing,
 // or when the agent's own last command errored. Refusals are not
-// bounded by a fixed small count: only the time/step budget bounds
-// them (closing mode near the end).
+// ended by a second refusal or a loop detector. Budgets still bind;
+// 25 consecutive refusals without tool work also trigger a safety stop.
 //
 // Confirmation round (Terminus 2 shape): the first accepted `finish`
 // triggers one short re-read-and-confirm turn; the second `finish`
@@ -40,6 +40,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
@@ -195,6 +197,29 @@ const (
 
 // MaxTextOnlyStreak counts text-only turns before forced closing.
 const MaxTextOnlyStreak = 3
+
+// MaxTextOnlyTurns ends a non-interactive run whose model has made no
+// tool call for this many consecutive turns (safety stop).
+const MaxTextOnlyTurns = 40
+
+// FinishAcceptedText is the finish tool result of an accepted finish
+// (D1): the run ends with this call.
+const FinishAcceptedText = "finish accepted: the run ends now."
+
+// finishState is the finish-protocol state that lives beside the run
+// record: the refusal fingerprint for the no-change rule (D2), the
+// verifier refusal budget and advisory notes (D6), and the input
+// snapshot taken before the first model action (D4). Guarded by the
+// run mutex.
+type finishState struct {
+	refused          bool
+	refusalMark      int
+	refusalReasons   []string
+	verifierRefusals int
+	advisory         []string
+	snapshot         *tasks.InputSnapshot
+	snapshotTaken    bool
+}
 
 func isFinishCall(tc providers.ToolCall) bool {
 	return tc.Name == FinishToolName
@@ -389,12 +414,34 @@ func historyEventForTool(seq int64, tc providers.ToolCall, res tools.Result) ctx
 	}
 }
 
+// finishDecision is the outcome of the deterministic and verifier
+// checks for one completed or blocked `finish` call. Reasons refuse
+// the call; soft reasons (verifier advice and inspection items) are
+// accepted as completed_with_pending once less than 10% of the wall
+// budget remains (D2).
+type finishDecision struct {
+	reasons []string
+	soft    bool
+}
+
 // validateFinish runs the refusal checks for one parsed `finish`
-// call: the agent's own last command must not have errored, the full
-// verification (gate + self-verify + artifacts + strong verifier)
-// must pass, and a blocked claim must not name paths that exist. It
-// returns the refusal reason ("" when accepted).
+// call and returns the refusal reason ("" when accepted). It is the
+// string view of decideFinish, kept for callers that only need the
+// verdict text.
 func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, evidenceText string) string {
+	dec := e.decideFinish(ctx, run, args, evidenceText)
+	if len(dec.reasons) == 0 || dec.soft {
+		return ""
+	}
+	return strings.Join(dec.reasons, "; ")
+}
+
+// decideFinish is the single entry for the finish checks: the agent's
+// own last command must not have errored, the full verification (gate,
+// self-verify, artifacts, strong verifier) must pass, and a blocked
+// claim must not name paths that exist. Blocked claims go through the
+// strict blocked rules (strictblocked.go).
+func (e *Engine) decideFinish(ctx context.Context, run *Run, args FinishArgs, evidenceText string) finishDecision {
 	e.restoreRefusals(ctx, run)
 	var reasons []string
 	if reason := scopeRefusal(run); reason != "" {
@@ -402,50 +449,213 @@ func (e *Engine) validateFinish(ctx context.Context, run *Run, args FinishArgs, 
 	}
 	// Probe failures (grep with no match, test -f, command -v) are normal
 	// answers; the exec result marks them with the probe note.
-	if out, isErr, found := lastNonFinishError(run); found && isErr && !tools.IsProbeFailureOutput(out) {
-		reason := "your last command errored (" + truncOneLine(out, 200) + "). Fix it and verify by executing before calling `finish` again."
+	if out, isErr, found := lastNonFinishError(run); args.Status != "blocked" && found && isErr && !tools.IsProbeFailureOutput(out) {
+		reasons = append(reasons, lastErrorReason(out))
 		if !ActionableRefusalsEnabled() {
-			return reason
+			return finishDecision{reasons: reasons}
 		}
-		reasons = append(reasons, reason)
 	}
 	if args.Status == "blocked" {
-		if len(reasons) > 0 {
-			return e.refuseFinish(ctx, run, reasons)
-		}
-		if existing := e.blockedPathsExist(run, args.Reason); existing != "" {
-			return "blocked claim refused: path " + existing + " exists. Re-read the filesystem result and continue working instead of declaring blocked."
-		}
-		if refusal := e.strictBlockedRefusal(run, args.Reason); refusal != "" {
-			// Count strict refusals separately for the trial
-			// records; the generic FinishRefusals counter is
-			// bumped by the caller.
-			run.mu.Lock()
-			run.StrictBlockedRefusals++
-			run.mu.Unlock()
-			return refusal
-		}
-		return ""
+		reasons = append(reasons, e.blockedReasons(run, args)...)
+		return finishDecision{reasons: reasons}
 	}
 	gate := e.gateCheck(run)
 	merged := e.selfVerify(ctx, run, gate, evidenceText)
 	if !merged.OK {
 		reasons = append(reasons, merged.Pendings...)
 	}
-	if len(reasons) > 0 {
-		return e.refuseFinish(ctx, run, reasons)
+	dec := finishDecision{reasons: reasons}
+	dec.soft = len(reasons) > 0 && allSoftReasons(reasons) && !e.timeRemains(run)
+	return dec
+}
+
+// lastErrorReason states the agent's own failing command with the
+// evidence the model needs: the exit code and the last output lines.
+func lastErrorReason(out string) string {
+	detail := "tool error"
+	if code, ok := exitCodeOfOutput(out); ok {
+		detail = fmt.Sprintf("exit %d", code)
 	}
-	return ""
+	return "your last command errored (" + detail + "; last output: " + lastOutputLines(out, 3, 300) +
+		"). Fix it and verify by executing before calling `finish` again."
+}
+
+// exitCodeOfOutput reads the exec header `exit: N` line.
+func exitCodeOfOutput(out string) (int, bool) {
+	m := execExitRe.FindStringSubmatch(out)
+	if len(m) != 2 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	return n, err == nil
+}
+
+var execExitRe = regexp.MustCompile(`(?m)^exit: (-?\d+)\b`)
+
+// lastOutputLines returns the last n non-empty lines of out, joined
+// with " | " and cut to max bytes.
+func lastOutputLines(out string, n, max int) string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		if t := strings.TrimSpace(l); t != "" {
+			lines = append(lines, t)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	s := strings.Join(lines, " | ")
+	if len(s) > max {
+		s = s[:max-1] + "…"
+	}
+	return s
+}
+
+// allSoftReasons reports whether every reason is soft.
+func allSoftReasons(reasons []string) bool {
+	for _, r := range reasons {
+		if !isSoftReason(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// softReasonMarks identify advisory verifier outcomes and inspection
+// items: they never block a run that has no wall time left.
+var softReasonMarks = []string{
+	"independent verifier", "generalisation verifier", "verifier note",
+	"constraint holds", "is produced in", "produces ",
+}
+
+func isSoftReason(reason string) bool {
+	lower := strings.ToLower(reason)
+	for _, m := range softReasonMarks {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// setFinishVerdict makes the finish tool result carry the verdict
+// text (D1). The model sees the result in its next request; the
+// volatile note stays as a duplicate for models that ignore results.
+func (e *Engine) setFinishVerdict(run *Run, callID, text string, isError bool) {
+	if !FinishVerdictResultEnabled() {
+		return
+	}
+	run.setFinishResult(callID, text, isError)
+}
+
+// setFinishResult rewrites the output of the finish tool result for
+// one call id (the latest finish result when callID is empty).
+func (r *Run) setFinishResult(callID, output string, isError bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := len(r.History) - 1; i >= 0; i-- {
+		tr := r.History[i].ToolResult
+		if tr == nil || tr.Name != FinishToolName {
+			continue
+		}
+		if callID != "" && tr.CallID != callID {
+			continue
+		}
+		cp := *tr
+		cp.Output = output
+		cp.IsError = isError
+		r.History[i].ToolResult = &cp
+		r.History[i].Content = output
+		return
+	}
+}
+
+// recordCallResults answers every call of a turn that is not executed
+// (a `finish` batched with other calls): each call gets a tool result
+// so the trajectory stays paired.
+func (e *Engine) recordCallResults(run *Run, calls []providers.ToolCall, finishText string) {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	for _, tc := range calls {
+		text := "not executed: `finish` must be called alone in its own turn."
+		if isFinishCall(tc) {
+			text = finishText
+		}
+		seq := run.nextHistorySeqLocked()
+		run.History = append(run.History, ctxcompiler.ActivityEvent{
+			Seq: seq, Role: providers.RoleTool, Content: text,
+			// Not executed is not a failure of the agent's own command.
+			ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: text, IsError: false},
+		})
+	}
+}
+
+// workMarkLocked counts the non-finish tool results in the history:
+// the measure of tool work used by the no-change refusal (D2). Callers
+// hold run.mu.
+func (r *Run) workMarkLocked() int {
+	n := 0
+	for _, ev := range r.History {
+		if ev.ToolResult != nil && ev.ToolResult.Name != FinishToolName {
+			n++
+		}
+	}
+	return n
+}
+
+// unchangedRefusal returns the reasons of the previous refusal when no
+// tool work happened since it (D2). The verifier is not consulted.
+func (r *Run) unchangedRefusal() ([]string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.fin.refused || r.fin.refusalMark != r.workMarkLocked() {
+		return nil, false
+	}
+	return append([]string(nil), r.fin.refusalReasons...), true
+}
+
+// rememberRefusal stores the refusal reasons with the tool-work mark.
+func (r *Run) rememberRefusal(reasons []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fin.refused = true
+	r.fin.refusalMark = r.workMarkLocked()
+	r.fin.refusalReasons = append([]string(nil), reasons...)
+}
+
+// refuseCall refuses one finish call: the numbered refusal is the
+// finish tool result (D1) and a duplicate volatile note.
+func (e *Engine) refuseCall(ctx context.Context, run *Run, tc providers.ToolCall, reasons []string) {
+	text := e.refuseFinish(ctx, run, reasons)
+	run.recordFinishRefusal(text)
+	run.rememberRefusal(reasons)
+	e.setFinishVerdict(run, tc.ID, text, true)
+	run.InjectNote(text)
+}
+
+// noChangeRefusal answers a finish that follows a refusal with no tool
+// work in between (D2): the same reasons, without the verifier.
+func (e *Engine) noChangeRefusal(ctx context.Context, run *Run, tc providers.ToolCall, reasons []string) {
+	text := "finish refused: nothing changed since the previous refusal (same reasons): " + strings.Join(reasons, "; ")
+	run.recordFinishRefusal(text)
+	e.setFinishVerdict(run, tc.ID, text, true)
+	run.InjectNote(text)
+	_ = ctx
 }
 
 // execFinishBatch executes one single-`finish` batch and applies the
 // protocol. The tool itself runs through the normal pipeline (so the
 // journal, history and trial records stay complete); loop detection,
 // novelty tracking and working-notes harvesting are skipped for the
-// control call. It reports whether the run left running.
+// control call. The finish tool result carries the verdict (D1).
+// It reports whether the run left running. A refusal never ends the
+// run (D2): only an accepted finish, a blocked acceptance or the
+// budget does.
 func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.ToolCall, assistantText string) (bool, error) {
 	results := e.runParallel(ctx, run, []providers.ToolCall{tc})
 	res := results[0]
+	// The result reaching the model carries the time footer (deadline.go).
+	res.Output = withFooter(res.Output, e.timeFooterFor(run))
 	run.mu.Lock()
 	seq := run.nextHistorySeqLocked()
 	run.History = append(run.History, historyEventForTool(seq, tc, res))
@@ -453,31 +663,54 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 	run.recordFinishAttempt(string(tc.Arguments), assistantText)
 	args, err := ParseFinishArgs(tc.Arguments)
 	if err != nil {
-		reason := e.refuseFinish(ctx, run, []string{err.Error()})
-		run.recordFinishRefusal(reason)
-		run.InjectNote(reason)
+		e.refuseCall(ctx, run, tc, []string{strings.TrimPrefix(err.Error(), "finish refused: ")})
+		// Argument corrections are new control evidence; they need no
+		// filesystem work before the corrected finish can be checked.
+		run.mu.Lock()
+		run.fin.refused = false
+		run.mu.Unlock()
 		return false, nil
 	}
-	if reason := e.validateFinish(ctx, run, args, finishEvidenceText(args, assistantText)); reason != "" {
-		if !strings.HasPrefix(reason, "finish refused: ") {
-			reason = e.refuseFinish(ctx, run, []string{reason})
-		}
-		run.recordFinishRefusal(reason)
-		run.InjectNote(reason)
+	if reasons, ok := run.unchangedRefusal(); ok && (e.timeRemains(run) || !allSoftReasons(reasons)) {
+		e.noChangeRefusal(ctx, run, tc, reasons)
+		return false, nil
+	}
+	dec := e.decideFinish(ctx, run, args, finishEvidenceText(args, assistantText))
+	if len(dec.reasons) > 0 && !dec.soft {
+		e.refuseCall(ctx, run, tc, dec.reasons)
 		return false, nil
 	}
 	run.clearRefusal()
 	if args.Status == "blocked" {
 		run.storeFinish(args, assistantText)
+		e.setFinishVerdict(run, tc.ID, FinishAcceptedText, false)
 		return true, e.completeBlocked(ctx, run, args)
+	}
+	if len(dec.reasons) > 0 {
+		// Soft items with the wall budget nearly spent: accept as
+		// completed_with_pending (D2) instead of refusing again.
+		run.storeFinish(args, assistantText)
+		e.setFinishVerdict(run, tc.ID, FinishAcceptedText+" Completed with pending items: "+strings.Join(dec.reasons, "; "), false)
+		return true, e.completeWithPending(ctx, run, dec.reasons)
 	}
 	if !run.confirmArmed() {
 		run.armConfirm(args)
-		run.InjectNote(ConfirmAfterFinish)
+		text := e.confirmationText(run)
+		e.setFinishVerdict(run, tc.ID, text, false)
+		run.InjectNote(text)
 		return false, nil
 	}
 	run.storeFinish(args, assistantText)
-	return true, e.completeFinish(ctx, run, args)
+	reasons, err := e.completeFinish(ctx, run, args)
+	if len(reasons) > 0 {
+		e.refuseCall(ctx, run, tc, reasons)
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	e.setFinishVerdict(run, tc.ID, FinishAcceptedText, false)
+	return true, nil
 }
 
 // finishEvidenceText is the verification input for one `finish`
@@ -495,14 +728,16 @@ func finishEvidenceText(args FinishArgs, assistantText string) string {
 
 // completeFinish moves running -> verifying -> completed for an
 // accepted second `finish`. The verification already passed in
-// validateFinish; the gate report is refreshed for the records.
-func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) error {
+// validateFinish; the gate report is refreshed for the records. It
+// returns the refusal reasons when the world moved between validation
+// and completion (the run goes back to work).
+func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) ([]string, error) {
 	run.mu.Lock()
 	from := run.state
 	if from == types.RunRunning {
 		if err := run.transition(types.RunVerifying); err != nil {
 			run.mu.Unlock()
-			return err
+			return nil, err
 		}
 	}
 	run.mu.Unlock()
@@ -522,12 +757,25 @@ func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) 
 		_ = run.transition(types.RunRunning)
 		run.mu.Unlock()
 		e.recordState(ctx, run, back, types.RunRunning, "finish race: re-verify")
-		reason := e.refuseFinish(ctx, run, rep.Pendings)
-		run.InjectNote(reason)
-		run.recordFinishRefusal(reason)
-		return nil
+		return rep.Pendings, nil
 	}
-	return e.complete(ctx, run, types.RunCompleted, "explicit finish")
+	return nil, e.complete(ctx, run, types.RunCompleted, "explicit finish")
+}
+
+// completeWithPending moves running -> verifying -> completed_with_pending
+// for a finish accepted with soft items only (D2).
+func (e *Engine) completeWithPending(ctx context.Context, run *Run, pending []string) error {
+	run.mu.Lock()
+	from := run.state
+	if from == types.RunRunning {
+		if err := run.transition(types.RunVerifying); err != nil {
+			run.mu.Unlock()
+			return err
+		}
+	}
+	run.mu.Unlock()
+	e.recordState(ctx, run, from, types.RunVerifying, "explicit finish")
+	return e.complete(ctx, run, types.RunCompletedPending, "pending: "+truncOneLine(strings.Join(pending, "; "), 200))
 }
 
 // completeBlocked moves running -> verifying -> blocked for an
@@ -559,4 +807,40 @@ func (e *Engine) completeBlocked(ctx context.Context, run *Run, args FinishArgs)
 		e.deps.LeaseRelease(run.ID)
 	}
 	return nil
+}
+
+// finishSafetyReason bounds non-interactive refusal loops even when a
+// caller omits budgets. Other tool work resets the refusal streak.
+func (e *Engine) finishSafetyReason(run *Run) string {
+	if !e.explicitFinishRequired(run) {
+		return ""
+	}
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	streak := 0
+	for i := len(run.History) - 1; i >= 0; i-- {
+		tr := run.History[i].ToolResult
+		if tr == nil {
+			continue
+		}
+		if tr.Name != FinishToolName {
+			break
+		}
+		if strings.HasPrefix(tr.Output, "finish refused") {
+			streak++
+		}
+	}
+	if streak >= 25 {
+		return "safety stop: 25 consecutive refused finishes without other tool work"
+	}
+	// A model that keeps answering without any tool call (an empty or
+	// broken provider stream included) cannot make progress; stop after
+	// MaxTextOnlyTurns in a row instead of spinning until the wall clock.
+	if r := run.textOnlyStreak; r >= MaxTextOnlyTurns {
+		return fmt.Sprintf("safety stop: %d consecutive turns without a tool call", r)
+	}
+	if run.Tracker.Limit == (tasks.Limit{}) && run.Steps > 200 {
+		return "safety stop: 200 turns without a configured budget"
+	}
+	return ""
 }

@@ -360,6 +360,8 @@ func TestOnDetectionRecoveryPrompt(t *testing.T) {
 // guidance; the identical call after that runs, so a legitimate
 // retry is delayed by one step, never denied.
 func TestRepeatBlockOnce(t *testing.T) {
+	// The legacy single-call blocker; loop guard v2 replaces it.
+	t.Setenv(LoopGuardV2Switch, "0")
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("c1", "exec", `{"command":"poll"}`)),
@@ -414,6 +416,7 @@ func TestRepeatBlockOnce(t *testing.T) {
 // Retryable outcomes are never blocked: a timeout followed by the
 // identical retry executes immediately.
 func TestRepeatBlockSkipsRetryable(t *testing.T) {
+	t.Setenv(LoopGuardV2Switch, "0")
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("c1", "exec", `{"command":"flaky"}`)),
@@ -443,6 +446,7 @@ func TestRepeatBlockSkipsRetryable(t *testing.T) {
 // Multi-call batches pass the blocker through: only the unambiguous
 // one-call repeat is rejected.
 func TestRepeatBlockMultiBatchPassthrough(t *testing.T) {
+	t.Setenv(LoopGuardV2Switch, "0")
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(

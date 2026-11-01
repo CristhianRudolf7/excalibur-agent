@@ -51,6 +51,10 @@ type EmbeddedOptions struct {
 	// Codeintel backs the lsp and code_graph deferred tools.
 	// Nil leaves them unwired (their stubs report the owner).
 	Codeintel *codeintel.Deps
+	// Workdir is the run's project directory. Relative paths in the file
+	// tools resolve against it (EXCALIBUR_RUN_WORKDIR). Empty keeps the
+	// process working directory.
+	Workdir string
 	// Worktrees and Queue back the deferred workspace tools. Nil
 	// leaves those tools reporting their missing collaborator.
 	Worktrees *workspace.WorktreeManager
@@ -100,6 +104,7 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 		History:      hist,
 		Diagnostics:  opts.Diagnostics,
 		RunID:        opts.RunID,
+		Workdir:      opts.Workdir,
 	}
 	reg := tools.NewMapRegistry()
 	sess := tools.NewSessionManager(tools.TerminalDeps{})

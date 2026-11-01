@@ -228,7 +228,9 @@ func paginate(text string, pageSize int) []DocumentPage {
 }
 
 // MemoryVisionBackend is the vision_extract contract fake: deterministic
-// text, boxes and provenance without calling a model.
+// placeholder text, boxes and provenance without calling a model. It is
+// never the default backend; production runs without a vision model get
+// an explicit error from VisionExtractTool.
 type MemoryVisionBackend struct {
 	Model string
 }
@@ -1151,11 +1153,18 @@ func (t *ChartRenderTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 // VisionExtractTool implements the vision_extract contract (14.4).
 type VisionExtractTool struct{ Deps *MediaDeps }
 
+// backend returns the configured vision model. With none configured it
+// returns nil, and the tool reports that instead of inventing text
+// (EXCALIBUR_VISION_HONEST). The placeholder backend remains only for
+// the switch-off ablation and for tests that set it explicitly.
 func (t *VisionExtractTool) backend() VisionBackend {
 	if t.Deps != nil && t.Deps.Vision != nil {
 		return t.Deps.Vision
 	}
-	return &MemoryVisionBackend{}
+	if !VisionHonestEnabled() {
+		return &MemoryVisionBackend{}
+	}
+	return nil
 }
 
 func (t *VisionExtractTool) Definition() Definition {
@@ -1182,7 +1191,11 @@ func (t *VisionExtractTool) Invoke(ctx context.Context, inv Invocation) (Result,
 	if mode == "" {
 		mode = "text"
 	}
-	res, err := t.backend().Extract(ctx, a.Input, mode, a.Pages)
+	backend := t.backend()
+	if backend == nil {
+		return Result{Status: StatusToolError, Output: "vision_extract: no image model is configured in this run; use local tools (OCR, image libraries) instead"}, nil
+	}
+	res, err := backend.Extract(ctx, a.Input, mode, a.Pages)
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}

@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // TrialRecorder writes the Appendix F minimum records plus the rich
@@ -41,8 +44,30 @@ import (
 // Secrets never reach these files: keys travel by environment only and
 // the recorder redacts any value that looks like a key before writing.
 type TrialRecorder struct {
-	mu  sync.Mutex
-	dir string
+	mu        sync.Mutex
+	dir       string
+	finish    FinishDetail
+	finalMu   sync.Mutex
+	completed bool
+}
+
+// RunRecordsV2Enabled controls richer outcome records and completion protection.
+func RunRecordsV2Enabled() bool { return os.Getenv("EXCALIBUR_RUN_RECORDS_V2") != "0" }
+
+// FinishDetail is the agent's accepted finish: the delivery summary, the
+// model's final assistant text and the evidence it cited. It is written into
+// final.json. Empty fields are omitted.
+type FinishDetail struct {
+	Summary   string `json:"summary,omitempty"`
+	FinalText string `json:"final_text,omitempty"`
+	Evidence  string `json:"finish_evidence,omitempty"`
+}
+
+// SetFinishDetail records the finish detail that WriteFinal includes.
+func (r *TrialRecorder) SetFinishDetail(d FinishDetail) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.finish = d
 }
 
 // NewTrialRecorder creates dir and returns the recorder.
@@ -135,9 +160,14 @@ type ModelCall struct {
 	LatencySecs        float64           `json:"latency_secs"`
 	FinishReason       string            `json:"finish_reason,omitempty"`
 	ProviderError      string            `json:"provider_error_class,omitempty"`
-	Retries            int               `json:"retries"`
-	RetryWaitCount     int               `json:"retry_wait_count"`
-	RetryWaitSeconds   float64           `json:"retry_wait_seconds"`
+	// ProviderReason is the allow-listed reason of a failed call
+	// (billing, rate_limited, http_5xx, timeout, tls, ...), never message text.
+	ProviderReason string `json:"provider_error_reason,omitempty"`
+	// CredentialSwitches counts moves to the fallback credential during this call.
+	CredentialSwitches int     `json:"credential_switches,omitempty"`
+	Retries            int     `json:"retries"`
+	RetryWaitCount     int     `json:"retry_wait_count"`
+	RetryWaitSeconds   float64 `json:"retry_wait_seconds"`
 	// Attempt tags the best-of-N attempt index that produced this
 	// call (Section 18.2 fan-out merge). Zero means the single-run
 	// path or a legacy row without a tag.
@@ -153,6 +183,12 @@ func (r *TrialRecorder) RecordModelCall(m ModelCall) error {
 }
 
 // ToolCall is one JSONL line in tool_calls.jsonl.
+//
+// ExitCode and IsError describe the real outcome of the command: for the
+// exec tool they come from the exit status in the output header (HeaderExit),
+// not from the tool's transport status. StdoutInline is a 4 KiB head preview
+// of the model-facing output; StdoutTail keeps the last 2 KiB of a longer
+// output, and the blob holds the complete model-facing text.
 type ToolCall struct {
 	At            time.Time `json:"at"`
 	Seq           int       `json:"seq"`
@@ -161,24 +197,93 @@ type ToolCall struct {
 	ExitCode      int       `json:"exit_code"`
 	DurationSec   float64   `json:"duration_secs"`
 	StdoutInline  string    `json:"stdout_inline,omitempty"`
+	StdoutTail    string    `json:"stdout_tail,omitempty"`
 	StderrInline  string    `json:"stderr_inline,omitempty"`
 	OutputHash    string    `json:"output_hash,omitempty"`
 	OutputPath    string    `json:"output_path,omitempty"`
 	Truncated     bool      `json:"truncated"`
 	IsError       bool      `json:"is_error"`
 	FrictionError string    `json:"friction_error,omitempty"`
+	// HeaderExit is the exit status the exec header reported, nil when the
+	// header is absent or the session was still running.
+	HeaderExit *int `json:"header_exit,omitempty"`
+	// ModelElided is true only when the model saw an elision marker, that
+	// is, the output it received omitted its middle part.
+	ModelElided bool `json:"model_elided"`
 	// Attempt tags the best-of-N attempt index that produced this
 	// call (Section 18.2 fan-out merge). Zero means the single-run
 	// path or a legacy row without a tag.
 	Attempt int `json:"attempt,omitempty"`
 }
 
+const (
+	// inlinePreviewBytes bounds StdoutInline (the head preview).
+	inlinePreviewBytes = 4096
+	// inlineTailBytes bounds StdoutTail (the last bytes of a longer output).
+	inlineTailBytes = 2048
+)
+
+// execHeaderExit matches the exit status in the first line of an exec tool
+// output: "exit: 2  duration: 0.1s ...". Running sessions do not match.
+var execHeaderExit = regexp.MustCompile(`^exit: (-?[0-9]+)\s`)
+
+// elisionMarker is the marker the exec tool writes into the model-facing
+// text when it elides the middle of a long output.
+var elisionMarker = regexp.MustCompile(`…\[middle [0-9]+ bytes elided;`)
+
+// ExecHeaderExit parses the exit status from the first line of an exec
+// output. ok is false when the header is absent or reports a running session.
+func ExecHeaderExit(output string) (code int, ok bool) {
+	m := execHeaderExit.FindStringSubmatch(output)
+	if m == nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// headBytes returns at most n bytes of s, never splitting a UTF-8 rune.
+func headBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	end := n
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end]
+}
+
+// tailBytes returns at most n trailing bytes of s, never splitting a rune.
+func tailBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
+}
+
 // RecordToolCall stores the full output as a blob and appends the line.
-// Inline output is truncated to 4 KiB; the blob holds the full bytes.
+// The inline preview is the first 4 KiB; longer outputs also keep the last
+// 2 KiB as StdoutTail. The blob holds the complete model-facing text.
 func (r *TrialRecorder) RecordToolCall(t ToolCall, fullOutput string) error {
 	if t.At.IsZero() {
 		t.At = time.Now().UTC()
 	}
+	if RunRecordsV2Enabled() && t.Tool == "exec" {
+		if code, ok := ExecHeaderExit(fullOutput); ok {
+			t.HeaderExit = &code
+			t.ExitCode = code
+			t.IsError = code != 0
+		}
+	}
+	t.ModelElided = RunRecordsV2Enabled() && elisionMarker.MatchString(fullOutput)
 	if fullOutput != "" {
 		sum := sha256.Sum256([]byte(fullOutput))
 		hash := hex.EncodeToString(sum[:])
@@ -190,9 +295,11 @@ func (r *TrialRecorder) RecordToolCall(t ToolCall, fullOutput string) error {
 				return fmt.Errorf("eval: write blob: %w", err)
 			}
 		}
-		const inlineLimit = 4096
-		if len(fullOutput) > inlineLimit {
-			t.StdoutInline = fullOutput[:inlineLimit] + "...[truncated]"
+		if len(fullOutput) > inlinePreviewBytes {
+			t.StdoutInline = headBytes(fullOutput, inlinePreviewBytes) + "...[truncated]"
+			if RunRecordsV2Enabled() {
+				t.StdoutTail = tailBytes(fullOutput, inlineTailBytes)
+			}
 			t.Truncated = true
 		} else {
 			t.StdoutInline = fullOutput
@@ -382,20 +489,34 @@ func (r *TrialRecorder) WriteEnvironment(e Environment) error {
 	return r.writeFile("environment.json", e)
 }
 
-// FinalState is written once at the end to final.json.
+// FinalState is written once at the end to final.json. FinalExit is the exit
+// status of the last exec command the agent ran, nil when none reported one.
 type FinalState struct {
 	At                 time.Time      `json:"at"`
 	State              string         `json:"state"`
 	Reason             string         `json:"reason,omitempty"`
 	ExitCode           int            `json:"exit_code"`
+	FinalExit          *int           `json:"final_exit,omitempty"`
 	FrictionErrors     map[string]int `json:"friction_errors"`
 	FrictionErrorCount int            `json:"friction_error_count"`
+	Summary            string         `json:"summary,omitempty"`
+	FinalText          string         `json:"final_text,omitempty"`
+	FinishEvidence     string         `json:"finish_evidence,omitempty"`
 }
 
 // WriteFinal writes final.json.
 func (r *TrialRecorder) WriteFinal(state, reason string, code int) error {
+	r.finalMu.Lock()
+	defer r.finalMu.Unlock()
+	// Finalization can race with stop/error cleanup. Once a completed outcome
+	// has been persisted, a later provider failure cannot replace it.
+	if RunRecordsV2Enabled() && r.completed {
+		return nil
+	}
+
 	counts := map[string]int{}
 	total := 0
+	var finalExit *int
 	raw, err := os.ReadFile(filepath.Join(r.dir, "tool_calls.jsonl"))
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -404,6 +525,9 @@ func (r *TrialRecorder) WriteFinal(state, reason string, code int) error {
 		var call ToolCall
 		if json.Unmarshal(line, &call) != nil {
 			continue
+		}
+		if call.HeaderExit != nil {
+			finalExit = call.HeaderExit
 		}
 		kind := call.FrictionError
 		if kind == "" {
@@ -414,7 +538,22 @@ func (r *TrialRecorder) WriteFinal(state, reason string, code int) error {
 			total++
 		}
 	}
-	return r.writeFile("final.json", FinalState{At: time.Now().UTC(), State: state, Reason: reason, ExitCode: code, FrictionErrors: counts, FrictionErrorCount: total})
+	r.mu.Lock()
+	detail := r.finish
+	r.mu.Unlock()
+	if !RunRecordsV2Enabled() {
+		detail = FinishDetail{}
+		finalExit = nil
+	}
+	err = r.writeFile("final.json", FinalState{
+		At: time.Now().UTC(), State: state, Reason: reason, ExitCode: code, FinalExit: finalExit,
+		FrictionErrors: counts, FrictionErrorCount: total,
+		Summary: detail.Summary, FinalText: detail.FinalText, FinishEvidence: detail.Evidence,
+	})
+	if err == nil && state == "completed" {
+		r.completed = true
+	}
+	return err
 }
 
 // classifyFriction excludes command failures: these categories describe tool protocol mistakes.

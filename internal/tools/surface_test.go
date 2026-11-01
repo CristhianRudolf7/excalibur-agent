@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -92,6 +93,9 @@ func TestExecResultPrefixAndHints(t *testing.T) {
 }
 
 func TestWildcardFingerprint(t *testing.T) {
+	// "*" is a placeholder, not a wildcard: the harness check still
+	// applies, so a write over the harness's own last write goes through
+	// and an external change is still refused.
 	dir := t.TempDir()
 	path := dir + "/w.txt"
 	qp, _ := json.Marshal(path)
@@ -101,8 +105,15 @@ func TestWildcardFingerprint(t *testing.T) {
 	}
 	e := &EditFileTool{Deps: w.Deps}
 	res, _ := e.Invoke(context.Background(), Invocation{Arguments: json.RawMessage(`{"path":` + string(qp) + `,"old_text":"one","new_text":"two","expected_fp":"*"}`)})
-	if res.Status != StatusOK || !strings.Contains(res.Output, "skipped") {
-		t.Fatalf("wildcard fp must skip with a note: %+v", res)
+	if res.Status != StatusOK || strings.Contains(res.Output, "skipped") {
+		t.Fatalf("placeholder fp over the harness's own write must apply without a skip note: %+v", res)
+	}
+	if err := os.WriteFile(path, []byte("external"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = e.Invoke(context.Background(), Invocation{Arguments: json.RawMessage(`{"path":` + string(qp) + `,"old_text":"external","new_text":"x","expected_fp":"*"}`)})
+	if res.Status != StatusToolError || !strings.Contains(res.Output, "changed since read") {
+		t.Fatalf("wildcard must not bypass an external change: %+v", res)
 	}
 }
 

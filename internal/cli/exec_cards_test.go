@@ -63,7 +63,7 @@ func TestSkillCardsRunner(t *testing.T) {
 		{"success untouched", "exec", tools.Result{Status: tools.StatusOK, Output: "exit: 0  duration: 0.1s  session: sess-1  alive: false\nPONG\n"}, nil, true, false, false, ""},
 		{"success mentioning errors untouched", "exec", tools.Result{Status: tools.StatusOK, Output: "exit: 0  duration: 0.1s  session: sess-1  alive: false\nchecked permission denied handling: ok\n"}, nil, true, false, false, ""},
 		{"running session untouched", "exec", tools.Result{Status: tools.StatusOK, Output: "exit: running  duration: 0.3s  session: sess-5  alive: true  next_offset: 0\n"}, nil, true, false, false, ""},
-		{"tool error fires", "write_file", tools.Result{Status: tools.StatusToolError, Output: "open /app/out: permission denied"}, nil, true, false, true, "file-permissions-ownership"},
+		{"non-exec error has no exec header", "write_file", tools.Result{Status: tools.StatusToolError, Output: "open /app/out: permission denied"}, nil, true, false, false, ""},
 		{"runner error passes through", "exec", tools.Result{}, errTestCards, true, false, false, ""},
 		{"clean failure fires nothing", "exec", tools.Result{Status: tools.StatusOK, Output: "exit: 1  duration: 0.1s  session: sess-1  alive: false\nassertion failed\n"}, nil, true, false, false, ""},
 	}
@@ -243,3 +243,113 @@ func TestExecEngineSkillsCardsErrorCardsOff(t *testing.T) {
 }
 
 var _ engine.ToolRunner = (*skillCardsRunner)(nil)
+
+// execArgs builds the JSON arguments of one exec call.
+func execArgs(t *testing.T, command string) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+const sqliteMissing = "exit: 127  duration: 0.0s  session: sess-1  alive: false\n/usr/bin/bash: line 1: sqlite3: command not found\n"
+
+// fires runs one exec result through a fresh or given runner and
+// reports whether the error card was appended.
+func fires(t *testing.T, r *skillCardsRunner, command, output string) bool {
+	t.Helper()
+	r.base = &stubRunner{res: tools.Result{Status: tools.StatusOK, Output: output}}
+	got, err := r.Execute(context.Background(), "exec", execArgs(t, command), tools.ExecuteOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Contains(got.Output, "[skill card — error-triggered]")
+}
+
+// Strict card rules (EXCALIBUR_CARDS_STRICT, default on): probes,
+// successful installs of the named binary, and repeats within a run
+// never fire a card.
+func TestSkillCardsStrictRules(t *testing.T) {
+	t.Setenv("EXCALIBUR_CARDS_STRICT", "")
+	ix := cardsTestIndex(t)
+	newRunner := func() *skillCardsRunner {
+		return &skillCardsRunner{index: ix, errorCards: true}
+	}
+
+	t.Run("probe command never fires", func(t *testing.T) {
+		probeOut := "exit: 127  duration: 0.0s  session: sess-1  alive: false\nsqlite3: command not found\n"
+		for _, cmd := range []string{"command -v sqlite3", "which sqlite3 || true", "test -x /usr/bin/sqlite3", "grep -q sqlite3 /etc/x"} {
+			if fires(t, newRunner(), cmd, probeOut) {
+				t.Errorf("probe %q must not fire a card", cmd)
+			}
+		}
+		if !fires(t, newRunner(), "sqlite3 app.db .tables", probeOut) {
+			t.Error("a real command with the same error must still fire")
+		}
+		if !fires(t, newRunner(), "test -f app.db && sqlite3 app.db .tables", probeOut) {
+			t.Error("a compound with a non-probe segment is not a probe")
+		}
+	})
+
+	t.Run("successful install of the same binary suppresses the card", func(t *testing.T) {
+		installed := sqliteMissing + "provision: detected missing command 'sqlite3' (evidence: command not found).\n" +
+			"provision: installed sqlite3 via apt (exit 0, 3.1s). output tail: ok\n"
+		if fires(t, newRunner(), "sqlite3 app.db .tables", installed) {
+			t.Error("a card must not follow a successful install of the same binary")
+		}
+		verified := sqliteMissing + "provision: verified working command: `command -v sqlite3`. re-run your original command explicitly:\nsqlite3 app.db .tables\n"
+		if fires(t, newRunner(), "sqlite3 app.db .tables", verified) {
+			t.Error("a card must not follow a verified working command for the same binary")
+		}
+	})
+
+	t.Run("install of another binary does not suppress", func(t *testing.T) {
+		other := sqliteMissing + "provision: installed jq via apt (exit 0, 1.0s). output tail: ok\n"
+		if !fires(t, newRunner(), "sqlite3 app.db .tables", other) {
+			t.Error("an unrelated install must not suppress the sqlite card")
+		}
+	})
+
+	t.Run("once per card name per run", func(t *testing.T) {
+		r := newRunner()
+		if !fires(t, r, "sqlite3 a.db .tables", sqliteMissing) {
+			t.Fatal("first failure must fire the card")
+		}
+		if fires(t, r, "sqlite3 b.db .tables", sqliteMissing) {
+			t.Error("the same card name must not fire twice in one run")
+		}
+		if !fires(t, newRunner(), "sqlite3 b.db .tables", sqliteMissing) {
+			t.Error("a new run has its own once-per-name record")
+		}
+	})
+
+	t.Run("switch off restores legacy firing", func(t *testing.T) {
+		t.Setenv("EXCALIBUR_CARDS_STRICT", "off")
+		r := newRunner()
+		probeOut := "exit: 127  duration: 0.0s  session: sess-1  alive: false\nsqlite3: command not found\n"
+		if !fires(t, r, "command -v sqlite3", probeOut) {
+			t.Error("legacy rule fires on probes")
+		}
+		if !fires(t, r, "sqlite3 a.db .tables", sqliteMissing) || !fires(t, r, "sqlite3 b.db .tables", sqliteMissing) {
+			t.Error("legacy rule has no once-per-run record")
+		}
+	})
+}
+
+func TestStrictCardsRequireNumericFailureHeader(t *testing.T) {
+	t.Setenv("EXCALIBUR_CARDS_STRICT", "on")
+	for _, output := range []string{
+		"exit: 0  alive: false\nsqlite3: command not found\n",
+		"exit: unknown  alive: false\nsqlite3: command not found\n",
+		"sqlite3: command not found\n",
+		"exit: 0  alive: false\nexit: 127  alive: false\nsqlite3: command not found\n",
+	} {
+		r := &skillCardsRunner{base: &stubRunner{res: tools.Result{Status: tools.StatusToolError, Output: output}}, index: cardsTestIndex(t), errorCards: true}
+		result, err := r.Execute(context.Background(), "exec", json.RawMessage(`{"command":"sqlite3 app.db .tables"}`), tools.ExecuteOptions{})
+		if err != nil || strings.Contains(result.Output, "[skill card") {
+			t.Fatalf("unexpected card/error: %q, %v", result.Output, err)
+		}
+	}
+}

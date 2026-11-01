@@ -293,6 +293,14 @@ func (a *Agenda) Start() {
 	})
 }
 
+// Running reports whether the timer loop is started and not yet
+// stopped.
+func (a *Agenda) Running() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.started
+}
+
 // Stop halts the timer loop.
 func (a *Agenda) Stop() {
 	a.mu.Lock()

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -28,19 +27,17 @@ func TestActionableRefusalSequences(t *testing.T) {
 					t.Fatal("consecutive duplicate refusal")
 				}
 				last = note
-				var p struct {
-					Attempt   int           `json:"attempt"`
-					Checklist []RefusalItem `json:"checklist"`
-					Next      string        `json:"next_action"`
+				// D1: the refusal is numbered text; the first refusal names the
+				// check, repeats name what is next.
+				wantPrefix := fmt.Sprintf("finish refused (attempt %d): 1) required artifact missing: /tmp/report", i+1)
+				if !strings.HasPrefix(note, wantPrefix) {
+					t.Fatalf("refusal %d = %q, want prefix %q", i+1, note, wantPrefix)
 				}
-				if err := json.Unmarshal([]byte(strings.TrimPrefix(note, "finish refused: ")), &p); err != nil {
-					t.Fatal(err)
+				if i == 0 && !strings.Contains(note, "(check: test -s '/tmp/report')") {
+					t.Fatalf("first refusal must carry its check: %q", note)
 				}
-				if i == 0 && (len(p.Checklist) != 1 || p.Checklist[0].ID != "A1" || p.Checklist[0].Check != "test -s '/tmp/report'") {
-					t.Fatalf("checklist: %+v", p)
-				}
-				if i > 0 && (len(p.Checklist) != 0 || !strings.Contains(p.Next, "test -s")) {
-					t.Fatalf("repeat must contain delta and action: %+v", p)
+				if i > 0 && !strings.Contains(note, "Next: run the first check above") {
+					t.Fatalf("repeat must contain the next action: %q", note)
 				}
 				r.recordFinishRefusal(note)
 			}
@@ -102,11 +99,13 @@ func TestActionableAllItemsAndDeltas(t *testing.T) {
 	reasons := []string{"criterion C1 lacks evidence", "criterion C2 failed", "criterion C3 stale", "child pending", "project tests not run", "instruction stale"}
 	note := e.refuseFinish(context.Background(), r, reasons)
 	r.recordFinishRefusal(note)
-	if strings.Count(note, `"missing"`) != len(reasons) {
-		t.Fatalf("lost items: %s", note)
+	for _, reason := range reasons {
+		if !strings.Contains(note, reason) {
+			t.Fatalf("lost items: %s", note)
+		}
 	}
 	note = e.refuseFinish(context.Background(), r, reasons[1:])
-	if !strings.Contains(note, `"resolved"`) || strings.Contains(note, `"missing"`) {
+	if !strings.Contains(note, "Resolved since the previous refusal:") || strings.Contains(note, reasons[0]) {
 		t.Fatalf("bad delta: %s", note)
 	}
 }
@@ -147,7 +146,9 @@ func TestActionableFinishReturnsChecklistInHistory(t *testing.T) {
 	for _, ev := range r.History {
 		if ev.ToolResult != nil && ev.ToolResult.Name == "finish" {
 			found++
-			if !ev.ToolResult.IsError || !strings.Contains(ev.ToolResult.Output, `"attempt"`) {
+			// D1/D2: the first refusal is numbered; a repeat with no tool
+			// work in between is answered from the same reasons.
+			if !ev.ToolResult.IsError || !strings.HasPrefix(ev.ToolResult.Output, "finish refused") {
 				t.Fatalf("tool result: %+v", ev.ToolResult)
 			}
 		}
@@ -165,7 +166,9 @@ func TestActionableFinishReturnsChecklistInHistory(t *testing.T) {
 			recorded++
 		}
 	}
-	if recorded != 2 {
+	// The first refusal is audited; the no-change answer to the repeat is
+	// not a new refusal and writes no audit record.
+	if recorded != 1 {
 		t.Fatalf("durable refusal records=%d", recorded)
 	}
 }

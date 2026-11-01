@@ -2,12 +2,46 @@ package tasks
 
 import (
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 )
 
 // VerifierVerdictEnabled controls bounded verdict recovery and evidence checks.
 func VerifierVerdictEnabled() bool { return envBool("EXCALIBUR_VERIFIER_VERDICT", true) }
+
+// VerdictRetryEnabled controls the single retry of an empty or
+// truncated verifier verdict with a larger output budget (default
+// ON). EXCALIBUR_VERDICT_RETRY=off keeps the retry but at the
+// original budget, the behaviour before this switch existed.
+func VerdictRetryEnabled() bool { return envBool("EXCALIBUR_VERDICT_RETRY", true) }
+
+// verdictRetryCap bounds the enlarged retry budget in output tokens.
+const verdictRetryCap = 32768
+
+// VerdictRetryBudget returns the output budget for the retry of an
+// empty or truncated verdict: twice the first attempt's budget,
+// bounded by verdictRetryCap, when VerdictRetryEnabled is on.
+// Otherwise it returns the first budget unchanged.
+func VerdictRetryBudget(first int) int {
+	if !VerdictRetryEnabled() || first <= 0 {
+		return first
+	}
+	next := first * 2
+	if next > verdictRetryCap {
+		next = verdictRetryCap
+	}
+	if next < first {
+		return first
+	}
+	return next
+}
+
+// ErrVerifierNoVerdict is returned when the verifier produced no
+// usable verdict after its bounded retry (empty, truncated or
+// unparsable). It is an absence of judgement: callers must treat it
+// as advisory, never as a pass and never as an acceptance by itself.
+var ErrVerifierNoVerdict = errors.New("verifier produced no verdict; unverified: retry verification with executable behavioural evidence")
 
 var existenceCommand = regexp.MustCompile(`(?i)^(?:command\s+)?(?:/[a-z0-9_./-]+/)?(?:test\s+-[esfd]|\[\s+-[esfd]|ls(?:\s|$)|stat(?:\s|$)|wc(?:\s|$))`)
 var shellWrapper = regexp.MustCompile(`^(?:/[a-z0-9_./-]+/)?(?:bash|sh|dash)\s+-(?:lc|cl|c)\s+`)

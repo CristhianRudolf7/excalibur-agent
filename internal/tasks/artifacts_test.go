@@ -34,8 +34,8 @@ func TestExtractInstallPaths(t *testing.T) {
 	if keys["/app/povray-2.2"] == "" {
 		t.Fatalf("missing /app/povray-2.2 in %+v", reqs)
 	}
-	if got := keys["/usr/local/bin/povray"]; got != ArtifactExecutable {
-		t.Fatalf("/usr/local/bin/povray kind = %q, want executable (in %+v)", got, reqs)
+	if got := keys["/usr/local/bin/povray"]; got != "" {
+		t.Fatalf("path outside allowed roots became a requirement: %q (in %+v)", got, reqs)
 	}
 }
 

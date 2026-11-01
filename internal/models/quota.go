@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
@@ -22,6 +21,12 @@ var ErrProviderQuotaExhausted = errors.New("provider_quota_exhausted")
 
 // ExhaustedKeysEnabled controls the process-local credential quarantine.
 func ExhaustedKeysEnabled() bool { return os.Getenv("EXCALIBUR_EXHAUSTED_KEYS") != "0" }
+
+// QuotaProbeEnabled controls EXCALIBUR_QUOTA_PROBE (default ON). When on,
+// a quota or billing response only quarantines its credential after a live
+// probe on the same credential repeats the billing evidence. When off, the
+// first recognized billing response quarantines directly (the W18 rule).
+func QuotaProbeEnabled() bool { return os.Getenv("EXCALIBUR_QUOTA_PROBE") != "0" }
 
 var exhaustedCredentials sync.Map
 
@@ -35,33 +40,46 @@ func credentialExhausted(id [32]byte) bool {
 	_, ok := exhaustedCredentials.Load(id)
 	return ok
 }
-func exhaustCredential(id [32]byte) {
+func exhaustCredential(id [32]byte, evidence ...quotaEvidence) {
 	if !ExhaustedKeysEnabled() {
 		return
 	}
 	if _, loaded := exhaustedCredentials.LoadOrStore(id, true); !loaded {
 		// Neither credential, hash, endpoint nor provider error text belongs in logs.
-		slog.Warn("provider credential exhausted; disabled for the rest of this process")
+		var ev quotaEvidence
+		if len(evidence) > 0 {
+			ev = evidence[0]
+		}
+		slog.Warn("provider credential exhausted; disabled for the rest of this process", "status", ev.Status, "code", ev.Code, "type", ev.Type)
 	}
 }
 func quotaExhaustedError(name string) error {
 	return &providers.ProviderError{Kind: providers.KindAuth, Provider: name, Err: ErrProviderQuotaExhausted}
 }
-func permanentQuota(text string) bool {
-	lower := strings.ToLower(text)
-	for _, marker := range []string{"insufficient_quota", "billing_hard_limit", "billing_not_active", "billing quota", "billing_error", "insufficient_balance", "credit_balance_too_low", "insufficient_credit", "credit balance is too low", "no credits remaining", "insufficient credits", "credits exhausted", "credit balance exhausted", "exhausted your credits", "payment required"} {
-		if strings.Contains(lower, marker) {
-			return true
-		}
+
+// Only exact structured billing identifiers qualify. Message text can mention
+// billing in rate-limit guidance and must never quarantine a credential.
+func permanentQuota(code string) bool {
+	switch code {
+	case "insufficient_quota", "billing_hard_limit", "billing_hard_limit_reached", "billing_not_active", "billing_error", "insufficient_balance", "credit_balance_too_low", "insufficient_credit", "credit_balance_exhausted":
+		return true
 	}
 	return false
 }
-func quotaError(err error) bool {
-	if !ExhaustedKeysEnabled() || err == nil {
-		return false
+
+type quotaEvidence struct {
+	Status int
+	Code   string
+	Type   string
+}
+
+// Diagnostic fields are untrusted provider strings. Retain only identifiers,
+// never messages, URLs, arbitrary strings or credentials echoed by a server.
+func quotaIdentifier(s string) string {
+	if s != "" && !permanentQuota(s) && s != "rate_limit_exceeded" && s != "tokens" && s != "requests" {
+		return "unrecognized"
 	}
-	var pe *providers.ProviderError
-	return errors.As(err, &pe) && permanentQuota(pe.Error())
+	return s
 }
 
 // observeQuota preserves the body for the adapter while retaining error codes
@@ -75,24 +93,28 @@ func observeQuota(ctx context.Context, resp *http.Response) {
 		return
 	}
 	quota := resp.StatusCode == http.StatusPaymentRequired
-	if resp.Body != nil && (resp.StatusCode == 429 || resp.StatusCode == 403 || quota) {
+	ev := quotaEvidence{Status: resp.StatusCode}
+	if resp.Body != nil && (resp.StatusCode == 429 || quota) {
 		original := resp.Body
 		body, _ := io.ReadAll(io.LimitReader(original, 64<<10))
 		resp.Body = &restoredBody{Reader: io.MultiReader(bytes.NewReader(body), original), Closer: original}
 		var envelope struct {
 			Error struct {
-				Code    any    `json:"code"`
-				Type    string `json:"type"`
-				Message string `json:"message"`
+				Code any    `json:"code"`
+				Type string `json:"type"`
 			} `json:"error"`
 		}
 		if json.Unmarshal(body, &envelope) == nil {
-			codes, _ := json.Marshal(envelope.Error.Code)
-			quota = quota || permanentQuota(string(codes)+" "+envelope.Error.Type+" "+envelope.Error.Message)
+			code, _ := envelope.Error.Code.(string)
+			ev.Code, ev.Type = quotaIdentifier(code), quotaIdentifier(envelope.Error.Type)
+			quota = quota || (state.provider == "openai" && resp.StatusCode == 429 && (permanentQuota(code) || permanentQuota(envelope.Error.Type)))
 		}
 	}
 	state.mu.Lock()
 	state.quota = state.quota || quota
+	if quota {
+		state.quotaEvidence = ev
+	}
 	state.mu.Unlock()
 }
 

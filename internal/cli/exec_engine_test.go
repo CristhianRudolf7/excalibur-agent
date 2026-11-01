@@ -146,8 +146,11 @@ func TestExecEngineEvalSurfaceClamp(t *testing.T) {
 	if !strings.Contains(trajectory, "send_message") {
 		t.Fatal("ATIF must record the rejected assistant-tool call")
 	}
-	if !strings.Contains(trajectory, "register_project") {
-		t.Fatal("ATIF must record the rejected task_db operation")
+	// task_db is outside the trimmed eval surface, so the rejected call
+	// is recorded by name; the disabled-operation gate itself is pinned
+	// in TestProfileGatedRunnerUnits.
+	if !strings.Contains(trajectory, "task_db") {
+		t.Fatal("ATIF must record the rejected task_db call")
 	}
 	// Rejections surface as tool errors, so the scripted model
 	// recovers and finishes: the gate contains without failing
@@ -166,17 +169,26 @@ func TestProfileGatedRunnerUnits(t *testing.T) {
 	if err := gate.check("send_message", nil); err == nil {
 		t.Fatal("eval must reject send_message")
 	}
+	// task_db left the trimmed eval surface (item 41): any call is
+	// rejected as outside the surface. The operation gate still applies
+	// to profiles that expose the tool.
 	good, _ := json.Marshal(map[string]any{
 		"ops": []map[string]any{{"op": "query", "entity": "criteria"}},
 	})
-	if err := gate.check("task_db", good); err != nil {
-		t.Fatalf("eval must allow task-internal task_db ops: %v", err)
+	if err := gate.check("task_db", good); err == nil {
+		t.Fatal("eval must reject task_db: it is outside the trimmed surface")
 	}
 	bad, _ := json.Marshal(map[string]any{
 		"ops": []map[string]any{{"op": "register_project"}},
 	})
 	if err := gate.check("task_db", bad); err == nil {
 		t.Fatal("eval must reject task_db register_project")
+	}
+	if err := EvalToolAllowed("task_db", "query"); err != nil {
+		t.Fatalf("task-internal task_db ops stay allowed by the op gate: %v", err)
+	}
+	if err := EvalToolAllowed("task_db", "register_project"); err == nil {
+		t.Fatal("task_db register_project must stay disabled by the op gate")
 	}
 	if err := gate.check("exec", nil); err != nil {
 		t.Fatalf("eval must allow exec: %v", err)

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/attempts"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
@@ -109,6 +110,10 @@ type ExecOptions struct {
 	// EXCALIBUR_ATTEMPTS>1 (used for the fan-out sub-runs so they
 	// never recurse).
 	DisableAttempts bool
+	// attemptMap maps the real working directory onto one attempt's
+	// copy for its tool calls and artifact checks. Only the best-of-N
+	// fan-out sets it (internal/cli/attempts.go).
+	attemptMap *attempts.WorkdirMap
 }
 
 // ExecRun is the live handle passed to the Work hook.
@@ -135,6 +140,16 @@ type ExecRun struct {
 	// modelSeq and toolSeq order the per-call JSONL files.
 	modelSeq int
 	toolSeq  int
+	// FinalText, FinishSummary and FinishEvidence are the accepted finish's
+	// detail: the model's final assistant text, the finish summary and the
+	// evidence it cited. Empty when the run did not complete through finish.
+	FinalText      string
+	FinishSummary  string
+	FinishEvidence string
+	// stopEventWritten is set once the stop path has persisted run_finished
+	// (state "timeout") to events.jsonl. Only the watchdog and finalize touch
+	// it, both under finalMu.
+	stopEventWritten bool
 }
 
 // EmitStep records one ATIF step plus a matching JSONL event, and
@@ -187,11 +202,23 @@ func (s *recordingJournalStore) List(ctx context.Context, runID string) ([]journ
 // EmitEvent appends one event to the in-memory flow and, with
 // EmitJSON, streams it to the caller.
 func (r *ExecRun) EmitEvent(event string, fields map[string]any) error {
+	rec := eventRecord(event, fields)
+	r.Events = append(r.Events, rec)
+	return r.emitStdout(rec)
+}
+
+// eventRecord builds one event row with its timestamp.
+func eventRecord(event string, fields map[string]any) map[string]any {
 	rec := map[string]any{"event": event, "at": time.Now().UTC().Format(time.RFC3339Nano)}
 	for k, v := range fields {
 		rec[k] = v
 	}
-	r.Events = append(r.Events, rec)
+	return rec
+}
+
+// emitStdout streams one already-recorded event to the caller in JSON mode
+// without adding it to the in-memory flow.
+func (r *ExecRun) emitStdout(rec map[string]any) error {
 	if r.emitJSON && r.emit != nil {
 		buf, err := json.Marshal(rec)
 		if err != nil {
@@ -273,6 +300,11 @@ func stripFirstAsk(request string) string {
 func EffectiveTools(profile ProfileName) (core, deferred []string) {
 	core = append([]string(nil), eval.DefaultEvalProfile().EnabledTools...)
 	deferred = append([]string(nil), eval.DefaultEvalProfile().DeferredTools...)
+	// The eval table trims tools that cannot act in a single
+	// autonomous run; assistant and delegate runs keep them.
+	if profile != ProfileEval {
+		core = append(core, eval.TrimmedFromEvalTools()...)
+	}
 	if profile == ProfileDefault {
 		core = append(core, "send_message", "question_answer")
 	}
@@ -612,9 +644,21 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		if state == stoppedByTimeout {
 			outcome.ExitCode = ExitPaused
 		}
-		if err := run.EmitEvent("run_finished", map[string]any{
-			"state": string(state), "reason": reason, "summary": summary,
-		}); err != nil {
+		payload := map[string]any{"state": string(state), "reason": reason, "summary": summary}
+		if run.FinalText != "" {
+			payload["final_text"] = run.FinalText
+		}
+		if run.FinishEvidence != "" {
+			payload["evidence"] = run.FinishEvidence
+		}
+		if run.stopEventWritten {
+			// The stop path already persisted run_finished with state "timeout";
+			// stream the closing event without a second copy in events.jsonl.
+			payload["state"] = stopEventState
+			if err := run.emitStdout(eventRecord("run_finished", payload)); err != nil {
+				return nil, &CodedError{Code: ExitError, Err: err}
+			}
+		} else if err := run.EmitEvent("run_finished", payload); err != nil {
 			return nil, &CodedError{Code: ExitError, Err: err}
 		}
 		if err := finishRun(runDir, run, outcome, metrics, state, profile, logsDir); err != nil {
@@ -692,24 +736,17 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		if st != "" && st != types.RunCompleted {
 			reason := ""
 			summary := string(st)
-			explicit := engine.ExplicitFinishSwitchOn()
 			if st == types.RunBlocked {
 				reason = "missing_data"
-				if explicit && engineSummary != "" {
+				summary = "blocked"
+				if engineSummary != "" {
 					summary = engineSummary
-				} else if explicit {
-					summary = "blocked"
-				} else {
-					summary = "blocked: " + shortSummary(request)
 				}
 			} else if st == types.RunFailed {
 				reason = "work"
-				if explicit && engineSummary != "" {
+				summary = "failed"
+				if engineSummary != "" {
 					summary = engineSummary
-				} else if explicit {
-					summary = "failed"
-				} else {
-					summary = fmt.Sprintf("failed: %s", shortSummary(request))
 				}
 			} else if st == types.RunPaused {
 				// The engine parks on budget exhaustion (steps, cost,
@@ -717,12 +754,9 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 				// one so attempt records and final.json stay
 				// auditable.
 				reason = "budget"
-				if explicit && engineSummary != "" {
+				summary = "paused: budget exhausted"
+				if engineSummary != "" {
 					summary = engineSummary
-				} else if explicit {
-					summary = "paused: budget exhausted"
-				} else {
-					summary = "paused: budget exhausted: " + shortSummary(request)
 				}
 			}
 			return finalize(st, reason, summary, "")
@@ -773,7 +807,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 		}
 		return finalize(types.RunCompleted, "", "completed", "")
 	}
-	return finalize(types.RunCompleted, "", "completed: "+shortSummary(request), "")
+	return finalize(types.RunCompleted, "", "completed", "")
 }
 
 // resolveExecProvider decides how RunExec answers model calls and
@@ -828,13 +862,6 @@ type NeedInputError struct {
 
 // Error implements error.
 func (e *NeedInputError) Error() string { return "need input: " + e.Question }
-
-func shortSummary(request string) string {
-	if len(request) <= 120 {
-		return request
-	}
-	return request[:117] + "..."
-}
 
 func metricsPathFor(runDir string, profile ProfileName, logsDir string) string {
 	if profile == ProfileEval {
@@ -964,6 +991,7 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		_ = run.Recorder.RecordMask(0, 0, "final")
 		_ = run.Recorder.RecordCompaction(0, 0, 0, "final")
 		_ = run.Recorder.RecordLoop("final", "none", "no loop")
+		run.Recorder.SetFinishDetail(eval.FinishDetail{Summary: outcome.Summary, FinalText: run.FinalText, Evidence: run.FinishEvidence})
 		_ = run.Recorder.WriteFinal(string(state), outcome.Reason, outcome.ExitCode)
 		// Mirror profile hashes under excalibur/ for Appendix F.
 		if profile == ProfileEval {

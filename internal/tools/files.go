@@ -125,7 +125,74 @@ type FileDeps struct {
 	History      FileHistoryStore
 	Diagnostics  DiagnosticProvider
 	RunID        string
-	Now          func() time.Time
+	// Workdir is the run's project directory. Relative paths resolve
+	// against it when set; empty keeps the process working directory.
+	Workdir string
+	Now     func() time.Time
+}
+
+// runWorkdir returns the run's project directory, or "" without deps.
+func (d *FileDeps) runWorkdir() string {
+	if d == nil {
+		return ""
+	}
+	return d.Workdir
+}
+
+// resolvePath maps a tool path to the file it names. Relative paths
+// resolve against the run workdir when the run declares one
+// (EXCALIBUR_RUN_WORKDIR, default on), so every file tool in a run
+// agrees on where a relative path lives. Otherwise they resolve
+// against the process working directory, as before.
+func (d *FileDeps) resolvePath(p string) string {
+	if d != nil && d.Workdir != "" && !filepath.IsAbs(p) && RunWorkdirEnabled() {
+		return filepath.Join(d.Workdir, p)
+	}
+	return filepath.Clean(p)
+}
+
+// fingerprintRefusal applies the fingerprint guard to an existing file.
+// It returns the refusal text, or "" when the write may proceed. The
+// second result reports the legacy explicit "*" wildcard, which skips
+// the check only when EXCALIBUR_FP_AUTO is off.
+func fingerprintRefusal(fps *FingerprintStore, path, expectedFP string) (string, bool) {
+	if FingerprintAutoEnabled() {
+		mi := fps.Guard(path, CleanFingerprint(expectedFP))
+		if mi == nil {
+			return "", false
+		}
+		return mismatchText(mi), false
+	}
+	if expectedFP == "*" {
+		return "", true
+	}
+	expected := Fingerprint(expectedFP)
+	if expected == "" {
+		if fp, ok := fps.LastRead(path); ok {
+			expected = fp
+		}
+	}
+	if mi := fps.Check(path, expected); mi != nil {
+		return mismatchText(mi), false
+	}
+	return "", false
+}
+
+func mismatchText(mi *MismatchInfo) string {
+	out := (&FingerprintError{Info: *mi}).Error()
+	if mi.ShouldScale {
+		out += "\nscale: 3 consecutive mismatches; escalate to parent"
+	}
+	return out
+}
+
+// expectedFPFor returns the caller's expected fingerprint for a patch
+// op, looked up by the path as written and then by the resolved path.
+func expectedFPFor(m map[string]string, raw, resolved string) string {
+	if v, ok := m[raw]; ok {
+		return v
+	}
+	return m[resolved]
 }
 
 // readFileArgs is the read_file input shape.
@@ -156,7 +223,7 @@ var writeFileSchema = schemaFor(map[string]any{
 	"properties": map[string]any{
 		"path":        map[string]any{"type": "string", "minLength": 1},
 		"content":     map[string]any{"type": "string"},
-		"expected_fp": map[string]any{"type": "string"},
+		"expected_fp": map[string]any{"type": "string", "description": "Optional. Existing files are checked against the version this run last read or wrote; pass a fingerprint only to name one explicitly"},
 	},
 	"required":             []string{"path", "content"},
 	"additionalProperties": false,
@@ -168,7 +235,8 @@ var editFileSchema = schemaFor(map[string]any{
 		"path":        map[string]any{"type": "string", "minLength": 1},
 		"old_text":    map[string]any{"type": "string", "minLength": 1},
 		"new_text":    map[string]any{"type": "string"},
-		"expected_fp": map[string]any{"type": "string"},
+		"expected_fp": map[string]any{"type": "string", "description": "Optional. Checked against the version this run last read or wrote"},
+		"occurrence":  map[string]any{"type": "integer", "minimum": 1, "description": "1-based index of the exact match to edit when old_text matches several places"},
 	},
 	"required":             []string{"path", "old_text", "new_text"},
 	"additionalProperties": false,
@@ -216,7 +284,12 @@ func (t *ReadFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	path := filepath.Clean(a.Path)
+	path := t.Deps.resolvePath(a.Path)
+	// Task boundary (exec scope only): the harness's own logs and other
+	// processes' roots are not readable from a run (item 93).
+	if err := CheckPathBoundary(path); err != nil {
+		return Result{Status: StatusDenied, Output: err.Error()}, nil
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v. hint: to create it use write_file {\"path\": %q, \"content\": \"...\"}; to locate files use glob or grep", path, err, path)}, nil
@@ -262,7 +335,7 @@ func (t *ReadFileTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
 	}
-	return []string{"file:" + filepath.Clean(a.Path)}, nil
+	return []string{"file:" + t.Deps.resolvePath(a.Path)}, nil
 }
 
 // WriteFileTool implements write_file with atomic replace.
@@ -288,7 +361,12 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	path := filepath.Clean(a.Path)
+	path := t.Deps.resolvePath(a.Path)
+	if StructuredWriteCheckEnabled() {
+		if refusal := literalEscapeRefusal(path, a.Content); refusal != "" {
+			return Result{Status: StatusInputError, Output: refusal}, nil
+		}
+	}
 	deps := t.Deps
 	fps := NewFingerprintStore()
 	var leases LeaseManager
@@ -313,26 +391,15 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 		}
 		defer release()
 	}
-	expected := Fingerprint(a.ExpectedFP)
-	if expected == "" {
-		if fp, ok := fps.LastRead(path); ok {
-			expected = fp
-		}
-	}
-	// An explicit "*" wildcard skips the fingerprint check with a
-	// note: informed overwrite beats a blind retry loop for small
-	// models, while genuine hash mismatches still reject.
-	skipFP := a.ExpectedFP == "*"
+	// An existing file must still match what this run last saw. A new
+	// file has nothing to check against.
+	skipped := false
 	if _, err := os.Stat(path); err == nil {
-		if !skipFP {
-			if mi := fps.Check(path, expected); mi != nil {
-				out := (&FingerprintError{Info: *mi}).Error()
-				if mi.ShouldScale {
-					out += "\nscale: 3 consecutive mismatches; escalate to parent"
-				}
-				return Result{Status: StatusToolError, Output: out}, nil
-			}
+		refusal, wildcard := fingerprintRefusal(fps, path, a.ExpectedFP)
+		if refusal != "" {
+			return Result{Status: StatusToolError, Output: refusal}, nil
 		}
+		skipped = wildcard
 	}
 	// Record the preimage before any effect so a crash between intent
 	// and effect stays reversible (Section 13.4 step 3).
@@ -355,8 +422,13 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 		hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 	}
 	out := fmt.Sprintf("wrote %s (%d bytes) fp: %s", path, len(a.Content), fp)
-	if skipFP {
+	if skipped {
 		out += " (fingerprint check skipped by explicit \"*\")"
+	}
+	if StructuredWriteCheckEnabled() {
+		if warning := parseWarning(path, a.Content); warning != "" {
+			out += "\n" + warning
+		}
 	}
 	if diags != nil {
 		if d := diags.Diagnostics([]string{path}); d != "" {
@@ -373,7 +445,7 @@ func (t *WriteFileTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
 	}
-	return []string{"file:" + filepath.Clean(a.Path)}, nil
+	return []string{"file:" + t.Deps.resolvePath(a.Path)}, nil
 }
 
 // EditFileTool implements edit_file with three-level matching.
@@ -396,11 +468,12 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 		OldText    string `json:"old_text"`
 		NewText    string `json:"new_text"`
 		ExpectedFP string `json:"expected_fp"`
+		Occurrence int    `json:"occurrence"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	path := filepath.Clean(a.Path)
+	path := t.Deps.resolvePath(a.Path)
 	deps := t.Deps
 	fps := NewFingerprintStore()
 	var leases LeaseManager
@@ -425,40 +498,27 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 		}
 		defer release()
 	}
-	expected := Fingerprint(a.ExpectedFP)
-	if expected == "" {
-		if fp, ok := fps.LastRead(path); ok {
-			expected = fp
-		}
-	}
-	skipFP := a.ExpectedFP == "*"
-	if !skipFP {
-		if mi := fps.Check(path, expected); mi != nil {
-			out := (&FingerprintError{Info: *mi}).Error()
-			if mi.ShouldScale {
-				out += "\nscale: 3 consecutive mismatches; escalate to parent"
-			}
-			return Result{Status: StatusToolError, Output: out}, nil
-		}
+	refusal, skipped := fingerprintRefusal(fps, path, a.ExpectedFP)
+	if refusal != "" {
+		return Result{Status: StatusToolError, Output: refusal}, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Status: StatusToolError, Output: fmt.Sprintf("read %s: %v. hint: to create it use write_file {\"path\": %q, \"content\": \"...\"}", path, err, path)}, nil
 	}
 	content := string(data)
-	off, _, ambiguous := FindMatch(content, a.OldText)
-	if off < 0 {
-		if ambiguous != nil {
-			return Result{Status: StatusToolError, Output: fmt.Sprintf("multiple matches at lines %v; refine old_text", ambiguous)}, nil
-		}
-		// Report the nearest line numbers for a miss.
-		return Result{Status: StatusToolError, Output: fmt.Sprintf("old_text not found in %s (%d lines)", path, len(strings.Split(content, "\n")))}, nil
+	off, length, refusal := locateOldText(content, path, a.OldText, a.Occurrence)
+	if refusal != "" {
+		return Result{Status: StatusToolError, Output: refusal}, nil
+	}
+	if off+length > len(content) {
+		length = len(content) - off
 	}
 	var preRef string
 	if hist != nil {
 		preRef = hist.PutBlob(data)
 	}
-	updated := content[:off] + a.NewText + content[off+len(matchedSlice(content, off, a.OldText)):]
+	updated := content[:off] + a.NewText + content[off+length:]
 	if err := atomicWriteFile(path, []byte(updated), 0o644); err != nil {
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
@@ -470,7 +530,7 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 		hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 	}
 	out := fmt.Sprintf("edited %s fp: %s", path, fp)
-	if skipFP {
+	if skipped {
 		out += " (fingerprint check skipped by explicit \"*\")"
 	}
 	if diags != nil {
@@ -488,7 +548,7 @@ func (t *EditFileTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
 	}
-	return []string{"file:" + filepath.Clean(a.Path)}, nil
+	return []string{"file:" + t.Deps.resolvePath(a.Path)}, nil
 }
 
 // matchedSlice returns the slice of content that FindMatch matched at
@@ -568,23 +628,16 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 	}
 	// Validate all ops first so a bad patch applies nothing.
 	type planned struct {
-		path    string
-		updated string
-		isNew   bool
+		path       string
+		updated    string
+		isNew      bool
+		expectedFP string
 	}
 	plans := make([]planned, 0, len(a.Ops))
 	touched := map[string]bool{}
 	for i, op := range a.Ops {
-		path := filepath.Clean(op.Path)
-		var expected Fingerprint
-		if a.ExpectedFPs != nil {
-			expected = Fingerprint(a.ExpectedFPs[path])
-		}
-		if expected == "" {
-			if fp, ok := fps.LastRead(path); ok {
-				expected = fp
-			}
-		}
+		path := t.Deps.resolvePath(op.Path)
+		expectedFP := expectedFPFor(a.ExpectedFPs, op.Path, path)
 		switch op.Op {
 		case "add":
 			if _, err := os.Stat(path); err == nil {
@@ -592,8 +645,8 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 			}
 			plans = append(plans, planned{path: path, updated: op.NewText, isNew: true})
 		case "delete":
-			if mi := fps.Check(path, expected); mi != nil {
-				return Result{Status: StatusToolError, Output: (&FingerprintError{Info: *mi}).Error()}, nil
+			if refusal, _ := fingerprintRefusal(fps, path, expectedFP); refusal != "" {
+				return Result{Status: StatusToolError, Output: refusal}, nil
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -607,10 +660,10 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 				return Result{Status: StatusToolError, Output: fmt.Sprintf("op %d: old_text not found in %s", i, path)}, nil
 			}
 			matched := matchedSlice(string(data), off, op.OldText)
-			plans = append(plans, planned{path: path, updated: string(data)[:off] + string(data)[off+len(matched):]})
+			plans = append(plans, planned{path: path, updated: string(data)[:off] + string(data)[off+len(matched):], expectedFP: expectedFP})
 		case "update":
-			if mi := fps.Check(path, expected); mi != nil {
-				return Result{Status: StatusToolError, Output: (&FingerprintError{Info: *mi}).Error()}, nil
+			if refusal, _ := fingerprintRefusal(fps, path, expectedFP); refusal != "" {
+				return Result{Status: StatusToolError, Output: refusal}, nil
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
@@ -628,7 +681,7 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 				return Result{Status: StatusToolError, Output: fmt.Sprintf("op %d: old_text not found in %s", i, path)}, nil
 			}
 			matched := matchedSlice(content, off, op.OldText)
-			plans = append(plans, planned{path: path, updated: content[:off] + op.NewText + content[off+len(matched):]})
+			plans = append(plans, planned{path: path, updated: content[:off] + op.NewText + content[off+len(matched):], expectedFP: expectedFP})
 		default:
 			return Result{Status: StatusInputError, Output: fmt.Sprintf("op %d: unknown op %q", i, op.Op)}, nil
 		}
@@ -656,17 +709,8 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 	// Re-check fingerprints under the lease, then write.
 	for _, p := range plans {
 		if !p.isNew {
-			var expected Fingerprint
-			if a.ExpectedFPs != nil {
-				expected = Fingerprint(a.ExpectedFPs[p.path])
-			}
-			if expected == "" {
-				if fp, ok := fps.LastRead(p.path); ok {
-					expected = fp
-				}
-			}
-			if mi := fps.Check(p.path, expected); mi != nil {
-				return Result{Status: StatusToolError, Output: (&FingerprintError{Info: *mi}).Error()}, nil
+			if refusal, _ := fingerprintRefusal(fps, p.path, p.expectedFP); refusal != "" {
+				return Result{Status: StatusToolError, Output: refusal}, nil
 			}
 		}
 		var preRef string
@@ -710,7 +754,7 @@ func (t *ApplyPatchTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 	}
 	keys := make([]string, 0, len(a.Ops))
 	for _, op := range a.Ops {
-		keys = append(keys, "file:"+filepath.Clean(op.Path))
+		keys = append(keys, "file:"+t.Deps.resolvePath(op.Path))
 	}
 	sort.Strings(keys)
 	return keys, nil

@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -429,9 +431,16 @@ func NormalizeArgs(name string, raw json.RawMessage, t SurfaceTuning) json.RawMe
 			if v, ok := take("new_text", "new", "replace", "replacement", "after"); ok {
 				setStr("new_text", v)
 			}
+			if v, ok := take("occurrence", "nth", "index"); ok {
+				setInt("occurrence", v)
+			}
 		} else {
 			if v, ok := take("content", "text", "body", "data"); ok {
-				setStr("content", v)
+				if structured, isStructured := structuredContentText(v, trimmed); isStructured {
+					obj["content"] = structured
+				} else {
+					setStr("content", v)
+				}
 			}
 		}
 	case "grep":
@@ -699,6 +708,13 @@ func RepairHint(name string, raw json.RawMessage) string {
 		"clock":                   `clock accepts {"action": "<now|convert|add>", "zone": "UTC"}.`,
 		"status":                  `status takes no arguments.`,
 	}
+	if FingerprintAutoEnabled() {
+		shapes["write_file"] = `write_file needs {"path": "<file>", "content": "<text>"}. expected_fp is optional: the harness checks an existing file against the version it last read or wrote. After a refusal, retry with the expected_fp it names.`
+		shapes["edit_file"] = `edit_file needs {"path": "<file>", "old_text": "<exact fragment>", "new_text": "<replacement>"}; optional occurrence (1-based) when old_text matches several places. Copy old_text verbatim from read_file; a changed file is refused with its current head.`
+	}
+	if OutputRefsEnabled() {
+		shapes["get_tool_output"] = `get_tool_output needs {"ref": "<blob-sha256:... | sess-N | call-N>", "offset":0, "limit":8000} or {"list": true} to list recent refs.`
+	}
 	shape, ok := shapes[name]
 	if !ok {
 		shape = name + ` called with invalid arguments; check the tool description.`
@@ -722,14 +738,108 @@ func receivedKeys(raw json.RawMessage) []string {
 	return keys
 }
 
-// RetrievalHintForRef tells a model where a reference resolves: blob
-// refs page through get_tool_output, sess-N ids through exec_io.
+// RetrievalHintForRef names what a failed get_tool_output ref can be.
+// With EXCALIBUR_TOOL_OUTPUT_REFS on, the text lists the valid forms
+// (blob refs, session ids, call ids and the list mode); off restores
+// the earlier wording.
 func RetrievalHintForRef(ref string) string {
+	if OutputRefsEnabled() {
+		hint := fmt.Sprintf("unknown ref %q. Valid refs: a blob-sha256:... ref printed in a truncated result; a session id sess-N from an exec header (its full log, paged with offset and limit); a call id call-N; or {\"list\": true} to list recent stored outputs and sessions", ref)
+		if strings.HasPrefix(ref, "sess-") {
+			hint += fmt.Sprintf("; for live output of a running session use exec_io {\"action\":\"read\",\"session\":%q,\"offset\":0}", ref)
+		}
+		return hint
+	}
 	if strings.HasPrefix(ref, "sess-") {
 		return fmt.Sprintf("unknown blob ref %q: that is a live terminal session, not a stored blob; read it with exec_io {\"action\":\"read\",\"session\":%q,\"offset\":0}", ref, ref)
 	}
 	return fmt.Sprintf("unknown blob ref %q: list recent blobs with get_tool_output paging or re-run the producing command", ref)
 }
+
+// structuredContentText serializes a JSON object or array given as
+// write_file content (instead of a string) so the file is written
+// rather than failing the string schema. The original bytes are
+// re-indented when they can be found, which keeps the key order the
+// model wrote; otherwise the decoded value is marshaled with sorted
+// keys. Scalars report false and keep the normal string path.
+func structuredContentText(v any, raw string) (string, bool) {
+	switch v.(type) {
+	case map[string]any, []any:
+	default:
+		return "", false
+	}
+	if sub := rawValueFor(raw, "content", "text", "body", "data"); len(sub) > 0 {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, sub, "", "  "); err == nil {
+			return buf.String(), true
+		}
+	}
+	enc, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return "", false
+	}
+	return string(enc), true
+}
+
+// rawValueFor returns the raw JSON of the first key of the object raw
+// that matches one of keys (case-insensitive), trying the keys in the
+// order given. Nil when raw is not an object or no key matches.
+func rawValueFor(raw string, keys ...string) json.RawMessage {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(obj))
+	for k := range obj {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, want := range keys {
+		for _, k := range names {
+			if strings.EqualFold(k, want) {
+				return obj[k]
+			}
+		}
+	}
+	return nil
+}
+
+// Switches for the file, output, status and redaction behaviours of
+// this package. Each is on unless set to 0, false, off or no.
+//
+// EXCALIBUR_FP_AUTO: the harness checks writes against the fingerprint
+// it recorded at the last read or write; expected_fp is optional and
+// placeholder values count as absent.
+func FingerprintAutoEnabled() bool { return !off("EXCALIBUR_FP_AUTO") }
+
+// EXCALIBUR_TOOL_OUTPUT_REFS: get_tool_output accepts session ids, call
+// ids and the list mode, and the valid ref forms are named in errors.
+func OutputRefsEnabled() bool { return !off("EXCALIBUR_TOOL_OUTPUT_REFS") }
+
+// EXCALIBUR_REDACTION_WRITE_GUARD: write-side calls whose arguments
+// carry a redaction marker are refused.
+func RedactionWriteGuardEnabled() bool { return !off("EXCALIBUR_REDACTION_WRITE_GUARD") }
+
+// EXCALIBUR_VISION_HONEST: vision_extract without a configured model
+// returns an error instead of placeholder text.
+func VisionHonestEnabled() bool { return !off("EXCALIBUR_VISION_HONEST") }
+
+// EXCALIBUR_STRUCTURED_WRITE_CHECK: write_file parse-checks structured
+// formats and refuses single-line text with literal backslash-n.
+func StructuredWriteCheckEnabled() bool { return !off("EXCALIBUR_STRUCTURED_WRITE_CHECK") }
+
+// EXCALIBUR_RUN_WORKDIR: relative paths in the file tools resolve
+// against the run's project directory when the run declares one.
+func RunWorkdirEnabled() bool { return !off("EXCALIBUR_RUN_WORKDIR") }
+
+// EXCALIBUR_EDIT_HINTS: edit_file names the most similar lines on a
+// miss, lists every line of an ambiguous match and accepts occurrence.
+func EditHintsEnabled() bool { return !off("EXCALIBUR_EDIT_HINTS") }
+
+// EXCALIBUR_STUB_REPLIES: tools that are listed but not wired answer
+// with a non-error statement, and search_tools with an empty query
+// lists the deferred catalogue with one-line descriptions.
+func StubRepliesEnabled() bool { return !off("EXCALIBUR_STUB_REPLIES") }
 
 // FrictionRepairEnabled controls compatible tool routing repairs.
 func FrictionRepairEnabled() bool { return !off("EXCALIBUR_TOOL_FRICTION_REPAIR") }

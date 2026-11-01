@@ -16,15 +16,20 @@ func TestIsExercisingCall(t *testing.T) {
 		want bool
 	}{
 		{"run script", HistoryTool{Name: "exec", Args: `{"command":"python3 /app/main.py"}`, Output: "ok"}, true},
-		{"import module", HistoryTool{Name: "exec", Args: `{"command":"python3 -c 'import filter'"}`, Output: "ok"}, true},
+		// Loading a module without running it is not an exercise
+		// (EXCALIBUR_EXERCISE_STRICT); importing and then calling it is.
+		{"import only", HistoryTool{Name: "exec", Args: `{"command":"python3 -c 'import filter'"}`, Output: "ok"}, false},
+		{"import then run", HistoryTool{Name: "exec", Args: `{"command":"python3 -c 'import filter; print(filter.run(3))'"}`, Output: "3"}, true},
 		{"pytest", HistoryTool{Name: "exec", Args: `{"command":"pytest -q"}`, Output: "3 passed"}, true},
 		{"go test", HistoryTool{Name: "exec", Args: `{"command":"go test ./..."}`, Output: "ok"}, true},
-		{"direct exec", HistoryTool{Name: "exec", Args: `{"command":"./prog --help"}`, Output: "usage"}, true},
+		// --help prints usage without running the program on input.
+		{"help output", HistoryTool{Name: "exec", Args: `{"command":"./prog --help"}`, Output: "usage"}, false},
+		{"direct exec", HistoryTool{Name: "exec", Args: `{"command":"./prog input.txt"}`, Output: "ok"}, true},
 		{"curl service", HistoryTool{Name: "exec", Args: `{"command":"curl -s localhost:8000/health"}`, Output: "ok"}, true},
 		{"jq parse", HistoryTool{Name: "exec", Args: `{"command":"jq empty /app/out.json"}`, Output: "ok"}, true},
 		{"grep constraint", HistoryTool{Name: "exec", Args: `{"command":"grep -q script /app/out || echo clean"}`, Output: "clean"}, true},
 		{"make build", HistoryTool{Name: "exec", Args: `{"command":"make"}`, Output: "built"}, true},
-		{"gcc build", HistoryTool{Name: "exec", Args: `{"command":"gcc -o main main.c"}`, Output: "ok"}, true},
+		{"gcc build only", HistoryTool{Name: "exec", Args: `{"command":"gcc -o main main.c"}`, Output: "ok"}, false},
 		{"ls is shallow", HistoryTool{Name: "exec", Args: `{"command":"ls -l /app/x.py"}`, Output: "x.py"}, false},
 		{"test-e is shallow", HistoryTool{Name: "exec", Args: `{"command":"test -s /app/x.py && ls -l /app/x.py"}`, Output: "x.py"}, false},
 		{"stat is shallow", HistoryTool{Name: "exec", Args: `{"command":"stat /app/x.py"}`, Output: "File:"}, false},
@@ -254,5 +259,64 @@ func TestExerciseCheckForSuggestsRunners(t *testing.T) {
 	}
 	if got := exerciseCheckFor("/app/out.json"); !strings.Contains(got, "test -s") {
 		t.Fatalf("unknown artifact keeps the existence probe, got %q", got)
+	}
+}
+
+// Exercise predicate table (item 87): help, version, syntax-only,
+// import-only and observation forms never count; running the
+// deliverable on input, tests, builds and parsers do.
+func TestExercisesDeliverable(t *testing.T) {
+	t.Setenv("EXCALIBUR_EXERCISE_STRICT", "")
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"./prog --help", false},
+		{"python3 main.py -h", false},
+		{"node tool.js --version", false},
+		{"python3 -m py_compile solver.py", false},
+		{"python3 -c 'import solver'", false},
+		{"python3 -c 'import solver\nimport sys'", false},
+		{"gcc -fsyntax-only main.c", false},
+		{"gcc main.c -o main", false},
+		{"javac Main.java", false},
+		{"rustc main.rs", false},
+		{"go build ./...", false},
+		{"cargo build", false},
+		{"gcc main.c -o main && ./main input.txt", true},
+		{"bash -n deploy.sh", false},
+		{"sh -n run.sh && echo ok", false},
+		{"node --check app.js", false},
+		{"ruby -c app.rb", false},
+		{"perl -c tool.pl", false},
+		{"php -l page.php", false},
+		{"cat /app/out.txt", false},
+		{"cat check.txt", false},
+		{"ls ./program/", false},
+		{"wc -c check.py", false},
+		{"cd /app && test -s out.json && echo done", false},
+		{"python3 /app/solver.py 12 34", true},
+		{"python3 -c 'import solver; print(solver.solve(3))'", true},
+		{"bash run.sh", true},
+		{"bash -c 'python3 /app/x.py 5'", true},
+		{"cat input.txt | ./prog", true},
+		{"pytest -q tests/", true},
+		{"make test", true},
+		{"python3 -m json.tool /app/out.json > /dev/null", true},
+		{"test -s out.json && ./prog 7", true},
+	}
+	for _, c := range cases {
+		if got := ExercisesDeliverable(c.cmd); got != c.want {
+			t.Errorf("ExercisesDeliverable(%q) = %v, want %v", c.cmd, got, c.want)
+		}
+	}
+	// Switch off: the legacy marker rule applies again, so `cat` of a
+	// file named check counts (the strict rule excludes it).
+	t.Setenv("EXCALIBUR_EXERCISE_STRICT", "off")
+	if !IsExercisingCall(HistoryTool{Name: "exec", Args: `{"command":"cat check.txt"}`, Output: "x"}) {
+		t.Error("switch off must restore the legacy marker rule")
+	}
+	if IsExercisingCall(HistoryTool{Name: "exec", Args: `{"command":"cat check.txt"}`, Output: "x"}) == ExercisesDeliverable("cat check.txt") {
+		t.Error("switch off must differ from the strict predicate here")
 	}
 }

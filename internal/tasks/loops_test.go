@@ -6,6 +6,7 @@
 package tasks
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -323,5 +324,186 @@ func TestFalsePositiveRateOnBenignTraffic(t *testing.T) {
 	t.Logf("false-positive rate: %d/%d", fp, total)
 	if fp != 0 {
 		t.Fatalf("false positives on benign traffic: %d/%d", fp, total)
+	}
+}
+
+// Item 75: the near-repeat detector escalates on its second firing,
+// so a persisting poll loop gets an expert-level response, not only a
+// second note.
+func TestNearRepeatEscalatesOnSecondHit(t *testing.T) {
+	d := NewLoopDetector()
+	var actions []LoopAction
+	for i := 0; i < 2*LoopNearRepeat; i++ {
+		for _, det := range d.ObserveTool(ToolEvent{Tool: "exec", Args: "poll", Result: "tick " + strings.Repeat("x", i)}) {
+			if det.Rule == RuleNearRepeat {
+				actions = append(actions, det.Action)
+			}
+		}
+	}
+	if len(actions) != 2 || actions[0] != ActionNote || actions[1] != ActionEscalate {
+		t.Fatalf("near_repeat actions = %v, want [note escalate]", actions)
+	}
+}
+
+// Item 15: the exact-call guard notes the third identical result and
+// refuses the exact call for the next five turns at the sixth.
+func TestExactCallGuardNoteAndRefusal(t *testing.T) {
+	g := NewExactCallGuard()
+	count := ExactCountKey("read_file", `{"path":"a"}`, ResultFingerprint("same"))
+	call := ExactCallKey("read_file", `{"path":"a"}`)
+	var notes []string
+	for turn := 1; turn <= ExactCallBanAt; turn++ {
+		note, banned := g.Observe(turn, count, call)
+		if note != "" {
+			notes = append(notes, note)
+		}
+		if banned != (turn == ExactCallBanAt) {
+			t.Fatalf("turn %d banned=%v", turn, banned)
+		}
+	}
+	if len(notes) != 2 || notes[0] != ExactCallNote(3) || !strings.Contains(notes[1], "refused for the next 5 turns") {
+		t.Fatalf("notes = %q", notes)
+	}
+	// The window covers the five turns after the sixth occurrence.
+	for turn := ExactCallBanAt + 1; turn <= ExactCallBanAt+ExactCallBanTurns; turn++ {
+		msg, refused := g.Refusal(turn, call)
+		if !refused {
+			t.Fatalf("turn %d must be refused", turn)
+		}
+		if want := ExactCallBanAt + ExactCallBanTurns - turn + 1; !strings.Contains(msg, "refused for "+strconv.Itoa(want)+" more turns") {
+			t.Fatalf("turn %d refusal = %q", turn, msg)
+		}
+	}
+	if _, refused := g.Refusal(ExactCallBanAt+ExactCallBanTurns+1, call); refused {
+		t.Fatal("refusal must lapse after the window")
+	}
+}
+
+// Item 15: a workspace change restarts the count, because the same call
+// may legitimately return the same result afterwards.
+func TestExactCallGuardStateChangeResetsCounts(t *testing.T) {
+	g := NewExactCallGuard()
+	count := ExactCountKey("exec", "pwd", ResultFingerprint("/app"))
+	call := ExactCallKey("exec", `{"command":"pwd"}`)
+	for turn := 1; turn <= 2; turn++ {
+		g.Observe(turn, count, call)
+	}
+	g.MarkStateChange()
+	// The first identical result after the change is occurrence one of a
+	// new count, so the note waits for the third of them, at turn 5.
+	if note, _ := g.Observe(3, count, call); note != "" {
+		t.Fatalf("first identical result after a change must not note: %q", note)
+	}
+	if note, _ := g.Observe(4, count, call); note != "" {
+		t.Fatalf("second identical result after a change must not note: %q", note)
+	}
+	if note, _ := g.Observe(5, count, call); note != ExactCallNote(3) {
+		t.Fatalf("third identical result after a change must note, got %q", note)
+	}
+}
+
+// Item 15 / 79: a relaunch that produces the same observation is the same
+// call. Counts are per observation: distinct results never add up, while
+// alternating results each reach the third occurrence on their own.
+func TestExactCallGuardKeysByResult(t *testing.T) {
+	g := NewExactCallGuard()
+	call := ExactCallKey("exec", `{"command":"qemu"}`)
+	for turn, out := range []string{"a", "b", "c", "d", "e", "f"} {
+		count := ExactCountKey("exec", "", ResultFingerprint(out))
+		if note, banned := g.Observe(turn+1, count, call); note != "" || banned {
+			t.Fatalf("distinct results must never count: %q %v", note, banned)
+		}
+	}
+	var notes []int
+	for turn, out := range []string{"up", "down", "up", "down", "up", "down"} {
+		count := ExactCountKey("exec", "", ResultFingerprint(out))
+		if note, _ := g.Observe(turn+10, count, call); note != "" {
+			notes = append(notes, turn+10)
+		}
+	}
+	if len(notes) != 2 || notes[0] != 14 || notes[1] != 15 {
+		t.Fatalf("alternating results note at the third occurrence of each: %v", notes)
+	}
+}
+
+// Volatile exec header tokens (duration, session id, pid, clock times)
+// do not make two identical observations differ.
+func TestResultFingerprintIgnoresVolatileTokens(t *testing.T) {
+	a := "exit: 0  duration: 1.2s  session: sess-7  alive: false\nout 10:11:12\n"
+	b := "exit: 0  duration: 9.8s  session: sess-8  alive: false\nout 22:01:59\n"
+	if ResultFingerprint(a) != ResultFingerprint(b) {
+		t.Fatal("volatile tokens must not change the fingerprint")
+	}
+	if ResultFingerprint(a) == ResultFingerprint("exit: 1  duration: 1.2s  session: sess-7  alive: false\nout 10:11:12\n") {
+		t.Fatal("a different exit code must change the fingerprint")
+	}
+}
+
+func TestNormalizeCallArgs(t *testing.T) {
+	if NormalizeCallArgs(`{"b": 2, "a":"x"}`) != NormalizeCallArgs(`{"a":"x","b":2}`) {
+		t.Fatal("argument key order must not matter")
+	}
+	if NormalizeCallArgs(`{"n": 1.0}`) != `{"n":1.0}` {
+		t.Fatalf("numbers must be kept as written: %s", NormalizeCallArgs(`{"n": 1.0}`))
+	}
+	if NormalizeCallArgs("ls   /app") != "ls /app" {
+		t.Fatal("non-JSON arguments collapse whitespace")
+	}
+}
+
+// Pure echo, printf, true and sleep commands with a constant output
+// count as identical; anything that may write does not.
+func TestPureAndWritingCommands(t *testing.T) {
+	for _, cmd := range []string{"echo hi", "printf 'x\\n'", "true", "sleep 30"} {
+		if !IsPureCommand(cmd) {
+			t.Fatalf("%q must be pure", cmd)
+		}
+	}
+	for _, cmd := range []string{"echo hi > out.txt", "printf x >> log", "sleep 1 && tee f", "echo x | tee a", "cat a"} {
+		if IsPureCommand(cmd) {
+			t.Fatalf("%q must not be pure", cmd)
+		}
+	}
+	for _, cmd := range []string{"cp a b", "mv a b", "rm -f x", "mkdir -p d", "sed -i s/a/b/ f", "tar -xf a.tar", "make > build.log"} {
+		if !MayWriteCommand(cmd) {
+			t.Fatalf("%q must count as a possible write", cmd)
+		}
+	}
+	for _, cmd := range []string{"ls -la", "test -s a.txt && ls -l a.txt", "cat a 2>&1", "cmd > /dev/null", "echo hi 2>&1"} {
+		if MayWriteCommand(cmd) {
+			t.Fatalf("%q must not count as a write", cmd)
+		}
+	}
+}
+
+// Item 106: a session that is still running is progress, not a repeat.
+func TestLiveSessionOutput(t *testing.T) {
+	if !LiveSessionOutput("exit: running  duration: 30.0s  session: sess-1  alive: true  next_offset: 4\n") {
+		t.Fatal("a running exec header is live")
+	}
+	if !LiveSessionOutput("exited: false  next_offset: 9\nbuilding\n") {
+		t.Fatal("an unfinished exec_io read is live")
+	}
+	if LiveSessionOutput("exit: 0  duration: 1.0s  session: sess-1  alive: false\n") {
+		t.Fatal("a finished session is not live")
+	}
+}
+
+// Finish repeats share the tally: notes at the third and sixth
+// occurrence, and no refusal window (the finish protocol owns refusals).
+func TestExactCallGuardTallyNoWindow(t *testing.T) {
+	g := NewExactCallGuard()
+	count := ExactCountKey("finish", "", ResultFingerprint("gate pending"))
+	var notes []string
+	for i := 0; i < 7; i++ {
+		if n := g.Tally(count); n != "" {
+			notes = append(notes, n)
+		}
+	}
+	if len(notes) != 2 || notes[0] != ExactCallNote(3) || notes[1] != ExactCallNote(6) {
+		t.Fatalf("tally notes = %q", notes)
+	}
+	if _, refused := g.Refusal(8, ExactCallKey("finish", "")); refused {
+		t.Fatal("tally must never open a refusal window")
 	}
 }

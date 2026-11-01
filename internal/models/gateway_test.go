@@ -77,6 +77,9 @@ func TestGatewayRetriesTransientThenSucceeds(t *testing.T) {
 }
 
 func TestGatewayFailsOverToFallback(t *testing.T) {
+	// Failover is independent of the retry schedule; the legacy attempt
+	// budget keeps this test fast. The v2 budget is covered in retry_v2_test.go.
+	t.Setenv("EXCALIBUR_PROVIDER_RETRY_V2", "0")
 	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindTransient}
 	f := &scriptedProvider{name: "f",
 		resp: providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, Content: "fb"}}}
@@ -96,6 +99,9 @@ func TestGatewayFailureReportsAttempts(t *testing.T) {
 	// A transient that never recovers still reports how many tries
 	// happened, so recorders and metrics account retries (Appendix F)
 	// instead of zero on failure (defect w8-bench-fixes/2).
+	// Pinned to the legacy attempt budget: v2 retries network failures six
+	// times (see TestTransportRetryBudget in retry_v2_test.go).
+	t.Setenv("EXCALIBUR_PROVIDER_RETRY_V2", "0")
 	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindTransient}
 	g := NewGateway(testConfig(p, nil))
 	g.Register(p)
@@ -143,6 +149,9 @@ func TestGatewayNoBlindRetryOnAuth(t *testing.T) {
 }
 
 func TestGatewayBreakerOpensAfterFiveConsecutive(t *testing.T) {
+	// The breaker counts failed calls, not tries; the legacy budget keeps
+	// five failing calls fast. The v2 budget is covered in retry_v2_test.go.
+	t.Setenv("EXCALIBUR_PROVIDER_RETRY_V2", "0")
 	p := &scriptedProvider{name: "p", fails: 99, kind: providers.KindTransient}
 	g := NewGateway(testConfig(p, nil))
 	g.Register(p)

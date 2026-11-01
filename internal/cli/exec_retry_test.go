@@ -223,7 +223,8 @@ func TestExecQuotaExhaustionIsInfrastructure(t *testing.T) {
 	if out.State != types.RunWaiting || out.Reason != "provider_quota_exhausted" {
 		t.Fatalf("outcome: %+v", out)
 	}
-	if calls.Load() != 2 {
+	// One failed call plus one confirmation probe for each credential.
+	if calls.Load() != 4 {
 		t.Fatalf("calls: %d", calls.Load())
 	}
 	raw, err := os.ReadFile(filepath.Join(logs, "excalibur", "final.json"))

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"regexp"
 	"strings"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
@@ -46,8 +48,15 @@ type QualityConfig struct {
 	// RepeatBlock rejects an exact repeat of the previous tool call
 	// once per run and signature, with guidance to change approach.
 	// Retryable outcomes (transient, timeout, canceled) are never
-	// blocked: an immediate retry may be the correct repair.
+	// blocked: an immediate retry may be the correct repair. Loop
+	// guard v2 (LoopGuardV2) replaces this blocker when both are on.
 	RepeatBlock bool
+	// LoopGuardV2 counts identical calls (tool, normalized arguments,
+	// result fingerprint) with no workspace change in between: a note
+	// at the third occurrence, a five-turn refusal of the exact call
+	// at the sixth. It never ends the run. It also takes over the
+	// identical-repeat detection of the loop detector.
+	LoopGuardV2 bool
 	// FinishGuard nudges back runs that try to finish with no
 	// verified work while no gate is wired.
 	FinishGuard bool
@@ -67,6 +76,7 @@ func DefaultQualityConfig() QualityConfig {
 		LoopNudges:    true,
 		StuckRecovery: true,
 		RepeatBlock:   true,
+		LoopGuardV2:   true,
 		FinishGuard:   true,
 		MaxGuardTrips: 2,
 		MaxNotes:      24,
@@ -98,8 +108,16 @@ func (q QualityConfig) WithEnv() QualityConfig {
 	if v, ok := envSwitch("EXCALIBUR_Q_GUARD"); ok {
 		q.FinishGuard = v
 	}
+	if v, ok := envSwitch(LoopGuardV2Switch); ok {
+		q.LoopGuardV2 = v
+	}
 	return q
 }
+
+// LoopGuardV2Switch gates the exact-call guard (loop guard v2). Default
+// ON; EXCALIBUR_LOOP_GUARD_V2=0 restores the legacy single-call repeat
+// blocker and the identical-repeat rule of the loop detector.
+const LoopGuardV2Switch = "EXCALIBUR_LOOP_GUARD_V2"
 
 // envSwitch reads one boolean environment variable.
 func envSwitch(name string) (bool, bool) {
@@ -361,4 +379,140 @@ func argsPath(args string) string {
 		return ""
 	}
 	return path
+}
+
+// guardKeys is one executed call reduced to the exact-call guard's
+// keys: the count key (occurrences with the same result), the call key
+// (the exact call, used for refusals) and whether the call changed
+// the workspace.
+type guardKeys struct {
+	count  string
+	call   string
+	writes bool
+}
+
+// unwrapCallTool returns the tool a call_tool wrapper dispatches to and
+// its arguments; any other call is returned unchanged.
+func unwrapCallTool(name string, args json.RawMessage) (string, json.RawMessage) {
+	if name != "call_tool" {
+		return name, args
+	}
+	var wrapped struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(args, &wrapped) == nil && wrapped.Name != "" {
+		return wrapped.Name, wrapped.Arguments
+	}
+	return name, args
+}
+
+// callKeyOf is the exact-call key of a call before it runs.
+func callKeyOf(tc providers.ToolCall) string {
+	name, raw := unwrapCallTool(tc.Name, tc.Arguments)
+	return tasks.ExactCallKey(name, tasks.NormalizeCallArgs(string(raw)))
+}
+
+// guardKeysOf derives the exact-call guard keys of one executed call.
+// Pure echo, printf, true and sleep commands compare by result alone,
+// so a repeat with the same output counts whatever its exact text.
+// Writes are file-changing tools that succeeded, shell commands that
+// redirect to a file or call a file-writing utility, a provisioner
+// install, and input sent to a live session.
+func guardKeysOf(tc providers.ToolCall, res tools.Result) guardKeys {
+	name, raw := unwrapCallTool(tc.Name, tc.Arguments)
+	args := tasks.NormalizeCallArgs(string(raw))
+	compare := args
+	ok := res.Status == tools.StatusOK
+	var fields struct {
+		Command string `json:"command"`
+		Action  string `json:"action"`
+	}
+	_ = json.Unmarshal(raw, &fields)
+	var writes bool
+	switch name {
+	case "exec":
+		if tasks.IsPureCommand(fields.Command) {
+			compare = "pure"
+		}
+		writes = ok && (tasks.MayWriteCommand(fields.Command) || strings.Contains(res.Output, "provision: installed "))
+	case "exec_io":
+		writes = ok && (fields.Action == "write" || fields.Action == "keys")
+	case "write_file", "edit_file", "apply_patch":
+		writes = ok
+	}
+	return guardKeys{
+		count:  tasks.ExactCountKey(name, compare, tasks.ResultFingerprint(res.Output)),
+		call:   tasks.ExactCallKey(name, args),
+		writes: writes,
+	}
+}
+
+// guardRefusal returns the refusal text when the exact call is inside
+// its refusal window at the current step. Callers hold no lock.
+func (r *Run) guardRefusal(tc providers.ToolCall) (string, bool) {
+	key := callKeyOf(tc)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.exact == nil {
+		return "", false
+	}
+	return r.exact.Refusal(r.Steps, key)
+}
+
+// observeExact counts one executed call and returns the note to inject
+// ("" for none). A session that is still running is progress, not a
+// repeat, so its result is not counted; a workspace change still resets
+// the counts. The guard never refuses here: a window opens only for the
+// next occurrence (see guardRefusal). Callers hold no lock.
+func (r *Run) observeExact(tc providers.ToolCall, res tools.Result) string {
+	k := guardKeysOf(tc, res)
+	live := tasks.LiveSessionOutput(res.Output)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.exact == nil {
+		r.exact = tasks.NewExactCallGuard()
+	}
+	note := ""
+	if !live {
+		note, _ = r.exact.Observe(r.Steps, k.count, k.call)
+	}
+	if k.writes {
+		r.exact.MarkStateChange()
+	}
+	return note
+}
+
+// finishAttempt matches the attempt counter of a structured finish refusal.
+var finishAttempt = regexp.MustCompile(`"attempt":[0-9]+,?`)
+
+// observeFinish counts one finish attempt with the finish protocol's
+// outcome and normalized arguments. The same bounded refusal window
+// applies as for ordinary tools. Callers hold no lock.
+func (r *Run) observeFinish(tc providers.ToolCall, refusal string, enabled bool) string {
+	if !enabled {
+		return ""
+	}
+	result := "accepted"
+	if refusal != "" {
+		// The attempt number differs on every refusal; the rest of the
+		// refusal (checklist, next action) is what repeats.
+		result = finishAttempt.ReplaceAllString(refusal, "")
+	}
+	countKey := tasks.ExactCountKey("finish", tasks.NormalizeCallArgs(string(tc.Arguments)), tasks.ResultFingerprint(result))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.exact == nil {
+		r.exact = tasks.NewExactCallGuard()
+	}
+	note, _ := r.exact.Observe(r.Steps, countKey, callKeyOf(tc))
+	return note
+}
+
+// lastRefusal returns the latest finish refusal reason. Callers hold no
+// lock.
+func (r *Run) lastRefusal() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.LastRefusal
 }

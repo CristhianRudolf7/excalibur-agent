@@ -1,6 +1,7 @@
 package ctxcompiler_test
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -301,5 +302,80 @@ func TestMethodSwitchOff(t *testing.T) {
 	}
 	if unknown.LayerHash(ctxcompiler.LayerCore) != gpt2.LayerHash(ctxcompiler.LayerCore) {
 		t.Fatal("empty model id must render the GPT default")
+	}
+}
+
+// legacyWorkingMethod is the working method exactly as it shipped
+// before EXCALIBUR_METHOD_V2. With the switch off the block must
+// reproduce it byte for byte (ablation golden).
+const legacyWorkingMethod = `working method:
+1. Understand: restate the goal and the done criteria in your own words. If the request names files, paths or commands, use exactly those.
+2. Explore first: list and read the relevant files before changing anything. Do not guess APIs, paths or behavior; check them with a tool.
+3. Plan briefly: keep a short ordered todo (3-7 steps) of what you will do and how you will verify each step. Update it as you learn.
+4. Implement in small steps: make one change at a time, then observe the result before the next change. Small steps are easier to verify and revert.
+5. Test what you built: run the relevant checks (build, tests, scripts, probes) and read their full output. A step is done only when an executable check confirms it.
+6. On any error: read the whole error message, find the exact failing line or parameter, fix that one thing, and retry once. Never retry an identical call blindly; if it fails twice, change strategy (different tool, different arguments, or read the relevant code first).
+7. On a tool-parameter error (unknown name, missing required field, bad enum): fix exactly the named parameter, copying allowed values from the tool definition or the error message. Never invent enum values or target names.
+8. Finish only when every requirement is verified: summarize what you verified and how. Never declare success without evidence, and never present partial work as done.
+Rules: be thorough and persistent; do not stop early. Prefer real tool calls over narration. Keep the context small: rely on the pinned working notes for paths, decisions and failures instead of re-reading large outputs.`
+
+func TestWorkingMethodOffIsLegacyGolden(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "off")
+	if got := ctxcompiler.WorkingMethod(); got != legacyWorkingMethod {
+		t.Fatalf("EXCALIBUR_METHOD_V2=off must reproduce the legacy block exactly\n got: %q\nwant: %q", got, legacyWorkingMethod)
+	}
+	if ctxcompiler.MethodBlock(ctxcompiler.PromptGPT, false) != legacyWorkingMethod+"\n" {
+		t.Fatal("adapt-off method block must equal the legacy block plus its newline")
+	}
+}
+
+// With the default (on) the eight original steps stay verbatim and
+// the evidence rules follow them: nine numbered lines (9 to 17), the
+// whole block under about 2,600 characters because it is the L0
+// prefix shared by every run.
+var evidenceLineRe = regexp.MustCompile(`(?m)^(9|1[0-7])\. `)
+
+func TestWorkingMethodV2AddsEvidenceRules(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "")
+	m := ctxcompiler.WorkingMethod()
+	if !strings.HasPrefix(m, legacyWorkingMethod[:strings.Index(legacyWorkingMethod, "Rules:")]) {
+		t.Fatal("default method must keep the original eight steps verbatim")
+	}
+	for _, want := range []string{
+		"9. Copy provided data first (cp -a)",
+		"An impossible claim needs the failing command and output",
+		"10. Test the success path too",
+		"11. Never hard-code example values",
+		"12. Measure the way the instruction measures",
+		"13. Pass values between steps through files or pipes",
+		"14. Run a script you wrote on the real input",
+		"15. Keep required services running",
+		"16. If a source is unreachable",
+		"17. Use only the task's own files and tools",
+	} {
+		if !strings.Contains(m, want) {
+			t.Errorf("evidence rules missing %q", want)
+		}
+	}
+	if n := len(evidenceLineRe.FindAllString(m, -1)); n != 9 {
+		t.Errorf("want 9 evidence lines (numbers 9 to 17), got %d", n)
+	}
+	if len(m) > 2600 {
+		t.Errorf("method block is %d chars; the L0 budget is about 2,600", len(m))
+	}
+	if !strings.HasSuffix(m, "instead of re-reading large outputs.") {
+		t.Error("the Rules line must still close the block")
+	}
+}
+
+// Evidence rules name no benchmark, product or task: they read the
+// same for any user of a terminal coding assistant.
+func TestWorkingMethodV2HasNoTaskSpecificTerms(t *testing.T) {
+	t.Setenv(ctxcompiler.EnvMethodV2, "")
+	m := strings.ToLower(ctxcompiler.WorkingMethod())
+	for _, banned := range []string{"benchmark", "terminal-bench", "harbor", "grader", "hidden test", "tbench"} {
+		if strings.Contains(m, banned) {
+			t.Errorf("working method must stay general, found %q", banned)
+		}
 	}
 }

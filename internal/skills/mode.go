@@ -97,6 +97,29 @@ func LibraryModeFromEnv(getenv func(string) string) LibraryMode {
 	return normalizeLibraryMode(v)
 }
 
+// EnvCardsStrict is the switch for the strict card rules (default
+// on): a card fires once per run per card name, never for probe
+// commands, and never when the same output shows a successful
+// install of the binary the error names. EXCALIBUR_CARDS_STRICT=0
+// restores the legacy firing rule for ablations.
+const EnvCardsStrict = "EXCALIBUR_CARDS_STRICT"
+
+// CardsStrictFromEnv reports whether the strict card rules apply:
+// 0|false|no|off disables them, anything else (including unset)
+// enables them.
+func CardsStrictFromEnv(getenv func(string) string) bool {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	v := strings.ToLower(strings.TrimSpace(getenv(EnvCardsStrict)))
+	switch v {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
 // ErrorCardsFromEnv reports whether error-triggered cards are
 // enabled: EXCALIBUR_SKILLS_ERROR_CARDS=0|false|no|off disables,
 // anything else (including unset) enables.

@@ -48,8 +48,30 @@ type FingerprintError struct {
 }
 
 func (e *FingerprintError) Error() string {
-	return fmt.Sprintf("tools: %s changed since read (expected fp %s, actual fp %s):\n%s",
-		e.Info.Path, e.Info.Expected, e.Info.Actual, e.Info.Diff)
+	if e.Info.Actual == "" {
+		return fmt.Sprintf("tools: %s no longer exists since it was read (recorded fp %s); re-create it with write_file or read the current path first", e.Info.Path, e.Info.Expected)
+	}
+	return fmt.Sprintf("tools: %s changed since read (expected fp %s, actual fp %s):\n%s"+
+		"the file changed outside this run after it was read; review the current lines above, then retry the same call with expected_fp %q (or re-read the file first)",
+		e.Info.Path, e.Info.Expected, e.Info.Actual, e.Info.Diff, e.Info.Actual)
+}
+
+// placeholderFingerprints are values models write in place of a real
+// fingerprint: wildcards, copied error words and dashes. They mean that
+// no fingerprint was supplied.
+var placeholderFingerprints = map[string]bool{
+	"*": true, "**": true, "unavailable": true, "none": true, "unknown": true, "-": true,
+}
+
+// CleanFingerprint returns the caller-supplied fingerprint, or "" when
+// the value is empty or a placeholder, so that the harness-recorded
+// fingerprint decides the check.
+func CleanFingerprint(raw string) Fingerprint {
+	s := strings.TrimSpace(raw)
+	if s == "" || placeholderFingerprints[strings.ToLower(s)] {
+		return ""
+	}
+	return Fingerprint(s)
 }
 
 // FingerprintStore tracks read fingerprints and consecutive mismatches
@@ -128,6 +150,35 @@ func (s *FingerprintStore) recordMismatch(path string, expected, actual Fingerpr
 		Diff: diff, Region: region,
 		Mismatches: n, ShouldScale: n >= MismatchScaleThreshold,
 	}
+}
+
+// Guard decides whether a write over an existing file may proceed
+// (Section 13.6, automatic form). The recorded fingerprint is what this
+// run last observed for path, from its own read or write; supplied is
+// the caller's expected_fp after CleanFingerprint. The write proceeds
+// when the file still matches the recorded state or the state the
+// caller named. Otherwise the file changed outside this run since it
+// was read, and the returned mismatch carries the current head and the
+// fingerprint a retry can name. Nil means no check applies: nothing was
+// recorded and nothing was supplied, or the check passed.
+func (s *FingerprintStore) Guard(path string, supplied Fingerprint) *MismatchInfo {
+	recorded, hasRecord := s.LastRead(path)
+	if !hasRecord && supplied == "" {
+		return nil
+	}
+	fp, data, err := FingerprintFile(path)
+	expected := supplied
+	if expected == "" {
+		expected = recorded
+	}
+	if err != nil {
+		return s.recordMismatch(path, expected, "", "", err.Error())
+	}
+	if (hasRecord && fp == recorded) || (supplied != "" && fp == supplied) {
+		s.ResetMismatches(path)
+		return nil
+	}
+	return s.recordMismatch(path, expected, fp, CompactDiff("", string(data), path), "")
 }
 
 // lastContent is a best-effort lookup of previously seen content; the

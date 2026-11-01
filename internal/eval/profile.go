@@ -90,6 +90,29 @@ func EvalSkillsCatalogHash() string {
 	return evalSkillsHashOnce()
 }
 
+// evalTrimmedTools are core tools removed from the eval table because
+// an autonomous single run cannot act with them: every call answers
+// with nothing to do, or only records state that no gate, record or
+// finish path reads back.
+//   - ack_directive: directives come from a parent orchestrator; a
+//     single run never receives one, so the call always reports none.
+//   - leave_continuation_note: notes sit in a run-scoped store that
+//     nothing reads back, since a single run has no restart.
+//   - subagent: spawn records a child that no runner executes in
+//     single-run scope; the other actions act on that record.
+//   - task_db: its in-memory store is read only by its own query op.
+//
+// The assistant (default) and delegate profiles share this core
+// table through cli.EffectiveTools and keep these tools; see
+// TrimmedFromEvalTools.
+var evalTrimmedTools = []string{"task_db", "leave_continuation_note", "ack_directive", "subagent"}
+
+// TrimmedFromEvalTools returns the core tools that the eval table
+// omits and the non-eval profiles keep. The returned slice is a copy.
+func TrimmedFromEvalTools() []string {
+	return append([]string(nil), evalTrimmedTools...)
+}
+
 // DefaultEvalProfile returns the frozen Section 23.2 table: internal
 // planning on, multiprocject off, children <= min(2, task CPUs),
 // core+deferred tools per the table, assistant tools off,
@@ -98,10 +121,10 @@ func DefaultEvalProfile() EvalProfileConfig {
 	profile := EvalProfileConfig{
 		Version: EvalProfileVersion,
 		EnabledTools: []string{
-			"read_file", "write_file", "edit_file", "exec", "task_db",
+			"read_file", "write_file", "edit_file", "exec",
 			"history_search", "get_tool_output", "pin_observation",
-			"leave_continuation_note", "ack_directive", "status", "clock",
-			"search_skills", "load_skill", "search_tools", "call_tool", "subagent",
+			"status", "clock",
+			"search_skills", "load_skill", "search_tools", "call_tool",
 		},
 		DeferredTools: []string{
 			"lsp", "code_graph", "file_history", "revert_edit",

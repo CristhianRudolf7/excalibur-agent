@@ -42,6 +42,7 @@
 package tasks
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -123,6 +124,11 @@ func IsExercisingCall(h HistoryTool) bool {
 	}
 	if VerifierVerdictEnabled() && ExistenceOnlyEvidence(h) {
 		return false
+	}
+	if ExerciseStrictEnabled() {
+		if command, ok := historyCommand(h.Args); ok {
+			return ExercisesDeliverable(command)
+		}
 	}
 	args := strings.ToLower(h.Args)
 	for _, m := range exerciseMarkers {
@@ -607,3 +613,241 @@ var generalizableInstructionRe = regexp.MustCompile(`(?i)\b(functions?|programs?
 // LastArtifactChange identifies the latest tool-recorded mutation for advisory
 // verification reuse detection. It shares the completion gate's mutation rules.
 func LastArtifactChange(history []HistoryTool) int { return lastChangeIndex(history) }
+
+// SplitShellSegments splits one shell command into simple commands
+// on &&, ||, ; | and newlines, ignoring separators inside single or
+// double quotes. A lone & (background) also separates.
+func SplitShellSegments(cmd string) []string {
+	var out []string
+	var cur strings.Builder
+	var quote byte
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		if quote != 0 {
+			cur.WriteByte(c)
+			if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '\'', '"':
+			quote = c
+			cur.WriteByte(c)
+		case '\\':
+			cur.WriteByte(c)
+			if i+1 < len(cmd) {
+				i++
+				cur.WriteByte(cmd[i])
+			}
+		case ';', '\n', '|', '&':
+			out = append(out, cur.String())
+			cur.Reset()
+			if (c == '&' || c == '|') && i+1 < len(cmd) && cmd[i+1] == c {
+				i++
+			}
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	return append(out, cur.String())
+}
+
+// ShellWords splits one simple command into words, dropping the
+// quotes around them. It does not expand anything.
+func ShellWords(seg string) []string {
+	var words []string
+	var cur strings.Builder
+	in := false
+	var quote byte
+	for i := 0; i < len(seg); i++ {
+		c := seg[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else {
+				cur.WriteByte(c)
+			}
+		case c == '\'' || c == '"':
+			quote = c
+			in = true
+		case c == ' ' || c == '\t':
+			if in {
+				words = append(words, cur.String())
+				cur.Reset()
+				in = false
+			}
+		default:
+			cur.WriteByte(c)
+			in = true
+		}
+	}
+	if in {
+		words = append(words, cur.String())
+	}
+	return words
+}
+
+// ExerciseStrictEnabled controls the command-level exercise rule
+// (default ON): a segment that only prints help or version, runs a
+// syntax-only check, imports modules without running them, or
+// observes files does not count as exercising a deliverable.
+// EXCALIBUR_EXERCISE_STRICT=off restores the plain marker rule.
+func ExerciseStrictEnabled() bool { return envBool("EXCALIBUR_EXERCISE_STRICT", true) }
+
+// ExercisesDeliverable reports whether a shell command runs,
+// queries or parses something on real input, which is the evidence
+// a deliverable needs after its last change. A command counts when
+// at least one of its simple commands is an exercise: an interpreter,
+// a test runner, a service query or a parser. These never
+// count: help and version output (--help, -h, --version), syntax-only
+// checks (bash -n, gcc -fsyntax-only, py_compile, node --check, ruby
+// -c, perl -c, php -l), `python -c 'import x'` with only imports, and
+// display or observation commands (cat, ls, stat, test, wc, echo).
+// Exported for the finish gate, which applies the same rule.
+func ExercisesDeliverable(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	if prefix := shellWrapper.FindString(command); prefix != "" {
+		body := strings.TrimSpace(strings.TrimPrefix(command, prefix))
+		if len(body) >= 2 && (body[0] == '\'' || body[0] == '"') && body[len(body)-1] == body[0] {
+			command = body[1 : len(body)-1]
+		}
+	}
+	for _, seg := range SplitShellSegments(command) {
+		seg = strings.TrimSpace(seg)
+		if seg == "" || nonExercisingSegment(seg) {
+			continue
+		}
+		lower := strings.ToLower(seg)
+		for _, m := range exerciseMarkers {
+			if strings.Contains(lower, m) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var envAssignWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+var pythonProgram = regexp.MustCompile(`^python[0-9.]*$`)
+
+// nonExercisingSegment recognises one simple command that does not
+// exercise anything: display and observation tools, help or version
+// output, syntax-only checks and import-only interpreter calls.
+func nonExercisingSegment(seg string) bool {
+	toks := ShellWords(seg)
+	for len(toks) > 0 && envAssignWord.MatchString(toks[0]) {
+		toks = toks[1:]
+	}
+	if len(toks) == 0 {
+		return true
+	}
+	program := toks[0]
+	prog := program
+	if i := strings.LastIndex(prog, "/"); i >= 0 {
+		prog = prog[i+1:]
+	}
+	args := toks[1:]
+	switch prog {
+	case "cat", "head", "tail", "ls", "stat", "test", "[", "wc", "echo", "printf", "cd", "pwd", "true", "false", ":", "du", "df":
+		return true
+	case "command":
+		return len(args) > 0 && (args[0] == "-v" || args[0] == "-V")
+	}
+	if hasArgWord(args, "--help") || hasArgWord(args, "--version") {
+		return true
+	}
+	// -h and -V mean help or version for interpreters and local
+	// programs; for other tools they mean something else (grep -h,
+	// tar -h), so they do not count there.
+	localOrInterpreter := strings.HasPrefix(program, "./") || pythonProgram.MatchString(prog) ||
+		prog == "node" || prog == "ruby" || prog == "perl" || prog == "php" || prog == "bash" || prog == "sh"
+	if localOrInterpreter && (hasArgWord(args, "-h") || hasArgWord(args, "-V")) {
+		return true
+	}
+	switch {
+	case prog == "gcc" || prog == "g++" || prog == "cc" || prog == "c++" || prog == "clang" || prog == "clang++":
+		return true // Compilation alone never runs the deliverable on input.
+	case prog == "javac" || prog == "rustc":
+		return true
+	case prog == "go" || prog == "cargo" || prog == "dotnet":
+		return len(args) > 0 && (args[0] == "build" || args[0] == "check")
+	case prog == "sh" || prog == "bash" || prog == "dash" || prog == "zsh" || prog == "ksh":
+		return hasArgWord(args, "-n")
+	case prog == "node" || prog == "nodejs":
+		return hasArgWord(args, "--check") || hasArgWord(args, "-c")
+	case prog == "perl" || prog == "ruby":
+		return hasArgWord(args, "-c")
+	case prog == "php":
+		return hasArgWord(args, "-l")
+	case pythonProgram.MatchString(prog):
+		return pythonModuleCheck(args) || pythonImportsOnly(args)
+	}
+	return false
+}
+
+func hasArgWord(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
+
+// pythonModuleCheck reports `python -m py_compile` and `-m compileall`.
+func pythonModuleCheck(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-m" {
+			return args[i+1] == "py_compile" || args[i+1] == "compileall"
+		}
+	}
+	return false
+}
+
+// pythonImportsOnly reports `python -c` code whose statements are all
+// imports: loading a module without running the deliverable.
+func pythonImportsOnly(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] != "-c" {
+			continue
+		}
+		statements := 0
+		for _, stmt := range regexp.MustCompile(`[;\n]`).Split(args[i+1], -1) {
+			stmt = strings.TrimSpace(stmt)
+			if stmt == "" {
+				continue
+			}
+			if !strings.HasPrefix(stmt, "import ") && !strings.HasPrefix(stmt, "from ") {
+				return false
+			}
+			statements++
+		}
+		return statements > 0
+	}
+	return false
+}
+
+// historyCommand extracts the shell command of an exec-style history
+// argument: {"command": "..."} or {"arguments": {"command": "..."}}.
+// ok is false when the arguments carry no command field.
+func historyCommand(args string) (string, bool) {
+	var a struct {
+		Command   string          `json:"command"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal([]byte(args), &a) != nil {
+		return "", false
+	}
+	if a.Command != "" {
+		return a.Command, true
+	}
+	if len(a.Arguments) > 0 && json.Unmarshal(a.Arguments, &a) == nil && a.Command != "" {
+		return a.Command, true
+	}
+	return "", false
+}

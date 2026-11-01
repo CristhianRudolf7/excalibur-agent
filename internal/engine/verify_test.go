@@ -85,7 +85,7 @@ func TestFinishTurnPassesWhenVerified(t *testing.T) {
 	history := writeHistory("/app/filter.py")
 	history = append(history,
 		ctxcompiler.ActivityEvent{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 -c 'import filter'","workdir":"/app"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/filter.py hello","workdir":"/app"}`)}},
 		ctxcompiler.ActivityEvent{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/filter.py ok"}},
 	)

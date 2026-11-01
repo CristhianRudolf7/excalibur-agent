@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,8 +38,11 @@ func TestEffectiveBudgetsEvalTimeOnly(t *testing.T) {
 	if !b.TimeBudgetOnly {
 		t.Fatal("eval time-only must be ON by default")
 	}
-	if b.WallSecs != engine.DefaultEvalWallSecs || b.WallSource != "arm_default" {
-		t.Fatalf("fallback wall = %d/%s, want %d/arm_default", b.WallSecs, b.WallSource, engine.DefaultEvalWallSecs)
+	if b.WallSecs != 900 || b.WallSource != "default" || engine.DefaultEvalWallSecs != 900 {
+		t.Fatalf("fallback wall = %d/%s, want 900/default", b.WallSecs, b.WallSource)
+	}
+	if !b.SpendCaps || b.InputTokenCap != engine.DefaultInputTokenCap {
+		t.Fatalf("spend caps = %v/%d, want on/8000000", b.SpendCaps, b.InputTokenCap)
 	}
 	if b.MaxSteps != engine.SafetyMaxSteps {
 		t.Fatalf("safety steps = %d, want %d", b.MaxSteps, engine.SafetyMaxSteps)
@@ -51,11 +55,12 @@ func TestEffectiveBudgetsEvalTimeOnly(t *testing.T) {
 	if b2.WallSecs != 600 || b2.WallSource != "explicit" {
 		t.Fatalf("explicit wall = %d/%s", b2.WallSecs, b2.WallSource)
 	}
-	// Deadline-aware Harbor override keeps the full external timeout.
+	// The Harbor operator variable no longer sets the budget: the adapter
+	// passes its timeout as --timeout, and the default applies otherwise.
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "1000")
 	b3 := EffectiveBudgetsFor(ExecOptions{}, ProfileEval)
-	if b3.WallSecs != 1000 || b3.WallSource != "HARBOR_AGENT_TIMEOUT_SEC" {
-		t.Fatalf("harbor wall = %d/%s, want 1000/HARBOR_AGENT_TIMEOUT_SEC", b3.WallSecs, b3.WallSource)
+	if b3.WallSecs != 900 || b3.WallSource != "default" {
+		t.Fatalf("harbor variable must not set the wall: %d/%s", b3.WallSecs, b3.WallSource)
 	}
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	// Cost env override.
@@ -90,11 +95,11 @@ func TestEffectiveBudgetsLegacyWhenSwitchOff(t *testing.T) {
 	if b.CostCapUSD != 0 {
 		t.Fatalf("legacy cost must be uncapped, got %v", b.CostCapUSD)
 	}
-	// Non-eval defaults off.
+	// All embedded exec profiles default to wall-clock-only budgets.
 	t.Setenv(engine.TimeBudgetOnlySwitch, "")
 	b2 := EffectiveBudgetsFor(ExecOptions{}, ProfileDefault)
-	if b2.TimeBudgetOnly {
-		t.Fatal("non-eval default must be OFF")
+	if !b2.TimeBudgetOnly {
+		t.Fatal("default exec must use the wall clock")
 	}
 }
 
@@ -102,8 +107,7 @@ func TestBudgetsRecordedInProfileAndFiles(t *testing.T) {
 	t.Setenv(engine.TimeBudgetSwitch, "1")
 	t.Setenv(engine.TimeBudgetOnlySwitch, "on")
 	t.Setenv(engine.CostCapSwitch, "20")
-	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "1000")
-	t.Setenv("EXCALIBUR_TIMEOUT_SEC", "")
+	t.Setenv("EXCALIBUR_EVAL_WALL_SECS", "1000")
 	fake := providerfake.New("budgets-record")
 	fake.Responses = doneImmediately()
 	logs := t.TempDir()
@@ -289,5 +293,65 @@ func TestStrictBlockedRefusedThenCompleted(t *testing.T) {
 	}
 	if out2.State != types.RunBlocked {
 		t.Fatalf("switch off must accept the legacy blocked, got %q", out2.State)
+	}
+}
+
+// Exercise the complete embedded loop, tool runner, context builder and
+// records: progress must continue beyond both historical cutoff candidates.
+func TestExecExceedsHistoricalCallLimits(t *testing.T) {
+	t.Setenv(engine.TimeBudgetSwitch, "1")
+	t.Setenv(engine.TimeBudgetOnlySwitch, "")
+	for _, profile := range []ProfileName{ProfileDefault, ProfileDelegate, ProfileEval} {
+		t.Run(string(profile), func(t *testing.T) {
+			dir := t.TempDir()
+			fake := providerfake.New("long-progress")
+			for i := 0; i < 52; i++ {
+				target := filepath.Join(dir, fmt.Sprintf("part-%03d.txt", i))
+				args, _ := json.Marshal(map[string]string{"path": target, "content": fmt.Sprint(i)})
+				fake.Responses = append(fake.Responses, providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: fmt.Sprint(i), Name: "write_file", Arguments: args}}}})
+				readArgs, _ := json.Marshal(map[string]string{"path": target})
+				fake.Responses = append(fake.Responses, providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: fmt.Sprintf("read-%d", i), Name: "read_file", Arguments: readArgs}}}})
+			}
+			fake.Responses = append(fake.Responses, execCallResponse("verify", "test $(find . -name 'part-*.txt' | wc -l) -eq 52"))
+			fake.Responses = append(fake.Responses, finishScript("created all parts", "exec test confirmed 52 files")...)
+			out, err := RunExec(context.Background(), ExecOptions{Request: "Create numbered text files and verify their count", ProjectDir: dir, LogsDir: t.TempDir(), Profile: profile, Provider: fake, TimeoutSecs: 600})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out.State != types.RunCompleted {
+				t.Fatalf("state = %s summary = %s calls = %d", out.State, out.Summary, len(fake.ChatRequests))
+			}
+			if len(fake.ChatRequests) != 107 {
+				t.Fatalf("model calls = %d", len(fake.ChatRequests))
+			}
+			for i, req := range fake.ChatRequests {
+				if req.ToolChoice == "none" {
+					t.Fatalf("early closing at step %d", i+1)
+				}
+			}
+			raw, err := os.ReadFile(filepath.Join(out.Dir, "budgets.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var budgets EffectiveBudgets
+			if err := json.Unmarshal(raw, &budgets); err != nil {
+				t.Fatal(err)
+			}
+			if !budgets.TimeBudgetOnly || budgets.WallSecs != 600 {
+				t.Fatalf("budgets = %+v", budgets)
+			}
+			// Per-trial tool records are written for the eval profile only;
+			// other exec profiles keep the single custom trajectory.
+			if profile != ProfileEval {
+				return
+			}
+			raw, err = os.ReadFile(filepath.Join(out.Dir, "excalibur", "tool_calls.jsonl"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(strings.Split(strings.TrimSpace(string(raw)), "\n")); n < 105 {
+				t.Fatalf("recorded calls = %d", n)
+			}
+		})
 	}
 }

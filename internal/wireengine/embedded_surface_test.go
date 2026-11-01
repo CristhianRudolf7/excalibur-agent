@@ -152,7 +152,7 @@ func TestEmbeddedSurfaceDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Status == tools.StatusOK || !strings.Contains(res.Output, "not wired") {
-		t.Fatalf("disabled surface must report the owner: %+v", res)
+	if !strings.Contains(res.Output, "no backend") || !strings.Contains(res.Output, "nothing was done") {
+		t.Fatalf("disabled surface must say nothing was done: %+v", res)
 	}
 }

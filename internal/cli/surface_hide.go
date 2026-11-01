@@ -54,12 +54,12 @@ func pendingDirectives(emb *wireengine.Embedded) bool {
 
 // pruneFromPrefix reports whether a core tool stays out of the model
 // prefix for this step: ack_directive while idle, clock under the
-// eval profile.
+// autonomous eval/delegate profiles, whose tool results carry time footers.
 func pruneFromPrefix(profile ProfileName, emb *wireengine.Embedded, name string) bool {
 	if name == "ack_directive" && hideAckIdle() && !pendingDirectives(emb) {
 		return true
 	}
-	if name == "clock" && profile == ProfileEval && hideClockEval() {
+	if name == "clock" && (profile == ProfileEval || profile == ProfileDelegate) && hideClockEval() {
 		return true
 	}
 	return false

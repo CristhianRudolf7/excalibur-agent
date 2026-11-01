@@ -19,14 +19,18 @@ import (
 // usage, cost, timings and resource peaks. Reward follows Harbor: a
 // trial passes when reward > 0; errored trials count as 0.
 type TrialOutcome struct {
-	TrialID      string    `json:"trial_id"`
-	TaskID       string    `json:"task_id"`
-	TaskDigest   string    `json:"task_digest"`
-	Benchmark    string    `json:"benchmark"`
-	Reward       float64   `json:"reward"`
-	Failed       bool      `json:"failed"`
-	FailCategory string    `json:"fail_category,omitempty"`
-	At           time.Time `json:"at"`
+	TrialID      string  `json:"trial_id"`
+	TaskID       string  `json:"task_id"`
+	TaskDigest   string  `json:"task_digest"`
+	Benchmark    string  `json:"benchmark"`
+	Reward       float64 `json:"reward"`
+	Failed       bool    `json:"failed"`
+	FailCategory string  `json:"fail_category,omitempty"`
+	// InfraReason names why the trial measured the infrastructure rather
+	// than the agent (see TrialInfraReason). Infra trials are excluded from
+	// the headline pass rate and reported separately.
+	InfraReason string    `json:"infra_reason,omitempty"`
+	At          time.Time `json:"at"`
 
 	InputTokens  int64   `json:"input_tokens"`
 	CacheRead    int64   `json:"cache_read"`
@@ -55,6 +59,9 @@ type TrialOutcome struct {
 // Passed reports the Harbor rule: reward > 0 and not failed.
 func (t TrialOutcome) Passed() bool { return !t.Failed && t.Reward > 0 }
 
+// Infra reports whether the trial is an infrastructure failure.
+func (t TrialOutcome) Infra() bool { return t.InfraReason != "" }
+
 // Failure categories of Appendix F.
 const (
 	FailVerifier      = "verifier"
@@ -66,6 +73,18 @@ const (
 	FailBlocked       = "blocked"
 	FailUnknown       = "unknown"
 	FailProviderQuota = "provider_quota_exhausted"
+)
+
+// Infrastructure reasons (TrialInfraReason). An infra trial did not measure
+// the agent: the environment, the verifier, the provider or the harness
+// lifecycle failed first.
+const (
+	InfraAgentInstall      = "agent_install_failed"
+	InfraEnvironmentStart  = "environment_start_failed"
+	InfraProviderBilling   = "provider_billing"
+	InfraProviderError     = "provider_error"
+	InfraVerifierNoResults = "verifier_no_results"
+	InfraCancelled         = "cancelled_before_finish"
 )
 
 // Category normalizes a raw category string.
@@ -82,24 +101,32 @@ func Category(s string) string {
 // statistics: success with CI 95%, pass@k and pass^k, tokens and cost
 // per success, and failure categories.
 type Report struct {
-	GeneratedAt      time.Time              `json:"generated_at"`
-	Trials           int                    `json:"trials"`
-	Tasks            int                    `json:"tasks"`
-	Success          MeanCI                 `json:"success"`
+	GeneratedAt time.Time `json:"generated_at"`
+	// Trials counts every trial, infra included. ScoredTrials excludes infra.
+	Trials       int `json:"trials"`
+	ScoredTrials int `json:"scored_trials"`
+	InfraTrials  int `json:"infra_trials"`
+	Tasks        int `json:"tasks"`
+	// Success is the pass rate without infra trials (the headline rate).
+	Success MeanCI `json:"success"`
+	// SuccessWithInfra is the pass rate with every recorded reward included.
+	SuccessWithInfra MeanCI                 `json:"success_with_infra"`
 	PassAtK          float64                `json:"pass_at_k"`
 	PassPowK         float64                `json:"pass_pow_k"`
 	K                int                    `json:"k"`
 	TokensPerSuccess float64                `json:"tokens_per_success"`
 	CostPerSuccess   float64                `json:"cost_per_success"`
 	Failures         map[string]int         `json:"failures"`
+	InfraReasons     map[string]int         `json:"infra_reasons,omitempty"`
 	ByTask           map[string]TaskSummary `json:"by_task"`
 }
 
-// TaskSummary groups one task's trials.
+// TaskSummary groups one task's scored trials; Infra counts the excluded ones.
 type TaskSummary struct {
 	Trials  int     `json:"trials"`
 	Success int     `json:"success"`
 	Rate    float64 `json:"rate"`
+	Infra   int     `json:"infra,omitempty"`
 }
 
 // TrialFromSnapshot builds the canonical trial.json record from one
@@ -183,7 +210,9 @@ func LoadTrials(dir string) ([]TrialOutcome, error) {
 }
 
 // Aggregate builds the report over trials. k is the pass@k horizon
-// (default 5 when <= 0).
+// (default 5 when <= 0). Infra trials are excluded from the headline rates,
+// pass@k, pass^k and the per-task rates, and are counted in InfraReasons; the
+// with-infra success rate includes every recorded reward so both rates are reported.
 func Aggregate(trials []TrialOutcome, k int) (Report, error) {
 	if len(trials) == 0 {
 		return Report{}, fmt.Errorf("eval: no trials")
@@ -191,63 +220,118 @@ func Aggregate(trials []TrialOutcome, k int) (Report, error) {
 	if k <= 0 {
 		k = 5
 	}
-	byTask := map[string][]TrialOutcome{}
-	for _, t := range trials {
-		byTask[t.TaskID] = append(byTask[t.TaskID], t)
+	rep := Report{
+		GeneratedAt:  time.Now().UTC(),
+		Trials:       len(trials),
+		K:            k,
+		Failures:     map[string]int{},
+		InfraReasons: map[string]int{},
+		ByTask:       map[string]TaskSummary{},
 	}
-	rates := make([]float64, 0, len(byTask))
-	bySummary := map[string]TaskSummary{}
-	var passSum, powSum float64
+	scored := map[string][]TrialOutcome{}
+	all := map[string][]TrialOutcome{}
 	var totalIn, totalOut int64
 	var totalCost float64
 	var successes int
-	failures := map[string]int{}
-	for task, ts := range byTask {
-		var c int
-		for _, t := range ts {
-			if t.Passed() {
-				c++
-				successes++
-				totalIn += t.InputTokens + t.CacheRead + t.CacheWrite
-				totalOut += t.OutputTokens
-				totalCost += t.CostUSD
-			} else {
-				failures[Category(t.FailCategory)]++
-			}
+	for _, t := range trials {
+		all[t.TaskID] = append(all[t.TaskID], t)
+		if t.Infra() {
+			rep.InfraTrials++
+			rep.InfraReasons[t.InfraReason]++
+			continue
 		}
-		bySummary[task] = TaskSummary{Trials: len(ts), Success: c, Rate: float64(c) / float64(len(ts))}
-		rates = append(rates, float64(c)/float64(len(ts)))
-		pk, err := PassAtK(len(ts), c, k)
-		if err != nil {
-			return Report{}, err
+		scored[t.TaskID] = append(scored[t.TaskID], t)
+		if t.Passed() {
+			successes++
+			totalIn += t.InputTokens + t.CacheRead + t.CacheWrite
+			totalOut += t.OutputTokens
+			totalCost += t.CostUSD
+		} else {
+			rep.Failures[Category(t.FailCategory)]++
 		}
-		pw, err := PassPowK(len(ts), c, k)
-		if err != nil {
-			return Report{}, err
-		}
-		passSum += pk
-		powSum += pw
 	}
-	ci, err := BootstrapCI(rates, 10000, 7)
+	rep.ScoredTrials = len(trials) - rep.InfraTrials
+	rep.Tasks = len(all)
+	if len(rep.InfraReasons) == 0 {
+		rep.InfraReasons = nil
+	}
+	rates, passK, powK, err := taskRates(scored, k)
 	if err != nil {
 		return Report{}, err
 	}
-	rep := Report{
-		GeneratedAt: time.Now().UTC(),
-		Trials:      len(trials),
-		Tasks:       len(byTask),
-		Success:     ci,
-		PassAtK:     passSum / float64(len(byTask)),
-		PassPowK:    powSum / float64(len(byTask)),
-		K:           k,
-		Failures:    failures,
-		ByTask:      bySummary,
+	if len(rates) > 0 {
+		ci, err := BootstrapCI(rates, 10000, 7)
+		if err != nil {
+			return Report{}, err
+		}
+		rep.Success = ci
+		rep.PassAtK = passK / float64(len(rates))
+		rep.PassPowK = powK / float64(len(rates))
+	}
+	withInfra, _, _, err := taskRates(all, k)
+	if err != nil {
+		return Report{}, err
+	}
+	if len(withInfra) > 0 {
+		ci, err := BootstrapCI(withInfra, 10000, 7)
+		if err != nil {
+			return Report{}, err
+		}
+		rep.SuccessWithInfra = ci
+	}
+	for task, ts := range all {
+		sc := scored[task]
+		var c, infra int
+		for _, t := range ts {
+			if t.Infra() {
+				infra++
+			}
+		}
+		for _, t := range sc {
+			if t.Passed() {
+				c++
+			}
+		}
+		summary := TaskSummary{Trials: len(sc), Success: c, Infra: infra}
+		if len(sc) > 0 {
+			summary.Rate = float64(c) / float64(len(sc))
+		}
+		rep.ByTask[task] = summary
 	}
 	if successes > 0 {
 		rep.TokensPerSuccess = float64(totalIn+totalOut) / float64(successes)
 		rep.CostPerSuccess = totalCost / float64(successes)
 	}
 	return rep, nil
+}
+
+// taskRates computes per-task success rates and the pass@k and pass^k sums
+// over the tasks that have at least one trial in groups. The caller divides
+// the sums by the number of rates.
+func taskRates(groups map[string][]TrialOutcome, k int) (rates []float64, passSum, powSum float64, err error) {
+	for _, ts := range groups {
+		if len(ts) == 0 {
+			continue
+		}
+		var c int
+		for _, t := range ts {
+			if t.Passed() {
+				c++
+			}
+		}
+		rates = append(rates, float64(c)/float64(len(ts)))
+		pk, err := PassAtK(len(ts), c, k)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		pw, err := PassPowK(len(ts), c, k)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		passSum += pk
+		powSum += pw
+	}
+	return rates, passSum, powSum, nil
 }
 
 // WriteTrial writes one trial.json into a trial directory.

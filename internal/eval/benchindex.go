@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -58,11 +59,165 @@ func IndexTrial(trialDir string) (BenchTrialIndex, error) {
 	resources := peakResourceSample(exDir)
 
 	row.FailCategory = classifyIndexFailure(trialDir, doc, exDir, row.Reward)
+	row.InfraReason = TrialInfraReason(trialDir, row.Reward)
 	fillIndexUsage(&row, doc, snap, hasSnap, modelAgg, toolAgg)
 	fillIndexTimes(&row, doc, snap, hasSnap, modelAgg, toolAgg, resources)
 	fillIndexEfficiency(&row, snap, hasSnap, exDir, modelAgg, toolAgg)
 	collectTrialArtifacts(trialDir, exDir)
 	return row, nil
+}
+
+// TrialInfraReason classifies infrastructure independently of the verifier
+// reward, returning "" for a trial that measured the agent. The rules, in
+// precedence order:
+//
+//   - the agent install failed (Harbor exception: install sha mismatch);
+//   - the environment did not start (container compose failure);
+//   - the trial made no successful model call and a provider error was
+//     recorded (rate limits, billing or quota responses, TLS, 5xx): billing
+//     and quota responses get the provider_billing reason;
+//   - the trial was cancelled before the harness recorded a terminal state;
+//   - the verifier produced no test results (no pytest ctrf report, zero
+//     tests, a verifier timeout, or no reward file).
+//
+// Harbor exception information is read from result.json; the rest comes from
+// the agent's excalibur records and the verifier directory.
+func TrialInfraReason(trialDir string, _ float64) string {
+	if os.Getenv("EXCALIBUR_EVAL_INFRA_CLASSIFICATION") == "0" {
+		return ""
+	}
+	doc, _ := readTrialResult(trialDir)
+	exDir := filepath.Join(trialDir, "agent", "excalibur")
+	exType := ""
+	msg := ""
+	if doc.ExceptionInfo != nil {
+		info := doc.ExceptionInfo
+		exType = info.ExType
+		if exType == "" {
+			exType = info.Type
+		}
+		msg = info.ExMsg
+		if msg == "" {
+			msg = info.Message
+		}
+	}
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "agent install failed") || strings.Contains(lower, "sha256 mismatch"):
+		return InfraAgentInstall
+	case strings.Contains(lower, "docker compose command failed") || strings.Contains(exType, "EnvironmentStart"):
+		return InfraEnvironmentStart
+	}
+	if reason := providerInfraReason(exDir); reason != "" {
+		return reason
+	}
+	// A cancelled trial never reached the verifier, so the cancellation is the
+	// cause and wins over the missing verifier output.
+	if (exType == "CancelledError" || exType == "") && !hasTerminalRecord(exDir) {
+		return InfraCancelled
+	}
+	if verifierProducedNoResults(trialDir, exType) {
+		return InfraVerifierNoResults
+	}
+	return ""
+}
+
+// providerInfraReason returns the infra reason when the trial made no
+// successful model call and recorded a provider failure. Content refusals
+// and truncation are model behaviour, not provider availability.
+func providerInfraReason(exDir string) string {
+	successes := 0
+	providerErrors := 0
+	billing := false
+	for _, line := range readJSONLLines(filepath.Join(exDir, "model_calls.jsonl")) {
+		var m ModelCall
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			continue
+		}
+		switch m.ProviderError {
+		case "":
+			successes++
+		case "unknown", "content_rejected", "truncated":
+		default:
+			providerErrors++
+			if m.ProviderError == "provider_quota_exhausted" || m.ProviderReason == "billing" || m.ProviderReason == "quota_exhausted" {
+				billing = true
+			}
+		}
+	}
+	if successes > 0 || providerErrors == 0 {
+		return ""
+	}
+	if billing {
+		return InfraProviderBilling
+	}
+	return InfraProviderError
+}
+
+// verifierProducedNoResults reports a verifier that never produced test
+// results: a verifier timeout, a missing reward file, no pytest ctrf report,
+// or a report with zero tests (for example when the verifier's own tools
+// failed to install).
+func verifierProducedNoResults(trialDir, exType string) bool {
+	if strings.Contains(exType, "VerifierTimeout") || strings.Contains(exType, "RewardFileNotFound") {
+		return true
+	}
+	// Some verifiers emit pytest's terminal summary without a CTRF plugin.
+	// Inspect only the result counts, never test names or reference content.
+	for _, name := range []string{"test-stdout.txt", "test-stderr.txt"} {
+		raw, err := os.ReadFile(filepath.Join(trialDir, "verifier", name))
+		if err == nil && pytestResultSummary.Match(raw) {
+			return false
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(trialDir, "verifier", "ctrf.json"))
+	if err != nil {
+		return true
+	}
+	var report struct {
+		Results struct {
+			Summary struct {
+				Tests int `json:"tests"`
+			} `json:"summary"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &report); err != nil {
+		return true
+	}
+	return report.Results.Summary.Tests == 0
+}
+
+// Require a completed pytest summary with a positive outcome count. Collection
+// errors and "no tests ran" do not demonstrate executed tests.
+var pytestResultSummary = regexp.MustCompile(`(?m)^(?:={2,})?[^\n]*\b[1-9][0-9]* (?:passed|failed|skipped|xfailed|xpassed)\b[^\n]* in [0-9.]+s(?:[^\n]*={2,})?\s*$`)
+
+// hasTerminalRecord reports whether the harness wrote a terminal state:
+// final.json with a state, or a transition into a terminal run state.
+func hasTerminalRecord(exDir string) bool {
+	for _, line := range readJSONLLines(filepath.Join(exDir, "events.jsonl")) {
+		var event struct {
+			Event string `json:"event"`
+			State string `json:"state"`
+		}
+		if json.Unmarshal([]byte(line), &event) == nil && event.Event == "run_finished" && event.State != "" && event.State != "running" {
+			return true
+		}
+	}
+
+	if fin, ok := readHarnessFinal(exDir, filepath.Dir(filepath.Dir(exDir))); ok && fin.State != "" && fin.State != "running" {
+		return true
+	}
+	for _, line := range readJSONLLines(filepath.Join(exDir, "transitions.jsonl")) {
+		var tr Transition
+		if err := json.Unmarshal([]byte(line), &tr); err != nil {
+			continue
+		}
+		switch tr.To {
+		case "completed", "failed", "paused", "blocked", "canceled", "waiting", "stopped_by_timeout":
+			return true
+		}
+	}
+	return false
 }
 
 // trialResultDoc mirrors the Harbor result.json fields the index reads.
@@ -572,4 +727,44 @@ func collectTrialArtifacts(trialDir, exDir string) {
 			_ = os.WriteFile(filepath.Join(exDir, "harbor_"+name), raw, 0o644)
 		}
 	}
+}
+
+// LoadReportTrials refreshes infrastructure classification from available trial
+// records, including older indexes that predate infra_reason. Index-only exports
+// retain their recorded classification because their source evidence is absent.
+func LoadReportTrials(runDir string) ([]TrialOutcome, error) {
+	dirs, dirErr := FindTrialDirs(runDir)
+	if dirErr != nil {
+		return LoadRunTrials(runDir)
+	}
+	trials, err := LoadRunTrials(runDir)
+	if err != nil || len(trials) == 0 {
+		trials = nil
+		for _, dir := range dirs {
+			row, err := IndexTrial(dir)
+			if err != nil {
+				return nil, err
+			}
+			trials = append(trials, row.Outcome())
+		}
+		return trials, nil
+	}
+	reasons := map[string]string{}
+	for _, dir := range dirs {
+		doc, err := readTrialResult(dir)
+		if err != nil {
+			continue
+		}
+		reason := TrialInfraReason(dir, 0)
+		reasons[filepath.Base(dir)] = reason
+		if doc.TrialName != "" {
+			reasons[doc.TrialName] = reason
+		}
+	}
+	for i := range trials {
+		if reason, ok := reasons[trials[i].TrialID]; ok {
+			trials[i].InfraReason = reason
+		}
+	}
+	return trials, nil
 }

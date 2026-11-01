@@ -148,7 +148,7 @@ func TestEditThreeLevels(t *testing.T) {
 	p3 := writeTmp(t, "dup\nmid\ndup\n")
 	raw3, _ := json.Marshal(map[string]string{"path": p3, "old_text": "dup", "new_text": "x"})
 	res3, _ := tool.Invoke(context.Background(), Invocation{Arguments: raw3})
-	if res3.Status != StatusToolError || !strings.Contains(res3.Output, "multiple matches") {
+	if res3.Status != StatusToolError || !strings.Contains(res3.Output, "matches 2 places") || !strings.Contains(res3.Output, "(lines 1, 3)") {
 		t.Fatalf("must report line numbers: %+v", res3)
 	}
 }

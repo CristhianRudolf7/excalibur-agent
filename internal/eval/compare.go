@@ -25,6 +25,7 @@ func (r BenchTrialIndex) Outcome() TrialOutcome {
 		TrialID: r.Trial, TaskID: r.Task, Reward: r.Reward,
 		Failed:       r.FailCategory == FailHarness || r.FailCategory == FailCrash,
 		FailCategory: r.FailCategory,
+		InfraReason:  r.InfraReason,
 		InputTokens:  r.InputTokens, CacheRead: r.CacheRead, CacheWrite: r.CacheWrite,
 		OutputTokens: r.OutputTokens, CostUSD: r.CostUSD,
 		WallSeconds: r.WallSecs, ModelSeconds: r.ModelSecs, ToolSeconds: r.ToolSecs,

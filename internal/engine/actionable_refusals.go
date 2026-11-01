@@ -181,15 +181,11 @@ func (e *Engine) refuseFinish(ctx context.Context, run *Run, reasons []string) s
 	run.mu.Lock()
 	s := run.refusalStateLocked()
 	attempt := run.FinishRefusals + 1
-	changed := []RefusalItem{}
 	resolved := []string{}
 	next := map[string]RefusalItem{}
 	for _, item := range items {
 		s.counts[item.ID]++
 		next[item.ID] = item
-		if old, ok := s.previous[item.ID]; !ok || old != item {
-			changed = append(changed, item)
-		}
 		s.records = append(s.records, RefusalRecord{Attempt: attempt, Item: item})
 	}
 	for id := range s.previous {
@@ -205,56 +201,63 @@ func (e *Engine) refuseFinish(ctx context.Context, run *Run, reasons []string) s
 	for _, item := range items {
 		e.reviewFalseRequirement(ctx, run, item, attempt)
 	}
-	payload := struct {
-		Attempt  int             `json:"attempt"`
-		Changed  []RefusalItem   `json:"checklist"`
-		Resolved []string        `json:"resolved,omitempty"`
-		Next     string          `json:"next_action,omitempty"`
-		Reviews  []RefusalRecord `json:"reviews,omitempty"`
-	}{Attempt: attempt, Changed: changed, Resolved: resolved}
-	// A withdrawn item must not remain the recommended next action.
-	active := make([]RefusalItem, 0, len(changed))
-	for _, item := range changed {
+	// Withdrawn requirements are not open work: the refusal lists the rest.
+	open := make([]RefusalItem, 0, len(items))
+	for _, item := range items {
 		if !run.requirementDropped(item.ID) {
-			active = append(active, item)
+			open = append(open, item)
 		}
 	}
-	payload.Changed = active
-	if repeated {
-		payload.Next = "Re-check the remaining instruction requirements, then call finish with executed evidence."
-		for _, item := range items {
-			if !run.requirementDropped(item.ID) {
-				payload.Next = "Execute " + item.Check + "; inspect its result before calling finish again."
-				break
-			}
-		}
-	}
+	var reviews []RefusalRecord
 	for _, rec := range run.RefusalRecords() {
 		if rec.Attempt == attempt && rec.Review != "" {
-			payload.Reviews = append(payload.Reviews, rec)
+			reviews = append(reviews, rec)
 		}
 	}
-	raw, _ := json.Marshal(payload)
-	note := "finish refused: " + string(raw)
-	// The model receives the refusal as its tool result as well as the volatile note.
-	run.mu.Lock()
-	for i := len(run.History) - 1; i >= 0; i-- {
-		tr := run.History[i].ToolResult
-		if tr != nil && tr.Name == FinishToolName {
-			cp := *tr
-			cp.Output = note
-			cp.IsError = true
-			run.History[i].ToolResult = &cp
-			run.History[i].Content = note
-			break
-		}
-	}
-	run.mu.Unlock()
+	// The durable audit record of every refusal (replay after a restart).
 	if rec := e.recorder(run.ID); rec != nil {
-		audit, _ := json.Marshal(refusalAudit{instructionHash(run.Request), attempt, items, payload.Reviews})
+		audit, _ := json.Marshal(refusalAudit{instructionHash(run.Request), attempt, items, reviews})
 		_, _ = rec.Record(ctx, finishRefusalEntry, audit, "", "", "")
 	}
-	return note
+	return renderRefusal(attempt, open, reasons, resolved, repeated)
+}
+
+// renderRefusal is the finish tool result for a refused call (D1): the
+// numbered reasons with their concrete evidence and check commands,
+// what was resolved since the previous refusal, and the next action.
+// Open checklist items are listed; when none remain the raw reasons are.
+func renderRefusal(attempt int, open []RefusalItem, reasons, resolved []string, repeated bool) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "finish refused (attempt %d): ", attempt)
+	n := 0
+	add := func(text, check string) {
+		n++
+		if n > 1 {
+			b.WriteString(" ")
+		}
+		fmt.Fprintf(&b, "%d) %s", n, strings.TrimRight(text, ". "))
+		if check != "" && !strings.HasPrefix(check, "Re-read the current instruction") {
+			b.WriteString(" (check: " + truncOneLine(check, 160) + ")")
+		}
+		b.WriteString(".")
+	}
+	if len(open) > 0 {
+		for _, item := range open {
+			add(item.Missing, item.Check)
+		}
+	} else {
+		for _, r := range reasons {
+			add(r, "")
+		}
+	}
+	if len(resolved) > 0 {
+		b.WriteString(" Resolved since the previous refusal: " + strings.Join(resolved, ", ") + ".")
+	}
+	if repeated && len(open) > 0 {
+		b.WriteString(" Next: run the first check above and inspect its result before calling finish again.")
+	}
+	b.WriteString(" Fix these, then call finish again.")
+	return b.String()
 }
 
 func (e *Engine) reviewFalseRequirement(ctx context.Context, run *Run, item RefusalItem, attempt int) {

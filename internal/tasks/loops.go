@@ -20,8 +20,16 @@
 //     change strategy").
 //  2. Second: escalate the next step with an expert consult (19.3)
 //     or switch strategy (e.g. an explorer investigating the cause).
-//  3. Third: the run goes blocked with a report to its parent or
-//     the master.
+//  3. Third and later: a further escalation. No detection ends the
+//     run: a loop is a reason to change approach, never a terminal
+//     state while budget remains (agent quality, backlog 99).
+//
+// Exact-call guard (agent quality loop guard v2, see ExactCallGuard):
+// one exact call (tool, normalized arguments, fingerprint of its
+// result) counted with no workspace change in between. The third
+// occurrence adds a note; the sixth refuses that exact call for the
+// next ExactCallBanTurns turns. It supersedes R1 when the engine
+// enables it (LoopDetector.ExactRepeatsByGuard).
 //
 // Optional judge: from step 30, every 10 steps, the decider answers
 // "is the agent stuck?". It only counts with probability >= 0.9, as
@@ -32,7 +40,9 @@ package tasks
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -196,6 +206,11 @@ type LoopDetector struct {
 	// (fed by ObserveNoInfo): all errors, all empty, or all outputs
 	// identical to the previous output of the same tool.
 	dull int
+	// ExactRepeatsByGuard hands the identical-repeat rule (R1) to
+	// the exact-call guard: R1 keeps shaping the near-repeat
+	// suppression but no longer fires, so one repeat produces one
+	// note. Off by default, which keeps R1 for ablations.
+	ExactRepeatsByGuard bool
 }
 
 // NewLoopDetector returns a detector with empty windows. wait_for is
@@ -228,11 +243,15 @@ func (d *LoopDetector) ObserveTool(ev ToolEvent) []Detection {
 		d.h1Errors[h1] = 0
 	}
 	var out []Detection
-	// R1: same h2 LoopRepeatIdentical times in a row.
+	// R1: same h2 LoopRepeatIdentical times in a row. Under the
+	// exact-call guard the condition still suppresses near-repeat
+	// below, but the detection itself belongs to the guard.
 	r1 := false
 	if len(d.h2Window) >= LoopRepeatIdentical && allEqual(d.h2Window[len(d.h2Window)-LoopRepeatIdentical:]) {
-		out = append(out, d.fire(RuleIdenticalRepeat,
-			fmt.Sprintf("ran %s %s %d times with the identical result; change strategy", ev.Tool, shorten(ev.Args), LoopRepeatIdentical)))
+		if !d.ExactRepeatsByGuard {
+			out = append(out, d.fire(RuleIdenticalRepeat,
+				fmt.Sprintf("ran %s %s %d times with the identical result; change strategy", ev.Tool, shorten(ev.Args), LoopRepeatIdentical)))
+		}
 		r1 = true
 	}
 	// R2: same h1 with error LoopRepeatIdentical times.
@@ -559,6 +578,191 @@ func dedup(in []string) []string {
 		}
 	}
 	return out
+}
+
+// Exact-call guard thresholds (agent quality loop guard v2).
+const (
+	// ExactCallNoteAt adds the note after this many identical
+	// occurrences with no workspace change in between.
+	ExactCallNoteAt = 3
+	// ExactCallBanAt refuses the exact call from the turn after this
+	// occurrence, for ExactCallBanTurns turns.
+	ExactCallBanAt = 6
+	// ExactCallBanTurns is the refusal window after ExactCallBanAt.
+	ExactCallBanTurns = 5
+)
+
+// ExactCallNote is the note text for one identical occurrence count.
+func ExactCallNote(count int) string {
+	return fmt.Sprintf("you ran this exact call %d times with the same result; change approach", count)
+}
+
+// ExactCallBanNote is the note for the occurrence that opens a
+// refusal window. That call has already run; the window applies to
+// the calls after it.
+func ExactCallBanNote(count, turns int) string {
+	return fmt.Sprintf("%s. This exact call is refused for the next %d turns; use a different command or a different check.", ExactCallNote(count), turns)
+}
+
+// ExactCallRefusal is the text returned in place of a refused exact
+// call, with the turns left in its window.
+func ExactCallRefusal(count, turnsLeft int) string {
+	return fmt.Sprintf("refused: %s. This exact call is refused for %d more turns; use a different command or a different check.", ExactCallNote(count), turnsLeft)
+}
+
+// ExactCallGuard counts identical calls and refuses persistent
+// repeats. A call's count key combines its tool, the arguments it is
+// compared by and the fingerprint of its result (ResultFingerprint);
+// its ban key is the exact normalized call. Counts reset at every
+// workspace change (MarkStateChange), so a repeat that follows a
+// write or an install is a new observation. The guard never ends a
+// run: it adds notes and refuses calls for a bounded window.
+type ExactCallGuard struct {
+	counts map[string]int
+	bans   map[string]exactBan
+}
+
+type exactBan struct {
+	until int
+	count int
+}
+
+// NewExactCallGuard returns an empty guard.
+func NewExactCallGuard() *ExactCallGuard {
+	return &ExactCallGuard{counts: map[string]int{}, bans: map[string]exactBan{}}
+}
+
+// MarkStateChange records a workspace change. Every count restarts,
+// because an identical call after a change may legitimately return
+// the same result. Bans are not lifted.
+func (g *ExactCallGuard) MarkStateChange() {
+	g.counts = map[string]int{}
+}
+
+// Refusal reports whether the exact call identified by callKey is
+// refused at turn, with the refusal text. Expired bans are dropped.
+func (g *ExactCallGuard) Refusal(turn int, callKey string) (string, bool) {
+	b, ok := g.bans[callKey]
+	if !ok {
+		return "", false
+	}
+	if turn > b.until {
+		delete(g.bans, callKey)
+		return "", false
+	}
+	return ExactCallRefusal(b.count, b.until-turn+1), true
+}
+
+// Observe counts one executed call at turn. It returns the note to
+// inject ("" for none) and whether this occurrence starts a refusal
+// window on callKey. Counting restarts after a window opens.
+func (g *ExactCallGuard) Observe(turn int, countKey, callKey string) (note string, banned bool) {
+	n := g.counts[countKey] + 1
+	if n >= ExactCallBanAt {
+		g.bans[callKey] = exactBan{until: turn + ExactCallBanTurns, count: n}
+		delete(g.counts, countKey)
+		return ExactCallBanNote(n, ExactCallBanTurns), true
+	}
+	g.counts[countKey] = n
+	if n == ExactCallNoteAt {
+		return ExactCallNote(n), false
+	}
+	return "", false
+}
+
+// Tally counts one occurrence of a call that the finish protocol
+// handles, so no refusal window opens: the note comes at the third
+// and the sixth occurrence, with the same text as Observe.
+func (g *ExactCallGuard) Tally(countKey string) (note string) {
+	n := g.counts[countKey] + 1
+	g.counts[countKey] = n
+	if n == ExactCallNoteAt || n == ExactCallBanAt {
+		return ExactCallNote(n)
+	}
+	return ""
+}
+
+// NormalizeCallArgs canonicalizes a call's JSON arguments (sorted
+// keys, numbers kept as written). Arguments that are not JSON fall
+// back to whitespace-collapsed text.
+func NormalizeCallArgs(args string) string {
+	dec := json.NewDecoder(strings.NewReader(args))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err == nil {
+		if buf, err := json.Marshal(v); err == nil {
+			return string(buf)
+		}
+	}
+	return collapseSpaces(args)
+}
+
+// volatileOutput matches the parts of a tool result that change on
+// every run without changing what the call observed: the exec header
+// duration, session id, process id and clock times.
+var volatileOutput = []*regexp.Regexp{
+	regexp.MustCompile(`duration: [0-9.]+s`),
+	regexp.MustCompile(`session: [A-Za-z0-9_-]+`),
+	regexp.MustCompile(`pid [0-9]+`),
+	regexp.MustCompile(`\b[0-9]{2}:[0-9]{2}:[0-9]{2}\b`),
+}
+
+// ResultFingerprint hashes a tool result with its volatile tokens
+// blanked, so two runs of the same observation compare equal.
+func ResultFingerprint(out string) string {
+	for _, re := range volatileOutput {
+		out = re.ReplaceAllString(out, "_")
+	}
+	return hash("result", out)
+}
+
+// ExactCountKey is the count key of one call: tool, the arguments it
+// is compared by (see the engine) and the result fingerprint.
+func ExactCountKey(tool, compareArgs, resultFingerprint string) string {
+	return hash("count", tool, compareArgs, resultFingerprint)
+}
+
+// ExactCallKey is the ban key of one call: tool and normalized
+// arguments, with no result.
+func ExactCallKey(tool, normalizedArgs string) string {
+	return tool + "\x00" + normalizedArgs
+}
+
+// pureVerbs are shell commands whose output carries no state: a
+// repeat with the same output is an identical call whatever the
+// duration or the exact text.
+var pureVerbs = map[string]bool{"echo": true, "printf": true, "true": true, "sleep": true}
+
+var (
+	devNullRedirect = regexp.MustCompile(`[0-9&]*>>?\s*/dev/null`)
+	fileRedirect    = regexp.MustCompile(`(^|[^0-9&>])>>?\s*[^&\s>]`)
+	fileWriteWord   = regexp.MustCompile(`(^|[;&|(\s])(tee|mv|cp|rm|mkdir|touch|chmod|chown|ln|dd|truncate|unzip|tar|sed\s+-i)\b`)
+)
+
+// MayWriteCommand reports whether a shell command can change files:
+// a redirection to a file or a file-writing utility. Package
+// installs are not counted here; the provisioner reports its own
+// installs.
+func MayWriteCommand(cmd string) bool {
+	cmd = devNullRedirect.ReplaceAllString(cmd, "")
+	return fileRedirect.MatchString(cmd) || fileWriteWord.MatchString(cmd)
+}
+
+// IsPureCommand reports whether a shell command is an echo, printf,
+// true or sleep that cannot write files.
+func IsPureCommand(cmd string) bool {
+	fields := strings.Fields(cmd)
+	if len(fields) == 0 || !pureVerbs[fields[0]] {
+		return false
+	}
+	return !MayWriteCommand(cmd)
+}
+
+// LiveSessionOutput reports whether a tool result shows a session
+// that is still running. Such results are progress, not repeats, so
+// the exact-call guard never counts them.
+func LiveSessionOutput(out string) bool {
+	return strings.Contains(out, "alive: true") || strings.Contains(out, "exited: false")
 }
 
 func shorten(s string) string {

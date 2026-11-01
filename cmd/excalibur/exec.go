@@ -8,12 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 )
@@ -24,8 +24,6 @@ var globalJSON bool
 
 // Enabled only by the binary entry point, never by in-process CLI tests.
 var requestReexec bool
-
-const requestTransferEnv = "EXCALIBUR_INTERNAL_EXEC_REQUEST"
 
 func wantJSON(flags *flag.FlagSet) *bool {
 	return flags.Bool("json", false, "machine-readable output")
@@ -58,33 +56,45 @@ func runExecCmd(args []string) error {
 	override := fs.String("profile-override", "", "declare an eval profile deviation (recorded, never compares clean)")
 	logsDir := fs.String("logs-dir", "", "trial log directory (default: /logs/agent when present)")
 	neverAsk := fs.Bool("never-ask", false, "assume instead of asking (exec always assumes)")
+	instructionFile := fs.String("instruction-file", "", "read the request text from this private file (written by the argv hand-off; see EXCALIBUR_HIDE_INSTRUCTION_ARGV)")
 	rest, err := parseCmd(fs, args)
 	if err != nil {
 		return err
 	}
-	rest = append(rest[:0], rest...)
-	if len(rest) == 0 {
+	fromFile := *instructionFile != "" || os.Getenv(cli.InstructionFileEnv) != ""
+	if !fromFile && len(rest) == 0 {
 		return &cli.CodedError{Code: cli.ExitError, Err: fmt.Errorf("usage: excalibur exec \"<request>\" [flags]")}
 	}
-	request := rest[0]
-	if transferred, ok := os.LookupEnv(requestTransferEnv); ok {
-		if err := os.Unsetenv(requestTransferEnv); err != nil {
-			return err
+	var request string
+	if fromFile {
+		text, err := cli.ConsumeInstructionFile(*instructionFile)
+		if err != nil {
+			return &cli.CodedError{Code: cli.ExitError, Err: err}
 		}
-		request = transferred
-	} else if requestReexec && runtime.GOOS == "linux" && selfProtectionEnabled() {
-		argv := append([]string(nil), os.Args...)
-		for i := 1; i < len(argv); i++ {
-			if argv[i] == request {
-				argv[i] = "[request transferred]"
+		request = text
+	} else {
+		request = rest[0]
+		if requestReexec && runtime.GOOS == "linux" && cli.HideInstructionArgvEnabled() {
+			// Item 22: the request leaves argv before any other work, so
+			// process listings inside the task never show the task text.
+			// The re-executed process reads it back from the file.
+			argv, env, path, err := cli.PrepareInstructionArgv(os.Args, os.Environ(), request)
+			if err != nil {
+				return &cli.CodedError{Code: cli.ExitError, Err: err}
+			}
+			if path != "" {
+				if err := platform.Reexec(argv, env); err != nil {
+					_ = os.Remove(path)
+					return fmt.Errorf("hide instruction argv: %w", err)
+				}
+				return nil
 			}
 		}
-		env := append(os.Environ(), requestTransferEnv+"="+request)
-		if err := platform.Reexec(argv, env); err != nil {
-			return fmt.Errorf("remove request from argv: %w", err)
-		}
-		return nil
 	}
+	// Exec scope (items 93 and 62 and 70): the boundary refusals and the
+	// autonomous session defaults apply to this process only.
+	restoreScope := tools.SetExecScope(tools.ExecScope{Active: true, HarnessPaths: cli.ExecScopePaths(*logsDir)})
+	defer restoreScope()
 	opts := cli.ExecOptions{
 		Request:         request,
 		ProjectDir:      *project,
@@ -162,13 +172,4 @@ func outcomeSummary(o *cli.ExecOutcome) map[string]any {
 		m["assumptions"] = o.Assumptions
 	}
 	return m
-}
-
-func selfProtectionEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_SELF_KILL_GUARD"))) {
-	case "0", "false", "off", "no":
-		return false
-	default:
-		return true
-	}
 }
