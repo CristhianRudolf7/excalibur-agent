@@ -94,6 +94,9 @@ func (w *OOMWatch) Finish() OOMObservation {
 		return OOMObservation{}
 	}
 	o := OOMObservation{MemoryBytes: w.limits.MemoryBytes, RetryJobs: max(1, w.limits.ParallelJobs()/2)}
+	if o.MemoryBytes == 0 && !w.limits.MemoryLimited {
+		o.MemoryBytes = -1
+	}
 	for _, c := range w.counters {
 		after, ok := readCounter(c.path, c.key)
 		if !ok {

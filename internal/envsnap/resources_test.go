@@ -51,6 +51,10 @@ func TestEffectiveResourceLimits(t *testing.T) {
 			"sys/fs/cgroup/work/cpu.max":         "150000 100000",
 			"sys/fs/cgroup/work/memory.max":      "2147483648",
 		}, 1.5, 2 << 30, true},
+		{"zero high budget", map[string]string{
+			"sys/fs/cgroup/work/job/memory.high": "0",
+			"sys/fs/cgroup/work/memory.max":      "4294967296",
+		}, 8, 0, true},
 		{"cpuset", map[string]string{
 			"sys/fs/cgroup/work/job/cpuset.cpus.effective": "1,3-4",
 			"sys/fs/cgroup/work/job/cpu.max":               "400000 100000",
@@ -176,5 +180,16 @@ func TestParallelismGuidance(t *testing.T) {
 	t.Setenv(EffectiveLimitsSwitch, "off")
 	if strings.Contains(s.RenderCompact(1800), "parallel jobs") {
 		t.Fatal("disabled switch still adds guidance")
+	}
+}
+
+func TestZeroMemoryBudget(t *testing.T) {
+	t.Setenv(EffectiveLimitsSwitch, "1")
+	l := ResourceLimits{CPUs: 8, MemoryBytes: 0, MemoryLimited: true}
+	var s Snapshot
+	s.applyResources(l)
+	text := s.RenderCompact(1800)
+	if l.ParallelJobs() != 1 || !strings.Contains(text, "mem=0B") || !strings.Contains(text, "at most 1 parallel job;") || MemoryLabel(0) != "0GiB" {
+		t.Fatalf("zero budget: %s", text)
 	}
 }

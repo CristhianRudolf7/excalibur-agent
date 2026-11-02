@@ -30,7 +30,7 @@ func (s Snapshot) RenderCompact(maxBytes int) string {
 		cpus = s.EffectiveCPUs
 	}
 	fmt.Fprintf(&b, " arch=%s cpus=%g", s.Arch, cpus)
-	if s.MemTotalBytes > 0 {
+	if s.MemTotalBytes > 0 || s.MemoryLimited {
 		fmt.Fprintf(&b, " mem=%s", humanBytes(s.MemTotalBytes))
 	}
 	if s.HostCPUs > 0 {
@@ -44,8 +44,12 @@ func (s Snapshot) RenderCompact(maxBytes int) string {
 	}
 	b.WriteString("\n")
 	if s.MemoryLimited && EffectiveLimitsEnabled() {
-		jobs := (ResourceLimits{CPUs: cpus, MemoryBytes: s.MemTotalBytes}).ParallelJobs()
-		fmt.Fprintf(&b, "Build/test with at most %d parallel jobs; lower after an out-of-memory kill.\n", jobs)
+		jobs := (ResourceLimits{CPUs: cpus, MemoryBytes: s.MemTotalBytes, MemoryLimited: s.MemoryLimited}).ParallelJobs()
+		plural := "s"
+		if jobs == 1 {
+			plural = ""
+		}
+		fmt.Fprintf(&b, "Build/test with at most %d parallel job%s; lower after an out-of-memory kill.\n", jobs, plural)
 	}
 	if s.DefaultShell != "" {
 		b.WriteString("shell: " + s.DefaultShell)

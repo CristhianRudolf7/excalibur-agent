@@ -36,7 +36,7 @@ type ResourceLimits struct {
 // CPU quotas. A serial job is the minimum useful recommendation.
 func (l ResourceLimits) ParallelJobs() int {
 	jobs := l.CPUs
-	if l.MemoryBytes > 0 {
+	if l.MemoryBytes > 0 || l.MemoryLimited {
 		jobs = math.Min(jobs, float64(l.MemoryBytes)/(1.5*(1<<30)))
 	}
 	return max(1, int(math.Floor(jobs)))
@@ -188,9 +188,9 @@ func (r ResourceReader) Limits() ResourceLimits {
 				memFiles = []string{"memory.max", "memory.high"}
 			}
 			for _, file := range memFiles {
-				n := positiveLimit(readResource(filepath.Join(dir, file)))
+				n, err := strconv.ParseInt(readResource(filepath.Join(dir, file)), 10, 64)
 				// v1 uses a page-rounded LONG_MAX sentinel for unlimited memory.
-				if n > 0 && n < 1<<60 && (l.MemoryBytes == 0 || n <= l.MemoryBytes) {
+				if err == nil && n >= 0 && n < 1<<60 && ((l.MemoryBytes == 0 && !l.MemoryLimited) || n <= l.MemoryBytes) {
 					l.MemoryBytes, l.MemoryLimited = n, true
 				}
 			}
@@ -243,7 +243,7 @@ func cpuSetCount(s string) int {
 
 // MemoryLabel uses explicit binary units for command diagnostics.
 func MemoryLabel(n int64) string {
-	if n <= 0 {
+	if n < 0 {
 		return "unknown"
 	}
 	return fmt.Sprintf("%gGiB", float64(n)/(1<<30))

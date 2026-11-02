@@ -5365,3 +5365,7 @@ Additional tests in `internal/envsnap/oom_test.go` and
 controlled shell exits/signals. They cover counter changes, counter resets,
 v1 fallback, uncertain SIGKILL, killed workers, frozen background results,
 PTY paths and the disabled switch without allocating excessive memory.
+
+A zero-valued memory control is a real budget, including `memory.high=0`;
+it remains visible as zero and recommends a serial job. It is distinct from
+missing/unlimited memory controls and from an unknown limit in OOM diagnostics.
