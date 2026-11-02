@@ -139,6 +139,9 @@ func DefaultEvalProfile() EvalProfileConfig {
 		MaxInput:           ReferenceMaxInput,
 		MaxOutput:          ReferenceMaxOutput,
 	}
+	if tools.InspectImageEnabled() {
+		profile.EnabledTools = append(profile.EnabledTools, "inspect_image")
+	}
 	if tools.FrictionRepairEnabled() {
 		profile.EnabledTools = append(profile.EnabledTools, "exec_io")
 	}

@@ -5369,3 +5369,42 @@ PTY paths and the disabled switch without allocating excessive memory.
 A zero-valued memory control is a real budget, including `memory.high=0`;
 it remains visible as zero and recommends a serial job. It is distinct from
 missing/unlimited memory controls and from an unknown limit in OOM diagnostics.
+
+## Local image inspection (Sections 7.5, 13.2–13.4)
+
+`EXCALIBUR_INSPECT_IMAGE` defaults on. It adds the read-only
+`inspect_image` tool to exec/eval and assistant worker surfaces. Setting
+it to `0`, `false`, `off` or `no` removes the tool and disables its guidance.
+No image input or model provider change is involved.
+
+`path` resolves within the run work directory (current directory when
+unspecified); both it and optional `compare_to` must remain inside that
+resolved tree, including symbolic links and the existing task boundary.
+PNG, JPEG, GIF (first frame), BMP, PPM (P3/P6) and PGM (P2/P5, including
+16-bit samples) decode in Go. Headers over 64 million pixels are rejected
+before raster allocation; files must be regular and at most 512 MiB.
+
+The report gives exact RGB color shares, dominant background, fraction of
+pixels different from that background, uniform/blank detection and color,
+mean brightness on a 0–255 scale, and an area-averaged grayscale ASCII
+thumbnail. Transparency composites over white. Defaults are 64 columns
+and at most 24 rows; `width` accepts 8–96 and `height` accepts 4–32. The
+thumbnail fits those bounds with terminal cell aspect correction.
+`compare_to` requires matching dimensions and reports changed pixels and
+percentage, a zero-based bounding rectangle, and a difference mask. A
+pixel changes when any RGB channel differs by more than 3. Uniformity is
+exact; no claim about semantic correctness follows from a nonblank image.
+Reports remain under 12 KB even at maximum thumbnail settings.
+
+Generated-image tests cover blank and colored screens, a rectangular
+window, all supported formats, portable-map binary separators, changes
+and unchanged comparisons, tolerance, geometry, deterministic output,
+path containment, malformed inputs, header/file limits and cancellation.
+Profile tests cover enabled/disabled availability for every worker profile.
+
+`ocr: true` optionally runs an already installed `tesseract` against the
+validated image path, with a three-second timeout and a 2,048-byte text
+cap. Missing installations, errors, empty output and timeouts produce a
+single-line hint alongside the pixel report. Nothing is installed and no
+OCR runs without this opt-in. Fake-runner tests verify invocation, opt-in,
+availability, deadlines, failure handling and bounded output.

@@ -669,7 +669,8 @@ var rePackageName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]+$`)
 // shell diagnostic that names one of them means a tool name was typed
 // into the shell; it never provisions a package.
 var harnessToolNames = map[string]bool{
-	"activate": true, "apply_patch": true, "call_tool": true, "chart_render": true,
+	"inspect_image": true,
+	"activate":      true, "apply_patch": true, "call_tool": true, "chart_render": true,
 	"clock": true, "diagram_render": true, "document_read": true, "edit_file": true,
 	"exec": true, "exec_io": true, "file_convert": true, "finish": true,
 	"get_tool_output": true, "glob": true, "grep": true, "pdf_ops": true,

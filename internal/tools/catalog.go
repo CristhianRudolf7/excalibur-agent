@@ -138,6 +138,9 @@ func BuiltinTools(deps *BuiltinDeps) []Tool {
 		&StatusTool{Provider: deps.Status, Sessions: sess},
 		&FinishTool{},
 	}
+	if InspectImageEnabled() {
+		tools = append(tools, &InspectImageTool{Deps: files})
+	}
 	for _, s := range CoreStubDefinitions() {
 		def := s
 		tools = append(tools, &StubTool{Def: def})
