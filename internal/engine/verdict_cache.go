@@ -106,6 +106,9 @@ func (e *Engine) reviewVersion(run *Run, cfg tasks.SelfVerifyConfig, drafts []ta
 			evidence = append(evidence, h)
 			seen[string(raw)] = true
 		}
+		for p := range h.Dependencies {
+			files[p] = fileVersion(p)
+		}
 		for _, p := range historyFileOperands(h, workdir) {
 			files[p] = fileVersion(p)
 		}

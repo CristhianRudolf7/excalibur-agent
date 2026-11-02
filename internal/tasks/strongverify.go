@@ -116,7 +116,7 @@ func IsExercisingCall(h HistoryTool) bool {
 	if h.IsError || strings.TrimSpace(h.Output) == "" {
 		return false
 	}
-	if isStillRunning(h.Output) {
+	if HistoryRunning(h) {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(h.Name)) {
@@ -295,7 +295,7 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 		return []string{"no executable check ran yet; " + strongHint(cmd, fmt, nil) + ", and only then finish"}
 	}
 	window := history
-	if last := lastChangeIndex(history); last >= 0 {
+	if last := lastChangeIndex(history); last >= 0 && !DependencyFreshnessEnabled() {
 		if EntryVerifiesChanges(history[last]) {
 			window = history[last:]
 		} else if last+1 >= len(history) {
@@ -305,7 +305,16 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 		}
 	}
 	var exercising []HistoryTool
-	for _, h := range window {
+	var keys []string
+	for _, d := range drafts {
+		if d.Key != "" {
+			keys = append(keys, d.Key)
+		}
+	}
+	for i, h := range window {
+		if DependencyFreshnessEnabled() && !EvidenceFresh(history, i, keys) {
+			continue
+		}
 		if IsExercisingCall(h) {
 			exercising = append(exercising, h)
 		}
@@ -428,7 +437,7 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 		if name != "exec" && name != "call_tool" {
 			continue
 		}
-		if h.IsError || isStillRunning(h.Output) {
+		if h.IsError || HistoryRunning(h) {
 			continue
 		}
 		if args := strings.TrimSpace(h.Args); args != "" {

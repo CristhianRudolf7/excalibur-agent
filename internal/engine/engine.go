@@ -1422,6 +1422,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		res := results[i]
 		recordCall(run, callSig(tc))
 		out := withFooter(res.Output, e.timeFooterFor(run))
+		dependencies := e.captureEvidenceDependencies(run, tc, res)
 		run.mu.Lock()
 		seq := run.nextHistorySeqLocked()
 		if refused[i] != "" {
@@ -1429,7 +1430,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		}
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool,
-			Content:    out,
+			Content: out, Dependencies: dependencies,
 			ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: out, IsError: res.Status != tools.StatusOK},
 		})
 		run.mu.Unlock()

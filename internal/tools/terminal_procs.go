@@ -3,6 +3,7 @@ package tools
 import (
 	"net"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -130,6 +131,7 @@ func hasSequence(fields []string, a, b string) bool {
 // trial records. The process flags come from the session's process tree
 // and are only set while the session is alive.
 type SessionInfo struct {
+	ExitCode   *int      `json:"exit_code,omitempty"`
 	ID         SessionID `json:"id"`
 	Owner      string    `json:"owner"`
 	Command    string    `json:"command"`
@@ -152,7 +154,17 @@ type SessionInfo struct {
 // order. Alive says whether its process is still running; the finish gate
 // filters on it. Process flags are computed for live sessions only.
 func (m *SessionManager) ActiveSessions() []SessionInfo {
-	return m.sessionInfos(func(*Session) bool { return true })
+	out := m.sessionInfos(func(*Session) bool { return true })
+	if !switchDefaultOn("EXCALIBUR_SESSION_AUTHORITY") {
+		return out
+	}
+	m.mu.Lock()
+	for _, info := range m.tombstones {
+		out = append(out, info)
+	}
+	m.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
+	return out
 }
 
 // ServiceSessions lists the detached background services (W10) this
@@ -186,6 +198,9 @@ func (m *SessionManager) sessionInfos(keep func(*Session) bool) []SessionInfo {
 			Detached: s.Detached, LogPath: s.LogPath,
 		}
 		s.mu.Unlock()
+		if code, done := s.Exit(); done {
+			info.ExitCode = &code
+		}
 		if info.Alive && info.PID > 0 {
 			for _, p := range table.tree(info.PID) {
 				pkg, build := classifyProcess(p)
@@ -214,4 +229,21 @@ func ProbePort(port int) bool {
 		}
 	}
 	return false
+}
+
+// m.mu is held; only compact terminal facts survive eviction.
+func (m *SessionManager) rememberSessionLocked(s *Session) {
+	if !switchDefaultOn("EXCALIBUR_SESSION_AUTHORITY") {
+		return
+	}
+	if m.tombstones == nil {
+		m.tombstones = map[SessionID]SessionInfo{}
+	}
+	s.mu.Lock()
+	info := SessionInfo{ID: s.ID, Owner: s.Owner, Command: s.Cmd, Started: s.Started, Alive: false}
+	s.mu.Unlock()
+	if code, done := s.Exit(); done {
+		info.ExitCode = &code
+	}
+	m.tombstones[s.ID] = info
 }

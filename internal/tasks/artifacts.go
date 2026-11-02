@@ -792,6 +792,28 @@ func shortSource(source string) string {
 // "session: sess-N alive: true/false", exec_io reads carry
 // "exited: true/false", and lists carry "alive=true/false".
 func LiveSessions(history []HistoryTool) []string {
+	if envBool("EXCALIBUR_SESSION_AUTHORITY", true) {
+		var states map[string]SessionState
+		for _, h := range history {
+			if h.SessionStates != nil {
+				states = h.SessionStates
+			}
+		}
+		if states != nil {
+			var live []string
+			seen := map[string]bool{}
+			for _, h := range history {
+				for _, id := range sessIDRe.FindAllString(h.Args+" "+h.Output, -1) {
+					if !seen[id] && states[id].Alive {
+						live = append(live, id)
+						seen[id] = true
+					}
+				}
+			}
+			return live
+		}
+	}
+
 	alive := map[string]bool{}
 	seen := map[string]bool{}
 	var order []string

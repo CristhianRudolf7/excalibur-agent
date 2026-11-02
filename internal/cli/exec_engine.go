@@ -361,6 +361,24 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		layerHashes[key] = hex.EncodeToString(h[:])
 		layerSizes[key] = len(msg.Content)
 	}
+	if cachePayloadTelemetryEnabled() {
+		account := func(key string, value any) {
+			raw, _ := json.Marshal(value)
+			digest := sha256.Sum256(raw)
+			layerHashes[key] = hex.EncodeToString(digest[:])
+			layerSizes[key] = len(raw)
+		}
+		for i, msg := range req.Messages {
+			account(fmt.Sprintf("msg_%d_%s", i, msg.Role), msg)
+			if len(msg.ToolCalls) > 0 {
+				account(fmt.Sprintf("msg_%d_tool_calls", i), msg.ToolCalls)
+			}
+			if msg.ToolResult != nil {
+				account(fmt.Sprintf("msg_%d_tool_result", i), msg.ToolResult)
+			}
+		}
+		account("request_payload", req)
+	}
 	for i, td := range req.Tools {
 		h := sha256.Sum256([]byte(td.Name + td.Description + string(td.Schema)))
 		key := fmt.Sprintf("tooldef_%d_%s", i, td.Name)
@@ -1235,4 +1253,14 @@ func probeHost(baseURL string) string {
 		return ""
 	}
 	return u.Host
+}
+
+// Cache telemetry includes full structured messages without persisting payloads.
+func cachePayloadTelemetryEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_CACHE_PAYLOAD_TELEMETRY"))) {
+	case "0", "off", "false", "no":
+		return false
+	default:
+		return true
+	}
 }

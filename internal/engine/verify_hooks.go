@@ -78,7 +78,15 @@ func historyTools(history []ctxcompiler.ActivityEvent) []tasks.HistoryTool {
 			continue
 		}
 		tr := ev.ToolResult
+		changed := false
+		for path, version := range ev.Dependencies {
+			if fileVersion(path) != version {
+				changed = true
+				break
+			}
+		}
 		out = append(out, tasks.HistoryTool{
+			Dependencies: ev.Dependencies, DependenciesChanged: changed,
 			Name:    tr.Name,
 			Args:    argsOf[tr.CallID],
 			Output:  tr.Output,
@@ -294,7 +302,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	merged, kept := tasks.ApplySelfVerify(cfg, gate, in, tasks.SelfVerifyRequest{
 		Request:   request,
 		Drafts:    drafts,
-		History:   historyTools(history),
+		History:   e.currentSessionHistory(historyTools(history)),
 		FinalText: finalText,
 		Steps:     steps,
 		Level:     in.Level,
@@ -305,7 +313,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	// the same gate attempts as every other pending) instead of
 	// letting a wrong result finish as completed.
 	if merged.OK {
-		historyView := historyTools(history)
+		historyView := e.currentSessionHistory(historyTools(history))
 		ok, reasons := e.runStrongVerifier(ctx, run, cfg, kept, historyView, finalText)
 		if !ok && e.softVerifier(run) && !run.takeVerifierRefusal() {
 			// D6: the LLM gate refuses at most once per run; later
@@ -342,6 +350,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 // own successful history. Bounded by the same gate attempts as the
 // rest of the finish path (Section 7.3).
 func (e *Engine) applyArtifacts(run *Run, gate tasks.GateReport, history []tasks.HistoryTool, request, finalText, workdir string) tasks.GateReport {
+	history = e.currentSessionHistory(history)
 	cfg := e.artifactConfig()
 	if !cfg.Enable {
 		return gate

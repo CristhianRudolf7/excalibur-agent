@@ -5056,3 +5056,39 @@ verification settings, executable evidence and inspected file contents/modes.
 Identical repeated checks share an evidence version. Delivery prose does not
 force another review. Missing replies and provider errors are never cached.
 Setting `0` requests a new review on each attempt.
+
+### Round 2: explicit failure markers (engine, C5)
+
+`EXCALIBUR_PRECISE_FAILURE_MARKERS` defaults on. Nonzero exits and explicit
+assertion, traceback, FAIL and nonzero failed-count markers indicate failed
+checks. Line-leading `error:` diagnostics require a known compiler/build/test
+tool origin and a nonnumeric diagnostic. Numeric error measurements on exit
+zero remain valid observations. `0` restores the older textual classifier.
+
+### Round 2: dependency freshness (engine/tasks, C4)
+
+`EXCALIBUR_EVIDENCE_DEPENDENCIES` defaults on. Successful checks retain
+content/mode receipts for deliverables and literal files read or executed,
+including local script imports and literal data references. Gate evaluation
+compares these versions with the filesystem, so unrelated diagnostic writes
+do not expire a passing check. Older histories without receipts use command
+mutation targets and dependency path overlap conservatively. Unknown mutation
+targets expire old evidence. `0` restores the global mutation frontier.
+
+### Round 2: authoritative terminal state (engine/tasks/tools, C6)
+
+`EXCALIBUR_SESSION_AUTHORITY` defaults on. All finish checks receive current
+session-manager facts. Exited, closed and evicted sessions retain compact
+terminal tombstones, including exit status when known. Historical output can
+no longer keep a completed job alive or apply one listing entry's state to
+another session. Histories replayed without a session manager retain their
+recorded-state fallback. `0` restores historical liveness interpretation.
+
+### Round 2: complete payload cache telemetry (CLI, C7)
+
+`EXCALIBUR_CACHE_PAYLOAD_TELEMETRY` defaults on. Message accounting hashes
+and sizes the complete serialized message, with separate tool-call and
+tool-result entries and a full-request fingerprint. This exposes argument,
+result and masking changes without storing another payload copy. Cache-read
+and cache-write token counters remain separate. `0` keeps content-only message
+accounting. No provider or gateway protocol changes are involved.

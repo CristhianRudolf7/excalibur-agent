@@ -270,17 +270,18 @@ func (s *Session) LiveTail() string {
 
 // SessionManager keeps processes alive between interactions.
 type SessionManager struct {
-	mu       sync.Mutex
-	sessions map[SessionID]*Session
-	order    []SessionID
-	seq      uint64
-	deps     TerminalDeps
-	now      func() time.Time
+	mu         sync.Mutex
+	sessions   map[SessionID]*Session
+	tombstones map[SessionID]SessionInfo
+	order      []SessionID
+	seq        uint64
+	deps       TerminalDeps
+	now        func() time.Time
 }
 
 // NewSessionManager returns a manager with the given platform deps.
 func NewSessionManager(deps TerminalDeps) *SessionManager {
-	return &SessionManager{sessions: map[SessionID]*Session{}, deps: deps, now: time.Now}
+	return &SessionManager{sessions: map[SessionID]*Session{}, tombstones: map[SessionID]SessionInfo{}, deps: deps, now: time.Now}
 }
 
 // Start launches cmd for owner and waits up to yieldMs.
@@ -920,6 +921,7 @@ func (m *SessionManager) Close(id SessionID) error {
 		s.markDone(fmt.Errorf("closed"))
 	}
 	m.mu.Lock()
+	m.rememberSessionLocked(s)
 	delete(m.sessions, id)
 	for i, sid := range m.order {
 		if sid == id {
@@ -1048,6 +1050,7 @@ func (m *SessionManager) evictIfNeeded(owner string) {
 				return
 			}
 		}
+		m.rememberSessionLocked(s)
 		delete(m.sessions, c.id)
 		for i, sid := range m.order {
 			if sid == c.id {

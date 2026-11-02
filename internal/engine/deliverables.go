@@ -326,7 +326,13 @@ func execFailed(h tasks.HistoryTool) (failed bool, detail string) {
 	case !hasCode && h.IsError:
 		return true, "tool error"
 	}
-	if marker := failureMarker(h.Output); marker != "" {
+	marker := failureMarker(h.Output)
+	if switchOn("EXCALIBUR_PRECISE_FAILURE_MARKERS") && marker == "" && knownDiagnosticTool(execCommand(h.Args)) {
+		if loc := toolErrorLineRe.FindStringIndex(h.Output); loc != nil {
+			marker = h.Output[loc[0]:loc[1]]
+		}
+	}
+	if marker != "" {
 		return true, "failure marker " + marker
 	}
 	return false, ""
@@ -335,12 +341,35 @@ func execFailed(h tasks.HistoryTool) (failed bool, detail string) {
 // failureMarkerRe matches the output markers of a failed check.
 var failureMarkerRe = regexp.MustCompile(`\bFAIL(?:ED|URE)?\b|AssertionError|Traceback \(most recent call last\)|(?m:^Error:)|(?i:\bassert\b[^\n]*\bfailed\b)|(?m:^False$)`)
 
+// Tool diagnostics use a recognizable tool origin. Numeric error metrics are
+// measurements even when their label is capitalized.
+var explicitFailureRe = regexp.MustCompile(`\bFAIL(?:ED|URE)?\b|AssertionError|Traceback \(most recent call last\)|(?i:\b[1-9][0-9]* failed\b|\bassert\b[^\n]*\bfailed\b)`)
+var toolErrorLineRe = regexp.MustCompile(`(?im)^error:\s*[^\s0-9.+-][^\n]*`)
+
+func knownDiagnosticTool(command string) bool {
+	for _, part := range shellPartRe.Split(command, -1) {
+		fields := strings.Fields(part)
+		if len(fields) == 0 {
+			continue
+		}
+		switch filepath.Base(fields[0]) {
+		case "gcc", "g++", "clang", "clang++", "cc", "c++", "rustc", "cargo", "go", "make", "cmake", "ninja", "javac", "pytest", "ctest", "npm", "mvn", "gradle", "dotnet":
+			return true
+		}
+	}
+	return false
+}
+
 // zeroCountRe excludes a summary such as "FAIL: 0".
 var zeroCountRe = regexp.MustCompile(`^\s*[:=]\s*0\b`)
 
 // failureMarker returns the first failure marker in output, or "".
 func failureMarker(out string) string {
-	for _, loc := range failureMarkerRe.FindAllStringIndex(out, -1) {
+	re := failureMarkerRe
+	if switchOn("EXCALIBUR_PRECISE_FAILURE_MARKERS") {
+		re = explicitFailureRe
+	}
+	for _, loc := range re.FindAllStringIndex(out, -1) {
 		m := out[loc[0]:loc[1]]
 		if m == "FAIL" && zeroCountRe.MatchString(out[loc[1]:]) {
 			continue
@@ -372,7 +401,14 @@ func isVerificationCommand(cmd string, files []deliverable) bool {
 // the finish is refused with the excerpt.
 func verificationFailureReason(history []tasks.HistoryTool, files []deliverable) string {
 	lastChange := tasks.LastArtifactChange(history)
-	for i := len(history) - 1; i > lastChange; i-- {
+	for i := len(history) - 1; i >= 0; i-- {
+		if tasks.DependencyFreshnessEnabled() {
+			if !tasks.EvidenceFresh(history, i, nil) {
+				continue
+			}
+		} else if i <= lastChange {
+			break
+		}
 		h := history[i]
 		if strings.ToLower(h.Name) != "exec" {
 			continue
@@ -381,7 +417,7 @@ func verificationFailureReason(history []tasks.HistoryTool, files []deliverable)
 		if cmd == "" || isProbeCommand(cmd) || !isVerificationCommand(cmd, files) {
 			continue
 		}
-		if strings.Contains(h.Output, "exit: running") {
+		if tasks.HistoryRunning(h) {
 			return ""
 		}
 		failed, _ := execFailed(h)
@@ -422,6 +458,9 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 		ran := tasks.ServiceExercised(history[last+1:], f.Base)
 		for i := last + 1; i < len(history) && !ran; i++ {
 			h := history[i]
+			if tasks.DependencyFreshnessEnabled() && !tasks.EvidenceFresh(history, i, []string{f.Path}) {
+				continue
+			}
 			if strings.ToLower(h.Name) != "exec" {
 				continue
 			}
@@ -429,7 +468,7 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 			// A run counts only when it exercises the program on real
 			// input (not --help, a compile or an import): the shared
 			// predicate of the strong verifier.
-			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || !tasks.ExercisesDeliverable(cmd) || strings.Contains(h.Output, "exit: running") {
+			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || !tasks.ExercisesDeliverable(cmd) || tasks.HistoryRunning(h) {
 				continue
 			}
 			if code, ok := exitCodeOfOutput(h.Output); (ok && code == 0) || (!ok && !h.IsError) {
@@ -620,6 +659,7 @@ func (e *Engine) deliverableHardReasons(run *Run, request string, history []task
 	if !DeliverableChecksEnabled() || !e.explicitFinishRequired(run) {
 		return nil
 	}
+	history = e.currentSessionHistory(history)
 	_, _, workdir := run.finishRunView()
 	var sessions []tools.SessionInfo
 	if e.deps.ActiveSessions != nil {

@@ -130,6 +130,8 @@ type TaskView struct {
 // rules 3-4). Masked observations arrive with their marker already
 // in Content; see masking.go.
 type ActivityEvent struct {
+	// Dependencies is an engine evidence receipt, never projected to the wire.
+	Dependencies map[string]string `json:"dependencies,omitempty"`
 	// Seq orders the entry; it is history state, not a per-request
 	// counter, so it may appear before the last stable mark.
 	Seq int64

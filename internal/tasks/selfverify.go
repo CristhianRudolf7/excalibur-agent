@@ -489,6 +489,11 @@ func ParseRefinedCriteria(text string, maxDrafts int) []DraftCriterion {
 // verification phase needs: what ran, with what output, and whether
 // it failed. The engine maps its history into this shape.
 type HistoryTool struct {
+	SessionStates map[string]SessionState
+	// Dependencies records the inspected versions; the engine refreshes Changed
+	// from the current filesystem before each gate evaluation.
+	Dependencies        map[string]string
+	DependenciesChanged bool
 	// Name is the tool name (exec, read_file, write_file, ...).
 	Name string
 	// Args carries the raw arguments (for path mentions).
@@ -519,7 +524,7 @@ func CheckFreshVerification(history []HistoryTool, minChecks int) []string {
 	if last.IsError {
 		return []string{"last " + toolName(last) + " failed; fix the cause, re-run the check, and only then finish"}
 	}
-	if isStillRunning(last.Output) && !verifiedServicePoll(history, last) {
+	if HistoryRunning(last) && !verifiedServicePoll(history, last) {
 		return []string{toolName(last) + " is still running; wait for it (status/get_tool_output), confirm success, and only then finish"}
 	}
 	lastWrite := -1
@@ -532,8 +537,15 @@ func CheckFreshVerification(history []HistoryTool, minChecks int) []string {
 		return nil
 	}
 	fresh := 0
-	for _, h := range history[lastWrite+1:] {
-		if h.IsError || isStillRunning(h.Output) {
+	for i, h := range history {
+		if DependencyFreshnessEnabled() {
+			if !EvidenceFresh(history, i, nil) {
+				continue
+			}
+		} else if i <= lastWrite {
+			continue
+		}
+		if h.IsError || HistoryRunning(h) {
 			continue
 		}
 		if isVerification(h) {

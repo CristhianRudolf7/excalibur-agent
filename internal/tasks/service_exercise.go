@@ -45,7 +45,7 @@ func serviceExercised(history []HistoryTool, key, sessionID string) bool {
 		}
 		ports := servicePortRe.FindAllStringSubmatch(command+" "+h.Output, -1)
 		for _, client := range history[i+1:] {
-			if client.Name != "exec" || client.IsError || isStillRunning(client.Output) {
+			if client.Name != "exec" || client.IsError || HistoryRunning(client) {
 				continue
 			}
 			if code := serviceExitRe.FindStringSubmatch(client.Output); len(code) == 2 && code[1] != "0" {

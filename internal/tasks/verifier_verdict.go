@@ -108,7 +108,7 @@ func BehaviouralEvidencePending(request string, history []HistoryTool) []string 
 	probes := false
 	start := lastChangeIndex(history) + 1
 	for _, h := range history[start:] {
-		if h.IsError || isStillRunning(h.Output) {
+		if h.IsError || HistoryRunning(h) {
 			continue
 		}
 		if h.Name != "exec" && h.Name != "call_tool" {

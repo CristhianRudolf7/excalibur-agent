@@ -353,7 +353,7 @@ func ContinuationGaps(history []HistoryTool, drafts []DraftCriterion, minChecks 
 		}
 		verified := false
 		for _, h := range history {
-			if !h.IsError && !isStillRunning(h.Output) && isVerification(h) {
+			if !h.IsError && !HistoryRunning(h) && isVerification(h) {
 				verified = true
 				break
 			}
