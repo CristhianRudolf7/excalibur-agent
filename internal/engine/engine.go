@@ -387,6 +387,7 @@ type Run struct {
 	timeOnlyClosingNoted   bool
 	earlyDeliverablesNoted bool
 	probes                 probeSyncState
+	manualTrials           manualTrialState
 	deadlinePaced          uint8
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
@@ -1487,7 +1488,9 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			results[i] = ran[j]
 		}
 	}
-	e.observeProbeCopies(run, runCalls, executedResults(results, runIdx), beforeTrials)
+	executed := executedResults(results, runIdx)
+	e.observeProbeCopies(run, runCalls, executed, beforeTrials)
+	e.observeManualTrials(run, runCalls, executed, beforeTrials)
 	e.probeSyncCheck(run, e.deps.Clock())
 	for i, msg := range refused {
 		if msg != "" {

@@ -5782,3 +5782,28 @@ the scope note (133 to 194), and 158 to autonomous task guidance. Tests measure
 these byte deltas, enforce compact bounds, and verify switch/profile scope.
 The preservation test now checks the corrected wording. Tool definitions,
 profile catalogs and their pins are unchanged.
+
+### Round 13: repeated manual trials (engine, K3)
+
+`EXCALIBUR_MANUAL_TRIALS` defaults on and applies only to autonomous exec/eval
+runs. After five executions of the same checker with exactly one observed
+small edit between checks and no improvement trend, the engine adds one line
+suggesting a script that tries candidates and applies the best result. The
+hint is issued once per run. It never blocks a tool or ends a run.
+
+The detector reuses the existing executable-evidence classifier and loop
+result fingerprint, including removal of volatile terminal timing/session
+fields. Explicit warning/error/failure totals establish a trend; without
+comparable totals, only repeated normalized output counts as stagnation.
+A passing check or an improving total restarts the window. Read-only inspection
+between trials is allowed. Repeated checks without edits, unknown writes,
+multiple edits, large edits, different check commands, running sessions and
+new unmeasured output do not establish the pattern. A small edit changes one
+existing regular file by at most 1024 bytes after removing the common prefix
+and suffix, within the same bounded literal-path observations as K1.
+
+Tests exercise the fifth-check threshold, once-only hint, independent switches,
+assistant scope, improving and flat measurements, normalized repeated errors,
+inspection between trials, negative cases, file-change bounds, and real batch
+wiring with fake execution (Section 18.3). No existing loop tests changed.
+The hint is 122 bytes and adds no static prompt text.

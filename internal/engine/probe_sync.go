@@ -55,7 +55,7 @@ func (r *Run) trialAdviceEnabled(key string) bool {
 }
 
 func (e *Engine) captureTrialObservation(r *Run, calls []providers.ToolCall) trialObservation {
-	if !r.trialAdviceEnabled(probeSyncSwitch) {
+	if len(calls) == 0 || (!r.trialAdviceEnabled(probeSyncSwitch) && !r.trialAdviceEnabled(manualTrialsSwitch)) {
 		return trialObservation{}
 	}
 	r.mu.Lock()
