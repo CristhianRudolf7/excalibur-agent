@@ -94,14 +94,15 @@ func TestDaemonToolSurfaceMatchesEmbedded(t *testing.T) {
 // the daemon composition changed. A deliberate change updates these
 // values in the same commit and says why.
 const (
-	embeddedToolsHash = "b9bedd828535af82488a5a7034279a376a3165377cdac3c87adddf7d7b4408eb"
-	embeddedPrefix    = "95b1a140c09eb43f24691ca087d359a7630592d9c147ae2fb9b84e00fc06adae"
-	evalProfileHash   = "6bfd22cc417b7ddefb81d2193c181dcc2406d5f951ab6a90f50d1db1f9f4e025"
+	embeddedToolsHash = "3d25f90e7e062fb163eea758789d42e3f5f808fd16099781e023128c132f55a1"
+	embeddedPrefix    = "3f43f33a29682a4ac1c0dd6a6d38d38e1e47412aaf536da5a7863fbba56d53cf"
+	evalProfileHash   = "4ecb6a58986660326b7d20d912918d479e7c72140c6e04ab38d83a23315fec28"
 )
 
 // TestEmbeddedSurfaceAndEvalProfileDoNotMove pins the embedded surface
 // and the eval profile hash. The pins are the integrated surface: the
-// eval tool trim and the file-tool schema changes moved them once.
+// eval tool trim and the file-tool schema changes moved them once, and
+// the read-only image inspection tool moved them again.
 func TestEmbeddedSurfaceAndEvalProfileDoNotMove(t *testing.T) {
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{})
 	if err != nil {
