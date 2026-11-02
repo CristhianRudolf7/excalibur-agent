@@ -162,7 +162,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	}
 	run.mu.Lock()
 	verifierOwned := run.GateInput.VerifierRequired
-	request := run.Request
+	request := run.verificationRequestLocked()
 	run.mu.Unlock()
 	if verifierOwned {
 		return true, nil

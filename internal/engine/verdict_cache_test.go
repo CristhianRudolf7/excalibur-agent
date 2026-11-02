@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
@@ -58,5 +59,49 @@ func TestVerifierReusesDeliverableAndEvidenceVersion(t *testing.T) {
 	check()
 	if model.calls() != 5 {
 		t.Fatal("switch ignored")
+	}
+}
+
+func TestUserDirectiveInvalidatesVerifierVerdict(t *testing.T) {
+	model := &fakeEndpoint{responses: []providers.ChatResponse{verifierPassResp(), verifierPassResp(), verifierPassResp()}}
+	e, _ := testEngine(model, scriptedRunner(), passingGate())
+	r := testRun(Profile{})
+	r.Request = "Create the requested program"
+	cfg := *verifyConfig()
+	drafts := []tasks.DraftCriterion{{ID: "D1", Key: "main.py", Method: types.CriterionCommand}}
+	history := []tasks.HistoryTool{{Name: "exec", Args: `{"command":"python3 main.py"}`, Output: "1"}}
+	check := func() {
+		t.Helper()
+		if ok, why := e.runStrongVerifier(context.Background(), r, cfg, drafts, history, "done"); !ok {
+			t.Fatal(why)
+		}
+	}
+	check()
+	check()
+	if model.calls() != 1 {
+		t.Fatal("unchanged version was reviewed again")
+	}
+	instruction := "Use a newline in the public program output."
+	r.mu.Lock()
+	r.appendDirectiveLocked(instruction, nil)
+	r.mu.Unlock()
+	check()
+	if model.calls() != 2 {
+		t.Fatal("new user instruction reused old verdict")
+	}
+	t.Setenv("EXCALIBUR_VERDICT_REUSE", "0")
+	check()
+	if model.calls() != 3 {
+		t.Fatal("reuse-off did not request a fresh review")
+	}
+
+	found := false
+	for _, msg := range model.requests[2].Messages {
+		if strings.Contains(msg.Content, instruction) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("reviewer did not receive the updated instruction")
 	}
 }

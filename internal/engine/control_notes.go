@@ -112,6 +112,7 @@ func boundControlLayer(c *ctxcompiler.Compiled, counter ctxcompiler.Counter) {
 // User instructions are not bounded control guidance. Keep their complete
 // literal text as append-only activity, where the control cap cannot drop it.
 func (r *Run) appendDirectiveLocked(text string, activity []ctxcompiler.ActivityEvent) {
+	r.rememberDirectiveLocked(text)
 	seq := r.nextHistorySeqLocked()
 	for _, ev := range activity {
 		if ev.Seq >= seq {
@@ -125,15 +126,44 @@ func (r *Run) appendDirectiveLocked(text string, activity []ctxcompiler.Activity
 }
 
 func promoteSnapshotDirectives(r *Run, snap *ctxcompiler.Snapshot) {
-	if !switchOn("EXCALIBUR_CONTROL_TAIL") {
-		return
-	}
 	raw, _ := json.Marshal(snap.Volatile.Directives)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.directiveSnapshot != string(raw) && len(snap.Volatile.Directives) > 0 {
-		r.appendDirectiveLocked("pending instructions:\n"+strings.Join(snap.Volatile.Directives, "\n"), snap.Activity)
+		text := "pending instructions:\n" + strings.Join(snap.Volatile.Directives, "\n")
+		if switchOn("EXCALIBUR_CONTROL_TAIL") {
+			r.appendDirectiveLocked(text, snap.Activity)
+		} else {
+			r.rememberDirectiveLocked(text)
+		}
 	}
 	r.directiveSnapshot = string(raw)
-	snap.Volatile.Directives = nil
+	if switchOn("EXCALIBUR_CONTROL_TAIL") {
+		snap.Volatile.Directives = nil
+	}
+}
+
+func (r *Run) rememberDirectiveLocked(text string) {
+	if !switchOn("EXCALIBUR_CONTROL_TAIL") && !switchOn("EXCALIBUR_VERDICT_REUSE") {
+		return
+	}
+	for _, old := range r.literalDirectives {
+		if old == text {
+			return
+		}
+	}
+	r.literalDirectives = append(r.literalDirectives, text)
+}
+
+func (r *Run) literalDirectivesCopy() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.literalDirectives...)
+}
+
+func (r *Run) verificationRequestLocked() string {
+	if len(r.literalDirectives) == 0 {
+		return r.Request
+	}
+	return r.Request + "\nAdditional user instructions (later updates take precedence):\n" + strings.Join(r.literalDirectives, "\n")
 }

@@ -95,3 +95,32 @@ func TestLongUserDirectiveSurvivesControlCap(t *testing.T) {
 		t.Fatal("unchanged directive duplicated")
 	}
 }
+
+func TestUserDirectiveRemainsLiteralAfterCompaction(t *testing.T) {
+	r := testRun(Profile{})
+	instruction := "Keep the public adapter signature exactly as provided."
+	r.mu.Lock()
+	r.appendDirectiveLocked(instruction, nil)
+	for i := 0; i < 40; i++ {
+		r.History = append(r.History, ctxcompiler.ActivityEvent{Seq: r.nextHistorySeqLocked(), Role: "assistant", Content: strings.Repeat("x", 1000)})
+	}
+	r.mu.Unlock()
+	cfg := ctxcompiler.DefaultConfig()
+	cfg.ModelLimits = map[string]ctxcompiler.ModelLimits{"directive-small": {ContextWindow: 8000, MaxInput: 7000, MaxOutput: 500}}
+	cfg.CompactionReserveTokens = 500
+	cfg.PostCompactionLiteralTokens = 500
+	off := false
+	b := &DefaultBuilder{Config: cfg, Counter: ctxcompiler.NewEstimator(4), ModelID: "directive-small", Snapshot: testSnapshotFunc(), EnableMask: &off}
+	for i := 0; i < 2; i++ {
+		_, compiled, err := b.BuildRequest(context.Background(), r, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if r.Compactions == 0 {
+			t.Fatal("fixture did not compact")
+		}
+		if !strings.Contains(compiled.LayerText(ctxcompiler.LayerTask), instruction) {
+			t.Fatal("compaction lost the literal user instruction")
+		}
+	}
+}

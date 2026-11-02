@@ -102,7 +102,7 @@ func historyFileOperands(h tasks.HistoryTool, workdir string) []string {
 
 func (e *Engine) reviewVersion(run *Run, cfg tasks.SelfVerifyConfig, drafts []tasks.DraftCriterion, history []tasks.HistoryTool) string {
 	run.mu.Lock()
-	request, workdir := run.Request, run.Workdir
+	request, workdir := run.verificationRequestLocked(), run.Workdir
 	run.mu.Unlock()
 	files := map[string]string{}
 	for _, d := range e.deliverables(run, request, history) {

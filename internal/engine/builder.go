@@ -151,6 +151,9 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if b.compactEnabled() {
 		if ctxcompiler.ShouldCompactForModelName(compiled.TotalTokens, model, 0, cfg, b.ModelCeiling) {
 			state := ctxcompiler.StateFromTask(snap.Task)
+			if switchOn("EXCALIBUR_CONTROL_TAIL") {
+				state.FixedInstructions = append(state.FixedInstructions, run.literalDirectivesCopy()...)
+			}
 			ctrl := ctxcompiler.NewController(cfg, counter, model)
 			rev, batches, _, _ := run.compactionState()
 			ctrl.Seed(rev, batches)

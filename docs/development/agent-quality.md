@@ -5065,6 +5065,9 @@ verification settings, executable evidence and inspected file contents/modes.
 Identical repeated checks share an evidence version. Delivery prose does not
 force another review. Missing replies and provider errors are never cached.
 Setting `0` requests a new review on each attempt.
+New user directives participate in the instruction version and reach the
+reviewer even when verdict reuse is disabled. Their complete literal text
+is also pinned in structured compaction state.
 
 ### Round 2: dependency freshness (engine/tasks, C4)
 

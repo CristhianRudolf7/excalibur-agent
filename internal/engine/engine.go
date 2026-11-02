@@ -218,6 +218,7 @@ type Run struct {
 	noteJournal       *journal.Recorder
 	contextRevision   int
 	directiveSnapshot string
+	literalDirectives []string
 	sessionFacts      func() []tools.SessionInfo
 	pendingEvidence   map[string]map[string]string
 	review            reviewVerdict
@@ -791,6 +792,9 @@ func (e *Engine) processSignals(ctx context.Context, run *Run) (stop bool) {
 			run.appendDirectiveLocked("directive "+d.ID+": "+d.Text, nil)
 			run.mu.Unlock()
 		} else {
+			run.mu.Lock()
+			run.rememberDirectiveLocked("directive " + d.ID + ": " + d.Text)
+			run.mu.Unlock()
 			run.InjectNote("directive " + d.ID + ": " + d.Text)
 		}
 	}
