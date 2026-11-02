@@ -5426,3 +5426,35 @@ Switch tests check both prompt deltas, visual and interactive evidence
 requirements, direct-call evidence inclusion and default-thumbnail retention.
 As with the other recent method additions, the method text follows
 `EXCALIBUR_METHOD_V2`; disabling that block preserves its legacy text.
+
+## Reading text-mode screens (Sections 13.2–13.4)
+
+The existing default-on `EXCALIBUR_INSPECT_IMAGE` switch also gates built-in
+screen reading. `inspect_image` automatically emits `screen_text` for detected
+character grids; `text: true` requests an explicit unavailable hint when no
+supported grid is found. Reading uses embedded UniVGA 8×16 glyphs under its
+permissive X11 license and public-domain console-setup VGA 8×14 glyphs. Missing
+8×14 mixed borders and vertical half blocks use UniVGA with its edge rows removed.
+The source comment retains the license, source URLs and source checksums.
+No external program or model is needed.
+
+The reader supports 8- or 9-pixel cells, 14- or 16-pixel heights, and integer
+1×/2× scaling, including 720×400, 640×400, 640×480, 640×350, 1280×800 and
+1440×800 screens. Other whole-image grids within 20–160 columns and 5–60 rows
+use the same detector. Cells must have few colors and match printable ASCII
+or CP437 border/shading/block glyphs. The ninth column repeats the eighth
+for CP437 codes 0xC0–0xDF and is blank otherwise. Both foreground polarities
+are tried. Hamming confidence is normalized by foreground size; cells below
+0.80 become `?`, and detection requires at least three distinctive glyphs,
+80% recognized nonuniform cells, 98% low-color cells and mean confidence 0.85.
+The reported mean covers nonuniform cells so blank margins cannot inflate it.
+Uniform cells have no glyph evidence; a solid non-background cell is rendered
+as a full block. Other fonts and graphical text may require optional OCR.
+
+Text preserves leading/interior spacing and empty interior rows, trims trailing
+spaces and empty edge rows, and is capped at 4,096 UTF-8 bytes including its
+confidence label and truncation marker. Text precedes thumbnails so short
+evidence excerpts retain it; the complete report remains capped at 12 KB.
+Generated-image tests cover the geometries, color polarities, printable ASCII,
+borders and blocks, noise, unknown cells, graphical rejection, cancellation,
+automatic/explicit requests, the switch and UTF-8 output limits.

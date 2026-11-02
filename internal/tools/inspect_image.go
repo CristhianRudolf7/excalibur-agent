@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "golang.org/x/image/bmp"
 )
@@ -41,15 +42,17 @@ type inspectImageArgs struct {
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 	OCR       bool   `json:"ocr"`
+	Text      bool   `json:"text"`
 }
 
 func (t *InspectImageTool) Definition() Definition {
 	return Definition{
-		Name: "inspect_image", Description: "Inspect a local screenshot/image: blank screen, colors, brightness, ASCII layout; compare_to shows visible changes",
+		Name: "inspect_image", Description: "Inspect a local screenshot/image: screen_text, blank screen, colors, brightness, ASCII layout; compare_to shows visible changes",
 		InputSchema: schemaFor(map[string]any{
 			"type": "object", "properties": map[string]any{
 				"path":       map[string]any{"type": "string", "minLength": 1},
 				"ocr":        map[string]any{"type": "boolean", "description": "Try installed tesseract with a short timeout; no installation"},
+				"text":       map[string]any{"type": "boolean", "description": "Request built-in text-mode reading; also runs automatically on supported cell grids"},
 				"compare_to": map[string]any{"type": "string", "minLength": 1},
 				"width":      map[string]any{"type": "integer", "minimum": 8, "maximum": 96, "description": "Thumbnail columns, default 64"},
 				"height":     map[string]any{"type": "integer", "minimum": 4, "maximum": 32, "description": "Thumbnail row limit, default 24; preserves aspect ratio"},
@@ -159,8 +162,28 @@ func (t *InspectImageTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 	if err != nil {
 		return Result{Status: StatusCanceled, Output: err.Error()}, nil
 	}
+	screen, err := inspectScreenText(ctx, img)
+	if err != nil {
+		return Result{Status: StatusCanceled, Output: err.Error()}, nil
+	}
+	if screen == "" && a.Text {
+		screen = "screen_text: unavailable (no supported character grid detected)\n"
+	}
+	// Keep readable screen evidence ahead of the thumbnail in short excerpts.
+	if screen != "" {
+		metrics, thumbnail, _ := strings.Cut(out, "ASCII (")
+		out = metrics + screen + "ASCII (" + thumbnail
+	}
 	if a.OCR {
 		out += t.imageOCR(ctx, path)
+	}
+	if len(out) > int(t.Definition().OutputBudget) {
+		const suffix = "\n[image report truncated]\n"
+		out = out[:int(t.Definition().OutputBudget)-len(suffix)]
+		for !utf8.ValidString(out) {
+			out = out[:len(out)-1]
+		}
+		out += suffix
 	}
 	return Result{Status: StatusOK, Output: out}, nil
 }
