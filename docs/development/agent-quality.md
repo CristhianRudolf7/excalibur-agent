@@ -5602,3 +5602,25 @@ also contributes to the verifier cache identity so a changed screen gets a fresh
 review. Assistant profiles retain their existing completion behavior. Setting the
 switch off restores repeated advisory notes; `EXCALIBUR_PROMPT_FINISH` still
 controls the producer as a whole. Tool schemas and profile pins are unchanged.
+
+### Time-aware verifier refusal cap (Sections 7.5 and 18)
+
+`EXCALIBUR_TIME_AWARE_REFUSAL_CAP` defaults on for autonomous exec/eval profiles.
+Before half of an **explicit** wall budget has elapsed, a substantive independent
+FAIL naming an unmet explicit user property keeps blocking after the usual two
+refusals when tool activity occurred between attempts. The refusal names the
+property, missing evidence, and remaining seconds. The verifier can cite a literal
+request span using `UNMET_PROPERTY: <span> | <missing or failed evidence>` or a
+structured failed `PROPERTY` line with the same citation. Existing failed draft
+IDs also qualify when their statement or artifact key occurs in the request.
+Unavailability, generic uncertainty, and invented properties retain the normal cap.
+The judgment remains the verifier's; no task-specific screen interpretation is
+performed by the engine.
+
+Two identical refusals without intervening tool results still become advisory.
+The counters track consecutive refusals at the same work mark separately from the
+existing lifetime item counts. From 50% through 70%, the existing cap applies;
+at 70% and later, the existing explicit delivery reserve rules apply unchanged.
+Assumed budgets and assistant profiles retain their current policy. Setting the
+switch off restores the existing cap and soft-verifier allowance throughout.
+Tool schemas and profile pins are unchanged.

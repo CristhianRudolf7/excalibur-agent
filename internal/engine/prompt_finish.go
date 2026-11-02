@@ -42,13 +42,15 @@ type finishVerifierReport struct {
 	request          string
 	explicit, failed bool
 	visualVersion    [32]byte
+	properties       []string
+	reasons          []string
 }
 
 func (r *Run) recordFinishVerifierReport(history []tasks.HistoryTool, explicit, failed bool) {
 	version, _ := visualEvidenceVersion(history)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishVerifierReport = finishVerifierReport{r.Request, explicit, failed, version}
+	r.finishVerifierReport = finishVerifierReport{request: r.Request, explicit: explicit, failed: failed, visualVersion: version}
 }
 
 // Callers hold run.mu. Retiring a stale note also preserves its journal trail.

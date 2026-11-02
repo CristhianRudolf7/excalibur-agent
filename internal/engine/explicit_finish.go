@@ -216,6 +216,7 @@ type finishState struct {
 	deliveryFinalizationUsed bool
 	reserveNoted             bool
 	blockingCounts           map[string]int
+	blockingProgress         map[string]refusalProgress
 	finishAdvisory           []string
 	refused                  bool
 	refusalMark              int
@@ -654,7 +655,7 @@ func (r *Run) rememberRefusal(reasons []string) {
 // finish tool result (D1) and a duplicate volatile note.
 func (e *Engine) refuseCall(ctx context.Context, run *Run, tc providers.ToolCall, reasons []string) {
 	e.countBlockingReasons(run, reasons)
-	text := e.refuseFinish(ctx, run, reasons)
+	text := e.refuseFinish(ctx, run, reasons) + e.timeAwareRefusalNote(run, reasons)
 	run.recordFinishRefusal(text)
 	run.rememberRefusal(reasons)
 	e.setFinishVerdict(run, tc.ID, text, true)
@@ -668,7 +669,7 @@ func (e *Engine) noChangeRefusal(ctx context.Context, run *Run, tc providers.Too
 	if e.boundedRefusals(run) && ActionableRefusalsEnabled() {
 		_ = e.refuseFinish(ctx, run, reasons) // Persist repeated blocks for recovery.
 	}
-	text := "finish refused: nothing changed since the previous refusal (same reasons): " + strings.Join(reasons, "; ")
+	text := "finish refused: nothing changed since the previous refusal (same reasons): " + strings.Join(reasons, "; ") + e.timeAwareRefusalNote(run, reasons)
 	run.recordFinishRefusal(text)
 	e.setFinishVerdict(run, tc.ID, text, true)
 	run.InjectControlNote("finish.refusal", text)

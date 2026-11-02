@@ -25,11 +25,21 @@ func (e *Engine) countBlockingReasons(run *Run, reasons []string) {
 	if run.fin.blockingCounts == nil {
 		run.fin.blockingCounts = map[string]int{}
 	}
+	if run.fin.blockingProgress == nil {
+		run.fin.blockingProgress = map[string]refusalProgress{}
+	}
+	mark := run.workMarkLocked()
 	seen := map[string]bool{}
 	for _, item := range items {
 		key := boundedRefusalKey(item)
 		if !seen[key] {
 			run.fin.blockingCounts[key]++
+			progress := run.fin.blockingProgress[key]
+			if progress.mark != mark {
+				progress = refusalProgress{mark: mark}
+			}
+			progress.count++
+			run.fin.blockingProgress[key] = progress
 			seen[key] = true
 		}
 	}
@@ -41,13 +51,18 @@ func (e *Engine) hardFinishReasons(run *Run, reasons []string) []string {
 	if !e.boundedRefusals(run) && !reserve {
 		return reasons
 	}
+	_, early := e.earlyExplicitRefusalTime(run)
 	var hard []string
 	for _, reason := range reasons {
 		items := e.refusalItems(run, []string{reason})
 		blocks := false
 		run.mu.Lock()
 		for _, item := range items {
-			if !reserve && run.fin.blockingCounts[boundedRefusalKey(item)] < 2 {
+			key := boundedRefusalKey(item)
+			protect := early && run.substantiveRefusalLocked(reason)
+			progress := run.fin.blockingProgress[key]
+			stalled := progress.mark == run.workMarkLocked() && progress.count >= 2
+			if !reserve && (run.fin.blockingCounts[key] < 2 || (protect && !stalled)) {
 				blocks = true
 			}
 		}

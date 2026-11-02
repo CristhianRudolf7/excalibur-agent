@@ -216,6 +216,10 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 		smaller = shortRules + smaller[at:]
 	}
+	if switchOn(timeAwareRefusalCapSwitch) && e.explicitFinishRequired(run) {
+		prompt += "\n" + unmetPropertyReview
+		smaller += "\n" + unmetPropertyReview
+	}
 	key, reuseAudit := e.reviewIdentity(run, cfg, drafts, history)
 	var resp providers.ChatResponse
 	var err error
@@ -246,6 +250,10 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		failedForNote = true
 	}
 	run.recordFinishVerifierReport(history, verdictForNote.Explicit, failedForNote)
+	properties := substantiveVerifierReasons(resp.Message.Content, request, drafts)
+	run.mu.Lock()
+	run.finishVerifierReport.properties = properties
+	run.mu.Unlock()
 	if e.softVerifier(run) && !tasks.ParseStrongVerdict(resp.Message.Content, drafts).Explicit {
 		e.noteAdvisory(run, "verifier verdict was empty or truncated; not counted")
 		return true, nil
@@ -255,6 +263,9 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		pending := tasks.GeneralizationPendings(resp.Message.Content)
 		e.recordGeneralization(ctx, run, resp.Message.Content, pending)
 		if len(pending) > 0 {
+			run.mu.Lock()
+			run.finishVerifierReport.reasons = append([]string(nil), pending...)
+			run.mu.Unlock()
 			return false, pending
 		}
 	}
@@ -270,6 +281,9 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	if len(reasons) > 3 {
 		reasons = reasons[:3]
 	}
+	run.mu.Lock()
+	run.finishVerifierReport.reasons = append([]string(nil), reasons...)
+	run.mu.Unlock()
 	return false, reasons
 }
 
@@ -329,7 +343,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	if merged.OK {
 		historyView := e.currentSessionHistory(historyTools(history))
 		ok, reasons := e.runStrongVerifier(ctx, run, cfg, kept, historyView, finalText)
-		if !ok && e.softVerifier(run) && !run.takeVerifierRefusal() {
+		if !ok && e.softVerifier(run) && !e.protectVerifierRefusal(run, reasons) && !run.takeVerifierRefusal() {
 			// D6: the LLM gate refuses at most once per run; later
 			// verdicts are advisory and reach the checklist.
 			e.noteAdvisory(run, "verifier disagreement: "+strings.Join(reasons, "; "))
