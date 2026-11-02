@@ -63,3 +63,28 @@ func TestEvalDiagramSkillsRetainBaseline(t *testing.T) {
 		}
 	}
 }
+
+func TestEvalCodeVisualizationRetainsBaseline(t *testing.T) {
+	frozen, current := NewEvalBuiltinIndex(), NewBuiltinIndex()
+	if err := frozen.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	before, ok := frozen.Get("codebase-visualization")
+	if !ok {
+		t.Fatal("missing eval visualization skill")
+	}
+	after, ok := current.Get("codebase-visualization")
+	if !ok {
+		t.Fatal("missing visualization skill")
+	}
+	if strings.Contains(before.Body, "code_diagram") || !strings.Contains(after.Body, "code_diagram") || before.Hash == after.Hash {
+		t.Fatal("assistant-only code_diagram guidance leaked into eval")
+	}
+	loaded, err := frozen.Load("codebase-visualization")
+	if err != nil || strings.Contains(loaded.Body, "code_diagram") {
+		t.Fatalf("eval load changed: %+v %v", loaded, err)
+	}
+}

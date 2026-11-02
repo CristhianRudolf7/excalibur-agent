@@ -260,6 +260,11 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	for _, name := range []string{codeintel.CodeGraphToolName, codeintel.LSPToolName} {
 		cat.MarkDeferred(name)
 	}
+	if opts.Profile != "eval" {
+		if err := cat.RegisterDeferred(&codeintel.CodeDiagramTool{Media: media, RunID: opts.RunID}); err != nil {
+			return nil, err
+		}
+	}
 
 	// Workspace deferred tools (Sections 13.7, 16.4).
 	wdeps := &workspace.ToolDeps{

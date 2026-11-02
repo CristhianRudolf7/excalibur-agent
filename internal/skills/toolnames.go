@@ -31,7 +31,7 @@ var knownTools = map[string]bool{
 	"pin_observation": true, "search_skills": true, "load_skill": true,
 	"search_tools": true, "call_tool": true, "subagent": true, "reminders": true, "automations": true,
 	// Section 13.3 deferred tools: code and workspace.
-	"lsp": true, "code_graph": true, "file_history": true, "revert_edit": true,
+	"lsp": true, "code_graph": true, "code_diagram": true, "file_history": true, "revert_edit": true,
 	"workspace_snapshot": true, "worktree": true, "integration_queue": true, "github": true,
 	// Browser (contract 14.2).
 	"whiteboard":           true,

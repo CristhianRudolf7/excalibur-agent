@@ -1,0 +1,61 @@
+# Repository diagrams
+
+`code_diagram` projects the code graph from Section 10.10 into Mermaid or
+Graphviz source and passes it to the shared `DiagramBackend`. It is a deferred
+code tool on the default and delegate surfaces. Eval does not register it, and
+the eval visualization skill retains its original bytes through `frozen_eval`.
+The eval profile hash and the core tool prefix remain unchanged; the default
+registry name pin changes because it contains one more deferred tool.
+
+The tool accepts a repository or subdirectory inside the run workspace. Its
+levels are `overview` (directory import relationships with weights), `module`
+(files and package imports), `symbols` (definitions, calls, and implementation
+edges present in the graph), and `flow` (outgoing calls from a unique entry
+function, with `depth` defaulting to 3 and capped at 10). Symbol focus includes
+immediate callers, callees, and implementation neighbors. Call resolution has
+the conservative meaning of `code_graph`: potential static targets, including
+same-named definitions, rather than a runtime trace. Ambiguous flow entries
+require an exact symbol ID.
+
+Each invocation builds a fresh snapshot through the existing parser and Go
+module rewrite path, so edits and deletions appear on the next request. No LSP
+server or model call is required. Indexing prioritizes a directory focus within
+the requested subtree. It stops at 15 seconds, 1,000 code files, 20,000 visited
+entries, or 32 MiB of source; individual files larger than 256 KiB are skipped.
+The index excludes dependency/build trees, root ignore patterns, descendant
+symlinks, and tests unless requested. A partial-index notice identifies the
+requested subtree and priority directory. Narrow `path` or `focus` to obtain
+more detail when a budget is reached.
+
+Node selection uses weighted degree with stable ID tie-breaking, preserving the
+flow entry. Diagrams default to 40 nodes, with a supported range of 2–200. An
+oversized projection retains the most connected nodes and a `+N more` node,
+aggregates duplicate relationships, and drops self-loops. Source ordering is
+stable and directory groups become Mermaid subgraphs or Graphviz clusters.
+An overflowing overview also produces up to six module details. All resulting
+`ArtifactRef` records share a group and identify both source and rendered files.
+
+Files live under `.excalibur/artifacts/<run-id>/code-diagram-<unique-id>` in the
+run workspace (`standalone` when no run ID is available). The tool writes `.mmd`
+or `.dot` source and requests SVG by default, or PNG/PDF when selected. Rendering
+capabilities and errors come from the same backend as `diagram_render`; renderer
+failures return a tool error. Text output contains counts, collapse notices, and
+file paths, without the full graph. Completed artifact references survive a
+later rendering failure; an invocation producing no rendered artifact removes
+its source directory.
+
+Fixture tests cover Go, Python, and TypeScript import, symbol, and call
+projections without LSP. Additional tests cover weighted imports, implementation
+edges, deterministic sources, node bounds, cycles, ambiguous entry functions,
+subtree focus, index limits and refreshes, exclusions, cancellation, renderer
+errors, path confinement, artifact metadata, and grouped detail diagrams. The
+assembly test verifies shared media wiring and eval exclusion. Daemon parity
+checks retain the pinned eval profile and core prefix.
+
+Run the affected backend tests with:
+
+```sh
+systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 \
+  nice -n 19 go test -race -p 2 -count=1 \
+  ./internal/codeintel ./internal/wireengine ./internal/skills ./internal/daemon
+```
