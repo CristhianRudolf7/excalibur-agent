@@ -52,3 +52,60 @@ func TestEvidenceReceiptSurvivesDiagnosticWrite(t *testing.T) {
 		t.Fatalf("stale imported dependency accepted: files=%+v history=%+v", e.deliverables(r, r.Request, history), history)
 	}
 }
+
+func TestImplicitProjectCheckTracksSourceManifest(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	r := testRun(Profile{})
+	r.Workdir = t.TempDir()
+	source := filepath.Join(r.Workdir, "main.go")
+	if err := os.WriteFile(source, []byte("package main"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tc := toolCall("check", "exec", `{"command":"go test ./..."}`)
+	receipt := e.captureEvidenceDependencies(r, tc, tools.Result{Status: tools.StatusOK, Output: "ok"})
+	if len(receipt) == 0 {
+		t.Fatal("implicit inputs have no receipt")
+	}
+	ev := []ctxcompiler.ActivityEvent{{ToolCalls: []providers.ToolCall{tc}}, {Dependencies: receipt, ToolResult: &providers.ToolResult{CallID: "check", Name: "exec", Output: "ok"}}}
+	stale := func() bool { return historyTools(ev)[0].DependenciesChanged }
+	if err := os.WriteFile(filepath.Join(r.Workdir, "diagnostics.log"), []byte("output"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if stale() {
+		t.Fatal("unrelated diagnostic staled source check")
+	}
+	if err := os.WriteFile(filepath.Join(r.Workdir, "new.go"), []byte("package main"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !stale() {
+		t.Fatal("new compiled source retained check")
+	}
+}
+
+func TestCheckOutputLogIsNotAnInputDependency(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	r := testRun(Profile{})
+	r.Workdir = t.TempDir()
+	source := filepath.Join(r.Workdir, "main.py")
+	log := filepath.Join(r.Workdir, "check.log")
+	for _, p := range []string{source, log} {
+		if err := os.WriteFile(p, []byte("contents"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tc := toolCall("check", "exec", `{"command":"python3 main.py > check.log"}`)
+	receipt := e.captureEvidenceDependencies(r, tc, tools.Result{Status: tools.StatusOK, Output: "exit: 0"})
+	if _, ok := receipt[log]; ok {
+		t.Fatal("stdout destination became an input")
+	}
+	if _, ok := receipt[source]; !ok {
+		t.Fatal("executable source missing")
+	}
+	if err := os.WriteFile(log, []byte("later diagnostic"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ev := []ctxcompiler.ActivityEvent{{ToolCalls: []providers.ToolCall{tc}}, {Dependencies: receipt, ToolResult: &providers.ToolResult{CallID: "check", Name: "exec", Output: "exit: 0"}}}
+	if historyTools(ev)[0].DependenciesChanged {
+		t.Fatal("log rewrite invalidated check")
+	}
+}

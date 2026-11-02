@@ -403,7 +403,11 @@ func verificationFailureReason(history []tasks.HistoryTool, files []deliverable)
 	lastChange := tasks.LastArtifactChange(history)
 	for i := len(history) - 1; i >= 0; i-- {
 		if tasks.DependencyFreshnessEnabled() {
-			if !tasks.EvidenceFresh(history, i, nil) {
+			var keys []string
+			for _, f := range files {
+				keys = append(keys, f.Path)
+			}
+			if !tasks.EvidenceFresh(history, i, keys) {
 				continue
 			}
 		} else if i <= lastChange {
@@ -468,7 +472,7 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 			// A run counts only when it exercises the program on real
 			// input (not --help, a compile or an import): the shared
 			// predicate of the strong verifier.
-			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || !tasks.ExercisesDeliverable(cmd) || tasks.HistoryRunning(h) {
+			if !mentionsFile(cmd, f.Base) || isProbeCommand(cmd) || !tasks.ExercisesDeliverable(cmd) || tasks.HistoryRunning(h) || !tasks.HistorySucceeded(h) {
 				continue
 			}
 			if code, ok := exitCodeOfOutput(h.Output); (ok && code == 0) || (!ok && !h.IsError) {

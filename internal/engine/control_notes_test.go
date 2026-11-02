@@ -15,7 +15,7 @@ func TestControlTailRetainsLatestAndJournalsAll(t *testing.T) {
 	store := journal.NewMemStore()
 	r.noteJournal = &journal.Recorder{RunID: r.ID, Store: store}
 	for i := 0; i < 30; i++ {
-		r.InjectNote(fmt.Sprintf("refusal: attempt %d %s", i, strings.Repeat("x", 300)))
+		r.InjectNote(fmt.Sprintf("finish refused (attempt %d): %s", i, strings.Repeat("x", 300)))
 	}
 	notes := r.VolatileNotes()
 	if len(notes) != 1 || !strings.Contains(notes[0], "attempt 29") {
@@ -49,5 +49,49 @@ func TestControlTailSwitchAndCustomCap(t *testing.T) {
 	r.InjectNote("refusal: second")
 	if len(r.VolatileNotes()) != 2 {
 		t.Fatal("legacy switch ignored")
+	}
+}
+
+func TestExplicitControlKeyRetirement(t *testing.T) {
+	r := testRun(Profile{})
+	r.InjectControlNote("verification", "a missing check")
+	r.InjectControlNote("verification", "a different current check")
+	if notes := r.VolatileNotes(); len(notes) != 1 || notes[0] != "a different current check" {
+		t.Fatal(notes)
+	}
+	r.InjectControlNote("verification", "")
+	if notes := r.VolatileNotes(); len(notes) != 0 {
+		t.Fatal(notes)
+	}
+}
+
+func TestLongUserDirectiveSurvivesControlCap(t *testing.T) {
+	text := "user instruction " + strings.Repeat("literal content ", 400)
+	r := testRun(Profile{})
+	b := &DefaultBuilder{Config: ctxcompiler.DefaultConfig(), Snapshot: func(context.Context, *Run) (ctxcompiler.Snapshot, error) {
+		return ctxcompiler.Snapshot{Volatile: ctxcompiler.Volatile{Directives: []string{text}}}, nil
+	}}
+	req, c, err := b.BuildRequest(context.Background(), r, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, msg := range req.Messages {
+		if strings.Contains(msg.Content, text) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("control cap dropped user instruction")
+	}
+	if len(c.LayerText(ctxcompiler.LayerVolatile)) > 2048 {
+		t.Fatal("control cap exceeded")
+	}
+	n := len(r.historyCopy())
+	if _, _, err := b.BuildRequest(context.Background(), r, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.historyCopy()) != n {
+		t.Fatal("unchanged directive duplicated")
 	}
 }

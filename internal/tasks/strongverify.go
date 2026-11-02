@@ -113,7 +113,7 @@ var formatWords = map[string]bool{
 // successful: they show the artifact exists, not that it behaves as
 // the instruction describes.
 func IsExercisingCall(h HistoryTool) bool {
-	if h.IsError || strings.TrimSpace(h.Output) == "" {
+	if !HistorySucceeded(h) || strings.TrimSpace(h.Output) == "" {
 		return false
 	}
 	if HistoryRunning(h) {
@@ -312,6 +312,9 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 		}
 	}
 	for i, h := range window {
+		if DependencyFreshnessEnabled() && lastChangeIndex([]HistoryTool{h}) == 0 && !EntryVerifiesChanges(h) {
+			continue
+		}
 		if DependencyFreshnessEnabled() && !EvidenceFresh(history, i, keys) {
 			continue
 		}

@@ -116,3 +116,7 @@ func EvidenceFresh(history []HistoryTool, index int, deliverables []string) bool
 	}
 	return true
 }
+
+// MutationTargets exposes known shell/write destinations for evidence capture.
+// Unknown side effects retain the conservative history fallback.
+func MutationTargets(h HistoryTool) ([]string, bool) { return mutationPaths(h) }

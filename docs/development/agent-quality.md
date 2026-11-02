@@ -5092,3 +5092,20 @@ tool-result entries and a full-request fingerprint. This exposes argument,
 result and masking changes without storing another payload copy. Cache-read
 and cache-write token counters remain separate. `0` keeps content-only message
 accounting. No provider or gateway protocol changes are involved.
+
+Dependency receipts also cover implicit project source/config inputs and source
+manifests for standard language runners. Adding source files expires the old
+check; creating unrelated diagnostic files does not. Literal local data and
+import dependencies are followed without executing discovery code. Discovery
+is bounded; incomplete or unreadable receipts use conservative history checks.
+Receipt capture runs when each tool finishes, before waiting for batch peers.
+
+On Linux, call-scoped workspace access monitoring adds actual read paths,
+including dynamically constructed data filenames, to the dependency receipt.
+It stops before hashing the receipt. Concurrent checks can conservatively share
+read dependencies; files outside the workspace still use literal references
+and deliverable tracking. Monitor unavailability retains static discovery.
+
+Literal user directives are promoted to append-only activity before applying
+the control cap. Their complete instruction text is retained even when longer
+than the control allowance, and unchanged snapshot directives are not repeated.

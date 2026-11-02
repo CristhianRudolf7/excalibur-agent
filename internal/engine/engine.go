@@ -207,20 +207,24 @@ type Run struct {
 	blockReason types.BlockReason
 	pausedBy    string
 
-	Steps        int
-	Tracker      tasks.Tracker
-	Loop         *tasks.LoopDetector
-	GateAttempts int
-	GateInput    tasks.GateInput
-	LastGate     tasks.GateReport
-	refusals     *refusalState
-	noteKeys     map[string]string
-	noteJournal  *journal.Recorder
-	review       reviewVerdict
-	prefix       requestPrefix
-	Volatile     []string
-	RecoveryNote string
-	History      []ctxcompiler.ActivityEvent
+	Steps             int
+	Tracker           tasks.Tracker
+	Loop              *tasks.LoopDetector
+	GateAttempts      int
+	GateInput         tasks.GateInput
+	LastGate          tasks.GateReport
+	refusals          *refusalState
+	controlKeys       []string
+	noteJournal       *journal.Recorder
+	contextRevision   int
+	directiveSnapshot string
+	sessionFacts      func() []tools.SessionInfo
+	pendingEvidence   map[string]map[string]string
+	review            reviewVerdict
+	prefix            requestPrefix
+	Volatile          []string
+	RecoveryNote      string
+	History           []ctxcompiler.ActivityEvent
 	// CompactionBlock is the latest compaction block re-rendered in
 	// L3 (11.4 step 4). Empty when no compaction ran.
 	CompactionBlock string
@@ -663,6 +667,7 @@ func (e *Engine) Start(ctx context.Context, run *Run) error {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	run.noteJournal = rec
+	run.sessionFacts = e.deps.ActiveSessions
 	from := run.state
 	if err := run.transition(types.RunRunning); err != nil {
 		return err
@@ -781,7 +786,13 @@ func (e *Engine) processSignals(ctx context.Context, run *Run) (stop bool) {
 			_, _ = rec.Directive(ctx, true, map[string]string{"id": d.ID, "text": d.Text})
 		}
 		run.MarkDirectiveAcked(d.ID, step)
-		run.InjectNote("directive " + d.ID + ": " + d.Text)
+		if switchOn("EXCALIBUR_CONTROL_TAIL") {
+			run.mu.Lock()
+			run.appendDirectiveLocked("directive "+d.ID+": "+d.Text, nil)
+			run.mu.Unlock()
+		} else {
+			run.InjectNote("directive " + d.ID + ": " + d.Text)
+		}
 	}
 	if full, toolOnly := run.consumeInterrupt(); full || toolOnly {
 		if full && !toolOnly {
@@ -1422,7 +1433,10 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		res := results[i]
 		recordCall(run, callSig(tc))
 		out := withFooter(res.Output, e.timeFooterFor(run))
-		dependencies := e.captureEvidenceDependencies(run, tc, res)
+		run.mu.Lock()
+		dependencies := run.pendingEvidence[tc.ID]
+		delete(run.pendingEvidence, tc.ID)
+		run.mu.Unlock()
 		run.mu.Lock()
 		seq := run.nextHistorySeqLocked()
 		if refused[i] != "" {
@@ -1454,7 +1468,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		}
 		// Running build/install output must not trigger legacy near-repeat,
 		// cycle or no-information rules either. The exact guard also skips it.
-		if q.LoopGuardV2 && tasks.LiveSessionOutput(res.Output) {
+		if q.LoopGuardV2 && run.sessionRunning(tc, res) {
 			liveProgress = true
 			continue
 		}

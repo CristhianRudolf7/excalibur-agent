@@ -87,6 +87,7 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
 	}
+	promoteSnapshotDirectives(run, &snap)
 	snapshotLen := len(snap.Activity)
 	hist := run.historyCopy()
 	snap.Activity = append(append([]ctxcompiler.ActivityEvent(nil), snap.Activity...), hist...)
@@ -178,7 +179,7 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	}
 	var defs []providers.ToolDefinition
 	if b.ToolDefs != nil {
-		defs = b.ToolDefs(run)
+		defs = append([]providers.ToolDefinition(nil), b.ToolDefs(run)...)
 	}
 	// Muse tool-description variant (agent quality): the Meta Model
 	// API discipline (exact JSON arguments in call order, finish

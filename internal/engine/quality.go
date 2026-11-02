@@ -467,7 +467,7 @@ func (r *Run) guardRefusal(tc providers.ToolCall) (string, bool) {
 // next occurrence (see guardRefusal). Callers hold no lock.
 func (r *Run) observeExact(tc providers.ToolCall, res tools.Result) string {
 	k := guardKeysOf(tc, res)
-	live := tasks.LiveSessionOutput(res.Output)
+	live := r.sessionRunning(tc, res)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.exact == nil {

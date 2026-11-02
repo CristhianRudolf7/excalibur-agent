@@ -152,7 +152,7 @@ func (e *Engine) lhProgressCheck(run *Run) {
 	if note == "" {
 		return
 	}
-	run.InjectNote(note)
+	run.InjectControlNote("pacing", note)
 }
 
 // lhShouldContinue decides the time- and evidence-aware continuation:

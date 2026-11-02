@@ -18,6 +18,9 @@ type reviewVerdict struct{ key, reply string }
 
 // Hash complete regular files, never FIFOs, devices or socket endpoints.
 func fileVersion(path string) string {
+	if strings.HasPrefix(path, sourceScopePrefix) {
+		return sourceScopeVersion(path)
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "missing"
@@ -59,6 +62,14 @@ func historyFileOperands(h tasks.HistoryTool, workdir string) []string {
 		}
 	}
 	seen := map[string]bool{}
+	targets, _ := tasks.MutationTargets(h)
+	written := map[string]bool{}
+	for _, target := range targets {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(workdir, target)
+		}
+		written[filepath.Clean(target)] = true
+	}
 	for _, key := range []string{"path", "file_path", "file", "filename", "command"} {
 		value, _ := a[key].(string)
 		operands := []string{value}
@@ -73,6 +84,9 @@ func historyFileOperands(h tasks.HistoryTool, workdir string) []string {
 				p = filepath.Join(workdir, p)
 			}
 			p = filepath.Clean(p)
+			if written[p] {
+				continue
+			}
 			if info, err := os.Lstat(p); err == nil && !info.IsDir() {
 				seen[p] = true
 			}
@@ -106,12 +120,18 @@ func (e *Engine) reviewVersion(run *Run, cfg tasks.SelfVerifyConfig, drafts []ta
 			evidence = append(evidence, h)
 			seen[string(raw)] = true
 		}
+		if scope := projectSourceScope(h, workdir); scope != "" {
+			files[scope] = fileVersion(scope)
+		}
 		for p := range h.Dependencies {
 			files[p] = fileVersion(p)
 		}
 		for _, p := range historyFileOperands(h, workdir) {
 			files[p] = fileVersion(p)
 		}
+	}
+	if len(files) > 0 && !validDependencyVersions(files) {
+		return ""
 	}
 	raw, _ := json.Marshal(struct {
 		Request  string
@@ -126,7 +146,7 @@ func (e *Engine) reviewVersion(run *Run, cfg tasks.SelfVerifyConfig, drafts []ta
 func (r *Run) cachedReview(key string) (string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.review.reply, r.review.key == key && r.review.reply != ""
+	return r.review.reply, key != "" && r.review.key == key && r.review.reply != ""
 }
 func (r *Run) cacheReview(key, reply string) {
 	r.mu.Lock()

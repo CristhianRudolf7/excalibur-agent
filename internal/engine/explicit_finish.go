@@ -650,7 +650,7 @@ func (e *Engine) refuseCall(ctx context.Context, run *Run, tc providers.ToolCall
 	run.recordFinishRefusal(text)
 	run.rememberRefusal(reasons)
 	e.setFinishVerdict(run, tc.ID, text, true)
-	run.InjectNote(text)
+	run.InjectControlNote("finish.refusal", text)
 }
 
 // noChangeRefusal answers a finish that follows a refusal with no tool
@@ -663,7 +663,7 @@ func (e *Engine) noChangeRefusal(ctx context.Context, run *Run, tc providers.Too
 	text := "finish refused: nothing changed since the previous refusal (same reasons): " + strings.Join(reasons, "; ")
 	run.recordFinishRefusal(text)
 	e.setFinishVerdict(run, tc.ID, text, true)
-	run.InjectNote(text)
+	run.InjectControlNote("finish.refusal", text)
 	_ = ctx
 }
 
@@ -727,8 +727,9 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 	if !run.confirmArmed() {
 		run.armConfirm(args)
 		text := e.confirmationText(run)
+		run.InjectControlNote("finish.refusal", "")
 		e.setFinishVerdict(run, tc.ID, text, false)
-		run.InjectNote(text)
+		run.InjectControlNote("finish.confirmation", text)
 		return false, nil
 	}
 	run.storeFinish(args, assistantText)

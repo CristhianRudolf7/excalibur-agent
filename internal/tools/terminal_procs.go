@@ -200,6 +200,7 @@ func (m *SessionManager) sessionInfos(keep func(*Session) bool) []SessionInfo {
 		s.mu.Unlock()
 		if code, done := s.Exit(); done {
 			info.ExitCode = &code
+			info.Alive = false
 		}
 		if info.Alive && info.PID > 0 {
 			for _, p := range table.tree(info.PID) {

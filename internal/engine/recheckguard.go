@@ -108,6 +108,11 @@ func (r *Run) observeRecheck(res tools.Result, unchanged bool, calls ...provider
 	if switchOn("EXCALIBUR_RECHECK_PROBES") && len(calls) > 0 && calls[0].Name == "exec" {
 		probe = displayProbeCommand(execCommand(string(calls[0].Arguments)))
 	}
+	tc := providers.ToolCall{}
+	if len(calls) > 0 {
+		tc = calls[0]
+	}
+	live := r.sessionRunning(tc, res)
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(output)))
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -117,7 +122,7 @@ func (r *Run) observeRecheck(res tools.Result, unchanged bool, calls ...provider
 	repeated := r.rechecks.seen[fingerprint]
 	r.rechecks.seen[fingerprint] = true
 	pending := switchOn("EXCALIBUR_RECHECK_PROBES") && r.finishConfirmPending
-	if (r.LastRefusal == "" && !pending) || !unchanged || (!repeated && !probe) || tasks.LiveSessionOutput(res.Output) {
+	if (r.LastRefusal == "" && !pending) || !unchanged || (!repeated && !probe) || live {
 		r.rechecks.consecutive = 0
 		return ""
 	}

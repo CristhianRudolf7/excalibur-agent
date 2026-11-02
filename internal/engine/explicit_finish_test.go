@@ -329,14 +329,8 @@ func TestExplicitFinishRefusedOnMissingArtifact(t *testing.T) {
 	if run.FinishRefusals < 1 {
 		t.Fatalf("refusals = %d, want >=1 (missing artifact)", run.FinishRefusals)
 	}
-	found := false
-	for _, n := range run.VolatileNotes() {
-		if strings.Contains(n, "finish refused") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("artifact refusal missing: %v", run.VolatileNotes())
+	if len(run.RefusalRecords()) == 0 {
+		t.Fatal("artifact refusal missing from durable audit")
 	}
 }
 

@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"strings"
-
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // Refresh every verification path from the session authority. Historical
@@ -19,11 +19,27 @@ func (e *Engine) currentSessionHistory(history []tasks.HistoryTool) []tasks.Hist
 	out := append([]tasks.HistoryTool(nil), history...)
 	for i := range out {
 		out[i].SessionStates = states
-		for id, s := range states {
-			if s.ExitCode != nil && *s.ExitCode != 0 && (strings.Contains(out[i].Output, id) || strings.Contains(out[i].Args, id)) {
+		for _, id := range tasks.HistorySessionIDs(out[i]) {
+			s := states[id]
+			if s.ExitCode != nil && *s.ExitCode != 0 {
 				out[i].IsError = true
 			}
 		}
 	}
 	return out
+}
+
+// Loop and recheck guidance consult the same authority as completion checks.
+func (r *Run) sessionRunning(tc providers.ToolCall, res tools.Result) bool {
+	r.mu.Lock()
+	facts := r.sessionFacts
+	r.mu.Unlock()
+	if !switchOn("EXCALIBUR_SESSION_AUTHORITY") || facts == nil {
+		return tasks.LiveSessionOutput(res.Output)
+	}
+	states := map[string]tasks.SessionState{}
+	for _, s := range facts() {
+		states[string(s.ID)] = tasks.SessionState{Alive: s.Alive, ExitCode: s.ExitCode}
+	}
+	return tasks.HistoryRunning(tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output, SessionStates: states})
 }

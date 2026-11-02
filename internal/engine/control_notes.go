@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"strings"
@@ -46,40 +47,46 @@ func (r *Run) controlNoteLocked(key, note string) {
 		}
 		return
 	}
-	if r.noteKeys == nil {
-		r.noteKeys = map[string]string{}
+	if len(r.controlKeys) != len(r.Volatile) {
+		r.controlKeys = make([]string, len(r.Volatile))
+		for i, note := range r.Volatile {
+			r.controlKeys[i] = controlNoteKey(note)
+		}
 	}
-	kept := r.Volatile[:0]
-	for _, old := range r.Volatile {
-		oldKey := r.noteKeys[old]
-		if oldKey == "" {
-			oldKey = controlNoteKey(old)
-		}
-		if oldKey != key {
+	kept := make([]string, 0, len(r.Volatile)+1)
+	keys := make([]string, 0, len(r.Volatile)+1)
+	for i, old := range r.Volatile {
+		if r.controlKeys[i] != key {
 			kept = append(kept, old)
+			keys = append(keys, r.controlKeys[i])
 		}
+	}
+	if note != "" {
+		kept = append(kept, controlClip(note, controlTailBytes()))
+		keys = append(keys, key)
+	}
+	size := len(strings.Join(kept, "\n"))
+	for size > controlTailBytes() && len(kept) > 1 {
+		size -= len(kept[0]) + 1
+		kept = kept[1:]
+		keys = keys[1:]
 	}
 	r.Volatile = kept
-	activeKeys := map[string]string{}
-	for _, old := range kept {
-		activeKeys[old] = r.noteKeys[old]
-	}
-	r.noteKeys = activeKeys
-	if note != "" {
-		clipped := controlClip(note, controlTailBytes())
-		r.Volatile = append(r.Volatile, clipped)
-		r.noteKeys[clipped] = key
-	}
-	size := len(strings.Join(r.Volatile, "\n"))
-	for size > controlTailBytes() && len(r.Volatile) > 1 {
-		size -= len(r.Volatile[0]) + 1
-		r.Volatile = r.Volatile[1:]
-	}
+	r.controlKeys = keys
 }
 
 // Existing producers carry a stable category before ':'; explicit callers
 // can supply an issue key without depending on the prose.
 func controlNoteKey(note string) string {
+	if strings.HasPrefix(note, "finish refused") {
+		return "finish.refusal"
+	}
+	if strings.HasPrefix(note, "finish checks passed") || strings.HasPrefix(note, "finish confirmation pending") {
+		return "finish.confirmation"
+	}
+	if strings.HasPrefix(note, "milestone plan") {
+		return "pacing"
+	}
 	if at := strings.Index(note, ":"); at >= 0 {
 		return note[:at]
 	}
@@ -100,4 +107,33 @@ func boundControlLayer(c *ctxcompiler.Compiled, counter ctxcompiler.Counter) {
 	c.Hashes[i] = ctxcompiler.HashLayer(c.Layers[i])
 	c.LayerTokens[i] = counter.Count(c.Layers[i])
 	c.TotalTokens += c.LayerTokens[i]
+}
+
+// User instructions are not bounded control guidance. Keep their complete
+// literal text as append-only activity, where the control cap cannot drop it.
+func (r *Run) appendDirectiveLocked(text string, activity []ctxcompiler.ActivityEvent) {
+	seq := r.nextHistorySeqLocked()
+	for _, ev := range activity {
+		if ev.Seq >= seq {
+			seq = ev.Seq + 1
+		}
+	}
+	r.contextRevision++
+	snap := ctxcompiler.Snapshot{}
+	ctxcompiler.AppendDelta(&snap, seq, r.contextRevision, text)
+	r.History = append(r.History, snap.Activity[0])
+}
+
+func promoteSnapshotDirectives(r *Run, snap *ctxcompiler.Snapshot) {
+	if !switchOn("EXCALIBUR_CONTROL_TAIL") {
+		return
+	}
+	raw, _ := json.Marshal(snap.Volatile.Directives)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.directiveSnapshot != string(raw) && len(snap.Volatile.Directives) > 0 {
+		r.appendDirectiveLocked("pending instructions:\n"+strings.Join(snap.Volatile.Directives, "\n"), snap.Activity)
+	}
+	r.directiveSnapshot = string(raw)
+	snap.Volatile.Directives = nil
 }

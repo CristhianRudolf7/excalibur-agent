@@ -192,7 +192,23 @@ func (e *Engine) runParallel(ctx context.Context, run *Run, batch []providers.To
 		i, tc := i, tc
 		safego.Go("engine/tool-batch", nil, func() {
 			defer wg.Done()
+			run.mu.Lock()
+			dir := run.Workdir
+			run.mu.Unlock()
+			var monitor *dependencyMonitor
+			if tc.Name == "exec" || tc.Name == "call_tool" {
+				monitor = startDependencyMonitor(dir)
+			}
+			defer monitor.finish()
 			results[i] = e.runOne(ctx, run, tc)
+			reads, _ := monitor.finish()
+			dependencies := e.captureEvidenceDependencies(run, tc, results[i], reads...)
+			run.mu.Lock()
+			if run.pendingEvidence == nil {
+				run.pendingEvidence = map[string]map[string]string{}
+			}
+			run.pendingEvidence[tc.ID] = dependencies
+			run.mu.Unlock()
 		})
 	}
 	done := make(chan struct{})

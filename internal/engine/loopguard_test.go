@@ -109,8 +109,8 @@ func TestExactCallWindowRefusesThenResumes(t *testing.T) {
 		t.Fatalf("refused results = %d, want 5", got)
 	}
 	notes := run.VolatileNotes()
-	if countContaining(notes, tasks.ExactCallNote(3)) != 2 {
-		t.Fatalf("the third occurrence must note twice (before the window and after it): %v", notes)
+	if countContaining(notes, tasks.ExactCallNote(3)) != 1 {
+		t.Fatalf("the latest repeat note must replace the superseded version: %v", notes)
 	}
 }
 

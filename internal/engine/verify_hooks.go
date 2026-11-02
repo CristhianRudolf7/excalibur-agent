@@ -73,6 +73,7 @@ func historyTools(history []ctxcompiler.ActivityEvent) []tasks.HistoryTool {
 		}
 	}
 	var out []tasks.HistoryTool
+	versions := map[string]string{}
 	for _, ev := range history {
 		if ev.ToolResult == nil {
 			continue
@@ -80,7 +81,12 @@ func historyTools(history []ctxcompiler.ActivityEvent) []tasks.HistoryTool {
 		tr := ev.ToolResult
 		changed := false
 		for path, version := range ev.Dependencies {
-			if fileVersion(path) != version {
+			current, ok := versions[path]
+			if !ok {
+				current = fileVersion(path)
+				versions[path] = current
+			}
+			if current != version {
 				changed = true
 				break
 			}

@@ -14,7 +14,6 @@ type requestPrefix struct {
 	owner       *DefaultBuilder
 	initial     [4]string
 	current     [4]string
-	revision    int
 	compactions int
 	tools       []providers.ToolDefinition
 }
@@ -46,9 +45,14 @@ func (b *DefaultBuilder) stabilizePrefix(run *Run, snap *ctxcompiler.Snapshot, c
 			}
 		}
 		if len(updates) > 0 {
-			p.revision++
+			run.contextRevision++
 			seq := run.nextHistorySeqLocked()
-			ctxcompiler.AppendDelta(snap, seq, p.revision, updates...)
+			for _, ev := range snap.Activity {
+				if ev.Seq >= seq {
+					seq = ev.Seq + 1
+				}
+			}
+			ctxcompiler.AppendDelta(snap, seq, run.contextRevision, updates...)
 			run.History = append(run.History, snap.Activity[len(snap.Activity)-1])
 			var err error
 			*compiled, err = ctxcompiler.Compile(cfg, *snap, counter)
@@ -66,7 +70,9 @@ func (b *DefaultBuilder) stabilizePrefix(run *Run, snap *ctxcompiler.Snapshot, c
 		compiled.TotalTokens += compiled.LayerTokens[i]
 	}
 	raw, _ := json.Marshal(p.tools)
-	_ = json.Unmarshal(raw, defs)
+	var cloned []providers.ToolDefinition
+	_ = json.Unmarshal(raw, &cloned)
+	*defs = cloned
 	return nil
 }
 

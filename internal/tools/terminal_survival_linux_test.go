@@ -123,7 +123,20 @@ func TestForegroundServiceSurvivesHarnessExit(t *testing.T) {
 				}
 				response.Body.Close()
 			}
-			log, err := os.ReadFile(sessions[0].LogPath)
+			// The independent PTY pump persists output asynchronously after the
+			// response arrives. Wait for its durable receipt, with a bound.
+			var log []byte
+			deadline := time.Now().Add(2 * time.Second)
+			for {
+				log, err = os.ReadFile(sessions[0].LogPath)
+				if err == nil && strings.Count(string(log), "served after harness exit") == 2 {
+					break
+				}
+				if time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
 			if err != nil || strings.Count(string(log), "served after harness exit") != 2 {
 				t.Fatalf("output after harness exit: %s %v", log, err)
 			}

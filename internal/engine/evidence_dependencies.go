@@ -13,7 +13,7 @@ import (
 
 var localImportRe = regexp.MustCompile(`(?m)\b(?:from|import|require)\s*\(?\s*["']?([a-zA-Z_][a-zA-Z0-9_./-]*)`)
 
-func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, res tools.Result) map[string]string {
+func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, res tools.Result, reads ...string) map[string]string {
 	if !tasks.DependencyFreshnessEnabled() || res.Status != tools.StatusOK || (tc.Name != "exec" && tc.Name != "read_file" && tc.Name != "call_tool") {
 		return nil
 	}
@@ -24,13 +24,20 @@ func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, re
 	if !tasks.IsExercisingCall(h) && tc.Name != "read_file" {
 		return nil
 	}
-	paths := historyFileOperands(h, dir)
+	paths := append(historyFileOperands(h, dir), reads...)
+	scope := projectSourceScope(h, dir)
+	if scope != "" {
+		paths = append(paths, sourceScopeOperands(scope)...)
+	}
 	for _, f := range e.deliverables(run, request, nil) {
 		paths = append(paths, f.Path)
 	}
 	// Follow literal data operands and local imports in inspected scripts.
 	// No code is executed by dependency discovery.
 	versions := map[string]string{}
+	if scope != "" {
+		versions[scope] = fileVersion(scope)
+	}
 	for len(paths) > 0 && len(versions) < 1024 {
 		path := paths[0]
 		paths = paths[1:]
@@ -42,7 +49,7 @@ func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, re
 		if err != nil || !info.Mode().IsRegular() || info.Size() > 256<<10 {
 			continue
 		}
-		if _, script := programRunners[strings.ToLower(filepath.Ext(path))]; !script {
+		if _, script := programRunners[strings.ToLower(filepath.Ext(path))]; !script && !sourceScopeFile("go", path) && !sourceScopeFile("rust", path) && !sourceScopeFile("native", path) {
 			continue
 		}
 		body, err := os.ReadFile(path)
@@ -55,16 +62,23 @@ func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, re
 			candidates = append(candidates, module+".py", module+"/__init__.py", module+".js")
 		}
 		for _, p := range candidates {
-			if !filepath.IsAbs(p) {
-				p = filepath.Join(filepath.Dir(path), p)
+			roots := []string{filepath.Dir(path), dir}
+			if filepath.IsAbs(p) {
+				roots = []string{""}
 			}
-			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-				paths = append(paths, p)
+			for _, root := range roots {
+				candidate := p
+				if root != "" {
+					candidate = filepath.Join(root, p)
+				}
+				if fi, err := os.Stat(candidate); err == nil && fi.Mode().IsRegular() {
+					paths = append(paths, candidate)
+				}
 			}
 		}
 	}
 	// Incomplete discovery must fall back to conservative history checks.
-	if len(paths) > 0 {
+	if len(paths) > 0 || !validDependencyVersions(versions) {
 		return nil
 	}
 	return versions
