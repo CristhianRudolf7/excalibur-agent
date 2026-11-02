@@ -113,7 +113,7 @@ def _positive_seconds(raw):
 def _task_timeout(task_dir):
     try:
         with (Path(task_dir) / "task.toml").open("rb") as stream:
-            return _positive_seconds(tomllib.load(stream).get("agent", {}).get("timeout_sec"))
+            return _positive_seconds(_field(tomllib.load(stream).get("agent", {}), "timeout_sec"))
     except (OSError, TypeError, ValueError):
         return None
 
@@ -181,6 +181,8 @@ def resolve_agent_timeout(agent, environment=None, extra=None):
     if config_path is not None:
         try:
             config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+            if not isinstance(config, dict):
+                return None, "none (unresolved trial config)"
             configured_task_dir = _field(config.get("task", {}), "path")
             value = _configured_timeout(config, task_dir or configured_task_dir, task)
             if value is not None:

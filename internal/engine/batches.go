@@ -269,6 +269,7 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 	if DeadlineEnabled() {
 		ctx = tools.WithCommandDeadline(ctx, 0)
 	}
+	producerWarning := e.earlyProducerStopWarning(run, tc)
 	var res tools.Result
 	for attempt := 0; ; attempt++ {
 		var err error
@@ -295,6 +296,9 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 		if !res.Transient || attempt >= 2 {
 			break
 		}
+	}
+	if producerWarning != "" && res.Status == tools.StatusOK {
+		res.Output += "\n" + producerWarning
 	}
 	if rec != nil {
 		_, _ = rec.ToolResult(ctx, journal.ToolResultPayload{

@@ -381,8 +381,9 @@ type Run struct {
 	finishAuditSequence int
 	// timeOnlyClosingNoted marks the one-time wall-closing note in
 	// time-only mode so closing reminds once without spamming.
-	timeOnlyClosingNoted bool
-	deadlinePaced        uint8
+	timeOnlyClosingNoted   bool
+	earlyDeliverablesNoted bool
+	deadlinePaced          uint8
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
 	safetyCapNoted bool
@@ -910,6 +911,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	if done, err := e.completePendingConfirmation(ctx, run, e.deps.Clock()); done || err != nil {
 		return done, err
 	}
+	e.earlyDeliverablesCheck(run, e.deps.Clock())
 	run.DeadlinePacing(e.deps.Clock())
 
 	// Time-only binding (W8): only the wall clock pauses the run.

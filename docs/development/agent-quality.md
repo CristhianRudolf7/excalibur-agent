@@ -5504,3 +5504,35 @@ execution flag appear in the agent's `setup.log`; credentials are never included
 disables automatic runner discovery while preserving explicit operator values.
 Python tests use fake runner objects and temporary task/trial directories; the
 Go adapter test runs these timeout tests without importing Harbor or using models.
+
+### Early required outputs in autonomous runs
+
+`EXCALIBUR_EARLY_DELIVERABLES` defaults on and applies to autonomous exec/eval
+profiles, identified by their explicit-finish profile flag. Interactive assistant
+turns retain their existing behavior. The task context carries compact guidance:
+when required files depend on long computation, write valid outputs with a fast
+configuration first, then replace them with better results. Preserve the only
+running producer of a missing output until a valid result exists.
+
+At or after half of an explicitly configured wall budget, a run with missing
+required files gets one control note: “required outputs are still missing: write
+valid outputs now from the best available result, then improve them”. An estimated
+budget never triggers this note. Required paths come from the existing instruction
+artifact extraction; empty placeholders still count as missing outputs.
+
+A successful terminal stop result adds one advisory line when it targets a live
+session producing missing outputs. Supported actions include session signals,
+close, interrupt keys/text, and shell `kill`, `pkill` or `killall`. Matching uses
+session identity/PID or command patterns, then output paths in the launch command,
+a producing script named with the output in the instruction, or literal output
+paths in that script (read up to 256 KiB). This is a bounded advisory check: it
+does not infer dynamically assembled filenames or validate arbitrary file formats,
+and never blocks a stop. Current session facts take precedence over historical
+running observations. Files already present suppress the warning for those paths.
+
+Setting the switch to `0`, `off`, `false` or `no` disables the guidance, warning and
+halfway reminder together. Tests cover the compiled task guidance, exact halfway
+boundary, one-time delivery, explicit versus estimated budgets, empty outputs,
+live/dead/unrelated sessions, direct and script-linked producers, successful and
+failed stops, and switch/profile isolation. Tool definitions and profile pins do
+not change because this adds task context and result advice only.

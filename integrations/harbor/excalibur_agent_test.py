@@ -191,8 +191,11 @@ class TestRunnerTimeout(unittest.TestCase):
             # Logs alone can locate the trial config and its materialized task.
             (trial / "config.json").write_text(json.dumps({"task": {"path": str(task)}}))
             self.assertEqual(resolve_agent_timeout(Obj(logs_dir=trial / "agent"))[0], 2400)
-            (trial / "config.json").write_text("invalid")
-            self.assertIsNone(resolve_agent_timeout(Obj(), environment)[0])
+            for text in ("invalid", "[]", "null", '"invalid"', '{"timeout_multiplier":"bad"}',
+                         '{"agent_timeout_multiplier":-1}', '{"agent":{"max_timeout_sec":"bad"}}'):
+                with self.subTest(invalid_config=text):
+                    (trial / "config.json").write_text(text)
+                    self.assertIsNone(resolve_agent_timeout(Obj(), environment)[0])
 
     def test_config_objects_and_missing_invalid_values(self):
         task = Obj(config=Obj(agent=Obj(timeout_sec=5000)))
@@ -204,7 +207,7 @@ class TestRunnerTimeout(unittest.TestCase):
             task.config.agent.timeout_sec = raw
             self.assertIsNone(resolve_agent_timeout(Obj(), environment)[0])
         with tempfile.TemporaryDirectory() as tmp:
-            for text in ("broken", "[agent]\ntimeout_sec = -1", "[agent]\ntimeout_sec = 'bad'", ""):
+            for text in ("broken", "agent = 4", "[agent]\ntimeout_sec = -1", "[agent]\ntimeout_sec = 'bad'", ""):
                 Path(tmp, "task.toml").write_text(text)
                 self.assertIsNone(resolve_agent_timeout(Obj(_ex_timeout_hints={"task_dir": tmp}))[0])
 
