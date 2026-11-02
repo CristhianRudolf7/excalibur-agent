@@ -474,6 +474,11 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 	for _, e := range small.Evidence {
 		b.WriteString("- " + e + "\n")
 	}
+	if VisualVerifierEvidenceEnabled() && small.VisualEvidence != "" {
+		b.WriteString("\nlatest visual evidence (newest capture first; bounded):\n")
+		b.WriteString(visualEndStateReview)
+		b.WriteString(small.VisualEvidence)
+	}
 	b.WriteString("\nchanged: " + strings.TrimSpace(small.Diff) + "\n")
 	if t := strings.TrimSpace(finalText); t != "" {
 		b.WriteString("\nfinal answer (excerpt):\n" + trimLen(t, 800) + "\n")
@@ -987,5 +992,6 @@ const visualInspectionReview = "- For visual/interactive claims require captured
 
 // Include direct inspection calls in the verifier's read-only evidence packet.
 func isImageInspection(h HistoryTool) bool {
-	return envBool("EXCALIBUR_INSPECT_IMAGE", true) && strings.EqualFold(strings.TrimSpace(h.Name), "inspect_image")
+	_, _, ok := imageInspectionArgs(h)
+	return envBool("EXCALIBUR_INSPECT_IMAGE", true) && ok
 }

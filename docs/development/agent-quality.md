@@ -5624,3 +5624,32 @@ at 70% and later, the existing explicit delivery reserve rules apply unchanged.
 Assumed budgets and assistant profiles retain their current policy. Setting the
 switch off restores the existing cap and soft-verifier allowance throughout.
 Tool schemas and profile pins are unchanged.
+
+### Latest visual evidence in independent review (Sections 7.5 and 14.6)
+
+`EXCALIBUR_VISUAL_VERIFIER_EVIDENCE` defaults on. Independent review receives a
+separate evidence block of at most 1,500 bytes, independent of the ordinary
+verification-line limit. For each capture that fits, it includes the latest
+`inspect_image` result: capture/comparison paths, the first three nonempty
+`screen_text` lines, the blank/uniform flag, and changed-pixel count/percentage.
+Direct and deferred `call_tool` inspections are supported. Reinspection of the
+same path replaces its earlier summary; a failed latest inspection explicitly
+marks the current visual state unavailable. Missing extracted text or comparison
+metrics are identified rather than inferred.
+
+The newest captures take priority when the byte cap prevents including all of
+them; the block reports omitted captures. Paths, text lines and metric lines
+have individual bounds, and truncation preserves UTF-8. Existing image thumbnails
+and ordinary evidence remain available through their current paths. The verifier
+must support requested visual end states with captured observations and return
+FAIL for missing or contradictory visual evidence. A capture also triggers review
+when no filename-derived criterion was extracted. This applies to independent
+review in assistant and autonomous profiles; completion/reserve policies retain
+their profile scope. Disabling the switch restores the previous evidence packet.
+
+Retry contexts retain the same bounded block from full tool observations, even
+when ordinary command outputs are shortened. Tests cover late inspections after
+many ordinary checks, repeated paths, deferred calls, blank and failed captures,
+change percentages, UTF-8 and byte bounds, explicit omission, switch ablation,
+and full/retry verifier calls without extracted criteria. No tool definitions,
+shared contracts or profile pins changed.

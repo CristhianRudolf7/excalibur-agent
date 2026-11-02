@@ -172,7 +172,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	// Existing executable evidence supplies the review seam in that case;
 	// the verifier judges applicability from the literal request.
 	if len(drafts) == 0 {
-		review := false
+		review := tasks.LatestVisualEvidence(history) != ""
 		if cfg.EnableGeneralizeChecks && tasks.HasGeneralizableInstruction(request) {
 			for _, h := range history {
 				if tasks.IsExercisingCall(h) {
@@ -208,7 +208,11 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 			compactHistory[i].Output = compactHistory[i].Output[:400]
 		}
 	}
-	smaller := tasks.StrongVerifierPromptWithConfig(cfg, tasks.BuildVerifierContext(request, drafts, compactHistory, 3), compactHistory, "")
+	smallerContext := tasks.BuildVerifierContext(request, drafts, compactHistory, 3)
+	// Keep the bounded visual summary from full observations; arbitrary output
+	// truncation can otherwise remove readable text and the comparison metrics.
+	smallerContext.VisualEvidence = small.VisualEvidence
+	smaller := tasks.StrongVerifierPromptWithConfig(cfg, smallerContext, compactHistory, "")
 	if at := strings.Index(smaller, "instruction:\n"); at >= 0 {
 		shortRules := "Return the compact line schema below including VERDICT. Judge only executed evidence against the literal instruction. Missing checks FAIL. Metadata alone does not prove behaviour. Never assume hidden tests.\n"
 		if cfg.EnableGeneralizeChecks {

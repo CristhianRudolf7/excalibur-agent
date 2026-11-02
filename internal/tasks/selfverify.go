@@ -661,6 +661,8 @@ type VerifierSmallContext struct {
 	Drafts []string
 	// Evidence holds one short line per verification call.
 	Evidence []string
+	// VisualEvidence holds the latest per-capture summaries, at most 1500 bytes.
+	VisualEvidence string
 	// Diff summarizes the changed artifacts.
 	Diff string
 }
@@ -672,7 +674,7 @@ func BuildVerifierContext(request string, drafts []DraftCriterion, history []His
 	if maxLines < 1 {
 		maxLines = 20
 	}
-	ctx := VerifierSmallContext{Request: strings.TrimSpace(request)}
+	ctx := VerifierSmallContext{Request: strings.TrimSpace(request), VisualEvidence: LatestVisualEvidence(history)}
 	for _, d := range drafts {
 		ctx.Drafts = append(ctx.Drafts, d.ID+" "+d.Statement+" ["+string(d.Method)+"]")
 	}
