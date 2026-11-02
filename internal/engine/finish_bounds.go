@@ -36,7 +36,7 @@ func (e *Engine) countBlockingReasons(run *Run, reasons []string) {
 }
 
 func (e *Engine) hardFinishReasons(run *Run, reasons []string) []string {
-	reserve := e.inTimeReserve(run, e.deps.Clock(), 70)
+	reserve := e.reserveMayAccept(run, e.deps.Clock(), 70)
 	e.announceTimeReserve(run, e.deps.Clock())
 	if !e.boundedRefusals(run) && !reserve {
 		return reasons

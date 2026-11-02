@@ -48,8 +48,7 @@ const (
 	DefaultInputTokenCap = 30_000_000
 	// DefaultEvalWallSecs is the wall budget of a non-interactive run
 	// with neither an explicit --timeout nor EXCALIBUR_EVAL_WALL_SECS:
-	// the common agent timeout of terminal benchmarks, so the budget
-	// the agent sees matches the limit the harness enforces.
+	// a guidance estimate when the outer deadline is unknown.
 	DefaultEvalWallSecs = 900
 	// SpendCloseShare is the share of a spend cap at which the agent
 	// is asked to finish within a few turns.
@@ -182,15 +181,14 @@ func EvalWallEnvSecs() int64 {
 // EvalWallSecs resolves the wall budget of a non-interactive run and
 // its source, in this order: the explicit --timeout given to the
 // process, EXCALIBUR_EVAL_WALL_SECS, then
-// DefaultEvalWallSecs. The budget is the real limit: pacing reads it at
-// 50, 75 and 90 percent, and the agent never cuts a run short before
-// it. Source is one of explicit, env, default.
+// DefaultEvalWallSecs. Source is explicit (flag or valid environment) or
+// default. The fallback is guidance; HardWallSeconds resolves its safety cap.
 func EvalWallSecs(explicit int64) (int64, string) {
 	if explicit > 0 {
 		return explicit, "explicit"
 	}
 	if secs := EvalWallEnvSecs(); secs > 0 {
-		return secs, "env"
+		return secs, "explicit"
 	}
 	return DefaultEvalWallSecs, "default"
 }

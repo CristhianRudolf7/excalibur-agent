@@ -438,7 +438,7 @@ func (m *recordingModelEndpoint) Chat(ctx context.Context, role types.ModelRole,
 		RetryWaitCount: meta.RetryWaitCount, RetryWaitSeconds: meta.RetryWaitSeconds,
 	})
 	// Budget consumption over time (incremental).
-	_ = m.run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: resp.Usage.Input + resp.Usage.Output, CostUSD: 0, Note: "model_call"})
+	_ = m.run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: resp.Usage.Input + resp.Usage.Output, CostUSD: 0, WallSource: m.run.wallSource, Note: "model_call"})
 	return resp, meta, err
 }
 
@@ -877,8 +877,8 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	// Effective run-level budgets (W8, Sections 7.3, 18.4, 23.2):
 	// in exec/delegate/eval with EXCALIBUR_TIME_BUDGET_ONLY=on (default) the
-	// binding budget is the task wall clock (explicit --timeout,
-	// else EXCALIBUR_EVAL_WALL_SECS, else 900 seconds) with
+	// wall guidance is explicit --timeout or EXCALIBUR_EVAL_WALL_SECS,
+	// else a 900-second estimate with a separate 4x hard safety bound and
 	// advisory safety caps and enforced cost/input-token spend caps;
 	// otherwise the legacy limits apply. The tracker trips closing
 	// mode below 10% and pauses with the budget motive at zero.
@@ -895,6 +895,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		// the switch is on; off restores the legacy text finish.
 		ExplicitFinish: explicitFinish,
 		TimeBudgetOnly: effBudgets.TimeBudgetOnly,
+		WallSource:     effBudgets.WallSource,
 	})
 	// Resolve relative artifact paths against the run project
 	// directory for the required-artifact completion gate.
@@ -905,14 +906,12 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if erun.Workdir == "" {
 		erun.Workdir, _ = os.Getwd()
 	}
-	if effBudgets.WallSecs > 0 {
-		// An operator-derived or arm-default budget (no explicit
-		// flag) still bounds the wall clock: the context enforces
-		// the edge while the tracker owns closing mode and the
-		// honest paused report.
+	if effBudgets.HardWallSecs > 0 {
+		// Keep the legacy deadline-switch path consistent with the
+		// resolved hard bound, including the larger fallback safety cap.
 		if opts.TimeoutSecs == 0 && !engine.DeadlineEnabled() {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, time.Duration(effBudgets.WallSecs)*time.Second)
+			ctx, cancel = effBudgets.wallContext(ctx, time.Now())
 			defer cancel()
 		}
 	}
@@ -924,6 +923,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		"strict_blocked":   effBudgets.StrictBlocked,
 		"wall_secs":        effBudgets.WallSecs,
 		"wall_source":      effBudgets.WallSource,
+		"hard_wall_secs":   effBudgets.HardWallSecs,
 		"deadline":         effBudgets.Deadline,
 		"max_steps":        effBudgets.MaxSteps,
 		"cost_cap_usd":     effBudgets.CostCapUSD,

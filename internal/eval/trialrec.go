@@ -400,6 +400,7 @@ func (r *TrialRecorder) RecordPairRepair(repaired int, note string) error {
 
 // BudgetPoint is budget consumption at one instant.
 type BudgetPoint struct {
+	WallSource string    `json:"wall_source,omitempty"`
 	At         time.Time `json:"at"`
 	TokensUsed int64     `json:"tokens_used"`
 	CostUSD    float64   `json:"cost_usd"`

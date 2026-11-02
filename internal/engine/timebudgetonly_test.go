@@ -83,8 +83,8 @@ func TestEvalWallSources(t *testing.T) {
 	}
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	t.Setenv("EXCALIBUR_EVAL_WALL_SECS", "1800")
-	if secs, src := EvalWallSecs(0); secs != 1800 || src != "env" {
-		t.Fatalf("env = %d/%s, want 1800/env", secs, src)
+	if secs, src := EvalWallSecs(0); secs != 1800 || src != "explicit" {
+		t.Fatalf("env = %d/%s, want 1800/explicit", secs, src)
 	}
 	if secs, src := EvalWallSecs(120); secs != 120 || src != "explicit" {
 		t.Fatalf("explicit must win over the env: %d/%s", secs, src)

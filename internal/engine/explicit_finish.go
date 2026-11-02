@@ -696,9 +696,15 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 		return false, nil
 	}
 	e.announceTimeReserve(run, e.deps.Clock())
-	if e.inTimeReserve(run, e.deps.Clock(), 85) {
+	if e.reserveMayAccept(run, e.deps.Clock(), 85) {
 		e.setFinishVerdict(run, tc.ID, FinishAcceptedText, false)
 		return true, e.completeReservedFinish(ctx, run, args)
+	}
+	if reason := e.pendingCommandReason(run, e.deps.Clock()); reason != "" {
+		run.recordFinishRefusal(reason)
+		e.setFinishVerdict(run, tc.ID, reason, true)
+		run.InjectControlNote("finish.refusal", reason)
+		return false, nil
 	}
 	if reasons, ok := run.unchangedRefusal(); ok && (e.timeRemains(run) || !allSoftReasons(reasons)) {
 		if hard := e.hardFinishReasons(run, reasons); len(hard) > 0 {
@@ -845,6 +851,9 @@ func (e *Engine) completeBlocked(ctx context.Context, run *Run, args FinishArgs)
 // finishSafetyReason bounds non-interactive refusal loops even when a
 // caller omits budgets. Other tool work resets the refusal streak.
 func (e *Engine) finishSafetyReason(run *Run) string {
+	if e.pendingCommandReason(run, e.deps.Clock()) != "" {
+		return ""
+	}
 	if !e.explicitFinishRequired(run) {
 		return ""
 	}

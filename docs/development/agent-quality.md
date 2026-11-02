@@ -5128,3 +5128,27 @@ accounting. No provider or gateway protocol changes are involved.
 
 Payload sizes are overlapping diagnostic views (request, messages and tool
 components). Token and cost totals continue to use provider usage counters.
+
+### Round 3: explicit time reserves (CLI and engine, T2)
+
+`EXCALIBUR_TIME_RESERVE_EXPLICIT_ONLY` defaults on for non-interactive runs.
+A positive `--timeout`, `EXCALIBUR_EVAL_WALL_SECS`, or an existing configured
+legacy wall limit has source `explicit`; the built-in 900-second guidance has
+source `default`. `budgets.json`, budget events and `budget.jsonl` record
+`wall_source`. `budgets.json` and budget events also record `hard_wall_secs`.
+
+Explicit limits keep the 70% advisory reserve and 85% finish acceptance.
+With the fallback, the one-time 70% notice describes an estimate, refusals
+retain their two-strike cap, and neither the 85% reserve nor the older 95%
+pending-confirmation rule accepts a finish automatically. Time guidance also
+labels the unknown limit. Engine and CLI hard stops use four times the fallback
+estimate (3600 seconds); an earlier parent deadline or termination still wins.
+This safety bound applies even while commands are active. Independent spend
+and step policies remain in effect.
+
+A running build or test from this run prevents finish acceptance until it
+exits, including after repeated finish calls. Only an explicit limit past 85%
+permits the reserve override. Session history and live process facts cover
+foreground and background commands; service completion keeps its existing
+policy. Interactive assistant runs keep their configured limits. Set the
+switch to `0` to restore the original reserve and fallback hard-stop behavior.

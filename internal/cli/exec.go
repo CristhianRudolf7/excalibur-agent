@@ -119,10 +119,11 @@ type ExecOptions struct {
 
 // ExecRun is the live handle passed to the Work hook.
 type ExecRun struct {
-	startedAt time.Time
-	TaskID    types.TaskID
-	RunID     types.RunID
-	Dir       string
+	startedAt  time.Time
+	wallSource string
+	TaskID     types.TaskID
+	RunID      types.RunID
+	Dir        string
 	// ProjectDir is the isolated working copy for this run (the
 	// best-of-N fan-out sets one copy per attempt). Work hooks must
 	// write through it to stay isolated.
@@ -438,11 +439,15 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 
 	wallSecs := opts.TimeoutSecs
 	if engine.DeadlineEnabled() {
-		wallSecs = EffectiveBudgetsFor(opts, profile).WallSecs
+		wallSecs = EffectiveBudgetsFor(opts, profile).HardWallSecs
 	}
 	if wallSecs > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithDeadline(ctx, startedAt.Add(time.Duration(wallSecs)*time.Second))
+		if engine.DeadlineEnabled() {
+			ctx, cancel = EffectiveBudgetsFor(opts, profile).wallContext(ctx, startedAt)
+		} else {
+			ctx, cancel = context.WithDeadline(ctx, startedAt.Add(time.Duration(wallSecs)*time.Second))
+		}
 		defer cancel()
 	}
 
@@ -483,9 +488,9 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	// safety caps. Recorded in profile.json (so profile.sha256 moves
 	// with them) and in budgets.json for the ablation.
 	effBudgets := EffectiveBudgetsFor(opts, profile)
-	if effBudgets.WallSecs > 0 {
+	if effBudgets.HardWallSecs > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(effBudgets.WallSecs)*time.Second)
+		ctx, cancel = effBudgets.wallContext(ctx, startedAt)
 		defer cancel()
 	}
 
@@ -555,6 +560,7 @@ func RunExec(ctx context.Context, opts ExecOptions) (*ExecOutcome, error) {
 	run := &ExecRun{
 		TaskID: taskID, RunID: runID, Dir: runDir,
 		startedAt:  startedAt,
+		wallSource: effBudgets.WallSource,
 		ProjectDir: opts.ProjectDir,
 		ATIF:       writer, Metrics: metrics,
 		emit: opts.Emit, emitJSON: opts.EmitJSON,
@@ -970,7 +976,7 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 			_ = run.Harbor.SetFinal(snap.Usage.Input, snap.Usage.Output+snap.Usage.Reasoning, snap.Usage.CacheRead+snap.Usage.CacheWrite, snap.CostUSD)
 		}
 		_ = run.Recorder.RecordTransition(string(state)+":running", string(state), outcome.Reason)
-		_ = run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: snap.Usage.Input + snap.Usage.Output, CostUSD: snap.CostUSD, WallSecs: snap.WallSeconds, Note: "final"})
+		_ = run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: snap.Usage.Input + snap.Usage.Output, CostUSD: snap.CostUSD, WallSecs: snap.WallSeconds, WallSource: run.wallSource, Note: "final"})
 		_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: state == types.RunCompleted, Note: outcome.Summary})
 		// Final resource sample: the metrics peak wins, but when the
 		// engine sampler never ran (stub path, early failure) the

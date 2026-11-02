@@ -123,7 +123,7 @@ func runExecCmd(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if wall := cli.EffectiveBudgetsFor(opts, opts.Profile).WallSecs; wall > 0 {
+	if wall := cli.EffectiveBudgetsFor(opts, opts.Profile).HardWallSecs; wall > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(wall)*time.Second)
 		defer cancel()

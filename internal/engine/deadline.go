@@ -74,7 +74,11 @@ func (r *Run) DeadlinePacing(now time.Time) {
 	if total > 0 {
 		for _, i := range r.crossPacingLocked(elapsed, total) {
 			step := pacingSteps[i]
-			notes = append(notes, fmt.Sprintf("Task deadline %d%%: %s. Next: %s", step.percent, FormatRemaining(total-elapsed), step.advice))
+			if r.assumedWallLocked() {
+				notes = append(notes, "Estimated time: the time limit is not known; check progress and wait for running builds and tests before finishing.")
+			} else {
+				notes = append(notes, fmt.Sprintf("Task deadline %d%%: %s. Next: %s", step.percent, FormatRemaining(total-elapsed), step.advice))
+			}
 		}
 	}
 	r.mu.Unlock()
@@ -111,6 +115,11 @@ func (r *Run) timeFooter(now time.Time) string {
 		left = 0
 	}
 	line := fmt.Sprintf("[time: %s used, about %s left]", clockSpan(elapsed), clockSpan(left))
+	if r.assumedWallLocked() {
+		line = fmt.Sprintf("[time estimate: %s used, assume about %s left; time limit unknown]", clockSpan(elapsed), clockSpan(left))
+		r.crossPacingLocked(elapsed, total)
+		return line
+	}
 	if crossed := r.crossPacingLocked(elapsed, total); len(crossed) > 0 {
 		step := pacingSteps[crossed[len(crossed)-1]]
 		line += fmt.Sprintf(" Pacing %d%%: %s", step.percent, step.advice)
@@ -170,7 +179,7 @@ func (r *Run) deadlineCommand(now time.Time, name string, args json.RawMessage) 
 	r.mu.Lock()
 	// Autonomous exec/eval pacing is advisory until the real deadline.
 	// The process context owns the hard wall limit.
-	if r.Profile.TimeBudgetOnly {
+	if r.Profile.TimeBudgetOnly || r.assumedWallLocked() {
 		r.mu.Unlock()
 		return 0, ""
 	}

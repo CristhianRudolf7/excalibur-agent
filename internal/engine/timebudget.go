@@ -127,7 +127,11 @@ func (r *Run) BudgetLine(now time.Time) string {
 			elapsed = 0
 		}
 		left := time.Duration(limit.MaxSeconds)*time.Second - elapsed
-		parts = append(parts, fmt.Sprintf("time %s of %s", FormatRemaining(left), formatSpan(time.Duration(limit.MaxSeconds)*time.Second)))
+		label := "time"
+		if r.assumedWallLocked() {
+			label = "estimated time (limit unknown)"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s of %s", label, FormatRemaining(left), formatSpan(time.Duration(limit.MaxSeconds)*time.Second)))
 	}
 	return strings.Join(parts, ", ")
 }

@@ -59,6 +59,9 @@ type Profile struct {
 	// force closing instead of pausing. Set by non-interactive
 	// drivers (eval default ON via EXCALIBUR_TIME_BUDGET_ONLY).
 	TimeBudgetOnly bool
+	// WallSource is explicit or default for non-interactive wall guidance.
+	// Empty retains the configured-limit behavior of existing engine clients.
+	WallSource string
 }
 
 // ModelEndpoint is the single-model gateway seam (19.2-19.6). The
@@ -907,7 +910,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		return run.Profile.TimeBudgetOnly
 	}()
 	if timeOnly {
-		if status := timeOnlyStatus(run.Tracker.Limit, elapsed); status == tasks.StatusExhausted {
+		if status := run.wallStatus(elapsed); status == tasks.StatusExhausted {
 			e.pauseBudget(ctx, run)
 			return true, nil
 		}
@@ -940,7 +943,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	if timeOnly {
 		// In time-only mode closing follows the wall clock only so
 		// safety caps never force an early close.
-		closing = timeOnlyStatus(run.Tracker.Limit, elapsed) == tasks.StatusClosing
+		closing = run.wallStatus(elapsed) == tasks.StatusClosing
 		if closing {
 			run.mu.Lock()
 			noted := run.timeOnlyClosingNoted
@@ -1142,6 +1145,9 @@ func (e *Engine) checkBudgets(run *Run, elapsed time.Duration) tasks.Status {
 	defer run.mu.Unlock()
 	dup := run.Tracker
 	dup.Used.Elapsed = elapsed
+	if run.assumedWallLocked() {
+		dup.Limit.MaxSeconds = HardWallSeconds(dup.Limit.MaxSeconds, "default")
+	}
 	return dup.Evaluate()
 }
 
