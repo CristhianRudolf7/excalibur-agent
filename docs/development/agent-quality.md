@@ -5900,3 +5900,14 @@ full prompt grows from 5,091 to 5,168 bytes and recovery from 2,233 to 2,310.
 The task-layer prompt test measures the same delta with generalization on and
 off. Restoring the earlier method or verifier wiring makes the respective new
 regression tests fail. Tool definitions and profile pins remain unchanged.
+
+Scope-audit follow-up coverage includes unquoted values containing dots, empty
+values, and quotes moved between tokens without changing their count. The read
+budget also limits the reader itself so concurrently growing files cannot exceed
+it. These adjustments do not change any fixed prompt bytes or switches.
+
+Validation for minimal value edits: repository formatting, vet, staticcheck,
+Linux/macOS/Windows builds and the bare-goroutine check pass. Race tests pass for
+`internal/engine/...` under a 6 GiB memory cap and for `internal/tools/...`,
+`internal/cli/...`, `internal/tasks` and `internal/ctxcompiler` under 3 GiB.
+Tests use local files and fake endpoints; no live model calls are needed.

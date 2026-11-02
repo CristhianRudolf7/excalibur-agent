@@ -27,7 +27,7 @@ var substitutionRequest = regexp.MustCompile(`(?i)\b(?:replac(?:e|ing)|renam(?:e
 // Literal pairs improve precision for values that intentionally contain spaces,
 // quotes or escapes. Unspecified replacements use structural comparison only;
 // this advisory does not try to infer the semantic meaning of arbitrary prose.
-var substitutionPair = regexp.MustCompile("(?i)\\b(?:replace|rename|substitute)\\s+(?:all occurrences of\\s+)?(`[^`\\n]+`|\"[^\"\\n]+\"|'[^'\\n]+'|[^\\s]+)\\s+(?:with|to|by)\\s+(`[^`\\n]+`|\"[^\"\\n]+\"|'[^'\\n]+'|[^\\s.,;]+)")
+var substitutionPair = regexp.MustCompile("(?i)\\b(?:replace|rename|substitute)\\s+(?:all occurrences of\\s+)?(`[^`\\n]+`|\"[^\"\\n]+\"|'[^'\\n]+'|[^\\s]+)\\s+(?:with|to|by)\\s+(`[^`\\n]+`|\"[^\"\\n]+\"|'[^'\\n]+'|[^\\s]+)")
 
 type editScopeEvidence struct {
 	diff, note string
@@ -78,9 +78,10 @@ func readEditScopeFile(path string, remaining *int64) (string, bool) {
 		return "", false
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, editScopeFileBytes+1))
-	*remaining -= int64(len(data)) + 1
-	if err != nil || len(data) > editScopeFileBytes || bytes.IndexByte(data, 0) >= 0 {
+	limit := min(int64(editScopeFileBytes+1), *remaining)
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	*remaining -= int64(len(data))
+	if err != nil || int64(len(data)) == limit || bytes.IndexByte(data, 0) >= 0 {
 		return "", false
 	}
 	if bytes.Count(data, []byte{'\n'}) >= editScopeFileLines {
@@ -95,6 +96,8 @@ func editScopeNormalizer(request string) *strings.Replacer {
 		for _, value := range match[1:] {
 			if len(value) >= 2 && strings.ContainsRune("`\"'", rune(value[0])) && value[len(value)-1] == value[0] {
 				value = value[1 : len(value)-1]
+			} else {
+				value = strings.TrimRight(value, ".,;")
 			}
 			if value != "" {
 				pairs = append(pairs, value, "\x00")
@@ -184,6 +187,9 @@ func editScopeDifference(before, after string) string {
 	if structure(before, " \t\r\n") != structure(after, " \t\r\n") {
 		return "whitespace or line layout changed (values omitted)"
 	}
+	if structure(before, "'\"`\\") != "" && editScopeLayout(before) != editScopeLayout(after) {
+		return "quoting, escaping or token layout changed (values omitted)"
+	}
 	// Preserve the order and spelling of line keys when values were not named
 	// literally. This handles config rewrites without guessing value contents.
 	keys := func(s string) string {
@@ -200,6 +206,22 @@ func editScopeDifference(before, after string) string {
 		return "surrounding keys or their order changed (values omitted)"
 	}
 	return ""
+}
+
+func editScopeLayout(s string) string {
+	var b strings.Builder
+	inValue := false
+	for _, r := range s {
+		if strings.ContainsRune("'\"`\\ \t\r\n", r) {
+			b.WriteRune(r)
+			inValue = false
+		} else if !inValue {
+			b.WriteByte('V')
+			inValue = true
+		}
+	}
+	// An empty quoted replacement is still a value-only change.
+	return strings.NewReplacer("'V'", "''", "\"V\"", "\"\"", "`V`", "``").Replace(b.String())
 }
 
 func appendEditScopeEvidence(small *tasks.VerifierSmallContext, audit []editScopeEvidence) {
