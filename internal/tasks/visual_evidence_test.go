@@ -57,6 +57,10 @@ func TestVerifierVisualEvidenceBoundAndAblation(t *testing.T) {
 		t.Fatalf("invalid bounded summary (%d bytes): %s", len(visual), visual)
 	}
 	t.Setenv(VisualVerifierEvidenceSwitch, "0")
+	wrapped := HistoryTool{Name: "call_tool", Args: `{"name":"inspect_image","arguments":{"path":"view.png"}}`}
+	if isImageInspection(wrapped) {
+		t.Fatal("disabled visual extension changed deferred-call evidence handling")
+	}
 	ctx := BuildVerifierContext("Display requested output", nil, history, 1)
 	if ctx.VisualEvidence != "" || len(ctx.Evidence) != 1 {
 		t.Fatalf("disabled summary changed legacy evidence: %+v", ctx)

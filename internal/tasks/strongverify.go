@@ -992,6 +992,9 @@ const visualInspectionReview = "- For visual/interactive claims require captured
 
 // Include direct inspection calls in the verifier's read-only evidence packet.
 func isImageInspection(h HistoryTool) bool {
+	if !VisualVerifierEvidenceEnabled() && !strings.EqualFold(strings.TrimSpace(h.Name), "inspect_image") {
+		return false
+	}
 	_, _, ok := imageInspectionArgs(h)
 	return envBool("EXCALIBUR_INSPECT_IMAGE", true) && ok
 }
