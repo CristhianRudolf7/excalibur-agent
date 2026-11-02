@@ -386,6 +386,7 @@ type Run struct {
 	// time-only mode so closing reminds once without spamming.
 	timeOnlyClosingNoted   bool
 	earlyDeliverablesNoted bool
+	probes                 probeSyncState
 	deadlinePaced          uint8
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
@@ -910,6 +911,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 			return true, e.completeWithPending(ctx, run, []string{pending})
 		}
 	}
+	e.probeSyncCheck(run, e.deps.Clock())
 	e.announceTimeReserve(run, e.deps.Clock())
 	if done, err := e.completePendingConfirmation(ctx, run, e.deps.Clock()); done || err != nil {
 		return done, err
@@ -1477,6 +1479,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		runIdx = append(runIdx, i)
 	}
 	beforeRecheck := run.recheckSnapshot()
+	beforeTrials := e.captureTrialObservation(run, runCalls)
 	results := make([]tools.Result, len(batch))
 	if len(runCalls) > 0 {
 		ran := e.runParallel(ctx, run, runCalls)
@@ -1484,6 +1487,8 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 			results[i] = ran[j]
 		}
 	}
+	e.observeProbeCopies(run, runCalls, executedResults(results, runIdx), beforeTrials)
+	e.probeSyncCheck(run, e.deps.Clock())
 	for i, msg := range refused {
 		if msg != "" {
 			results[i] = tools.Result{Status: tools.StatusInputError, Output: msg}

@@ -339,6 +339,11 @@ func (g *Guard) Check() string {
 // Note reports preservation paths and literal constraints to the agent.
 func (g *Guard) Note() string {
 	lines := []string{"Scope guard active. Probe copies of input data first; preserve originals. Never change an expected value to make a failed check pass."}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_IN_PLACE_GUIDANCE"))) {
+	case "0", "off", "false", "no":
+	default:
+		lines[0] = "Scope guard active. Preserve inputs that must stay unchanged; use probe copies. For in-place edits, keep the deliverable at its best version so far. Never change expected values to pass a check."
+	}
 	var keys []string
 	for p := range g.Backups {
 		keys = append(keys, p)

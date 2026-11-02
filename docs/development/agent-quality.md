@@ -5734,3 +5734,51 @@ verifier +262 each. The method size assertions move from 3,500 to 3,750 to cover
 the sentence. Tool definitions and profile pins are unchanged. Tests cover all
 three prompt builders, recovery and the independent switch boundaries using
 simulated replies, without external model calls.
+
+### Round 13: working-copy delivery reminders (engine, K1)
+
+`EXCALIBUR_PROBE_SYNC` defaults on (`0`, `off`, `false`, or `no` disables
+it). In autonomous exec/eval runs, the engine observes copies of required
+files by comparing complete contents before and after tool batches. Literal
+`cp` and `rsync` operations also identify a copy edited within the same shell
+call. Identical writes count; merely reading an existing duplicate does not.
+Required paths come from the existing instruction-based artifact extraction.
+
+When the copy differs but its deliverable still has the copied original
+contents, the engine adds a control note after a passing or improving check
+on the copy, or at 50% of an explicit wall budget. It repeats once at 70%.
+Assumed budgets do not trigger the timed reminders. The reminder names the
+required deliverable and asks the agent to copy its best version back; it
+never writes or selects file contents. Syncing or editing the deliverable
+retires the stale reminder. Interactive assistant runs retain their behavior.
+
+Discovery reads literal tool paths, shell operands and inline script paths;
+directory operands cover directory copies and checks from a probe directory.
+Reads are bounded to 256 entries, 1 MiB per regular file and 4 MiB per
+observation; symlinks and special files are skipped. Dynamic paths and files
+outside those bounds are not inferred. Diagnostic improvements compare
+explicit warning, error or failure totals without accepting a regression in
+another reported total. Timing and line-number changes are not progress.
+Tests cover copy forms, content writes, check improvement/pass, both time
+thresholds, one-time reminders, sync-back retirement, negative cases, profile
+and switch scope, bounded reads, and batch wiring (Sections 18.2–18.4).
+
+### Round 13: preservation and candidate-search guidance (K2)
+
+`EXCALIBUR_IN_PLACE_GUIDANCE` defaults on. The working-method and scope-guard
+notes clarify that preservation applies to inputs that must stay unchanged.
+When a request asks for an in-place edit, the deliverable should hold the best
+version so far. Expected inputs must still never be rewritten to match output.
+Setting the switch off restores the prior preservation wording; the existing
+`EXCALIBUR_INPUT_RESTORE` switch continues to gate working-method input advice.
+This distinction also applies to assistant workers handling in-place edits.
+
+`EXCALIBUR_SEARCH_GUIDANCE` defaults on. Only autonomous exec/eval requests
+receive the task-layer instruction to script tool-checked candidate searches
+and apply the best choice instead of spending a model turn on each manual
+trial. It is independent of early-output and input-restoration switches.
+The change adds 9 bytes to the default working method (3701 to 3710), 61 to
+the scope note (133 to 194), and 158 to autonomous task guidance. Tests measure
+these byte deltas, enforce compact bounds, and verify switch/profile scope.
+The preservation test now checks the corrected wording. Tool definitions,
+profile catalogs and their pins are unchanged.

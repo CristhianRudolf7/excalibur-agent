@@ -397,3 +397,20 @@ func TestExplicitMetadataDirectoryProtection(t *testing.T) {
 		t.Fatal(s)
 	}
 }
+
+func TestInPlacePreservationNote(t *testing.T) {
+	g := &Guard{}
+	t.Setenv("EXCALIBUR_IN_PLACE_GUIDANCE", "0")
+	old := g.Note()
+	t.Setenv("EXCALIBUR_IN_PLACE_GUIDANCE", "")
+	current := g.Note()
+	for _, want := range []string{"Preserve inputs that must stay unchanged", "For in-place edits, keep the deliverable at its best version so far"} {
+		if !strings.Contains(current, want) || strings.Contains(old, want) {
+			t.Fatal("in-place note", want)
+		}
+	}
+	if len(current) > 200 {
+		t.Fatal("scope note grew", len(current))
+	}
+	t.Logf("scope guidance: %d -> %d bytes (delta %+d)", len(old), len(current), len(current)-len(old))
+}

@@ -96,6 +96,9 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 		}
 		snap.Task.FixedInstructions = append(append([]string(nil), snap.Task.FixedInstructions...), guidance)
 	}
+	if run.trialAdviceEnabled(searchGuidanceSwitch) {
+		snap.Task.FixedInstructions = append(append([]string(nil), snap.Task.FixedInstructions...), searchGuidance)
+	}
 	snapshotLen := len(snap.Activity)
 	hist := run.historyCopy()
 	snap.Activity = append(append([]ctxcompiler.ActivityEvent(nil), snap.Activity...), hist...)

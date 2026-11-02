@@ -431,11 +431,12 @@ func TestWorkingMethodNoOutsideCode(t *testing.T) {
 func TestPreservedInputGuidance(t *testing.T) {
 	t.Setenv("EXCALIBUR_METHOD_V2", "on")
 	t.Setenv("EXCALIBUR_INPUT_RESTORE", "on")
-	if !strings.Contains(ctxcompiler.WorkingMethod(), "Inspect disposable copies before opening or changing irreplaceable inputs") {
+	t.Setenv("EXCALIBUR_IN_PLACE_GUIDANCE", "on")
+	if !strings.Contains(ctxcompiler.WorkingMethod(), "Preserve only inputs that must stay unchanged") {
 		t.Fatal("missing preserved input guidance")
 	}
 	t.Setenv("EXCALIBUR_INPUT_RESTORE", "off")
-	if strings.Contains(ctxcompiler.WorkingMethod(), "Inspect disposable copies before opening or changing irreplaceable inputs") {
+	if strings.Contains(ctxcompiler.WorkingMethod(), "Preserve only inputs that must stay unchanged") {
 		t.Fatal("disabled guidance present")
 	}
 }
@@ -453,4 +454,22 @@ func TestDefaultPreflightGuidance(t *testing.T) {
 	if strings.Contains(ctxcompiler.WorkingMethod(), "reuse fresh preflight evidence") {
 		t.Fatal("disabled guidance present")
 	}
+}
+
+func TestInPlaceInputGuidanceSwitchAndBytes(t *testing.T) {
+	t.Setenv("EXCALIBUR_METHOD_V2", "on")
+	t.Setenv("EXCALIBUR_INPUT_RESTORE", "on")
+	t.Setenv("EXCALIBUR_IN_PLACE_GUIDANCE", "off")
+	old := ctxcompiler.WorkingMethod()
+	t.Setenv("EXCALIBUR_IN_PLACE_GUIDANCE", "")
+	current := ctxcompiler.WorkingMethod()
+	for _, want := range []string{"only inputs that must stay unchanged", "For in-place edits, keep the deliverable at its best version so far", "Never rewrite inputs to match output"} {
+		if !strings.Contains(current, want) || strings.Contains(old, want) {
+			t.Fatal("in-place guidance", want)
+		}
+	}
+	if len(current)-len(old) > 24 {
+		t.Fatalf("guidance grew %d bytes", len(current)-len(old))
+	}
+	t.Logf("method guidance: %d -> %d bytes (delta %+d)", len(old), len(current), len(current)-len(old))
 }

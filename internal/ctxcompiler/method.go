@@ -157,6 +157,9 @@ func WorkingMethod() string {
 	inputCare := ""
 	if envFlagDefaultOn(nil, "EXCALIBUR_INPUT_RESTORE") {
 		inputCare = preservedInputGuidance
+		if envFlagDefaultOn(nil, "EXCALIBUR_IN_PLACE_GUIDANCE") {
+			inputCare = inPlaceInputGuidance
+		}
 	}
 	preflight := ""
 	if envFlagDefaultOn(nil, "EXCALIBUR_DEFAULT_PREFLIGHT") {
@@ -250,3 +253,5 @@ const visualInspectionGuidance = "For visual/interactive results, capture an ima
 const disagreementGuidance = "When an oracle disagrees, explain concrete samples where results differ and which follows the literal request before changing the deliverable; never blindly adopt oracle output.\n"
 
 const exampleFormatGuidance = "If request example values cannot be reproduced from supplied input, treat them as format-only; invent no offsets, scaling or renaming to match. For programs meant for other inputs, test a second, different input you create.\n"
+
+const inPlaceInputGuidance = "Preserve only inputs that must stay unchanged; inspect copies. For in-place edits, keep the deliverable at its best version so far. Never rewrite inputs to match output.\n"
