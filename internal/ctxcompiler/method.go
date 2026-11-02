@@ -166,7 +166,11 @@ func WorkingMethod() string {
 	if envFlagDefaultOn(nil, "EXCALIBUR_INSPECT_IMAGE") {
 		visualCheck = visualInspectionGuidance
 	}
-	return workingMethodSteps + workingMethodEvidence + visualCheck + inputCare + preflight + dataCheck + broadCheck + restriction +
+	disagreement := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_DISAGREEMENT_PROTOCOL") {
+		disagreement = disagreementGuidance
+	}
+	return workingMethodSteps + workingMethodEvidence + disagreement + visualCheck + inputCare + preflight + dataCheck + broadCheck + restriction +
 		"Rules: do not stop early; use tools. Use pinned working notes instead of re-reading large outputs."
 }
 
@@ -238,3 +242,5 @@ const defaultPreflightGuidance = "Before expensive work, reuse fresh preflight e
 
 // Local image evidence applies to assistant worker runs as well as exec/eval.
 const visualInspectionGuidance = "For visual/interactive results, capture an image and use inspect_image; read screen_text/OCR before acting. Blank/unchanged screens leave the goal unmet; use screen errors/setup messages to change configuration before re-checking processes. For input changes, capture before/after and use compare_to.\n"
+
+const disagreementGuidance = "When an oracle disagrees, explain concrete samples where results differ and which follows the literal request before changing the deliverable; never blindly adopt oracle output.\n"

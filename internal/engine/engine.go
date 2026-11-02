@@ -321,6 +321,7 @@ type Run struct {
 	promptFinishSeen            int
 	promptFinishStates          map[string]bool
 	finishVerifierReport        finishVerifierReport
+	finishDisagreement          disagreementSnapshot
 	promptFinishSignatures      map[[32]byte]bool
 	promptFinishArtifactVersion string
 	repeatedVerification        int

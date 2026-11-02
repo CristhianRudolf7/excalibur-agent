@@ -18,6 +18,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"time"
 
@@ -216,15 +218,29 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	if at := strings.Index(smaller, "instruction:\n"); at >= 0 {
 		shortRules := "Return the compact line schema below including VERDICT. Judge only executed evidence against the literal instruction. Missing checks FAIL. Metadata alone does not prove behaviour. Never assume hidden tests.\n"
 		if cfg.EnableGeneralizeChecks {
-			shortRules += "FRESH_INPUTS must cite generated inputs and an independent oracle; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
+			if tasks.DisagreementProtocolEnabled() {
+				shortRules += "FRESH_INPUTS must cite executed checks or inspected direct-rule samples; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
+			} else {
+				shortRules += "FRESH_INPUTS must cite generated inputs and an independent oracle; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
+			}
 		}
-		smaller = shortRules + smaller[at:]
+		smaller = shortRules + tasks.DisagreementReviewGuidance() + smaller[at:]
 	}
 	if switchOn(timeAwareRefusalCapSwitch) && e.explicitFinishRequired(run) {
 		prompt += "\n" + unmetPropertyReview
 		smaller += "\n" + unmetPropertyReview
 	}
+	rewriteNote := run.disagreementRewriteNote()
+	if rewriteNote != "" {
+		prompt += "\n" + rewriteNote + "\n"
+		smaller += "\n" + rewriteNote + "\n"
+	}
 	key, reuseAudit := e.reviewIdentity(run, cfg, drafts, history)
+	// A changed review instruction cannot reuse a verdict from before the disagreement.
+	if key != "" && rewriteNote != "" {
+		key = fmt.Sprintf("%x", sha256.Sum256([]byte(key+"\n"+rewriteNote)))
+		reuseAudit.Key = key
+	}
 	var resp providers.ChatResponse
 	var err error
 	cached, reused := run.cachedReview(key)
@@ -354,6 +370,10 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 			ok = true
 		}
 		if !ok {
+			e.rememberDisagreement(run, historyView)
+			if tasks.DisagreementProtocolEnabled() {
+				reasons = append(reasons, "explain concrete samples where results differ and which follows the literal request before changing the deliverable; never blindly adopt oracle output")
+			}
 			merged.Pendings = append(merged.Pendings,
 				"independent verifier disagreement: "+strings.Join(reasons, "; "))
 			merged.OK = false

@@ -5691,3 +5691,29 @@ when either switch is disabled. The existing instruction grows from 235 to 414
 UTF-8 bytes (+179); compiled task-context tests verify the same byte delta, the
 sampling/extrapolation/margin requirements and both switch/profile boundaries.
 The instruction remains one task-context entry, so tool/profile pins do not move.
+
+## Disagreement reconciliation (O1)
+
+`EXCALIBUR_DISAGREEMENT_PROTOCOL` defaults on. The working method and independent
+review require concrete samples showing where implementation and oracle differ,
+and an explanation of which follows the literal request before changing a
+previously checked deliverable. The oracle's output is evidence to examine, not
+a replacement answer to adopt automatically (Sections 7.3, 8.7, 18.1–18.2).
+
+For a direct rule already checked on inspected samples, full and recovery review
+ask for sample reconciliation and permit `FRESH_INPUTS: NA` with those samples
+cited. General methods still need executed checks on different generated inputs.
+A refused finish records file versions for deliverables with passing exercising
+checks. If one changes, the next full/recovery review receives a single line
+asking which version follows the request on concrete samples. The review cache
+includes that note; unrelated edits and new instructions do not trigger it.
+The switch off restores the previous prompt/refusal wording and omits tracking.
+These request interpretation rules also apply to interactive assistant workers.
+
+Measured UTF-8 prompt deltas with other defaults enabled: working method
+3,299 → 3,477 bytes (+178); full verifier +425; compact recovery +322; conditional
+rewrite note +107 including newlines. The method size assertions move from
+3,300 to 3,500 to cover the added sentence; tool/profile pins are unchanged.
+Tests cover prompt switches, direct-rule recovery, refusal guidance, rewrites,
+unchanged deliverables, unrelated files and revised instructions. All use local
+files and simulated model replies.
