@@ -119,6 +119,13 @@ func (a *Adapter) Chat(ctx context.Context, req providers.ChatRequest) (provider
 	if a.key == "" {
 		return providers.ChatResponse{}, a.missingKey(req.Model)
 	}
+	if !a.useResp {
+		for _, m := range req.Messages {
+			if len(m.Images) > 0 {
+				return providers.ChatResponse{}, fmt.Errorf("openai: image input requires Responses")
+			}
+		}
+	}
 	if a.useResp {
 		return a.resp.chat(ctx, req)
 	}
@@ -129,6 +136,13 @@ func (a *Adapter) Chat(ctx context.Context, req providers.ChatRequest) (provider
 func (a *Adapter) Stream(ctx context.Context, req providers.ChatRequest, emit func(providers.StreamEvent) error) error {
 	if a.key == "" {
 		return a.missingKey(req.Model)
+	}
+	if !a.useResp {
+		for _, m := range req.Messages {
+			if len(m.Images) > 0 {
+				return fmt.Errorf("openai: image input requires Responses")
+			}
+		}
 	}
 	if a.useResp {
 		return a.resp.stream(ctx, req, emit)

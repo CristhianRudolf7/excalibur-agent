@@ -30,6 +30,8 @@ type HistoryStore interface {
 // FileVersion is one recorded agent write.
 type FileVersion struct {
 	ID        string    `json:"id"`
+	Created   bool      `json:"created,omitempty"`
+	Deleted   bool      `json:"deleted,omitempty"`
 	Path      string    `json:"path"`
 	Preimage  string    `json:"preimage_ref"`
 	Postimage string    `json:"postimage_ref"`
@@ -352,7 +354,7 @@ func (t *WriteFileTool) Definition() Definition {
 	}
 }
 
-func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
+func (t *WriteFileTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Path       string `json:"path"`
 		Content    string `json:"content"`
@@ -383,6 +385,7 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 		runID = deps.RunID
 	}
 	var release func()
+	runID = ExecutingRunID(ctx, runID)
 	if leases != nil {
 		var err error
 		release, err = leases.Acquire(path, runID)
@@ -403,6 +406,7 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 	}
 	// Record the preimage before any effect so a crash between intent
 	// and effect stays reversible (Section 13.4 step 3).
+	_, preErr := os.Stat(path)
 	var preRef string
 	if hist != nil {
 		var pre []byte
@@ -419,7 +423,7 @@ func (t *WriteFileTool) Invoke(_ context.Context, inv Invocation) (Result, error
 	fps.ResetMismatches(path)
 	if hist != nil {
 		postRef := hist.PutBlob([]byte(a.Content))
-		hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
+		hist.Append(FileVersion{Created: os.IsNotExist(preErr), ID: newVersionID(), Path: path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 	}
 	out := fmt.Sprintf("wrote %s (%d bytes) fp: %s", path, len(a.Content), fp)
 	if skipped {
@@ -462,7 +466,7 @@ func (t *EditFileTool) Definition() Definition {
 	}
 }
 
-func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
+func (t *EditFileTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Path       string `json:"path"`
 		OldText    string `json:"old_text"`
@@ -490,6 +494,7 @@ func (t *EditFileTool) Invoke(_ context.Context, inv Invocation) (Result, error)
 		runID = deps.RunID
 	}
 	var release func()
+	runID = ExecutingRunID(ctx, runID)
 	if leases != nil {
 		var err error
 		release, err = leases.Acquire(path, runID)
@@ -600,7 +605,7 @@ func (t *ApplyPatchTool) Definition() Definition {
 	}
 }
 
-func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
+func (t *ApplyPatchTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Ops         []PatchOp         `json:"ops"`
 		ExpectedFPs map[string]string `json:"expected_fps"`
@@ -689,6 +694,7 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 	}
 	// Apply with leases held per file.
 	releases := map[string]func(){}
+	runID = ExecutingRunID(ctx, runID)
 	if leases != nil {
 		for p := range touched {
 			rel, err := leases.Acquire(p, runID)
@@ -720,13 +726,13 @@ func (t *ApplyPatchTool) Invoke(_ context.Context, inv Invocation) (Result, erro
 				pre = data
 			}
 			preRef = hist.PutBlob(pre)
-			defer func(path, pre string, updated string) {
-				postRef := hist.PutBlob([]byte(updated))
-				hist.Append(FileVersion{ID: newVersionID(), Path: path, Preimage: pre, Postimage: postRef, RunID: runID, At: time.Now()})
-			}(p.path, preRef, p.updated)
 		}
 		if err := atomicWriteFile(p.path, []byte(p.updated), 0o644); err != nil {
 			return Result{Status: StatusToolError, Output: err.Error()}, nil
+		}
+		if hist != nil {
+			postRef := hist.PutBlob([]byte(p.updated))
+			hist.Append(FileVersion{Created: p.isNew, ID: newVersionID(), Path: p.path, Preimage: preRef, Postimage: postRef, RunID: runID, At: time.Now()})
 		}
 		fps.NoteRead(p.path, FingerprintOf([]byte(p.updated)))
 		fps.ResetMismatches(p.path)
@@ -805,8 +811,3 @@ func newVersionID() string {
 	versionCounter++
 	return fmt.Sprintf("fv_%d_%d", time.Now().UnixNano(), versionCounter)
 }
-
-// scriptedDiagnostics is a DiagnosticProvider used in tests.
-type scriptedDiagnostics struct{ msg string }
-
-func (s scriptedDiagnostics) Diagnostics(_ []string) string { return s.msg }

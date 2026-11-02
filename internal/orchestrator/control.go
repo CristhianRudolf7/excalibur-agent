@@ -353,9 +353,8 @@ func (o *Orchestrator) Transition(id types.RunID, to types.RunState) error {
 	return o.transitionLocked(id, to, "engine transition")
 }
 
-// Finish closes a run through the gate: running or waiting executions
-// pass through verifying before the terminal state, so the journal
-// always shows the gate step (Sections 7.3, 7.5).
+// Finish records a terminal outcome. Successful runs pass through the gate;
+// failures and cancellations follow their own state edges (Sections 7.3, 7.5).
 func (o *Orchestrator) Finish(id types.RunID, to types.RunState, reason string) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -366,9 +365,19 @@ func (o *Orchestrator) Finish(id types.RunID, to types.RunState, reason string) 
 	if err != nil {
 		return err
 	}
-	switch rec.Run.State {
-	case types.RunRunning, types.RunWaiting:
-		if err := o.transitionLocked(id, types.RunVerifying, "completion gate"); err != nil {
+	if to == types.RunCompleted || to == types.RunCompletedPending {
+		if rec.Run.State == types.RunWaiting {
+			if err := o.transitionLocked(id, types.RunRunning, "completion resumed"); err != nil {
+				return err
+			}
+		}
+		if rec.Run.State == types.RunRunning || rec.Run.State == types.RunWaiting {
+			if err := o.transitionLocked(id, types.RunVerifying, "completion gate"); err != nil {
+				return err
+			}
+		}
+	} else if rec.Run.State == types.RunVerifying || (rec.Run.State == types.RunWaiting && to == types.RunFailed) {
+		if err := o.transitionLocked(id, types.RunRunning, "verification ended"); err != nil {
 			return err
 		}
 	}

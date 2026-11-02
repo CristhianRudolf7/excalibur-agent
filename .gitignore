@@ -9,3 +9,6 @@
 __pycache__/
 *.pyc
 /excalibur
+
+# JavaScript workspace
+node_modules/

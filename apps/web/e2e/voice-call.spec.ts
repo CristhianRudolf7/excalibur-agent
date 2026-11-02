@@ -1,0 +1,215 @@
+import { test, expect } from './fixtures'
+import { mockChat } from './chat-fixture'
+
+// Chromium supplies a real fake microphone stream. Only analyser energy is
+// controlled so segment boundaries remain deterministic across machines.
+test.use({
+  launchOptions: {
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      '--autoplay-policy=no-user-gesture-required',
+    ],
+  },
+  permissions: ['microphone'],
+})
+function wav(seconds = 0.2) {
+  const length = Math.floor(16000 * seconds)
+  const data = Buffer.alloc(44 + length * 2)
+  data.write('RIFF', 0)
+  data.writeUInt32LE(data.length - 8, 4)
+  data.write('WAVEfmt ', 8)
+  data.writeUInt32LE(16, 16)
+  data.writeUInt16LE(1, 20)
+  data.writeUInt16LE(1, 22)
+  data.writeUInt32LE(16000, 24)
+  data.writeUInt32LE(32000, 28)
+  data.writeUInt16LE(2, 32)
+  data.writeUInt16LE(16, 34)
+  data.write('data', 36)
+  data.writeUInt32LE(length * 2, 40)
+  return data
+}
+async function controlEnergy(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    const state = window as unknown as { micEnergy: number; pauses: number; tracksStopped: number }
+    state.micEnergy = 0
+    state.pauses = 0
+    state.tracksStopped = 0
+    const create = AudioContext.prototype.createAnalyser
+    AudioContext.prototype.createAnalyser = function () {
+      const analyser = create.call(this)
+      analyser.getFloatTimeDomainData = (samples: Float32Array<ArrayBuffer>) =>
+        samples.fill(state.micEnergy)
+      return analyser
+    }
+    const pause = HTMLMediaElement.prototype.pause
+    HTMLMediaElement.prototype.pause = function () {
+      state.pauses++
+      pause.call(this)
+    }
+    const stop = MediaStreamTrack.prototype.stop
+    MediaStreamTrack.prototype.stop = function () {
+      state.tracksStopped++
+      stop.call(this)
+    }
+  })
+}
+const energy = (page: import('@playwright/test').Page, value: number) =>
+  page.evaluate((level) => {
+    ;(window as unknown as { micEnergy: number }).micEnergy = level
+  }, value)
+
+test('phone call segments speech, transcribes, sends, speaks sentences in order and cleans up', async ({
+  page,
+}) => {
+  await controlEnergy(page)
+  const chat = await mockChat(page)
+  const spoken: string[] = []
+  let uploads = 0
+  await page.route('**/blobs', (route) => {
+    expect(route.request().method()).toBe('POST')
+    expect(route.request().postDataBuffer()!.length).toBeGreaterThan(0)
+    uploads++
+    return route.fulfill({ json: { ref: 'audio-input' } })
+  })
+  await page.route('**/blobs/audio-output', (route) =>
+    route.fulfill({ contentType: 'audio/wav', body: wav() }),
+  )
+  await page.route('**/rpc', async (route) => {
+    const request = route.request().postDataJSON()
+    const result =
+      request.method === 'voice.status'
+        ? { available: true, voices: ['alloy'] }
+        : request.method === 'voice.transcribe'
+          ? { text: 'Hello from the microphone', language: 'en', duration_ms: 1000 }
+          : request.method === 'voice.speak'
+            ? { audio_blob: 'audio-output', mime: 'audio/wav' }
+            : undefined
+    if (!result) return route.fallback()
+    if (request.method === 'voice.speak') spoken.push(request.params.text)
+    if (request.method === 'voice.transcribe') expect(request.params.audio_blob).toBe('audio-input')
+    await route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result } })
+  })
+  await page.goto('/agents/excalibur?view=chat')
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  await energy(page, 0.1)
+  await page.waitForTimeout(350)
+  await energy(page, 0)
+  await expect(dialog.getByText('Pensando', { exact: true })).toBeVisible()
+  await expect.poll(() => uploads).toBe(1)
+  expect(chat.messages.at(-1)?.text).toBe('Hello from the microphone')
+  expect(chat.messages.at(-1)?.conversation_id).toBe('cnv_web_excalibur')
+  chat.emit('message.created', {
+    message_id: 'assistant-voice',
+    conversation_id: 'cnv_web_excalibur',
+    role: 'assistant',
+    text: 'Hello there. Second sentence!',
+  })
+  await expect.poll(() => spoken).toEqual(['Hello there.', 'Second sentence!'])
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  await expect(dialog.getByRole('log')).toContainText('Hello from the microphone')
+  await expect(dialog.getByRole('log')).toContainText('Hello there. Second sentence!')
+  await dialog.getByRole('button', { name: 'Silenciar micrófono' }).click()
+  await expect(dialog.getByRole('button', { name: 'Silenciar micrófono' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await dialog.getByRole('button', { name: 'Altavoz' }).click()
+  await expect(dialog.getByRole('button', { name: 'Altavoz' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await dialog.getByRole('button', { name: 'Colgar' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(
+    await page.evaluate(() => (window as unknown as { tracksStopped: number }).tracksStopped),
+  ).toBeGreaterThan(0)
+  await expect(page.locator('.message-user')).toHaveCount(1)
+  await expect(page.locator('.message-user')).toContainText('Hello from the microphone')
+})
+
+test('barge-in stops playback and starts the next utterance', async ({ page }) => {
+  await controlEnergy(page)
+  const chat = await mockChat(page)
+  let transcriptions = 0
+  await page.route('**/blobs', (route) => route.fulfill({ json: { ref: 'input' } }))
+  await page.route('**/blobs/output', (route) =>
+    route.fulfill({ contentType: 'audio/wav', body: wav(10) }),
+  )
+  await page.route('**/rpc', async (route) => {
+    const request = route.request().postDataJSON()
+    let result
+    if (request.method === 'voice.status') result = { available: true, voices: [] }
+    if (request.method === 'voice.transcribe')
+      result = { text: `Utterance ${++transcriptions}`, language: 'en', duration_ms: 1000 }
+    if (request.method === 'voice.speak') result = { audio_blob: 'output', mime: 'audio/wav' }
+    if (!result) return route.fallback()
+    await route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result } })
+  })
+  await page.goto('/agents/excalibur?view=chat')
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  await energy(page, 0.1)
+  await page.waitForTimeout(350)
+  await energy(page, 0)
+  await expect(dialog.getByText('Pensando', { exact: true })).toBeVisible()
+  chat.emit('message.created', {
+    message_id: 'answer-one',
+    conversation_id: 'cnv_web_excalibur',
+    role: 'assistant',
+    text: 'A long spoken answer.',
+  })
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        performance
+          .getEntriesByType('resource')
+          .some((entry) => entry.name.endsWith('/blobs/output')),
+      ),
+    )
+    .toBe(true)
+  await energy(page, 0.1)
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { pauses: number }).pauses))
+    .toBeGreaterThan(0)
+  await page.waitForTimeout(350)
+  await energy(page, 0)
+  await expect.poll(() => transcriptions).toBe(2)
+  await dialog.getByRole('button', { name: 'Colgar' }).click()
+})
+
+test('unavailable voice and denied microphone permission have clear states', async ({ page }) => {
+  let available = false
+  await page.route('**/rpc', async (route) => {
+    const request = route.request().postDataJSON()
+    if (request.method !== 'voice.status') return route.fallback()
+    await route.fulfill({
+      json: {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: { available, voices: [], reason: 'Unconfigured' },
+      },
+    })
+  })
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getUserMedia = () =>
+      Promise.reject(new DOMException('Denied', 'NotAllowedError'))
+  })
+  await page.goto('/agents/excalibur?view=chat')
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  let dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await expect(dialog).toContainText('Las llamadas de voz no están disponibles.')
+  await expect(dialog.getByRole('button', { name: 'Iniciar llamada' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  available = true
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Permite el acceso al micrófono')
+})

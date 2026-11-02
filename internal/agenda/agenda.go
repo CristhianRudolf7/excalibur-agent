@@ -22,10 +22,13 @@ type Launcher interface {
 // 17.4). In safe mode it registers due firings but launches nothing;
 // they stay pending until safe mode ends (17.3).
 type Agenda struct {
-	store     AgendaStore
-	reminders ReminderStore
-	launcher  Launcher
-	now       func() time.Time
+	// OnReminderFired runs after successful delivery. Configure before Start.
+	OnReminderFired func(Reminder)
+	reminderMu      sync.Mutex
+	store           AgendaStore
+	reminders       ReminderStore
+	launcher        Launcher
+	now             func() time.Time
 
 	mu       sync.Mutex
 	safeMode bool
@@ -93,6 +96,8 @@ func (a *Agenda) RemoveSchedule(id string) error {
 // SaveReminder creates or updates a reminder, waking the timer. The
 // master turn files user reminders through here; Tick delivers them.
 func (a *Agenda) SaveReminder(r *Reminder) error {
+	a.reminderMu.Lock()
+	defer a.reminderMu.Unlock()
 	if err := a.reminders.SaveReminder(r); err != nil {
 		return err
 	}
@@ -197,14 +202,25 @@ func (a *Agenda) Tick(ctx context.Context, now time.Time) ([]Fire, []Reminder) {
 		fired = append(fired, f)
 	}
 	var dueReminders []Reminder
+	a.reminderMu.Lock()
+	defer a.reminderMu.Unlock()
 	for _, r := range a.reminders.DueReminders(now) {
-		cp := *r
-		next := cp.recordDelivery(now)
-		_ = a.reminders.SaveReminder(&cp)
-		if a.launcher != nil {
-			_ = a.launcher.LaunchReminder(ctx, cp)
+		if a.inSafeMode() {
+			continue
 		}
-		_ = next
+		cp := *r
+		cp.recordDelivery(now)
+		if a.launcher != nil {
+			if err := a.launcher.LaunchReminder(ctx, cp); err != nil {
+				continue
+			}
+		}
+		if err := a.reminders.SaveReminder(&cp); err != nil {
+			continue
+		}
+		if a.OnReminderFired != nil {
+			a.OnReminderFired(cp)
+		}
 		dueReminders = append(dueReminders, cp)
 	}
 	a.wake()
@@ -317,6 +333,8 @@ func (a *Agenda) Stop() {
 }
 
 func (a *Agenda) untilNext() time.Duration {
+	a.reminderMu.Lock()
+	defer a.reminderMu.Unlock()
 	now := a.now().UTC()
 	best := 30 * time.Second
 	for _, s := range a.store.ListSchedules() {
@@ -328,6 +346,9 @@ func (a *Agenda) untilNext() time.Duration {
 		}
 	}
 	for _, r := range a.reminders.ListReminders() {
+		if a.inSafeMode() {
+			break
+		}
 		if r.NextFireUTC.IsZero() {
 			continue
 		}

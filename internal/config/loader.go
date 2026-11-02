@@ -128,6 +128,7 @@ func Load(opts LoadOptions) (Config, error) {
 		}
 	}
 	applyEnv(merged, opts.envPrefix(), opts.envList(), opts.NoEnv)
+	applyBrowserSearchEnv(merged, opts.envPrefix(), opts.envList(), opts.NoEnv)
 	applyOverrides(merged, opts.Overrides)
 	applyContextCapAlias(merged, opts.envList(), opts.NoEnv)
 	cfg, err := decodeMerged(merged)
@@ -329,6 +330,7 @@ func coerceEnv(parts []string, value string, current any) any {
 
 // durationPaths are the dotted TOML paths holding time.Duration.
 var durationPaths = map[string]bool{
+	"browser.idle_timeout":             true,
 	"master.regen_cancel_window":       true,
 	"master.notice_group_window":       true,
 	"engine.heartbeat_timeout":         true,
@@ -349,6 +351,7 @@ func isDurationPath(dotted string) bool { return durationPaths[dotted] }
 // nanosecond integers) and decodes it over the defaults, so absent
 // keys keep Appendix B values.
 func decodeMerged(merged map[string]any) (Config, error) {
+	mergeSearchProviderDefaults(merged)
 	cfg := Default()
 	normalizeDurations(merged, "")
 	var buf bytes.Buffer

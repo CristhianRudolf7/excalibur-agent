@@ -1,12 +1,12 @@
 package cli
 
 import (
+	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 )
 
 func TestParseProfile(t *testing.T) {
@@ -176,14 +176,14 @@ func TestEvalSurfaceMatchesProfileTable(t *testing.T) {
 		t.Fatalf("eval deferred %v != profile table %v", deferred, want.DeferredTools)
 	}
 	if want.SkillsCatalogHash != eval.EvalSkillsCatalogHash() {
-		t.Fatal("profile must record the live embedded catalog hash")
+		t.Fatal("profile must record the frozen eval catalog hash")
 	}
-	ix := skills.NewBuiltinIndex()
+	ix := skills.NewEvalBuiltinIndex()
 	if err := ix.Scan(); err != nil {
 		t.Fatal(err)
 	}
 	if ix.CatalogHash() != want.SkillsCatalogHash {
-		t.Fatal("recorded catalog hash drifts from the embedded catalog")
+		t.Fatal("eval must run with the frozen skill catalog it records")
 	}
 }
 

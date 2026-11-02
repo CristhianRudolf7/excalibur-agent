@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -126,6 +127,10 @@ func (t *capabilityTool) follow(ctx context.Context, first capabilities.TaskResu
 			if need == "" {
 				need = string(cur.Payload)
 			}
+			if strings.HasPrefix(t.op.Name, "browser_") {
+				need = strings.TrimSpace(strings.ReplaceAll(need, ": resolve in headed mode, then continue", ""))
+				need = "A human is required. There is no takeover in this version. Tell the user and continue with alternatives: another source, web_read or search. Block: " + need
+			}
 			return Result{Status: StatusOK, Output: "input_required: " + need}, nil
 		case capabilities.StateWorking:
 			select {
@@ -143,6 +148,14 @@ func (t *capabilityTool) follow(ctx context.Context, first capabilities.TaskResu
 			}
 			if next.TaskID == "" {
 				next.TaskID = cur.TaskID
+			}
+			if next.State == capabilities.StateWorking {
+				select {
+				case <-ctx.Done():
+					_, _ = t.inv.Cancel(cur.TaskID)
+					return Result{Status: StatusCanceled, Output: "capability poll canceled"}, nil
+				case <-time.After(20 * time.Millisecond):
+				}
 			}
 			cur = next
 		default:

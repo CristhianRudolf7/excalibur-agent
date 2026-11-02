@@ -71,6 +71,7 @@ type subagentArgs struct {
 	Action      string          `json:"action"`
 	Caller      string          `json:"caller"`
 	Run         string          `json:"run"`
+	RunID       string          `json:"run_id"`
 	To          string          `json:"to"`
 	MessageType string          `json:"message_type"`
 	Text        string          `json:"text"`
@@ -97,6 +98,9 @@ func (t *SubagentTool) Invoke(_ context.Context, inv tools.Invocation) (tools.Re
 	var a subagentArgs
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error() + "; " + subagentExamples}, nil
+	}
+	if a.Run == "" {
+		a.Run = a.RunID
 	}
 	if a.Action == "" && tools.FrictionRepairEnabled() {
 		if len(a.Card) > 0 && string(a.Card) != "null" {
@@ -163,6 +167,19 @@ func (t *SubagentTool) dispatch(a subagentArgs) (tools.Result, bool) {
 		}
 		return ok(statusView(st))
 	case "message":
+		if a.To == "" {
+			a.To = a.Run
+		}
+		if len(a.To) > 4 && a.To[:4] == "run_" {
+			rec, err := t.Orch.store.GetRun(types.RunID(a.To))
+			if err != nil {
+				return fail(tools.StatusToolError, err.Error())
+			}
+			a.To = string(rec.Run.AgentID)
+		}
+		if a.MessageType == "" {
+			a.MessageType = string(MsgReport)
+		}
 		if a.To == "" || a.Text == "" {
 			return fail(tools.StatusInputError, "to and text are required for message")
 		}
@@ -278,6 +295,9 @@ func (t *SubagentTool) ResourceKeys(args json.RawMessage) ([]string, error) {
 	var a subagentArgs
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
+	}
+	if a.Run == "" {
+		a.Run = a.RunID
 	}
 	if a.Run != "" {
 		return []string{"run:" + a.Run}, nil

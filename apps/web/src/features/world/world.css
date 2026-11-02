@@ -1,0 +1,1136 @@
+.world {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--muted);
+  isolation: isolate;
+}
+.world-canvas {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: grab;
+}
+.world-canvas canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+.world-panel {
+  background: var(--surface);
+  border: 1px solid var(--strong-border);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px var(--shadow);
+}
+.world-top-left {
+  position: absolute;
+  left: 22px;
+  top: 76px;
+  width: 310px;
+  display: grid;
+  gap: 10px;
+}
+.world-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 13px 14px;
+  text-align: left;
+}
+.world-panel-title strong {
+  font-weight: 600;
+  flex: 1;
+}
+.world-badge {
+  background: var(--selected);
+  border-radius: 20px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.world-mission-rows {
+  display: grid;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+.world-mission {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.world-mission > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}
+.world-mission progress {
+  display: block;
+  margin-top: 8px;
+  height: 5px;
+  width: 100%;
+  accent-color: var(--primary);
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.world-mission progress::-webkit-progress-bar {
+  background: var(--selected);
+}
+.world-mission progress::-webkit-progress-value {
+  background: var(--primary);
+  border-radius: 4px;
+}
+.world-mission-status {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.world-activity {
+  position: absolute;
+  top: 76px;
+  right: 22px;
+  width: 290px;
+}
+.world-activity.is-collapsed {
+  width: auto;
+  min-width: 155px;
+}
+.world-activity-scroll {
+  max-height: 240px;
+  overflow: auto;
+  padding: 0 8px 8px;
+}
+.world-activity-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+.world-activity-entry {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  text-align: left;
+  border-top: 1px solid var(--border);
+  padding: 8px 4px;
+  font-size: 11px;
+}
+.world-activity-entry > span:last-child {
+  min-width: 0;
+}
+.world-activity-entry small {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 5px;
+  font-size: 10px;
+}
+.world-activity-entry:hover {
+  background: var(--muted);
+}
+.world-all {
+  color: var(--primary);
+  margin: 0 14px 7px;
+  font-size: 11px;
+}
+.world-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.world-back > span {
+  color: var(--muted-foreground);
+  border-left: 1px solid var(--border);
+  margin-left: auto;
+  padding-left: 8px;
+}
+.world-minimap {
+  position: absolute;
+  bottom: 100px;
+  right: 22px;
+  width: 178px;
+}
+.world-minimap .world-panel-title {
+  padding: 9px 12px;
+  font-size: 11px;
+}
+.world-minimap > svg {
+  display: block;
+  margin: 0 10px 10px;
+  width: calc(100% - 20px);
+  background: var(--muted);
+  border-radius: 5px;
+  touch-action: none;
+}
+.world-minimap polygon {
+  fill: var(--selected);
+  stroke: var(--strong-border);
+  stroke-width: 20;
+}
+.world-minimap circle {
+  fill: var(--tone);
+  stroke: var(--surface);
+  stroke-width: 15;
+}
+.world-map-viewport {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 16;
+}
+.world-bottom {
+  position: absolute;
+  bottom: 22px;
+  width: min(820px, calc(100% - 44px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 20px;
+  pointer-events: none;
+}
+.world-enter {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  gap: 10px;
+  pointer-events: auto;
+  position: relative;
+}
+.world-enter input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 6px;
+  font-size: 12px;
+}
+.world-enter input::placeholder {
+  color: var(--muted-foreground);
+}
+.world-enter button {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+}
+.world-enter button:last-child {
+  background: var(--muted);
+}
+.world-enter-key {
+  color: var(--muted-foreground);
+}
+.world-mic-notice {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 10px;
+  border-radius: 8px;
+  width: 260px;
+  font-size: 12px;
+}
+.world-dialog {
+  border: 1.5px solid var(--primary);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 4px 20px var(--shadow);
+  pointer-events: auto;
+}
+.world-dialog-button {
+  display: flex;
+  width: 100%;
+  padding: 17px;
+  gap: 18px;
+  align-items: center;
+  text-align: left;
+  min-height: 146px;
+}
+.world-dialog .pixel-avatar {
+  flex-shrink: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.world-dialog-content {
+  border-left: 1px solid var(--border);
+  padding-left: 18px;
+  align-self: stretch;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  line-height: 1.7;
+  font-size: 14px;
+}
+.world-dialog-content strong {
+  color: var(--primary);
+  font-size: 15px;
+}
+.world-dialog-count {
+  display: grid;
+  gap: 14px;
+  font-size: 10px;
+  color: var(--muted-foreground);
+  align-self: end;
+}
+.world-dialog-count > span {
+  color: var(--primary);
+  font-size: 17px;
+}
+.world-caret::after {
+  content: '▍';
+  color: var(--primary);
+}
+
+.world-report,
+.world-deliverable {
+  position: absolute;
+  left: 50%;
+  top: 64%;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  color: var(--pixel-gold);
+  filter: drop-shadow(0 0 8px var(--pixel-gold));
+}
+.world-report span,
+.world-deliverable span,
+.world-interior-agent {
+  background: var(--foreground);
+  color: var(--surface);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  filter: none;
+}
+.world-interior-agent {
+  position: absolute;
+  left: 50%;
+  top: 47%;
+  transform: translateX(-50%);
+  display: grid;
+  text-align: center;
+  gap: 4px;
+}
+.world-interior-agent small {
+  font-size: 9px;
+}
+.world-preview {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  width: min(310px, calc(100% - 30px));
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+}
+.world-preview > svg {
+  color: var(--primary);
+}
+.world-preview p {
+  color: var(--muted-foreground);
+  line-height: 1.6;
+  font-size: 12px;
+}
+.world-preview-close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+.world-open {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+.world-render-error {
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  padding: 20px;
+  border-radius: 10px;
+}
+@media (max-width: 1000px) {
+  .world-top-left {
+    width: 260px;
+    left: 14px;
+  }
+  .world-activity {
+    width: 240px;
+    right: 14px;
+  }
+}
+@media (max-width: 639px) {
+  .world-top-left {
+    top: 64px;
+    left: 10px;
+    width: calc(100% - 20px);
+  }
+  .world-top-left .world-missions {
+    width: 100%;
+  }
+  .world-activity {
+    top: 302px;
+    right: 10px;
+    width: 220px;
+  }
+  .world-interior .world-activity {
+    top: 346px;
+  }
+  .world-activity-scroll {
+    max-height: 140px;
+  }
+  .world-minimap {
+    display: none;
+  }
+  .world-panel-title {
+    padding: 10px;
+  }
+  .world-mission {
+    padding: 6px;
+  }
+  .world-bottom {
+    width: calc(100% - 20px);
+    bottom: 10px;
+    gap: 10px;
+  }
+  .world-dialog-button {
+    padding: 12px;
+    gap: 9px;
+    min-height: 130px;
+  }
+  .world-dialog .pixel-avatar {
+    width: 64px !important;
+    height: 64px !important;
+  }
+  .world-dialog-content {
+    font-size: 12px;
+    padding-left: 10px;
+    gap: 6px;
+  }
+  .world-dialog-content strong {
+    font-size: 13px;
+  }
+  .world-enter {
+    padding: 6px;
+    gap: 4px;
+  }
+  .world-enter-key {
+    display: none;
+  }
+  .world-enter input {
+    font-size: 11px;
+  }
+
+  .world-dialog ~ .world-enter {
+    margin-top: 0;
+  }
+}
+.world-map-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.world-map-label-group {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  transform: translate(-50%, -100%);
+}
+.world-room-sign {
+  position: absolute;
+  bottom: 160px;
+  width: max-content;
+  background: var(--foreground);
+  color: var(--surface);
+  padding: 6px 14px;
+  border: 2px solid var(--strong-border);
+  border-radius: 3px;
+  box-shadow: 0 3px 5px var(--shadow);
+  font-size: 13px;
+  pointer-events: auto;
+}
+.world-agent-name {
+  position: absolute;
+  bottom: 65px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: max-content;
+  color: var(--surface);
+  background: var(--foreground);
+  border-radius: 4px;
+  padding: 4px 7px;
+  font-size: 11px;
+  pointer-events: auto;
+}
+.world-agent-name svg {
+  color: var(--pixel-gold);
+}
+.world-label-scene {
+  position: absolute;
+  width: 2400px;
+  height: 1600px;
+  transform-origin: 0 0;
+}
+.world-minimap > svg {
+  height: auto;
+  aspect-ratio: 3 / 2;
+}
+
+.world-sprite-tooltip {
+  position: absolute;
+  z-index: 2;
+  max-width: 230px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--foreground);
+  border-radius: 7px;
+  pointer-events: none;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 3px 12px var(--shadow);
+}
+.world-title-short {
+  display: none;
+}
+.world-mission-avatars {
+  display: flex;
+}
+.world-mission-avatars .pixel-avatar + .pixel-avatar {
+  margin-left: -8px;
+}
+.world-helper-name {
+  font-size: 10px;
+  bottom: 84px;
+}
+.world-agent-name {
+  bottom: 126px;
+}
+@media (max-width: 767px) {
+  .world-top-left {
+    top: 64px;
+    left: 8px;
+    width: calc(100% - 16px);
+    max-width: 330px;
+  }
+  .world-top-left.is-collapsed {
+    width: auto;
+    max-width: 175px;
+  }
+  .world-title-full {
+    display: none;
+  }
+  .world-title-short {
+    display: inline;
+  }
+  .world-missions .world-panel-title {
+    font-size: 11px;
+    gap: 5px;
+    padding: 9px;
+  }
+  .world-activity,
+  .world-interior .world-activity {
+    top: 64px;
+    right: 8px;
+    width: min(290px, calc(100% - 16px));
+  }
+  .world-activity.is-collapsed {
+    min-width: 116px;
+    width: auto;
+  }
+  .world-activity .world-panel-title {
+    font-size: 11px;
+    gap: 5px;
+    padding: 9px;
+  }
+  .world-activity-scroll {
+    max-height: 220px;
+  }
+  .world-interior .world-top-left {
+    top: 108px;
+  }
+  .world-back {
+    position: absolute;
+    top: -44px;
+    width: auto;
+    max-width: 175px;
+    white-space: nowrap;
+  }
+  .world-back > span {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .world-bottom {
+    bottom: 8px;
+    width: calc(100% - 16px);
+    gap: 8px;
+  }
+  .world-dialog-button {
+    min-height: 106px;
+    padding: 10px;
+    gap: 8px;
+  }
+  .world-dialog .pixel-avatar {
+    width: 56px !important;
+    height: 56px !important;
+  }
+  .world-dialog-content {
+    font-size: 11px;
+    line-height: 1.5;
+    gap: 5px;
+    padding-left: 8px;
+  }
+  .world-dialog-content strong {
+    font-size: 12px;
+  }
+  .world-enter {
+    padding: 5px;
+    gap: 4px;
+  }
+  .world-enter-key {
+    display: none;
+  }
+  .world-enter input {
+    font-size: 11px;
+  }
+}
+.world-agent-hit {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 126px;
+  pointer-events: auto;
+  background: transparent;
+  border: 0;
+}
+.world-helper-hit {
+  width: 48px;
+  height: 84px;
+}
+.world {
+  --world-bottom-height: 54px;
+}
+.world-minimap {
+  width: 242px;
+  bottom: calc(var(--world-bottom-height) + 38px);
+}
+.world-minimap > svg {
+  width: 220px;
+  max-width: calc(100% - 20px);
+  height: auto;
+  aspect-ratio: auto;
+  overflow: hidden;
+  border-radius: 5px;
+}
+.world-minimap polygon {
+  fill-opacity: 0.25;
+  stroke-width: 1px;
+}
+.world-minimap circle {
+  stroke: var(--world-marker-ring);
+  stroke-width: 1.5px;
+}
+.world-map-viewport {
+  fill: var(--primary);
+  fill-opacity: 0.08;
+  stroke-width: 1.5px;
+  cursor: grab;
+}
+.world-map-thumbnail {
+  pointer-events: none;
+}
+.world-map-active-agent {
+  animation: world-marker-pulse 1.8s ease-in-out infinite;
+}
+@keyframes world-marker-pulse {
+  50% {
+    r: 4.2px;
+  }
+}
+.world-settings {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+.world-settings-trigger {
+  position: absolute;
+  right: 22px;
+  bottom: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+}
+.world-settings-popover {
+  position: absolute;
+  pointer-events: auto;
+}
+
+@media (max-width: 1180px) {
+  .world-enter {
+    margin-right: 52px;
+  }
+}
+@media (max-width: 767px) {
+  .world-settings-trigger {
+    right: 8px;
+    bottom: 8px;
+  }
+  .world-settings-popover {
+    position: absolute;
+    pointer-events: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-map-active-agent {
+    animation: none;
+  }
+}
+.world-minimap > svg {
+  border-radius: 0;
+}
+.world-map-tooltip {
+  position: absolute;
+  left: 12px;
+  top: 35px;
+  z-index: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 10px;
+  pointer-events: none;
+}
+.world-settings-trigger,
+.world-settings-popover button {
+  touch-action: manipulation;
+}
+/* World anchors follow the camera; captions and their icons retain CSS-pixel dimensions. */
+.world-room-sign,
+.world-agent-name {
+  transform: scale(var(--world-label-scale, 1));
+  transform-origin: center bottom;
+}
+.world-minimap-heading {
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+.world-minimap-heading .world-panel-title {
+  flex: 1;
+  min-width: 0;
+}
+.world-map-expand {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+.world-map-expand:hover {
+  background: var(--muted);
+}
+.world-settings-popover.world-settings-pill {
+  width: 38px;
+  right: 22px;
+  bottom: 68px;
+  padding: 4px 2px;
+  border-radius: 999px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transform-origin: center bottom;
+  animation: world-pill-open 180ms ease-out;
+}
+.world-settings-pill button {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+}
+.world-settings-pill button:hover {
+  background: var(--muted);
+}
+.world-settings-pill button:disabled {
+  opacity: 0.4;
+  color: var(--tertiary);
+}
+.world-settings-pill output {
+  display: block;
+  text-align: center;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.world-settings-speed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.world-settings-pill > *,
+.world-settings-speed {
+  animation: world-pill-item 180ms ease-out both;
+}
+.world-settings-pill > :nth-child(2) {
+  animation-delay: 25ms;
+}
+.world-settings-pill > :nth-child(3) {
+  animation-delay: 45ms;
+}
+.world-settings-pill > :nth-child(4) {
+  animation-delay: 65ms;
+}
+.world-control-tooltip {
+  display: none;
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: max-content;
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  box-shadow: 0 3px 12px var(--shadow);
+  pointer-events: none;
+}
+.world-settings-pill button:hover .world-control-tooltip,
+.world-settings-pill button:focus-visible .world-control-tooltip {
+  display: block;
+}
+.world:has(.world-settings-popover) .world-minimap {
+  right: 76px;
+  bottom: calc(var(--world-bottom-height) + 38px);
+}
+@keyframes world-pill-open {
+  from {
+    scale: 1 0.1;
+    opacity: 0;
+  }
+  to {
+    scale: 1 1;
+    opacity: 1;
+  }
+}
+@keyframes world-pill-item {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.world-map-launch {
+  position: absolute;
+  right: 70px;
+  bottom: 22px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: none;
+  place-items: center;
+}
+.world-interior .world-map-launch {
+  display: grid;
+}
+.world-map-modal {
+  padding: 0;
+  width: min(80vw, 1100px);
+  height: min(80dvh, 760px);
+  max-width: none;
+  max-height: none;
+  border-radius: 16px;
+  border: 1px solid var(--strong-border);
+  background: var(--surface);
+  box-shadow: 0 16px 60px var(--shadow);
+  overflow: hidden;
+}
+.world-map-modal[open] {
+  display: flex;
+  flex-direction: column;
+}
+.world-map-modal[data-state='open'] {
+  animation: world-map-open 180ms ease-out;
+}
+.world-map-modal[data-state='closed'] {
+  animation: world-map-close 180ms ease-out forwards;
+}
+.world-map-modal::backdrop {
+  background: var(--overlay);
+  animation: world-map-backdrop 180ms ease-out;
+}
+.world-map-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.world-map-modal-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.world-map-modal-header button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+}
+.world-map-modal-header button:hover {
+  background: var(--muted);
+}
+.world-map-modal-content {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+.world-full-map-surface {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  overflow: hidden;
+}
+.world-full-map-stage {
+  position: relative;
+  flex: none;
+}
+.world-full-map-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.world-full-map-image image {
+  pointer-events: none;
+}
+.world-full-map-image polygon {
+  fill-opacity: 0.12;
+  transition: fill-opacity 120ms;
+}
+.world-full-map-image polygon.is-hovered {
+  fill-opacity: 0.4;
+}
+.world-full-map-image circle,
+.world-full-map-viewport {
+  pointer-events: none;
+}
+.world-full-map-viewport {
+  fill: var(--primary);
+  fill-opacity: 0.08;
+  stroke: var(--primary);
+}
+.world-full-map-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.world-full-map-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  max-width: 130px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+  border: 1px solid var(--strong-border);
+  box-shadow: 0 2px 6px var(--shadow);
+  pointer-events: auto;
+  font-size: 10px;
+  line-height: 1.3;
+}
+.world-full-map-label strong {
+  display: block;
+  font-weight: 500;
+}
+.world-full-map-label > span {
+  display: flex;
+  justify-content: center;
+  gap: 1px;
+  margin-top: 2px;
+}
+.world-map-room-list {
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  padding: 8px;
+}
+.world-map-room-list > button {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  margin-bottom: 6px;
+}
+.world-map-room-list > button:hover {
+  background: var(--muted);
+}
+.world-map-room-list strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.world-map-room-list small {
+  font-size: 10px;
+  color: var(--muted-foreground);
+}
+.world-map-room-agents {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+@keyframes world-map-open {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@keyframes world-map-close {
+  from {
+    opacity: 1;
+    scale: 1;
+  }
+  to {
+    opacity: 0;
+    scale: 0.96;
+  }
+}
+@keyframes world-map-backdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 1180px) {
+  .world-interior .world-enter {
+    margin-right: 104px;
+  }
+}
+@media (max-width: 767px) {
+  .world-settings-popover.world-settings-pill {
+    right: 8px;
+    bottom: 54px;
+  }
+  .world:has(.world-settings-popover) .world-minimap {
+    right: 62px;
+  }
+  .world-map-launch {
+    right: 56px;
+    bottom: 8px;
+  }
+  .world-map-modal {
+    left: 0;
+    top: 0;
+    transform: none;
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+  .world-map-modal-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 42%) minmax(0, 1fr);
+  }
+  .world-map-room-list {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .world-map-room-list > button {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    padding: 9px;
+  }
+  .world-map-room-list > button > small {
+    grid-column: 1 / -1;
+  }
+  .world-full-map-label {
+    font-size: 9px;
+    padding: 3px 4px;
+    max-width: 90px;
+  }
+}
+@media (max-width: 639px) {
+  .world-map-launch {
+    display: grid;
+  }
+  .world-enter {
+    margin-right: 100px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .world-settings-pill,
+  .world-settings-pill > *,
+  .world-settings-speed,
+  .world-map-modal,
+  .world-map-modal::backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 1180px) {
+  .world-bottom {
+    width: min(820px, calc(100% - 96px));
+    left: calc((100% - 52px) / 2);
+    transform: translateX(-50%);
+  }
+  .world-enter {
+    margin-right: 0;
+  }
+  .world-interior .world-enter {
+    margin-right: 48px;
+  }
+}
+@media (max-width: 767px) {
+  .world-bottom {
+    left: 8px;
+    width: calc(100% - 64px);
+    transform: none;
+  }
+}
+@media (max-width: 639px) {
+  .world-enter,
+  .world-interior .world-enter {
+    margin-right: 48px;
+  }
+}
+
+.world-map-modal[data-state='closed']::backdrop {
+  animation: world-map-backdrop 180ms ease-out reverse forwards;
+}

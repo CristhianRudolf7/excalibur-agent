@@ -69,7 +69,7 @@ const (
 // embedded builtin index is content-addressed, so scanning it on
 // every profile construction would only repeat the same result.
 var evalSkillsHashOnce = sync.OnceValue(func() string {
-	ix := skills.NewBuiltinIndex()
+	ix := skills.NewEvalBuiltinIndex()
 	if err := ix.Scan(); err != nil {
 		// Scan only reports diagnostics for embedded content
 		// and returns nil today; a real failure means the

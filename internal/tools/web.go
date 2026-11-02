@@ -15,6 +15,8 @@ import (
 
 // SearchResult is one web/source hit (Section 14.3).
 type SearchResult struct {
+	// Provider is private retention metadata, never included in model output.
+	Provider    string `json:"-"`
 	URL         string `json:"url"`
 	Title       string `json:"title"`
 	Snippet     string `json:"snippet"`
@@ -35,6 +37,7 @@ type Page struct {
 // SourceEvent records one tool-driven reading for the Sources listing
 // (Sections 10.9, 14.3).
 type SourceEvent struct {
+	RunID     string `json:"run_id,omitempty"`
 	Tool      string `json:"tool"`
 	URL       string `json:"url"`
 	Title     string `json:"title"`
@@ -285,7 +288,8 @@ func (d *WebDeps) now() time.Time {
 	return time.Now()
 }
 
-func (d *WebDeps) record(e SourceEvent) {
+func (d *WebDeps) record(ctx context.Context, e SourceEvent) {
+	e.RunID, _ = ctx.Value(sourceRunKey{}).(string)
 	if d == nil || d.Sources == nil {
 		return
 	}
@@ -327,7 +331,10 @@ func (t *WebSearchTool) Invoke(ctx context.Context, inv Invocation) (Result, err
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
 	for _, r := range results {
-		t.deps().record(SourceEvent{Tool: "web_search", URL: r.URL, Title: r.Title, SourceID: r.SourceID, ContentID: ""})
+		if strings.EqualFold(r.Provider, "brave") {
+			continue
+		}
+		t.deps().record(ctx, SourceEvent{Tool: "web_search", URL: r.URL, Title: r.Title, SourceID: r.SourceID, ContentID: ""})
 	}
 	if len(results) == 0 {
 		return Result{Status: StatusOK, Output: "no results"}, nil
@@ -371,18 +378,18 @@ func (t *WebReadTool) Invoke(ctx context.Context, inv Invocation) (Result, error
 		return Result{Status: StatusInputError, Output: "url is required"}, nil
 	}
 	if capabilities.BlockedBenchmarkSource(a.URL) {
-		t.deps().record(SourceEvent{Tool: "web_read", URL: a.URL, Blocked: true, BlockWhy: "benchmark source (Section 23.2)"})
+		t.deps().record(ctx, SourceEvent{Tool: "web_read", URL: a.URL, Blocked: true, BlockWhy: "benchmark source (Section 23.2)"})
 		return Result{Status: StatusDenied, Output: fmt.Sprintf("blocked: %q is a benchmark source and is never readable (Section 23.2)", a.URL)}, nil
 	}
 	page, err := t.deps().backend().Read(ctx, a.URL)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "blocked:") {
-			t.deps().record(SourceEvent{Tool: "web_read", URL: a.URL, Blocked: true, BlockWhy: err.Error()})
+			t.deps().record(ctx, SourceEvent{Tool: "web_read", URL: a.URL, Blocked: true, BlockWhy: err.Error()})
 			return Result{Status: StatusDenied, Output: err.Error()}, nil
 		}
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
-	t.deps().record(SourceEvent{Tool: "web_read", URL: page.URL, Title: page.Title, SourceID: page.URL, ContentID: page.ContentHash})
+	t.deps().record(ctx, SourceEvent{Tool: "web_read", URL: page.URL, Title: page.Title, SourceID: page.URL, ContentID: page.ContentHash})
 	raw, _ := json.MarshalIndent(page, "", "  ")
 	return Result{Status: StatusOK, Output: string(raw)}, nil
 }
@@ -435,7 +442,7 @@ func (t *SourceSearchTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 	results, err := t.deps().backend().SourceSearch(ctx, strings.ToLower(a.Source), a.Query, a.K)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "blocked:") {
-			t.deps().record(SourceEvent{Tool: "source_search", URL: a.Query, Title: a.Source, Blocked: true, BlockWhy: err.Error()})
+			t.deps().record(ctx, SourceEvent{Tool: "source_search", URL: a.Query, Title: a.Source, Blocked: true, BlockWhy: err.Error()})
 			return Result{Status: StatusDenied, Output: err.Error()}, nil
 		}
 		// Backend input errors (unknown source) surface as input errors.
@@ -445,7 +452,10 @@ func (t *SourceSearchTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 		return Result{Status: StatusToolError, Output: err.Error()}, nil
 	}
 	for _, r := range results {
-		t.deps().record(SourceEvent{Tool: "source_search", URL: r.URL, Title: r.Title, SourceID: a.Source})
+		if strings.EqualFold(r.Provider, "brave") {
+			continue
+		}
+		t.deps().record(ctx, SourceEvent{Tool: "source_search", URL: r.URL, Title: r.Title, SourceID: a.Source})
 	}
 	if len(results) == 0 {
 		return Result{Status: StatusOK, Output: "no results"}, nil
@@ -500,4 +510,20 @@ func WireWebTools(reg *MapRegistry, cat *DeferredCatalog, deps *WebDeps) {
 			cat.MarkDeferred(name)
 		}
 	}
+}
+
+type sourceRunKey struct{}
+
+// WithSourceRun attributes web evidence to its actual executing run, including deferred calls.
+func WithSourceRun(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, sourceRunKey{}, runID)
+}
+
+// ExecutingRunID returns the engine-stamped run identity for shared tools.
+// Embedded callers without a stamped context retain their configured run ID.
+func ExecutingRunID(ctx context.Context, fallback string) string {
+	if id, _ := ctx.Value(sourceRunKey{}).(string); id != "" {
+		return id
+	}
+	return fallback
 }

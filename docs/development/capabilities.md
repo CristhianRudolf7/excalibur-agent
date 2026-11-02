@@ -190,3 +190,14 @@ code/workspace/device `exec target` wiring (exec owner), and the
 `web-to-slides-export` style skill bindings (skills wave). The seams
 above (capability interfaces, `ToolsFromCapability`, loader, channel,
 `WirePersonalCore` fill-if-unset) are the integration points.
+
+## Production browser and web search
+
+BR-3 connects the real persistent browser and Tavily backend in the daemon and
+embedded default/delegate exec. The capability manifest and default fake
+registry are unchanged; unavailable/disabled Chrome keeps the fake with a
+warning. Eval retains its prior deterministic catalog and search backend.
+Browser blocks explicitly tell the model there is no takeover and to notify
+the user and use alternatives. See [browser-search.md](browser-search.md) for
+configuration, local Chrome tests, shutdown, secret policy and the durable
+engine's Brave retention limitation. Decisions 0084 and 0085 record the seams.

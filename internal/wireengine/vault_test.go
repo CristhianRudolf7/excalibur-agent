@@ -149,3 +149,31 @@ func TestAutonomousLiteralRedactionPreservesWorkspaceCandidates(t *testing.T) {
 		t.Fatal("pattern opt-in failed")
 	}
 }
+
+func TestPDFSecretResolverPolicyAndIdentity(t *testing.T) {
+	ctx := context.Background()
+	v := openTestVault(t)
+	setSecret(t, v, "pdf-password", "local-pdf-test-secret")
+	if PDFSecretResolver(nil, "run", "project", false) != nil {
+		t.Fatal("nil vault must not provide a resolver")
+	}
+	resolve := PDFSecretResolver(v, "pdf-run", "project", false)
+	value, err := resolve(ctx, "secret://pdf-password")
+	if err != nil || value != "local-pdf-test-secret" {
+		t.Fatalf("resolution failed: %v", err)
+	}
+	uses, err := v.Usage(ctx, "pdf-password", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uses) != 1 || uses[0].Tool != "pdf_ops" || uses[0].Dest != string(vault.DestFile) {
+		t.Fatalf("wrong secret use: %+v", uses)
+	}
+	if _, err = PDFSecretResolver(v, "delegated", "unrelated", true)(ctx, "secret://pdf-password"); err == nil {
+		t.Fatal("delegate resolved a general secret")
+	}
+	v.Lock()
+	if _, err = resolve(ctx, "secret://pdf-password"); err == nil {
+		t.Fatal("locked vault resolved a password")
+	}
+}

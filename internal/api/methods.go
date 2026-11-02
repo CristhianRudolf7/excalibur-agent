@@ -10,6 +10,37 @@ import (
 // the task delegation family of Section 3.6. The Methods registry below
 // enumerates them for schema export and conformance tests.
 const (
+	MethodActivityList    = "activity.list"
+	MethodFilesOpen       = "files.open"
+	MethodVoiceStatus     = "voice.status"
+	MethodVoiceTranscribe = "voice.transcribe"
+	MethodVoiceSpeak      = "voice.speak"
+
+	MethodLibraryIngest = "library.ingest"
+	MethodLibraryList   = "library.list"
+	MethodLibraryGet    = "library.get"
+	MethodLibraryPages  = "library.pages"
+	MethodLibraryChunk  = "library.chunk"
+	MethodLibraryDelete = "library.delete"
+	MethodLibraryCancel = "library.cancel"
+
+	MethodTasksQuery        = "tasks.query"
+	MethodTasksGet          = "tasks.get"
+	MethodAutomationsList   = "automations.list"
+	MethodAutomationsGet    = "automations.get"
+	MethodAutomationsRuns   = "automations.runs"
+	MethodAutomationsRun    = "automations.run"
+	MethodAutomationsPause  = "automations.pause"
+	MethodAutomationsResume = "automations.resume"
+	MethodAutomationsDelete = "automations.delete"
+	MethodRemindersList     = "reminders.list"
+	MethodRemindersCreate   = "reminders.create"
+	MethodRemindersUpdate   = "reminders.update"
+	MethodRemindersDelete   = "reminders.delete"
+
+	// Principal family: local user profile.
+	MethodPrincipalGet = "principal.get"
+
 	// Conversation family: send, subscribe, history.
 	MethodConversationSend      = "conversation.send"
 	MethodConversationSubscribe = "conversation.subscribe"
@@ -55,6 +86,14 @@ const (
 	MethodSkillsLoad    = "skills.load"
 	MethodSkillsInstall = "skills.install"
 
+	MethodSkillsGroups   = "skills.groups"
+	MethodSkillsList     = "skills.list"
+	MethodSkillsGet      = "skills.get"
+	MethodSkillsUpdate   = "skills.update"
+	MethodSkillsSetState = "skills.set_state"
+	MethodSkillsDelete   = "skills.delete"
+	MethodUsageSummary   = "usage.summary"
+
 	// Capability family: app and extension registry (Section 14.12).
 	MethodCapabilityRegister = "capability.register"
 	MethodCapabilityInvoke   = "capability.invoke"
@@ -88,6 +127,40 @@ type MethodInfo struct {
 // reject unknown methods with CodeMethodNotFound and the contracts
 // export test requires every entry to appear in packages/contracts.
 var Methods = []MethodInfo{
+	{MethodActivityList, "activity", "List conversation activity."},
+	{MethodFilesOpen, "files", "Open a workspace file."},
+	{MethodVoiceStatus, "voice", "Read voice availability."},
+	{MethodVoiceTranscribe, "voice", "Transcribe an audio blob."},
+	{MethodVoiceSpeak, "voice", "Generate speech as an audio blob."},
+	{MethodTasksQuery, "tasks", "tasks.query."},
+	{MethodTasksGet, "tasks", "tasks.get."},
+	{MethodAutomationsList, "automations", "automations.list."},
+	{MethodAutomationsGet, "automations", "automations.get."},
+	{MethodAutomationsRuns, "automations", "automations.runs."},
+	{MethodAutomationsRun, "automations", "automations.run."},
+	{MethodAutomationsPause, "automations", "automations.pause."},
+	{MethodAutomationsResume, "automations", "automations.resume."},
+	{MethodAutomationsDelete, "automations", "automations.delete."},
+	{MethodRemindersList, "reminders", "reminders.list."},
+	{MethodRemindersCreate, "reminders", "reminders.create."},
+	{MethodRemindersUpdate, "reminders", "reminders.update."},
+	{MethodRemindersDelete, "reminders", "reminders.delete."},
+
+	{MethodWhiteboardList, "whiteboard", "List interactive whiteboards."},
+	{MethodWhiteboardGet, "whiteboard", "Get interactive whiteboards."},
+	{MethodWhiteboardApply, "whiteboard", "Apply interactive whiteboards."},
+	{MethodWhiteboardSnapshot, "whiteboard", "Snapshot interactive whiteboards."},
+	{MethodWhiteboardClose, "whiteboard", "Close interactive whiteboards."},
+
+	{MethodLibraryIngest, "library", "Ingest library documents."},
+	{MethodLibraryList, "library", "List library documents."},
+	{MethodLibraryGet, "library", "Get library documents."},
+	{MethodLibraryPages, "library", "Pages library documents."},
+	{MethodLibraryChunk, "library", "Chunk library documents."},
+	{MethodLibraryDelete, "library", "Delete library documents."},
+	{MethodLibraryCancel, "library", "Cancel library documents."},
+
+	{MethodPrincipalGet, "principal", "Read the local user's profile."},
 	{MethodConversationSend, "conversation", "Send a message; idempotent on client_msg_id."},
 	{MethodConversationSubscribe, "conversation", "Subscribe to typed events from a cursor."},
 	{MethodConversationHistory, "conversation", "Read message history with pagination."},
@@ -119,6 +192,13 @@ var Methods = []MethodInfo{
 	{MethodSkillsSearch, "skills", "Search skills by text and group."},
 	{MethodSkillsLoad, "skills", "Load a SKILL.md body and resolve deferred tools."},
 	{MethodSkillsInstall, "skills", "Install a skill from the store or a path."},
+	{MethodSkillsGroups, "skills", "List skill groups with localized labels and effective counts."},
+	{MethodSkillsList, "skills", "List the effective skill catalog with filters."},
+	{MethodSkillsGet, "skills", "Read a complete skill source and diagnostics."},
+	{MethodSkillsUpdate, "skills", "Validate and update a skill with a backup."},
+	{MethodSkillsSetState, "skills", "Enable or disable an indexed skill."},
+	{MethodSkillsDelete, "skills", "Back up and remove a writable skill."},
+	{MethodUsageSummary, "usage", "Aggregate recorded token, cost and execution usage."},
 	{MethodCapabilityRegister, "capability", "Register an app or extension manifest."},
 	{MethodCapabilityInvoke, "capability", "Invoke a capability operation."},
 	{MethodCapabilityList, "capability", "List registered capabilities."},
@@ -331,3 +411,20 @@ type FilesListParams struct {
 type ConfigSetParams struct {
 	Values map[string]any `json:"values"`
 }
+
+// PrincipalGetResult is the local user's read-only profile.
+type PrincipalGetResult struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Timezone string `json:"timezone"`
+	Language string `json:"language"`
+}
+
+// Whiteboard methods are additive conversation drawing operations.
+const (
+	MethodWhiteboardList     = "whiteboard.list"
+	MethodWhiteboardGet      = "whiteboard.get"
+	MethodWhiteboardApply    = "whiteboard.apply"
+	MethodWhiteboardSnapshot = "whiteboard.snapshot"
+	MethodWhiteboardClose    = "whiteboard.close"
+)

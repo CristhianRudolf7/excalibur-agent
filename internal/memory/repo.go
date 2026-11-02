@@ -566,8 +566,8 @@ func listFragmentsTx(ctx context.Context, ex store.Execer, docID string) ([]Frag
 
 func getLibraryDocTx(ctx context.Context, q store.Queryer, id string) (LibraryDoc, error) {
 	var d LibraryDoc
-	if err := q.QueryRow(ctx, `SELECT id, scope_id, version, blob_digest, mime, origin, title FROM documents WHERE id=?`, id).
-		Scan(&d.ID, &d.Scope, &d.Version, &d.Digest, &d.MIME, &d.Origin, &d.Title); err != nil {
+	if err := q.QueryRow(ctx, `SELECT id, scope_id, version, blob_digest, mime, origin, title, format, paginated FROM documents WHERE id=?`, id).
+		Scan(&d.ID, &d.Scope, &d.Version, &d.Digest, &d.MIME, &d.Origin, &d.Title, &d.Format, &d.Paginated); err != nil {
 		return LibraryDoc{}, fmt.Errorf("%w: document %q", ErrNotFound, id)
 	}
 	return d, nil
@@ -575,14 +575,14 @@ func getLibraryDocTx(ctx context.Context, q store.Queryer, id string) (LibraryDo
 
 func scanChunk(rows store.Rows) (Chunk, error) {
 	var c Chunk
-	if err := rows.Scan(&c.ID, &c.Doc, &c.Version, &c.Page, &c.Paragraph, &c.CharStart, &c.CharEnd, &c.Section, &c.Text); err != nil {
+	if err := rows.Scan(&c.ID, &c.Doc, &c.Version, &c.Page, &c.Paragraph, &c.CharStart, &c.CharEnd, &c.Section, &c.Text, &c.PageLabel, &c.Anchor); err != nil {
 		return Chunk{}, err
 	}
 	return c, nil
 }
 
 func listChunksTx(ctx context.Context, q store.Queryer, docID string, version int) ([]Chunk, error) {
-	rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text FROM doc_chunks WHERE doc_id=? AND version=? ORDER BY page, paragraph`, docID, version)
+	rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text, page_label, anchor FROM doc_chunks WHERE doc_id=? AND version=? ORDER BY page, paragraph`, docID, version)
 	if err != nil {
 		return nil, err
 	}

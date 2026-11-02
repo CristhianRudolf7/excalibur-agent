@@ -33,13 +33,20 @@ type ToolResult struct {
 	IsError bool   `json:"is_error"`
 }
 
+// ImageInput is an image URL or base64 data URL for a multimodal turn.
+// Currently supported by the OpenAI Responses adapter.
+type ImageInput struct {
+	URL string `json:"url"`
+}
+
 // Message is one turn message in the single internal format that every
 // adapter translates to and from its wire protocol (Section 19.2).
 type Message struct {
-	Role       Role        `json:"role"`
-	Content    string      `json:"content"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolResult *ToolResult `json:"tool_result,omitempty"`
+	Images     []ImageInput `json:"images,omitempty"`
+	Role       Role         `json:"role"`
+	Content    string       `json:"content"`
+	ToolCalls  []ToolCall   `json:"tool_calls,omitempty"`
+	ToolResult *ToolResult  `json:"tool_result,omitempty"`
 }
 
 // ToolDefinition describes one callable tool for the model.

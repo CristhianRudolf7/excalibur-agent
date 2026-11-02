@@ -197,12 +197,18 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 		}
 		_ = adopted
 	}
-	if d.dep.Orch != nil {
-		d.dep.Orch.Start(ctx)
-	}
 	// Service loops end with the daemon, not with the caller's ctx
 	// alone: Stop cancels them and waits for each to exit.
 	svcCtx, svcCancel := context.WithCancel(ctx)
+	if d.dep.Services != nil && d.dep.Services.Library != nil {
+		if err := d.dep.Services.Library.Start(svcCtx); err != nil {
+			svcCancel()
+			return "", fmt.Errorf("daemon: library start: %w", err)
+		}
+	}
+	if d.dep.Orch != nil {
+		d.dep.Orch.Start(ctx)
+	}
 	svcDone := d.startServices(svcCtx)
 	d.mu.Lock()
 	d.svcCancel = svcCancel
@@ -251,6 +257,12 @@ func (d *Daemon) startServices(ctx context.Context) []<-chan struct{} {
 		return nil
 	}
 	var done []<-chan struct{}
+	if svc.Library != nil {
+		done = append(done, svc.Library.Done())
+	}
+	if svc.Automations != nil {
+		svc.Automations.Start(ctx)
+	}
 	if svc.Agenda != nil {
 		svc.Agenda.Start()
 	}
@@ -292,6 +304,9 @@ func waitDone(chans []<-chan struct{}, timeout time.Duration) bool {
 // shuts down with a drain), then the orchestrator loop, then the bus.
 // Runs persist in the journal; boot re-adopts them (Section 17.3).
 func (d *Daemon) Stop(ctx context.Context) error {
+	if d.dep.Services != nil {
+		defer func() { _ = d.dep.Services.BrowserWeb.Close() }()
+	}
 	var first error
 	d.stopOnce.Do(func() { close(d.stop) })
 	if d.dep.Gate != nil {
@@ -300,6 +315,19 @@ func (d *Daemon) Stop(ctx context.Context) error {
 		if err := d.dep.Gate.Stop(drain); err != nil && first == nil {
 			first = err
 		}
+	}
+	if d.dep.Master != nil {
+		turnCtx, cancelTurns := context.WithTimeout(ctx, 5*time.Second)
+		if err := d.dep.Master.Turns().Stop(turnCtx); err != nil && first == nil {
+			first = err
+		}
+		cancelTurns()
+	}
+	if svc := d.dep.Services; svc != nil && svc.delegations != nil {
+		svc.delegations.stop()
+	}
+	if svc := d.dep.Services; svc != nil && svc.Automations != nil {
+		svc.Automations.Stop()
 	}
 	if d.dep.Orch != nil {
 		d.dep.Orch.Stop()

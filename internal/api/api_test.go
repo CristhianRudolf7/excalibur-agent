@@ -179,3 +179,64 @@ func TestEnvelopeRoundtrip(t *testing.T) {
 		t.Fatal("expected missing-method error")
 	}
 }
+
+func TestPrincipalContract(t *testing.T) {
+	found := false
+	for _, method := range Methods {
+		if method.Name == MethodPrincipalGet {
+			found = method.Family == "principal" && method.Summary == "Read the local user's profile."
+		}
+	}
+	if !found {
+		t.Fatal("principal contract missing")
+	}
+	request, err := NewRequest("principal", MethodPrincipalGet, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(PrincipalGetResult{ID: "local", Name: "Ana", Timezone: "UTC", Language: "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != `{"id":"local","name":"Ana","timezone":"UTC","language":"en"}` {
+		t.Fatalf("wire shape: %s", raw)
+	}
+}
+
+func TestLibraryWireContract(t *testing.T) {
+	names := []string{MethodLibraryIngest, MethodLibraryList, MethodLibraryGet, MethodLibraryPages, MethodLibraryChunk, MethodLibraryDelete, MethodLibraryCancel}
+	for _, name := range names {
+		found := false
+		for _, m := range Methods {
+			if m.Name == name && m.Family == "library" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing library method %s", name)
+		}
+	}
+	raw, err := json.Marshal(LibraryIngestResult{Document: DocumentInfo{ID: "doc", SourceName: "a.pdf", BlobDigest: "digest", ScopeID: "general"}, Existing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(result["document"], &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"id", "source_name", "blob_digest", "scope_id", "progress_pages", "uploaded_at", "failure_stage"} {
+		if _, ok := doc[key]; !ok {
+			t.Fatalf("missing snake case field %s", key)
+		}
+	}
+	if string(result["existing"]) != "true" {
+		t.Fatal("missing existing flag")
+	}
+}

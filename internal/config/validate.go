@@ -4,6 +4,9 @@ import "fmt"
 
 // validateStruct checks the configuration ranges.
 func validateStruct(c Config) error {
+	if err := validateBrowserSearch(c); err != nil {
+		return err
+	}
 	checks := []struct {
 		ok   bool
 		what string

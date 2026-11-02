@@ -177,7 +177,8 @@ func TestBudgetsRecordedInProfileAndFiles(t *testing.T) {
 // needing more than 25 model calls completes instead of pausing. This
 // reproduces the measured early pause (25/74 paused after ~2 minutes).
 func TestEvalTimeOnlySurvivesPast25Steps(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	// Allow the configured run budget on busy hosts; this checks step admission.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	t.Setenv(engine.TimeBudgetSwitch, "1")
 	t.Setenv(engine.TimeBudgetOnlySwitch, "on")

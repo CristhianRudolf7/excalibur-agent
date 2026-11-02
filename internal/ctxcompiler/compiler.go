@@ -397,10 +397,10 @@ func renderActivity(snap Snapshot) string {
 func renderEvents(input []ActivityEvent) string {
 	events := append([]ActivityEvent(nil), input...)
 	sort.SliceStable(events, func(i, j int) bool {
-		if events[i].Seq != events[j].Seq {
-			return events[i].Seq < events[j].Seq
-		}
-		return events[i].Content < events[j].Content
+		// Equal sequence numbers keep their input order: callers append
+		// history chronologically, and a content tie-break would reorder
+		// a conversation alphabetically.
+		return events[i].Seq < events[j].Seq
 	})
 	var b strings.Builder
 	for _, e := range events {
@@ -530,10 +530,10 @@ func (c Compiled) ToChatRequest(model string, tools []providers.ToolDefinition, 
 func (c Compiled) AppendActivityMessages(req *providers.ChatRequest, activity []ActivityEvent) {
 	events := append([]ActivityEvent(nil), activity...)
 	sort.SliceStable(events, func(i, j int) bool {
-		if events[i].Seq != events[j].Seq {
-			return events[i].Seq < events[j].Seq
-		}
-		return events[i].Content < events[j].Content
+		// Equal sequence numbers keep their input order: callers append
+		// history chronologically, and a content tie-break would reorder
+		// a conversation alphabetically.
+		return events[i].Seq < events[j].Seq
 	})
 	for _, e := range events {
 		e = modelObservation(e)

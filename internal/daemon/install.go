@@ -71,6 +71,7 @@ type InstallOptions struct {
 // InstallReport is the evidence kept for 25.5: directories,
 // configuration layers, mechanism report, unit state.
 type InstallReport struct {
+	Browser    string
 	DataDir    string
 	ConfigDir  string
 	CacheDir   string
@@ -83,10 +84,12 @@ type InstallReport struct {
 
 // Installer wires an install from injectable parts.
 type Installer struct {
-	Dirs    Dirs
-	Service ServiceUnit
-	Prober  EnvProber
-	Now     func() time.Time
+	// BrowserStep installs the driver in production; injectable to keep tests offline.
+	BrowserStep func() string
+	Dirs        Dirs
+	Service     ServiceUnit
+	Prober      EnvProber
+	Now         func() time.Time
 }
 
 // Install performs the five steps of 25.2 and returns the report.
@@ -148,6 +151,9 @@ func (in *Installer) Install(opts InstallOptions) (InstallReport, error) {
 		rep.UnitStatus = st
 	} else {
 		rep.UnitStatus = "not installed"
+	}
+	if in.BrowserStep != nil {
+		rep.Browser = in.BrowserStep()
 	}
 	return rep, nil
 }

@@ -255,17 +255,21 @@ type DocEdit struct {
 // LibraryDoc is one versioned ingested document (Section 10.9): the
 // original stays in the blob store, chunks carry the anchors.
 type LibraryDoc struct {
-	ID      string `json:"id"`
-	Scope   string `json:"scope_id"`
-	Version int    `json:"version"`
-	Digest  string `json:"blob_digest"`
-	MIME    string `json:"mime"`
-	Origin  string `json:"origin"`
-	Title   string `json:"title"`
+	ID        string `json:"id"`
+	Scope     string `json:"scope_id"`
+	Version   int    `json:"version"`
+	Digest    string `json:"blob_digest"`
+	MIME      string `json:"mime"`
+	Origin    string `json:"origin"`
+	Title     string `json:"title"`
+	Format    string `json:"format,omitempty"`
+	Paginated bool   `json:"paginated,omitempty"`
 }
 
 // Chunk is one citable fragment with its location anchors.
 type Chunk struct {
+	PageLabel string `json:"page_label,omitempty"`
+	Anchor    string `json:"anchor,omitempty"`
 	ID        string `json:"id"`
 	Doc       string `json:"doc_id"`
 	Version   int    `json:"version"`
@@ -284,6 +288,7 @@ type Chunk struct {
 // model cites the chunk id and the harness renders page and
 // paragraph from metadata, never from model output (Section 10.9).
 type Citation struct {
+	PageLabel string `json:"page_label,omitempty"`
 	ChunkID   string `json:"chunk_id"`
 	DocID     string `json:"doc_id"`
 	DocTitle  string `json:"doc_title"`

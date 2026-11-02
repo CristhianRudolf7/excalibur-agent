@@ -26,13 +26,11 @@
 package tasks
 
 import (
-	"context"
 	"fmt"
 	"maps"
 	"sort"
 	"time"
 
-	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -133,8 +131,7 @@ func applyBatchMemory(store *MemoryStore, ops []OpCall, plan []pendingOp) ([]OpR
 // burned by a rejected batch are never reused (Section 4.4).
 func applyBatchSQL(s *SQLStore, ops []OpCall, plan []pendingOp) ([]OpResult, error) {
 	var out []OpResult
-	err := s.W.Write(bg(), store.PriorityNormal, func(ctx context.Context, ex store.Execer) error {
-		tx := &txPlanning{db: ex}
+	err := s.write(func(tx *txPlanning) error {
 		var batch []OpResult
 		for i, p := range plan {
 			if _, err := p.check(tx); err != nil {

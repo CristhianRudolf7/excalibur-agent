@@ -32,7 +32,9 @@ var DefaultRepeatPolicy = RepeatPolicy{MaxRepeats: 3, Interval: 30 * time.Minute
 
 // Reminder is one reminder (21.2, Appendix A: reminders).
 type Reminder struct {
-	ID string `json:"id"`
+	ID          string     `json:"id"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastFiredAt *time.Time `json:"last_fired_at,omitempty"`
 	// Text is the reminder body.
 	Text string `json:"text"`
 	// At is the first delivery wall time; Recur carries an optional
@@ -109,6 +111,8 @@ func (r *Reminder) Cancel() {
 // follow their cron expression.
 func (r *Reminder) recordDelivery(now time.Time) time.Time {
 	r.Deliveries++
+	at := now.UTC()
+	r.LastFiredAt = &at
 	r.State = ReminderDelivered
 	if r.Recur != "" {
 		loc, err := LoadZone(r.Timezone)

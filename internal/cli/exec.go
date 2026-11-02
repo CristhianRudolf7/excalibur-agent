@@ -27,6 +27,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 )
 
 // Version identifies the binary in ATIF metadata and reports.
@@ -307,6 +308,9 @@ func EffectiveTools(profile ProfileName) (core, deferred []string) {
 	// autonomous run; assistant and delegate runs keep them.
 	if profile != ProfileEval {
 		core = append(core, eval.TrimmedFromEvalTools()...)
+		if whiteboard.Enabled() {
+			deferred = append(deferred, "whiteboard")
+		}
 	}
 	if profile == ProfileDefault {
 		core = append(core, "send_message", "question_answer")

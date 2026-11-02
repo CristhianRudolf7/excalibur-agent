@@ -234,6 +234,7 @@ func (e *Engine) runOne(ctx context.Context, run *Run, tc providers.ToolCall) to
 }
 
 func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolCall, key string) tools.Result {
+	ctx = tools.WithSourceRun(ctx, run.ID)
 	ctx = tools.WithRunInstruction(ctx, run.Request)
 	ctx = tools.WithGitHistoryRunID(ctx, string(run.ID))
 	// Runtime advice belongs to autonomous exec/eval. Estimated limits must

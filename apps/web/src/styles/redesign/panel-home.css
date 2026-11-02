@@ -1,0 +1,399 @@
+.panel-navigation {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  min-height: 57px;
+  background: var(--surface);
+}
+.panel-navigation > strong {
+  flex: 1;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+.panel-navigation > button:first-child:not(.icon-button) {
+  font-size: 12px;
+  color: var(--primary-strong);
+  padding: 6px;
+  border-radius: 8px;
+}
+.panel-home,
+.panel-activity,
+.panel-changes {
+  padding: 28px 24px;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+  background: var(--surface);
+}
+.panel-home h2,
+.panel-changes h2 {
+  font-size: 28px;
+  letter-spacing: -0.04em;
+  line-height: 1.2;
+  margin: 10px 0;
+}
+.panel-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--primary-strong);
+}
+.panel-subtitle {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.panel-launchers {
+  display: grid;
+  gap: 14px;
+  margin-top: 30px;
+}
+.panel-launcher {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 18px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px var(--shadow);
+  animation: panel-launch-enter var(--dur-base) var(--ease-out) both;
+  transition:
+    transform var(--dur-base) var(--ease-spring),
+    box-shadow var(--dur-base),
+    border-color var(--dur-base);
+}
+.panel-launcher::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent, var(--accent-tint), transparent);
+  transform: translateX(-100%);
+  transition: transform var(--dur-slow) var(--ease-out);
+  pointer-events: none;
+}
+.panel-launcher:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: 0 8px 26px var(--accent-glow);
+}
+.panel-launcher:hover::before {
+  transform: translateX(100%);
+}
+.panel-launcher:active {
+  transform: scale(0.98);
+}
+.launcher-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 15px;
+  color: var(--primary-strong);
+  background: linear-gradient(135deg, var(--accent-tint-strong), var(--accent-2-tint));
+}
+.launcher-copy {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+.launcher-copy strong {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.launcher-copy > span {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.launcher-copy small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--primary-strong);
+  margin-top: 4px;
+}
+.launcher-arrow {
+  color: var(--tertiary);
+  flex-shrink: 0;
+}
+.panel-slide {
+  animation: panel-slide-in var(--dur-base) var(--ease-out) both;
+}
+.panel-slide-back {
+  animation-name: panel-slide-back;
+}
+.panel-activity ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.panel-activity section > h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 22px 0 12px;
+}
+.activity-node {
+  margin-bottom: 12px;
+}
+.activity-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 12px;
+  box-shadow: 0 2px 5px var(--shadow);
+}
+.activity-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.activity-card-heading > svg {
+  color: var(--primary-strong);
+}
+.activity-card-heading strong {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.activity-profile,
+.activity-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 7px;
+  border-radius: 20px;
+  background: var(--accent-tint);
+  font-size: 10px;
+  color: var(--primary-strong);
+}
+.activity-failed .activity-state,
+.activity-failed [role='alert'] {
+  color: var(--destructive);
+}
+.activity-card p {
+  margin-top: 10px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.activity-step.live::after {
+  content: '…';
+  display: inline-block;
+  animation: panel-live 1.4s ease-in-out infinite;
+}
+.activity-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: panel-live 1.4s ease-in-out infinite;
+}
+.activity-card progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 14px;
+  accent-color: var(--primary);
+}
+.activity-card time {
+  display: block;
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.panel-activity .activity-children {
+  border-left: 1px solid var(--accent-tint-strong);
+  margin: 12px 0 0 14px;
+  padding-left: 14px;
+}
+.activity-empty {
+  display: grid;
+  gap: 16px;
+  align-content: center;
+  min-height: 320px;
+  color: var(--muted-foreground);
+}
+.activity-empty > svg {
+  color: var(--primary-strong);
+}
+.activity-empty h2 {
+  font-size: 20px;
+  color: var(--foreground);
+  letter-spacing: -0.03em;
+}
+.panel-changes > p {
+  margin-bottom: 18px;
+}
+.panel-changes input {
+  width: 100%;
+  padding: 10px 12px;
+  margin: 10px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.change-row .change-toggle {
+  flex: 0 0 auto;
+}
+.change-row .change-path {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 8px 2px;
+  cursor: pointer;
+}
+.change-row .change-path:hover {
+  color: var(--primary-strong);
+}
+.change-metadata {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.change-row .change-open {
+  width: auto;
+  min-width: 32px;
+  padding: 4px;
+}
+.files-toolbar {
+  display: flex;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.files-panel .file-explorer {
+  transition:
+    width var(--dur-base) var(--ease-out),
+    min-width var(--dur-base) var(--ease-out);
+  overflow: hidden;
+}
+.files-panel.explorer-hidden .file-explorer {
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  flex-basis: 0;
+}
+@keyframes panel-launch-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes panel-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes panel-slide-back {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes panel-live {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (max-width: 680px) {
+  .panel-home,
+  .panel-activity,
+  .panel-changes {
+    padding: 24px 16px;
+  }
+  .panel-launcher {
+    padding: 18px 14px;
+    gap: 12px;
+  }
+  .change-metadata .change-bar {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-slide,
+  .panel-launcher,
+  .activity-dot,
+  .activity-step.live::after {
+    animation: none;
+  }
+  .panel-launcher,
+  .panel-launcher::before,
+  .files-panel .file-explorer {
+    transition: none;
+  }
+  .panel-launcher:hover,
+  .panel-launcher:active {
+    transform: none;
+  }
+}
+
+.change-scroll {
+  max-height: 560px;
+  overflow: auto;
+}
+.panel-navigation {
+  flex-shrink: 0;
+}
+.activity-card progress {
+  appearance: none;
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--accent-tint);
+}
+.activity-card progress::-webkit-progress-bar {
+  background: var(--accent-tint);
+}
+.activity-card progress::-webkit-progress-value {
+  background: var(--accent-gradient);
+  border-radius: 4px;
+}
+.activity-card progress::-moz-progress-bar {
+  background: var(--primary);
+  border-radius: 4px;
+}
+.activity-running .activity-state {
+  position: relative;
+}
+.activity-running .activity-state::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 1px solid var(--primary);
+  border-radius: inherit;
+  opacity: 0.2;
+  animation: panel-live 1.4s ease-in-out infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-running .activity-state::after {
+    animation: none;
+  }
+}

@@ -20,6 +20,8 @@ import (
 // writers and the read pool serves concurrent readers (Section 4.3).
 type Service struct {
 	db *store.DB
+
+	librarySubmitter atomic.Pointer[librarySubmitterBinding]
 	// tele optionally receives source-event mirrors; nil disables it.
 	tele *store.DB
 

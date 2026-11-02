@@ -19,6 +19,11 @@ type ModelCaller interface {
 	Available() bool
 }
 
+// TurnCaller runs a conversation-aware turn and returns its trusted citation run tree.
+type TurnCaller interface {
+	CompleteTurn(context.Context, string, Normalized) (string, []string, error)
+}
+
 // FakeModel is a scriptable ModelCaller for tests.
 type FakeModel struct {
 	mu         sync.Mutex
@@ -94,6 +99,7 @@ type Turn struct {
 	Pending        []IntakeResult
 	Done           chan struct{}
 	Err            error
+	restarting     bool
 }
 
 // TurnManager runs Section 5.3 turns: conversations advance in
@@ -103,12 +109,15 @@ type Turn struct {
 // messages (cached prefix, cheap); later messages inject at the next
 // safe point. Control orders bypass the turn via the fast lane.
 type TurnManager struct {
-	mu     sync.Mutex
-	cfg    TurnConfig
-	model  ModelCaller
-	turns  map[string]*Turn
-	now    func() time.Time
-	events func(TurnEvent)
+	mu      sync.Mutex
+	cfg     TurnConfig
+	model   ModelCaller
+	caller  TurnCaller
+	turns   map[string]*Turn
+	stopped bool
+	now     func() time.Time
+	events  func(TurnEvent)
+	reply   func(context.Context, string, string, []string) error
 }
 
 // TurnEvent observes the turn lifecycle in tests and the bus bridge.
@@ -143,6 +152,10 @@ func (m *TurnManager) emit(e TurnEvent) {
 // the next safe point (Section 5.3.4).
 func (m *TurnManager) Deliver(conv string, in IntakeResult) {
 	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
 	t, active := m.turns[conv]
 	if !active {
 		t = &Turn{ConversationID: conv, StartedAt: m.now(), Done: make(chan struct{})}
@@ -156,79 +169,81 @@ func (m *TurnManager) Deliver(conv string, in IntakeResult) {
 		return
 	}
 	elapsed := m.now().Sub(t.StartedAt)
-	if !t.ShownOutput && elapsed < m.cfg.CancelWindow {
+	if !t.ShownOutput && elapsed < m.cfg.CancelWindow && !t.restarting {
+		t.restarting = true
 		t.Cancel()
-		t.Pending = append([]IntakeResult{in}, t.Pending...)
 		m.emit(TurnEvent{ConversationID: conv, Kind: "canceled_restart", Detail: "new message within 2s, no output shown"})
-		m.mu.Unlock()
-		m.waitDone(t)
-		m.mu.Lock()
-		nt := &Turn{ConversationID: conv, StartedAt: m.now(), Done: make(chan struct{}), Pending: t.Pending}
-		nt.Ctx, nt.Cancel = context.WithCancel(context.Background())
-		m.turns[conv] = nt
-		m.mu.Unlock()
-		m.emit(TurnEvent{ConversationID: conv, Kind: "started"})
-		safego.Go("master-turn", func(owner string, recovered any, stack []byte) {
-			m.finish(conv, fmt.Errorf("panic: %v", recovered))
-		}, func() { m.run(conv, nt, in) })
-		return
+	} else {
+		m.emit(TurnEvent{ConversationID: conv, Kind: "injected", Detail: "queued for next safe point"})
 	}
 	t.Pending = append(t.Pending, in)
-	m.emit(TurnEvent{ConversationID: conv, Kind: "injected", Detail: "queued for next safe point"})
 	m.mu.Unlock()
 }
 
-// run executes one turn: up to MaxSteps model steps, draining pending
-// injections between steps. Provider failure without a backup ends
-// the turn with the deterministic receipt (Section 5.3.7): the queue
-// stays and the fast lane keeps answering.
+// run drains queued messages at safe boundaries. The production caller bounds
+// each engine run; intake never waits for cancellation or completion.
 func (m *TurnManager) run(conv string, t *Turn, first IntakeResult) {
-	inputs := append([]IntakeResult{first}, t.Pending...)
-	m.mu.Lock()
-	t.Pending = nil
-	m.mu.Unlock()
-	steps := 0
-	for _, in := range inputs {
-		if steps >= m.cfg.MaxSteps {
-			break
-		}
-		if err := t.Ctx.Err(); err != nil {
-			break
-		}
-		steps++
+	inputs := []IntakeResult{first}
+	for len(inputs) > 0 {
+		in := inputs[0]
 		m.mu.Lock()
-		t.Steps = steps
+		caller := m.caller
 		m.mu.Unlock()
-		if m.model == nil || !m.model.Available() {
-			m.emit(TurnEvent{ConversationID: conv, Kind: "fallback", Detail: "received; no model available, will attend when it returns"})
-			continue
-		}
-		if _, err := m.model.Complete(t.Ctx, in.Msg.Text); err != nil {
-			m.emit(TurnEvent{ConversationID: conv, Kind: "fallback", Detail: "received; no model available, will attend when it returns"})
-			continue
+		var text string
+		var tree []string
+		var err error
+		if caller != nil {
+			text, tree, err = caller.CompleteTurn(t.Ctx, conv, in.Msg)
+		} else if m.model != nil && m.model.Available() {
+			text, err = m.model.Complete(t.Ctx, in.Msg.Text)
+		} else {
+			text = "No model configured"
+			m.emit(TurnEvent{ConversationID: conv, Kind: "fallback", Detail: text})
 		}
 		m.mu.Lock()
+		if t.restarting && !m.stopped {
+			// The interrupted input remains first, with every pending message retained.
+			t.Cancel()
+			t.Ctx, t.Cancel = context.WithCancel(context.Background())
+			t.StartedAt = m.now()
+			t.restarting = false
+			inputs = append(inputs, t.Pending...)
+			t.Pending = nil
+			m.mu.Unlock()
+			continue
+		}
+		if m.stopped {
+			t.Cancel()
+			close(t.Done)
+			delete(m.turns, conv)
+			m.mu.Unlock()
+			return
+		}
 		t.ShownOutput = true
-		more := t.Pending
-		t.Pending = nil
 		m.mu.Unlock()
-		inputs = append(inputs, more...)
-	}
-	m.finish(conv, nil)
-}
-
-func (m *TurnManager) waitDone(t *Turn) {
-	select {
-	case <-t.Done:
-	default:
-		// The canceled generation observes ctx cancellation
-		// promptly; wait briefly, then proceed regardless.
-		timer := time.NewTimer(500 * time.Millisecond)
-		defer timer.Stop()
-		select {
-		case <-t.Done:
-		case <-timer.C:
+		if err != nil {
+			text = "I couldn't answer because the model is unavailable. Please try again."
+			m.emit(TurnEvent{ConversationID: conv, Kind: "fallback", Detail: text})
 		}
+		if m.reply != nil {
+			if err := m.reply(t.Ctx, conv, text, tree); err != nil {
+				m.emit(TurnEvent{ConversationID: conv, Kind: "failed", Detail: err.Error()})
+			}
+		}
+		m.mu.Lock()
+		t.Steps++
+		t.ShownOutput = true
+		inputs = append(inputs[1:], t.Pending...)
+		t.Pending = nil
+		if len(inputs) == 0 {
+			t.Cancel()
+			close(t.Done)
+			delete(m.turns, conv)
+			m.mu.Unlock()
+			m.emit(TurnEvent{ConversationID: conv, Kind: "finished"})
+			return
+		}
+		m.mu.Unlock()
 	}
 }
 
@@ -267,4 +282,25 @@ func (m *TurnManager) PendingCount(conv string) int {
 		return len(t.Pending)
 	}
 	return 0
+}
+
+// Stop cancels active turns and waits for their goroutines before owners close
+// model and storage services. New messages must stop at the gateway first.
+func (m *TurnManager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	m.stopped = true
+	var done []<-chan struct{}
+	for _, t := range m.turns {
+		t.Cancel()
+		done = append(done, t.Done)
+	}
+	m.mu.Unlock()
+	for _, ch := range done {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }

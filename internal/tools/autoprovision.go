@@ -679,7 +679,7 @@ var harnessToolNames = map[string]bool{
 	"ack_directive": true, "ask_user": true, "doc_edit": true, "doc_read": true,
 	"history_search": true, "leave_continuation_note": true, "library_search": true,
 	"load_skill": true, "memory_propose": true, "memory_search": true, "memory_write": true,
-	"reminders": true, "search_skills": true, "send_message": true, "settings": true,
+	"reminders": true, "automations": true, "search_skills": true, "send_message": true, "settings": true,
 	"verifier": true, "subagent": true, "task_db": true, "pin_observation": true,
 }
 

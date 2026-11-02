@@ -172,7 +172,7 @@ func (f *FastLane) control(intent, target string, in IntakeResult, raw string) O
 		}
 		if len(cands) == 0 {
 			// No target at all: list everything for status, else ask.
-			if intent == "status" {
+			if intent == "status" && looksLikeStatusQuery(raw) {
 				rows := f.Controls.ListRuns()
 				if len(rows) == 0 {
 					return Outcome{Handled: true, Reply: "Nothing is running."}
@@ -332,4 +332,19 @@ func firstWord(s string) string {
 		return f[0]
 	}
 	return ""
+}
+
+// statusWords guard untargeted status replies: the triage model sometimes
+// labels short confirmations ("Sí, créala") as status, which must reach the
+// master instead of being answered with the run list.
+var statusWords = []string{"estado", "status", "cómo va", "como va", "cómo vas", "como vas", "qué está", "que esta", "corriendo", "ejecutando", "running", "progress", "progreso", "avance", "qué hay", "pendiente", "what's going", "how is it going", "how's it going"}
+
+func looksLikeStatusQuery(raw string) bool {
+	low := strings.ToLower(raw)
+	for _, w := range statusWords {
+		if strings.Contains(low, w) {
+			return true
+		}
+	}
+	return false
 }

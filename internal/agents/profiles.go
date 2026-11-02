@@ -67,10 +67,10 @@ func MasterTools() []string {
 		"status", "clock", "settings",
 		"web_search",
 		"task_db", "memory_search", "memory_write", "memory_propose",
-		"history_search", "library_search", "doc_read", "doc_edit",
+		"history_search", "library_search", "library_list", "library_view", "library_grep", "library_status", "doc_read", "doc_edit",
 		"get_tool_output",
 		"search_skills", "load_skill", "search_tools", "call_tool",
-		"subagent", "reminders",
+		"subagent", "reminders", "automations",
 	}
 }
 

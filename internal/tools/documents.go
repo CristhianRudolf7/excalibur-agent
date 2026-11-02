@@ -10,13 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract"
 )
 
 // Document and media backends: the harness side of the documents and
-// media capabilities (Section 14.7). The default implementations below
-// use only the standard library so document flows stay testable without
-// external renderers; real fidelity backends plug in behind the same
-// interfaces in H13.
+// media capabilities (Section 14.7). PDF structure uses a pure-Go backend;
+// optional reader and renderer collaborators supply document fidelity.
 
 // DocumentBackend extracts text and structure with page, section and
 // paragraph anchors (document_read).
@@ -102,9 +102,17 @@ type ChartSeries struct {
 
 // MediaDeps wires every document/media backend.
 type MediaDeps struct {
+	// Workdir confines Office and PDF paths to the run workspace when set,
+	// resolving relative paths against it.
+	Workdir   string
 	Documents DocumentBackend
 	Vision    VisionBackend
 	PDF       PDFBackend
+	// PDFText and PDFRender are optional reading hooks supplied by the PDF reader.
+	PDFText   docextract.Extractor
+	PDFRender docextract.Renderer
+	// PDFSecret resolves secret:// password references privately at invocation.
+	PDFSecret func(context.Context, string) (string, error)
 	Convert   ConvertBackend
 	Diagram   DiagramBackend
 	Chart     ChartBackend
@@ -130,8 +138,11 @@ var supportedDocFormats = map[string]bool{
 }
 
 // Read implements DocumentBackend.
-func (b *FileDocumentBackend) Read(_ context.Context, path string) (DocumentText, error) {
+func (b *FileDocumentBackend) Read(ctx context.Context, path string) (DocumentText, error) {
 	format := docFormat(path)
+	if nativeDocumentFormat(format) {
+		return (&OfficeDocumentBackend{}).Read(ctx, path)
+	}
 	if !supportedDocFormats[format] {
 		return DocumentText{}, fmt.Errorf("unsupported format %q (want txt, md, json, html, csv or log)", format)
 	}
@@ -275,10 +286,8 @@ func (b *MemoryVisionBackend) Extract(_ context.Context, input string, mode stri
 	return out, nil
 }
 
-// FilePDFBackend implements structural PDF operations over the harness
-// blob model: merge concatenates with separators, split and extract
-// slice page ranges, rotate and annotate record the operation in a
-// trailer so the effect is reversible and auditable.
+// FilePDFBackend is a legacy text-fixture fake for PDFBackend tests. It does
+// not process actual PDF objects and must never be selected by default.
 type FilePDFBackend struct{}
 
 func pdfPages(data []byte) [][]byte {
@@ -718,6 +727,7 @@ var documentReadSchema = schemaFor(map[string]any{
 	"properties": map[string]any{
 		"path":      map[string]any{"type": "string", "minLength": 1},
 		"page":      map[string]any{"type": "integer", "minimum": 1},
+		"cursor":    map[string]any{"type": "string"},
 		"max_chars": map[string]any{"type": "integer", "minimum": 1, "maximum": 100000},
 	},
 	"required":             []string{"path"},
@@ -727,13 +737,21 @@ var documentReadSchema = schemaFor(map[string]any{
 var pdfOpsSchema = schemaFor(map[string]any{
 	"type": "object",
 	"properties": map[string]any{
-		"action":     map[string]any{"type": "string", "enum": []string{"merge", "split", "extract_pages", "rotate", "fill_form", "annotate", "redact"}},
-		"inputs":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1},
-		"output":     map[string]any{"type": "string"},
-		"output_dir": map[string]any{"type": "string"},
-		"pages":      map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}},
-		"angle":      map[string]any{"type": "integer"},
-		"notes":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"action":      map[string]any{"type": "string", "enum": []string{"info", "merge", "split", "extract_pages", "delete_pages", "reorder", "rotate", "stamp", "watermark", "page_numbers", "encrypt", "decrypt", "optimize", "validate", "form_fields", "form_fill", "fill_form", "form_lock", "form_flatten", "flatten", "attachments", "bookmarks", "text", "render", "annotate", "redact"}},
+		"inputs":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1},
+		"output":      map[string]any{"type": "string"},
+		"output_dir":  map[string]any{"type": "string"},
+		"overwrite":   map[string]any{"type": "boolean", "default": false},
+		"password":    map[string]any{"type": "string", "description": "Password or secret:// reference; prefer a reference"},
+		"text":        map[string]any{"type": "string"},
+		"ranges":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"fields":      map[string]any{"type": "object", "additionalProperties": map[string]any{"type": []string{"string", "boolean", "array"}}},
+		"field_names": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		"page":        map[string]any{"type": "integer", "minimum": 1},
+		"dpi":         map[string]any{"type": "integer", "minimum": 36, "maximum": 300},
+		"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}},
+		"angle":       map[string]any{"type": "integer"},
+		"notes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	},
 	"required":             []string{"action", "inputs"},
 	"additionalProperties": false,
@@ -824,6 +842,7 @@ func (t *DocumentReadTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 	var a struct {
 		Path     string `json:"path"`
 		Page     int    `json:"page"`
+		Cursor   string `json:"cursor"`
 		MaxChars int    `json:"max_chars"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
@@ -836,18 +855,13 @@ func (t *DocumentReadTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	pages := doc.Pages
-	if a.Page > 0 {
-		if a.Page > len(pages) {
-			return Result{Status: StatusInputError, Output: fmt.Sprintf("page %d out of range (1..%d)", a.Page, len(pages))}, nil
-		}
-		pages = pages[a.Page-1 : a.Page]
+
+	window, err := documentReadWindow(doc, a.Page, a.Cursor, a.MaxChars)
+	if err != nil {
+		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	raw, _ := json.MarshalIndent(map[string]any{"path": doc.Path, "format": doc.Format, "sections": doc.Sections, "pages": pages}, "", "  ")
+	raw, _ := json.MarshalIndent(window, "", "  ")
 	out := string(raw)
-	if a.MaxChars > 0 && len(out) > a.MaxChars {
-		out = out[:a.MaxChars] + fmt.Sprintf("\n…[bounded to %d chars]…", a.MaxChars)
-	}
 	return Result{Status: StatusOK, Output: out}, nil
 }
 
@@ -868,21 +882,21 @@ func (t *PDFOpsTool) backend() PDFBackend {
 	if t.Deps != nil && t.Deps.PDF != nil {
 		return t.Deps.PDF
 	}
-	return &FilePDFBackend{}
+	return &CPUPDFBackend{}
 }
 
 func (t *PDFOpsTool) Definition() Definition {
 	return Definition{
-		Name: "pdf_ops", Description: "Combine, split, rotate, extract pages, fill forms, annotate and redact PDF content",
-		InputSchema: pdfOpsSchema, Effect: "write_local", Idempotency: "idempotent",
+		Name: "pdf_ops", Description: "Inspect and edit PDFs, fill AcroForms, stamp text, encrypt, validate and optimize",
+		InputSchema: pdfOpsSchema, Effect: "write_local", Idempotency: "non_idempotent",
 		Cancel: "after_completion", Timeout: 120_000_000_000, OutputBudget: DefaultOutputBudget,
-		Inverse: "revert_edit", Probe: "output file exists with the expected operation trailer",
+
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
 		Group: "documents", Tags: []string{"pdf", "document"}, Keywords: []string{"pdf", "merge", "split", "rotate", "extract", "annotate", "redact", "form"},
 	}
 }
 
-func (t *PDFOpsTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
+func (t *PDFOpsTool) invokeLegacy(_ context.Context, inv Invocation) (Result, error) {
 	var a struct {
 		Action    string   `json:"action"`
 		Inputs    []string `json:"inputs"`
@@ -956,24 +970,6 @@ func (t *PDFOpsTool) Invoke(_ context.Context, inv Invocation) (Result, error) {
 	default:
 		return Result{Status: StatusInputError, Output: fmt.Sprintf("unknown action %q", a.Action)}, nil
 	}
-}
-
-func (t *PDFOpsTool) ResourceKeys(args json.RawMessage) ([]string, error) {
-	var a struct {
-		Inputs []string `json:"inputs"`
-		Output string   `json:"output"`
-	}
-	if err := json.Unmarshal(args, &a); err != nil {
-		return nil, err
-	}
-	keys := make([]string, 0, len(a.Inputs)+1)
-	for _, in := range a.Inputs {
-		keys = append(keys, "file:"+filepath.Clean(in))
-	}
-	if a.Output != "" {
-		keys = append(keys, "file:"+filepath.Clean(a.Output))
-	}
-	return keys, nil
 }
 
 // FileConvertTool implements file_convert.
@@ -1200,7 +1196,10 @@ func (t *VisionExtractTool) Invoke(ctx context.Context, inv Invocation) (Result,
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
 	if a.Model != "" {
-		res.Model = a.Model
+		// Preserve the serving model for real extraction; legacy fakes accept labels.
+		if _, real := backend.(*ModelVisionBackend); !real {
+			res.Model = a.Model
+		}
 	}
 	raw, _ := json.MarshalIndent(res, "", "  ")
 	return Result{Status: StatusOK, Output: string(raw)}, nil
@@ -1216,14 +1215,16 @@ func (t *VisionExtractTool) ResourceKeys(args json.RawMessage) ([]string, error)
 	return []string{"file:" + filepath.Clean(a.Input)}, nil
 }
 
-// DeferredMediaTools returns the six harness-owned deferred document and
-// media tools of Section 13.3 for this wave.
+// DeferredMediaTools returns the harness-owned deferred document and media
+// tools of Section 13.3.
 func DeferredMediaTools(deps *MediaDeps) []Tool {
 	if deps == nil {
 		deps = &MediaDeps{}
 	}
 	return []Tool{
 		&DocumentReadTool{Deps: deps},
+		&DocumentCreateTool{Deps: deps},
+		&DocumentEditTool{Deps: deps},
 		&PDFOpsTool{Deps: deps},
 		&FileConvertTool{Deps: deps},
 		&DiagramRenderTool{Deps: deps},

@@ -5911,3 +5911,440 @@ Linux/macOS/Windows builds and the bare-goroutine check pass. Race tests pass fo
 `internal/engine/...` under a 6 GiB memory cap and for `internal/tools/...`,
 `internal/cli/...`, `internal/tasks` and `internal/ctxcompiler` under 3 GiB.
 Tests use local files and fake endpoints; no live model calls are needed.
+
+## Local principal client profile
+
+`EXCALIBUR_PRINCIPAL_ENABLED` defaults ON. Unset, `1` and `true` enable it;
+`0` and `false` (case insensitive for false) disable it. Other values retain
+the enabled default. It affects daemon client profile reads and initial seeding,
+not model tools or execution profiles. Disabling it restores the previous lack
+of a client profile operation; existing principal rows remain unchanged.
+`EXCALIBUR_USER_NAME` supplies the initial name only when the principals table
+is empty. See decision 0074. Profile editing and authentication are deferred.
+
+
+Profile seeding is best effort. OS lookup failure falls back to USER, LOGNAME
+and finally "User" after the explicit name and OS full-name/login choices.
+Inspection and seed failures log warnings and leave the rest of the daemon
+available. A missing or unreadable profile returns a typed client error until
+a row is available; no existing data is overwritten.
+
+## Web document library (`apps/web/src/features/library`)
+
+`EXCALIBUR_WEB_LIBRARY` controls the browser library, document attachments,
+source markers and Sources dialog. It defaults to `1` (on); set it to `0`
+before starting Vite or building the web application to disable these entry
+points. Other values enable the feature. This is a build-time switch exposed
+explicitly by Vite; rebuild to roll back. It affects the web UI only and does
+not change backend tools, execution profiles or the frozen eval surface.
+
+Uploads hash the original bytes using Web Crypto, enforce a 64 MiB per-file
+limit before reading, PUT the original blob, then submit `library.ingest`.
+Selections are queued within each upload surface to bound hash-buffer memory.
+Removal aborts pending browser work; it does not delete an already ingested
+document. Active document progress is polled through `library.get` every two
+seconds, with cancellation on unmount. `documentUpdated` accepts future event
+bridge payloads using the same store; no extra WebSocket connection is opened.
+The list uses `library.list`, supports pagination and search, and confirms
+library deletion with a backup retention notice. Failed rows re-submit their
+original digest through `library.ingest`; retry policy remains server-owned.
+
+The existing chat is a local demonstration and has no `conversation.send`
+contract. Attachment titles and document IDs are therefore included in its
+message text; no unsupported `attachments` RPC parameter is sent. Markdown
+citation buttons use only source numbers present in the message's `sources`.
+Code blocks, inline code and links are preserved. Document citations open
+`useViewerStore` with their document/chunk target, and web sources admit only
+HTTP(S) URLs. Source snippets are rendered as text.
+
+When the library list is unavailable, a labeled offline preview shows examples
+of every document state. Destructive actions and original downloads are
+unavailable for preview rows. Uploads still require a real daemon. Local chat
+seed messages demonstrate both document and web citations. Preview document
+IDs require the viewer's own mock data or a real document to open successfully.
+
+Verification uses Web Crypto test vectors, fake HTTP/RPC transports, and
+component tests for progress, removal, polling, document actions, citations
+and the disabled switch. No models or paid APIs are called.
+## Native document readers (`internal/office/read`, `internal/docextract/text`)
+
+`EXCALIBUR_OFFICE_READ` and `EXCALIBUR_TEXT_READ` default to ON. Values
+`0`, `false`, and `off` (case insensitive) disable their respective native
+extractors and return an explicit disabled error. Other values enable them.
+These switches apply to direct extraction and the default `document_read`
+backend in default and delegate profiles. The frozen eval tool table and
+profile remain unchanged. Roll back native extraction by disabling the
+relevant switch; explicitly injected document backends remain available.
+
+Office extraction validates every ZIP entry before reading parts: no absolute
+paths, parent traversal, symlinks, more than 4096 entries, or more than 256 MiB
+of declared uncompressed data. XML decoding has depth and element limits,
+does not fetch entities, and never executes macros. Text input is capped at
+64 MiB. Spreadsheet cell output is capped at 20,000 cells with a warning;
+sheet Markdown previews use at most 200 rows and 30 columns. Images provide
+pixel dimensions and `method: none` so ingestion can request OCR.
+
+`document_read` returns one logical page at a time and labels document text
+as untrusted. `next_cursor` resumes at the next logical page or at a rune
+offset within a long page. Pass the cursor with the same path and unchanged
+source, omitting `page`. `max_chars` bounds text per response (default 16,000,
+maximum 100,000); JSON metadata is additional. Office image references name
+embedded package parts; readers do not decode or persist embedded media.
+## PDF extraction (`internal/docextract/pdf`)
+
+- `EXCALIBUR_PDF_ENABLED`: boolean, default `true`. Applies wherever the PDF
+  extractor or renderer is installed; `false` returns `errors.ErrUnsupported`.
+  Set to `false` to disable native PDF processing without changing tool or
+  profile catalogs.
+- `EXCALIBUR_PDF_TIMEOUT`: positive Go duration, default `10m`. Bounds a whole
+  extraction/render call, including staging and worker startup. Invalid values
+  use the default. Restore `10m` or unset to roll back.
+- `EXCALIBUR_PDF_QUALITY_MIN`: number from 0 to 1, default `0.6`. Pages at or
+  above the threshold have method `native`; lower scores have method `none`.
+  `PageNeedsOCR` uses the same threshold. Invalid values use the default.
+  Restore `0.6` or unset to roll back. Existing invisible OCR text is evaluated
+  by the same rule.
+
+No tool registrations, eval profile hashes, model calls, or paid API checks
+are added by this package. See [Native PDF extraction](pdf-reader.md) for
+resource limits and the worker lifecycle.
+## Web document viewer
+
+`EXCALIBUR_DOCUMENT_VIEWER` controls the library document panel in `apps/web`.
+It defaults to ON; set it to `0` or `false` in the Vite build environment to
+turn previews off, then rebuild the web app. Any other value enables it.
+This browser-only switch affects no execution profile, model or tool catalog.
+Rollback: set it off and rebuild, or restore the default and rebuild.
+
+The viewer calls `library.get`, `library.pages` (at most 20 pages per request)
+and `library.chunk`, with abort signals and query caching. Unknown methods
+(`-32601`) use an explicitly labeled sample. Only explicit `demo-*` targets
+also use sample data on transport failures; authorization and other RPC
+errors remain visible. Samples cover PDF, DOCX, ODT, EPUB, TXT, MD, HTML,
+PPTX, ODP, XLSX and ODS. The existing viewer store API remains unchanged.
+PDF previews render to canvas with a bundled worker, without annotation
+widgets, form execution, XFA or a scripting manager. Original downloads and
+embedded images use validated SHA-256 blob references. Extracted HTML is
+rendered as text, and GFM tables use the shared safe Markdown renderer.
+## Document library API (internal/daemon and internal/gateway)
+
+`EXCALIBUR_LIBRARY_API` defaults ON. Values `0` and `false` (case insensitive)
+turn the seven `library.*` client methods off with method-not-found errors;
+other values leave them on. This controls daemon client access, with no effect
+on embedded/eval tools or their frozen catalog. Set it to `0` and restart the
+daemon to roll back client exposure. A missing backend fails explicitly until
+the memory/ingester binding is attached. API scopes come from daemon
+configuration, never from client assertions.
+
+The daemon gateway uses `Config.DaemonBlobs` with `StoreBlobs{Store: db.Blob()}`
+so originals uploaded over HTTP are readable by memory. MIME hints are accepted
+on downloads; `Config.BlobMIME` can resolve document MIME when no hint is given.
+The library backend and MIME lookup are integration seams, not automatic
+instantiation of the extraction pipeline.
+## Document library (`internal/memory`)
+
+`EXCALIBUR_LIBRARY` defaults to ON. Values `0`, `false` and `off`
+(case insensitive) disable pending upload creation, extracted ingestion and
+library tool invocation, and omit the four new deferred tools from catalog
+construction. Other values enable them. The switch affects default and
+delegate; eval keeps its frozen surface and never gains library tools.
+Existing stored documents remain available to scoped service reads for API
+clients. Set the switch to `0` and restart to roll back the agent surface;
+no data or migration is reverted.
+
+The document API stores extraction progress and per-version page records,
+returns bounded page ranges (20), lists (100), and regexp matches (100).
+Regexp scanning uses Go's RE2 implementation with a 4 KiB pattern limit,
+10,000 chunks and 8 MiB of text per document. Tool outputs explicitly label
+document text as untrusted source material. Embeddings are requested outside
+write transactions in batches of 64; failed vectors enter the retry queue.
+Migration, lifecycle, citation and scope tests use generated text and fake
+embeddings, with no live API calls.
+## Document citation output (`internal/memory`, `internal/master`)
+
+`EXCALIBUR_CITATIONS_PIPELINE` defaults **ON**. Values `0`, `false`, `off`,
+and `no` (case insensitive) disable it; unset and other values enable it.
+The daemon assistant output boundary normalizes exact document references,
+validates retrieval in the answering run tree, renders stable `[n]` markers,
+and persists/publishes `sources`. Sentences losing every reference receive
+`[unsourced]`; `citations_dropped` counts removed refs. Tool-dependent guidance
+is added only to effective `library_search`, `library_view` and `library_grep`
+definitions. Internal child reports retain their literal references. Exec/eval
+requests without library tools keep their existing prompts and output.
+
+For rollback set the switch to `off` before starting the daemon. Answers keep
+the model's literal text, omit sources and produce no dropped-reference metric.
+The underlying library retrieval authorization remains unchanged. Source excerpts
+are capped at 300 Unicode characters and unfinished stream markers at 200.
+## Vision OCR (`internal/tools`, `internal/docextract/visionocr`)
+
+`EXCALIBUR_VISION_OCR` defaults ON in default/delegate and daemon use. Unset,
+`1`, and `true` enable real extraction; `0`, `false`, and `off` disable it
+(case insensitive). Other values retain the enabled default. Disabling it
+returns an explicit error and makes embedded execution skip provider setup.
+It does not alter eval's frozen tools, skill hash, profile hash, or backend.
+`EXCALIBUR_VISION_HONEST` retains its existing unavailable-backend behavior;
+real backend failures never become placeholder text.
+
+`EXCALIBUR_VISION_MODEL` optionally selects the vision-role model on the
+configured OpenAI provider. With no override, vision uses the configured
+chat model and warns. OpenAI Responses is currently the supported image wire;
+other providers remain unavailable for real OCR. No model calls occur at
+startup. Credentials use the existing provider/vault resolution path.
+
+Each call has a 90-second timeout, at most two retries on rate-limit or
+transient failures, a 4096-token completion cap, and up to 50 requested pages.
+Constructor options can lower or raise these budgets. Images are bounded to
+20 MiB and 100 million pixels. `ModelVisionBackend.Usage()` exposes completed
+pages, provider attempts, input/output/cache/reasoning tokens, and price-table
+cost. Production prices remain unknown (zero) until supplied by the operator.
+No token counts or dollar costs are guessed. OCR returns errors for empty
+outputs and never invents coordinates. Layout uses Markdown structure with
+no boxes. Document inputs require the optional `VisionOptions.RenderPage`
+hook; the library can pass rendered pages directly to `visionocr.New(backend)`.
+
+Both catalog composition paths accept `MediaDeps.Vision`; daemon memory uses
+`VisionMemoryOption` and embedded callers with a `MemoryStore` construct the
+same adapter. Embedded exec has no persistent memory store by default.
+Rollback: set `EXCALIBUR_VISION_OCR=0`; no tool schema or stored data changes.
+## PDF operations (`internal/tools`)
+
+`EXCALIBUR_PDF_OPS` defaults to ON. Values `0`, `false`, `off` and `no`
+(case insensitive) disable `pdf_ops` with an explicit error. Other values
+leave it enabled. The deferred document tool is available to default and
+delegate profiles; eval's frozen tool table is unchanged. Roll back the
+behavior by setting the switch to `off`; no simulated backend is substituted.
+
+The default backend uses pdfcpu v0.11.1 to read and rewrite actual PDFs.
+Operations accept at most 100 inputs, 128 MiB per input and 2000 pages per
+PDF or merged output. Page selections use physical 1-based indexes. Split
+accepts `ranges` (one output per range) or produces one file per page.
+Outputs include absolute `path`, `sha256` and `page_count`; split returns
+an `outputs` array. Existing files require `overwrite:true`; writes use
+sibling temporary files and atomic publication. Split preflights destinations
+but is not a transaction: cancellation or a later failure can leave earlier
+completed outputs. Cancellation is checked before work and publication;
+an individual pdfcpu call finishes before cancellation takes effect.
+
+`MediaDeps.Workdir` resolves relative PDF paths and confines inputs and
+outputs, including symlink ancestors, to that directory when configured.
+The shared embedded/daemon catalog passes its run workdir. Without one,
+paths resolve against the process directory, like other file tools.
+`MediaDeps.PDFSecret` resolves `secret://` passwords privately. Shared wiring
+uses the vault's `pdf_ops` identity and file destination, preserving project
+and delegation policy. Plain password arguments are accepted but references
+avoid putting passwords into model-visible arguments and intent records.
+Password-operation errors never expose library diagnostics or resolver errors.
+
+`MediaDeps.PDFText` and `PDFRender` are optional `docextract.Extractor` and
+`docextract.Renderer` collaborators. Missing hooks report “not configured”.
+Render writes one selected page as PNG at 36–300 DPI (default 144).
+Reading encrypted PDFs through these hooks requires a decrypted copy first.
+Integration supplies the hooks; the structural backend does not invent text
+or render pages. XFA, signing, secure redaction and flattening are unsupported.
+`form_lock` sets read-only flags and retains appearances; it is not flattening.
+
+Generated fixtures in `internal/tools/pdf_backend_test.go` verify PDF page
+content/order, rotation, forms, encryption, metadata and structural validity.
+`internal/tools/pdf_ops_test.go` exercises the default backend through the
+deferred executor, reading hooks, path confinement and password handling.
+Vault policy and frozen skill content have separate regression tests in
+`internal/wireengine/vault_test.go` and `internal/skills/builtin_eval_test.go`.
+The daemon/embedded parity and frozen eval profile checks retain their pins.
+## Office writing (`internal/office`, `internal/tools`)
+
+`EXCALIBUR_OFFICE_WRITE` defaults ON; `0`, `false`, `off` and `no`
+(case-insensitive) disable `document_create` and `document_edit`. Other values
+keep them enabled. Discovery stays stable when disabled and invocation returns
+`denied`. The tools are deferred in default/delegate and excluded from eval.
+Rollback is setting the switch off. All output and image paths must resolve
+inside the run workdir (the process workspace if no workdir was supplied),
+including symlink resolution. Creation refuses existing files unless
+`overwrite:true`; editing requires `expected_sha256`. The lower-level Office
+packages are reusable libraries and do not read environment switches.
+
+The JSON spec and edit operation contracts are documented in
+`internal/office/create/README.md` and `internal/office/edit/README.md`.
+Validation checks the ZIP package, XML syntax, content types and relationships;
+it does not render the output. No formula calculation, tracked-change editing,
+charts or pivots are implemented.
+
+Eval keeps byte-for-byte snapshots of the original document skills in
+`internal/skills/frozen_eval`, so the rewritten assistant guidance never reaches
+eval and its recorded hashes stay valid. Office writer tools remain disabled in
+eval; default and delegate use the current skills.
+
+## Web chat (`apps/web/src/features/chat`)
+
+`EXCALIBUR_WEB_CHAT_LIVE` defaults to `1`; set it to `0` before starting
+Vite or building the web app to restore the seeded preview. All other values
+enable daemon chat. This browser feature switch affects no engine profiles
+or tool catalogs. Restart/rebuild with `0` to roll back.
+
+Sidebar agent IDs map to caller-defined daemon conversation IDs using
+`cnv_web_<agent-id>` (for example, `cnv_web_byte`). They persist across browser
+sessions because the mapping is deterministic. These IDs partition history;
+they do not select a daemon agent role. The daemon currently routes every
+conversation through master intake. User messages have a random
+`client_msg_id`, retained across retries for daemon idempotency.
+
+Chat subscribes on `/ws`, consumes the replay acknowledgement and live
+`event` notifications. Each socket starts with an empty cursor and replays
+the bounded bus, deduplicating event IDs (up to 4096 retained) across reconnects.
+This also handles daemon restarts, whose bus sequences reset without an epoch.
+History uses 50-message pages and the oldest returned
+message ID as `before`. Canonical message IDs merge history, receipts, and
+live events. Document `sources` pass directly to the existing Markdown
+citation UI; library progress events go to `documentUpdated`.
+
+Unreachable transports or missing conversation methods show the seeded
+“Offline preview”; preview messages never enter daemon history. Reconnects
+refresh history, and a ten-second probe retries history while offline.
+Pending/failed real sends remain separate and expose retry. Global notices
+and run progress appear in the Excalibur master chat because those payloads
+currently lack conversation IDs. The UI sends document IDs in `attachments`
+and includes the existing attachment text; the current Go gateway does not
+forward the attachment array to master intake. Backend forwarding and agent
+role selection require separate backend work.
+
+## Daemon master engine turns (`internal/daemon`, `internal/master`)
+
+`EXCALIBUR_MASTER_ENGINE_TURNS` defaults to ON. `0`, `false`, or `off`
+(case insensitive) disables engine turns and returns an explicit disabled
+assistant message and notice. Other values enable it. This affects daemon
+conversations only; embedded exec, delegate and eval keep their existing
+profiles and frozen surfaces. Roll back by setting the switch to `0` and
+restarting the daemon.
+
+The production master uses the shared `internal/engine` loop with the
+interlocutor model role and the models gateway's interactive lane. Its direct
+tools are the library readers, memory/history search, identity document read,
+status, clock, continuation notes, output retrieval and existing subagent
+delegation. Generic tool dispatchers and long file/terminal operations are
+excluded at both discovery and execution. `send_message` and `ask_user` are
+not exposed because this composition has no real conversational bindings for
+them; the final text is the single assistant delivery.
+
+`EXCALIBUR_MASTER_STEPS` accepts integers from 1 through 100, default 12.
+`EXCALIBUR_MASTER_TIMEOUT` accepts a positive Go duration up to `10m`, default
+`120s`. Invalid settings use the defaults. Each queued message receives its
+own bounded engine run. Work verification remains with delegated runs;
+conversational completion does not require file artifacts or a verifier model. When `EXCALIBUR_SERVICE_TIER=flex`, the default becomes 6m because flex calls are slower.
+
+Context contains at most 20 recent messages and 24,000 characters, with at
+most 4,000 characters per message, bounded agent/user identity sections and
+the local principal when available. Up to 20 attachment ids produce metadata
+notes (title, extraction status and page count). Both normalized attachment
+ids and `Attached: Title (id)` lines are supported. The current gateway's
+text-only backend call drops the structured `attachments` parameter;
+`DaemonBackend.ConversationSendAttachments` provides an additive integration
+seam, pending an authorized gateway change.
+
+Library searches receive a harness-owned run id. Final output passes through
+`Master.SendAssistant`, including trusted child runs returned by successful
+subagent spawns and their descendants. Citation validation, source numbering,
+message persistence and `message.created` publication use the existing output
+boundary. Deterministic fast-lane replies also pass through this boundary
+without calling the model. Missing providers, provider errors, empty answers and exhausted turn
+budgets produce honest assistant text and a notice. Shutdown cancels and joins
+active turns before closing their collaborators. Intake never waits for the
+turn being canceled; messages after the restart window queue until the next
+safe boundary. Existing model-backed intake classification itself is unchanged.
+
+Tests use a scripted provider through the real models gateway and daemon tool
+composition, with an ingested document, persisted citations, source events,
+failure cases, disabled mode, budgets, timeout, cancellation, restart and queued
+messages. No live model calls are used.
+## Library ingestion (`internal/library`)
+
+`EXCALIBUR_LIBRARY_INGEST` defaults to ON. Set `0` or `false` to disable
+background submission and daemon worker setup. It affects the default and
+delegate document-library paths. Legacy direct text ingestion is preserved.
+Rollback requires stopping the daemon; queued originals remain durable and
+resume when ingestion is enabled again.
+
+`EXCALIBUR_LIBRARY_WORKERS` accepts integers 1–8 and defaults to 1. Invalid
+values use the default. Each worker claims one durable job at a time.
+`EXCALIBUR_LIBRARY_OCR_MAX_PAGES` accepts integers 0–2000 and defaults to 50.
+It limits pages needing OCR per document, including images; native text pages
+do not spend this budget. Exceeding it preserves extracted content with a
+partial result and a warning that further OCR needs confirmation. Zero skips
+OCR. Neither switch changes the eval profile.
+
+Submission accepts a local regular file up to 64 MiB or an existing blob
+SHA-256 digest. Extraction runs after submission returns. Explicit job
+cancellation is terminal; daemon shutdown preserves unfinished jobs for
+restart. Completed OCR pages are persisted before advancing the job cursor.
+Two retries follow the initial attempt, with the final read, extract, OCR,
+chunk, embed, or store failure recorded on the document. Provider-backed OCR
+and embeddings continue to use their existing configured service boundaries.
+
+The memory tool uses a service's single allowed scope when omitted; a service
+with several scopes or no configured scope requires an explicit scope. It
+checks that scope before queueing and keeps uploaded content outside trusted
+instructions. The upload memory fact is a proposed agent observation with
+provenance, never an admitted user preference.
+
+## Document library integration
+
+The existing library switches control the complete native-reader, durable
+ingestion and client routes composition. The daemon binds the original blob
+store to its database and publishes `library.document_updated` for progress and
+terminal states. Native PDF, Office, text and image metadata readers work without
+a model; OCR uses the configured vision backend and the existing
+`EXCALIBUR_VISION_OCR` switch. PDF quality and OCR page budgets retain their
+documented reader/ingester switches. No additional switch is introduced.
+
+Embedded callers supplying `MemoryStore` own the returned `Embedded.Close`
+lifecycle: join ingestion before closing the database. A supplied memory service
+is reused. Eval does not supply library memory or start ingestion. Citation
+sources now include indexed page labels and boxes under the existing
+`EXCALIBUR_CITATIONS_PIPELINE` switch.
+## Browser and search production switches (BR-3)
+
+| Switch | Default | Values | Profiles and behavior | Rollback |
+| --- | --- | --- | --- | --- |
+| `EXCALIBUR_BROWSER_ENABLED` | true | `0/1`, `false/true` (Go boolean spelling) | Daemon, embedded default/delegate: enable real Chrome when available; OFF keeps the fake and warns. Eval never builds production collaborators. | Set `0`, restart daemon/run. |
+| `EXCALIBUR_BROWSER_SANDBOX` | true | `0/1`, `false/true` | Same profiles: OFF disables the Chromium sandbox with a logged warning. | Set `1`, restart daemon/run. |
+| `EXCALIBUR_SEARCH_ORDER` | `tavily,brave` | Comma-separated unique provider names | Same profiles: replace the real backend's provider order. Durable execution refuses Brave before any request unless storage rights are explicitly enabled (decision 0085). Eval stays on memory search. | Unset and restart daemon/run. |
+| `EXCALIBUR_SEARCH_BRAVE_STORAGE_RIGHTS` | false | `0/1`, `false/true` (Go boolean spelling) | Daemon and embedded default/delegate: explicitly permit Brave in the configured order when the owner holds a plan granting storage rights. Startup logs once. OFF refuses before key resolution and falls through. Eval never gets real search. | Set `0`, restart daemon/run. |
+
+The ordinary layered double-underscore form also applies, for example
+`EXCALIBUR_BROWSER__MAX_TABS=8` and
+`EXCALIBUR_SEARCH__PROVIDERS__TAVILY__KEY_REF=env:TAVILY_API_KEY`.
+Credentials themselves are read only at execution and are never switch values
+or model arguments. See [browser-search.md](browser-search.md) for configuration,
+verification and the Brave retention limitation.
+
+## Persistent reminder wiring
+
+EXCALIBUR_PERSISTENT_REMINDERS defaults to ON in embedded default and delegate
+exec. Set it to 0 or false to restore the in-memory reminder provider. Eval
+always keeps memory reminders and never opens assistant state. The daemon
+retains its persistent agenda independently of this embedded rollback switch.
+The embedded provider writes the assistant database and leaves delivery to the
+daemon; it does not create a background timer. With EXCALIBUR_HOME, embedded
+reminder state lives under its state directory; otherwise it uses the platform
+user data directory. Tests cover both the OFF path and eval isolation.
+
+## INT-2 client catalog and usage controls
+
+`EXCALIBUR_SKILLS_MANAGEMENT` and `EXCALIBUR_USAGE_SUMMARY` default on.
+Values `0`, `false` and `off` (case-insensitive) disable their respective new
+client methods with method_not_found; all other values enable them. They affect
+the daemon client API only. Existing skills.search/load/install, model tools,
+embedded/eval profiles and frozen fingerprints are unchanged. Rollback consists
+of disabling the relevant switch and restarting the daemon. Skill content backups
+remain available beside SKILL.md or under the owning root's `.backups` directory.
+Decisions 0088–0089 and `int2-be-2.md` document the contract and backend tests.
+
+## Conversation whiteboards (`internal/whiteboard`)
+
+`EXCALIBUR_WHITEBOARD` defaults ON. Values `0`, `false` and `off` (case
+insensitive) disable whiteboard registration, default/delegate profile
+admission, conversational tool use and client API execution. Other values
+keep it enabled. Eval never registers or exposes the new tool or teaching
+skill. The switch does not change the fixed prefix, eval tool table or eval
+skill fingerprint. To roll back availability, set it to `off` and restart the
+daemon; persistent scenes and history remain in SQLite. See decision 0092 and
+`docs/development/whiteboard.md` for snapshot and replay behavior.

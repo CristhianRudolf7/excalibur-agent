@@ -1,0 +1,486 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-reminder.json",
+  "$defs": {
+    "TaskSummary": {
+      "type": "object",
+      "required": [
+        "id",
+        "short_code",
+        "title",
+        "status",
+        "level",
+        "created_at",
+        "updated_at",
+        "criteria_total",
+        "criteria_met"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "short_code": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "in_progress",
+            "blocked",
+            "done",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "level": {
+          "enum": [
+            "brief",
+            "project",
+            "initiative"
+          ]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "criteria_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "criteria_met": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked_reason": {
+          "type": "string"
+        }
+      }
+    },
+    "TaskDetail": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/TaskSummary"
+        },
+        {
+          "type": "object",
+          "required": [
+            "request",
+            "requirements",
+            "criteria",
+            "evidence",
+            "plan",
+            "runs"
+          ],
+          "properties": {
+            "request": {
+              "type": "string"
+            },
+            "requirements": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "text"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "criteria": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "text",
+                  "state",
+                  "method"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "enum": [
+                      "met",
+                      "failed",
+                      "unverified",
+                      "n/a"
+                    ]
+                  },
+                  "method": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "evidence": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "criterion_id",
+                  "kind",
+                  "summary",
+                  "at",
+                  "ok"
+                ],
+                "properties": {
+                  "criterion_id": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ok": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "plan": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "title",
+                  "status",
+                  "depends_on"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "depends_on": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "notes": {
+              "type": "string"
+            },
+            "runs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "state",
+                  "started_at"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ended_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Reminder": {
+      "type": "object",
+      "required": [
+        "id",
+        "text",
+        "due_at",
+        "timezone",
+        "status",
+        "created_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "repeat": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "scheduled",
+            "done",
+            "snoozed",
+            "cancelled"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "last_fired_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "TasksQueryParams": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "status": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "blocked",
+              "done",
+              "failed",
+              "cancelled"
+            ]
+          }
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        },
+        "cursor": {
+          "type": "string"
+        }
+      }
+    },
+    "TasksQueryResult": {
+      "type": "object",
+      "required": [
+        "tasks",
+        "counts"
+      ],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskSummary"
+          }
+        },
+        "next_cursor": {
+          "type": "string"
+        },
+        "counts": {
+          "type": "object",
+          "required": [
+            "pending",
+            "in_progress",
+            "blocked",
+            "done",
+            "failed",
+            "cancelled"
+          ],
+          "properties": {
+            "pending": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "in_progress": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "blocked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "done": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "failed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cancelled": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "TasksGetParams": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "RemindersListParams": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "include_done": {
+          "type": "boolean"
+        }
+      }
+    },
+    "RemindersListResult": {
+      "type": "object",
+      "required": [
+        "reminders"
+      ],
+      "properties": {
+        "reminders": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reminder"
+          }
+        }
+      }
+    },
+    "RemindersCreateParams": {
+      "type": "object",
+      "required": [
+        "text",
+        "due_at"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "timezone": {
+          "type": "string"
+        },
+        "repeat": {
+          "type": "string"
+        }
+      }
+    },
+    "RemindersUpdateParams": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "due_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "repeat": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "scheduled",
+            "done",
+            "snoozed",
+            "cancelled"
+          ]
+        },
+        "snooze_until": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "RemindersDeleteParams": {
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      }
+    },
+    "RemindersDeleteResult": {
+      "type": "object",
+      "required": [
+        "id",
+        "deleted"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "deleted": {
+          "const": true
+        }
+      }
+    }
+  }
+}

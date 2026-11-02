@@ -29,11 +29,12 @@ var knownTools = map[string]bool{
 	"memory_search": true, "memory_write": true, "memory_propose": true,
 	"history_search": true, "library_search": true, "doc_read": true, "doc_edit": true,
 	"pin_observation": true, "search_skills": true, "load_skill": true,
-	"search_tools": true, "call_tool": true, "subagent": true, "reminders": true,
+	"search_tools": true, "call_tool": true, "subagent": true, "reminders": true, "automations": true,
 	// Section 13.3 deferred tools: code and workspace.
 	"lsp": true, "code_graph": true, "file_history": true, "revert_edit": true,
 	"workspace_snapshot": true, "worktree": true, "integration_queue": true, "github": true,
 	// Browser (contract 14.2).
+	"whiteboard":           true,
 	"browser_open_session": true, "browser_close_session": true, "browser_suspend_session": true,
 	"browser_tabs": true, "browser_navigate": true, "browser_wait_ready": true,
 	"browser_snapshot": true, "browser_act": true, "browser_download": true,

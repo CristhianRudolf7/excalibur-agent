@@ -299,6 +299,7 @@ func scanReminder(scan func(...any) error) (*Reminder, error) {
 	r.TaskID = taskID
 	r.State = ReminderState(status)
 	r.NextFireUTC = fromMs(fire)
+	r.CreatedAt = fromMs(created)
 	return &r, nil
 }
 
@@ -311,28 +312,63 @@ func (s *SQLReminderStore) SaveReminder(r *Reminder) error {
 	}
 	return s.W.Write(bg(), store.PriorityNormal, func(ctx context.Context, ex store.Execer) error {
 		now := ms(time.Now().UTC())
+		created := ms(r.CreatedAt)
+		if created == 0 {
+			created = now
+		}
 		_, err := ex.Exec(ctx, `INSERT INTO reminders(`+remCols+`) VALUES(?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(id) DO UPDATE SET text=excluded.text,fire_ms=excluded.fire_ms,recurrence_json=excluded.recurrence_json,
 			channel=excluded.channel,task_id=excluded.task_id,status=excluded.status,updated_at=excluded.updated_at`,
-			r.ID, "", r.Text, ms(r.NextFireUTC), mustJSON(r), r.Channel, r.TaskID, string(r.State), now, now)
+			r.ID, "", r.Text, ms(r.NextFireUTC), mustJSON(r), r.Channel, r.TaskID, string(r.State), created, now)
 		return err
 	})
 }
 
-// Reminder implements ReminderStore.
-func (s *SQLReminderStore) Reminder(id string) (*Reminder, bool) {
-	var out *Reminder
-	_ = s.R.Read(bg(), func(ctx context.Context, q store.Queryer) error {
-		r, err := scanReminder(func(dest ...any) error {
-			return q.QueryRow(ctx, `SELECT `+remCols+` FROM reminders WHERE id=?`, id).Scan(dest...)
-		})
+// CreateReminder atomically inserts a keyed tool creation or returns its
+// committed predecessor, preserving idempotency across process restarts.
+func (s *SQLReminderStore) CreateReminder(ctx context.Context, r *Reminder) (*Reminder, bool, error) {
+	if err := r.Validate(); err != nil {
+		return nil, false, err
+	}
+	created := false
+	err := s.W.Write(ctx, store.PriorityNormal, func(ctx context.Context, ex store.Execer) error {
+		now := ms(time.Now().UTC())
+		at := ms(r.CreatedAt)
+		if at == 0 {
+			at = now
+		}
+		result, err := ex.Exec(ctx, `INSERT INTO reminders(`+remCols+`) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`, r.ID, "", r.Text, ms(r.NextFireUTC), mustJSON(r), r.Channel, r.TaskID, string(r.State), at, now)
 		if err != nil {
 			return err
 		}
-		out = r
-		return nil
+		n, err := result.RowsAffected()
+		created = n == 1
+		return err
 	})
-	return out, out != nil
+	if err != nil {
+		return nil, false, err
+	}
+	saved, err := s.ReadReminder(ctx, r.ID)
+	return saved, created, err
+}
+
+// Reminder implements ReminderStore.
+func (s *SQLReminderStore) Reminder(id string) (*Reminder, bool) {
+	out, err := s.ReadReminder(bg(), id)
+	return out, err == nil && out != nil
+}
+
+// ReadReminder preserves storage errors for the client API.
+func (s *SQLReminderStore) ReadReminder(ctx context.Context, id string) (*Reminder, error) {
+	var out *Reminder
+	err := s.R.Read(ctx, func(ctx context.Context, q store.Queryer) error {
+		r, err := scanReminder(func(dest ...any) error {
+			return q.QueryRow(ctx, `SELECT `+remCols+` FROM reminders WHERE id=?`, id).Scan(dest...)
+		})
+		out = r
+		return err
+	})
+	return out, err
 }
 
 // DeleteReminder implements ReminderStore.
@@ -380,8 +416,14 @@ func (s *SQLReminderStore) DueReminders(now time.Time) []*Reminder {
 
 // ListReminders implements ReminderStore ordered by next fire.
 func (s *SQLReminderStore) ListReminders() []*Reminder {
+	out, _ := s.ReadReminders(bg())
+	return out
+}
+
+// ReadReminders preserves storage errors for the client API.
+func (s *SQLReminderStore) ReadReminders(ctx context.Context) ([]*Reminder, error) {
 	var out []*Reminder
-	_ = s.R.Read(bg(), func(ctx context.Context, q store.Queryer) error {
+	err := s.R.Read(ctx, func(ctx context.Context, q store.Queryer) error {
 		rows, err := q.Query(ctx, `SELECT `+remCols+` FROM reminders ORDER BY fire_ms,id`)
 		if err != nil {
 			return err
@@ -396,7 +438,7 @@ func (s *SQLReminderStore) ListReminders() []*Reminder {
 		}
 		return rows.Err()
 	})
-	return out
+	return out, err
 }
 
 // --- Triggers ---

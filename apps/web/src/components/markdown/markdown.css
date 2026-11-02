@@ -1,0 +1,217 @@
+.markdown {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.markdown-pending {
+  white-space: pre-wrap;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  white-space: normal;
+  margin: 0 0 12px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 18px 0 10px;
+}
+.markdown h1 {
+  font-size: 20px;
+}
+.markdown h2 {
+  font-size: 18px;
+}
+.markdown h3 {
+  font-size: 16px;
+}
+.markdown h4 {
+  font-size: 14px;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 24px;
+  margin: 10px 0 14px;
+}
+.markdown ul {
+  list-style: disc;
+}
+.markdown ol {
+  list-style: decimal;
+}
+.markdown ul ul {
+  list-style: circle;
+}
+.markdown li {
+  padding-left: 2px;
+  margin: 4px 0;
+}
+.markdown li > p {
+  margin-bottom: 6px;
+}
+.markdown .contains-task-list {
+  list-style: none;
+  padding-left: 4px;
+}
+.markdown input[type='checkbox'] {
+  accent-color: var(--primary);
+  margin-right: 8px;
+  vertical-align: middle;
+  opacity: 1;
+}
+.markdown a {
+  display: inline;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown a svg {
+  display: inline;
+  margin-left: 4px;
+  vertical-align: baseline;
+}
+.markdown blockquote {
+  margin: 14px 0;
+  border-left: 3px solid var(--primary);
+  padding: 9px 12px;
+  background: var(--accent-tint);
+  color: var(--muted-foreground);
+  border-radius: 0 6px 6px 0;
+}
+.markdown blockquote p:last-child {
+  margin-bottom: 0;
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 18px 0;
+}
+.markdown :not(pre) > code {
+  background: var(--muted);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 0.9em;
+}
+.markdown img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.markdown-table-scroll {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 14px 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  scrollbar-width: thin;
+}
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.markdown th,
+.markdown td {
+  padding: 8px 12px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.markdown th:last-child,
+.markdown td:last-child {
+  border-right: 0;
+}
+.markdown tr:last-child td {
+  border-bottom: 0;
+}
+.markdown th {
+  background: var(--muted);
+  font-weight: 600;
+}
+.markdown tbody tr:nth-child(even) {
+  background: var(--muted);
+}
+.markdown-code-block {
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 14px 0;
+  overflow: hidden;
+  background: var(--muted);
+}
+.markdown-code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--muted);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.markdown-code-toolbar button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px;
+  border-radius: 4px;
+}
+.markdown-code-toolbar button:hover {
+  color: var(--foreground);
+  background: var(--accent-tint);
+}
+.markdown pre {
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  scrollbar-width: thin;
+}
+.markdown pre code {
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.markdown .hljs-keyword,
+.markdown .hljs-selector-tag,
+.markdown .hljs-literal {
+  color: var(--primary);
+}
+.markdown .hljs-string,
+.markdown .hljs-addition,
+.markdown .hljs-attr {
+  color: color-mix(in srgb, var(--success) 60%, var(--foreground));
+}
+.markdown .hljs-number,
+.markdown .hljs-title,
+.markdown .hljs-built_in {
+  color: color-mix(in srgb, var(--violet) 60%, var(--foreground));
+}
+.markdown .hljs-comment,
+.markdown .hljs-quote,
+.markdown .hljs-meta {
+  color: var(--muted-foreground);
+}
+.markdown .hljs-deletion {
+  color: color-mix(in srgb, var(--red) 60%, var(--foreground));
+}

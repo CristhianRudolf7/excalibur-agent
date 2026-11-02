@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -13,6 +14,9 @@ import (
 // plain text, voice transcripts with end-of-turn marks, attachments
 // as blob references, reply links and the detected language.
 type Normalized struct {
+	Role        string
+	Changes     []api.FileChange
+	Sources     []api.SourceRef
 	Text        string
 	Attachments []string
 	ReplyTo     string

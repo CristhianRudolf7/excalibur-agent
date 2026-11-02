@@ -70,3 +70,8 @@ make cross    # GOOS=darwin / windows builds
 Behavior is specified by the architecture document (outside this
 repository, never committed here). Code references its sections by
 number only.
+
+## Credits
+
+The browser uses Playwright (© Microsoft, Apache-2.0). See
+[third-party notices](THIRD_PARTY_NOTICES.md).

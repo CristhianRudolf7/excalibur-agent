@@ -244,6 +244,9 @@ coordinated contract change, not just a handler registration.
    additive contract change in a decision record. If the model also needs
    the action, add a separate tool adapter.
 
+`principal.get` is a read-only client operation over the existing SQLite
+principal row (decision 0074); it does not add a model tool.
+
 For example, an existing family is wired through `daemon.SkillsOp`:
 
 ```go

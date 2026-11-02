@@ -206,6 +206,12 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 			defs[i].Description = ctxcompiler.AdaptToolDescription(ctxcompiler.PromptMuse, defs[i].Name, defs[i].Description)
 		}
 	}
+	// Tool-dependent citation guidance follows the existing description-adaptation
+	// seam. Copy the slice so a shared definition cache stays immutable.
+	defs = append([]providers.ToolDefinition(nil), defs...)
+	for i := range defs {
+		defs[i].Description += ctxcompiler.CitationInstructions(defs[i].Name)
+	}
 	if err := b.stabilizePrefix(run, &snap, &compiled, &defs, cfg, counter); err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
 	}

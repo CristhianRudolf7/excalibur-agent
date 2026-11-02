@@ -11,6 +11,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
@@ -21,6 +22,8 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
@@ -371,12 +374,20 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
-	Agenda   *agenda.Agenda
-	Triggers *agenda.TriggerPump
-	Orch     *orchestrator.Orchestrator
-	Store    orchestrator.Store
-	Jrnl     journal.Store
-	Engine   *engine.Engine
+	engineOptions engineWiring
+	delegations   *chatDelegations
+	History       *workspace.History
+	Sources       tools.SourceRecorder
+	Whiteboard    *whiteboard.Service
+	BrowserWeb    *wireengine.BrowserWeb
+
+	Automations AutomationLifecycle
+	Agenda      *agenda.Agenda
+	Triggers    *agenda.TriggerPump
+	Orch        *orchestrator.Orchestrator
+	Store       orchestrator.Store
+	Jrnl        journal.Store
+	Engine      *engine.Engine
 	// Tools is the daemon tool surface the engine executes; Catalog is
 	// its deferred catalog (search_tools, call_tool).
 	Tools   *tools.MapRegistry
@@ -385,6 +396,7 @@ type Services struct {
 	// redaction are installed on it (Section 20.1).
 	Exec     *tools.Executor
 	Caps     *capabilities.Registry
+	Library  *library.Ingester
 	Memory   *memory.Service
 	Skills   *skills.Index
 	Projects *workspace.Registry
@@ -399,12 +411,18 @@ type Services struct {
 	// normalized events here. Nil runs the pump without a source.
 	Events chan agenda.Event
 	// ReviewScopes arms the daily-review loop (21.9); empty disables it.
-	ReviewScopes []string
+	ReviewScopes  []string
+	masterAgentID types.AgentID
 }
 
 // AssembleOptions overrides pieces of the assembled stack. Nil pieces
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
+	Whiteboard *whiteboard.Service
+	// Media supplies optional real document backends.
+	Media *tools.MediaDeps
+	// BrowserWeb is supplied by production startup; nil preserves test fakes.
+	BrowserWeb *wireengine.BrowserWebOptions
 	// Models is the configured model endpoint for daemon runs. Nil
 	// leaves the engine unconfigured: its steps fail with a clear
 	// error instead of a missing-endpoint panic.
@@ -442,6 +460,10 @@ type AssembleOptions struct {
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
 	s := &Services{Bus: opts.Bus, Decider: opts.Decider}
+	s.Whiteboard = opts.Whiteboard
+	if s.Whiteboard == nil {
+		s.Whiteboard = whiteboard.NewService(nil, opts.Bus)
+	}
 	s.Store = opts.Store
 	if s.Store == nil {
 		s.Store = orchestrator.NewMemoryStore()
@@ -460,6 +482,24 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Orch = orchestrator.New(orchestrator.DefaultConfig(), s.Store, jrnl)
 	}
 	s.Caps = capabilities.DefaultRegistry()
+	if opts.BrowserWeb != nil {
+		webOpts := *opts.BrowserWeb
+		webOpts.Vault = opts.Vault
+		if opts.Projects != nil {
+			for _, p := range opts.Projects.List() {
+				webOpts.UploadDirs = append(webOpts.UploadDirs, p.Roots...)
+			}
+		}
+		var err error
+		s.BrowserWeb, err = wireengine.NewBrowserWeb(webOpts)
+		if err != nil {
+			return nil, err
+		}
+		if err = s.BrowserWeb.SwapBrowser(s.Caps); err != nil {
+			_ = s.BrowserWeb.Close()
+			return nil, err
+		}
+	}
 	var orchStore *orchestrator.MemoryStore
 	if ms, ok := s.Store.(*orchestrator.MemoryStore); ok {
 		orchStore = ms
@@ -468,14 +508,21 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	if err != nil {
 		return nil, fmt.Errorf("daemon: register subagent root: %w", err)
 	}
-	eng, dt, err := buildEngine(engineWiring{
-		Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID,
+	s.masterAgentID = root.ID
+	wiring := engineWiring{
+		Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
 		Vault: opts.Vault, Memory: opts.Memory, Skills: opts.Skills,
 		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
-	})
+	}
+	eng, dt, err := buildEngine(wiring)
 	if err != nil {
+		_ = s.BrowserWeb.Close()
 		return nil, err
 	}
+	wiring.History, wiring.Leases = dt.SharedHistory, dt.Leases
+	s.engineOptions = wiring
+	s.History = dt.History
+	s.Sources = dt.Sources
 	s.Engine = eng
 	s.Tools = dt.Registry
 	s.Catalog = dt.Catalog

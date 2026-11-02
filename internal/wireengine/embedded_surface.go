@@ -192,7 +192,7 @@ func (n *NoteStore) Latest() string {
 
 // TaskDBAdapter runs task_db batches against the embedded MemoryStore.
 type TaskDBAdapter struct {
-	Store *tasks.MemoryStore
+	Store tasks.PlanningStore
 	Scope types.Scope
 }
 

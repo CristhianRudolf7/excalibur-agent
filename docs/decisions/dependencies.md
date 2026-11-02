@@ -186,3 +186,87 @@ Go, no cgo, so `GOOS=darwin`/`GOOS=windows` builds keep working.
 [license](https://github.com/mvdan/sh/blob/v3.12.0/LICENSE)) supplies the
 shell syntax parser for the terminal self-kill guard. No shell interpreter
 or additional runtime executable is introduced.
+
+## Adopted for PDF operations
+
+The PDF backend uses `github.com/pdfcpu/pdfcpu` v0.11.1 (Apache-2.0),
+verified from the module's LICENSE. It is pure Go. New transitive modules
+are pinned in `go.mod`: `github.com/hhrutter/lzw` v1.0.0 and
+`github.com/hhrutter/tiff` v1.0.2 (BSD-3-Clause),
+`github.com/hhrutter/pkcs7` v0.2.0, `github.com/pkg/errors` v0.9.1,
+`github.com/mattn/go-runewidth` v0.0.19 and
+`github.com/clipperhouse/uax29/v2` v2.2.0 (MIT),
+`golang.org/x/image` v0.32.0 and `golang.org/x/text` v0.43.0
+(BSD-3-Clause), and `gopkg.in/yaml.v2` v2.4.0 (Apache-2.0/MIT).
+License texts were checked in the downloaded module cache. These dependencies
+introduce no copyleft or commercial-use restrictions.
+## Browser and web search (BR-1, BR-2, BR-3)
+
+Pinned versions are unchanged by wiring. License texts were read from each
+module cache directory; derived-code licenses and bundled notices are retained
+in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md). This table includes
+shared transitive and test dependencies. Playwright 1.62.1 itself is Apache-2.0;
+its Microsoft/Puppeteer NOTICE and driver third-party notices are reproduced
+there as well. No third-party code is vendored or modified.
+
+| Module | Version | Verified license | Cache files read |
+| --- | --- | --- | --- |
+| `github.com/JohannesKaufmann/html-to-markdown` | v1.6.0 | MIT | LICENSE |
+| `github.com/PuerkitoBio/goquery` | v1.9.2 | BSD-3-Clause | LICENSE |
+| `github.com/RadhiFadlillah/whatlanggo` | v0.0.0-20240916001553-aac1f0f737fc | MIT | LICENSE |
+| `github.com/andybalholm/cascadia` | v1.3.2 | BSD-2-Clause | LICENSE |
+| `github.com/araddon/dateparse` | v0.0.0-20210429162001-6b43995a97de | MIT | LICENSE |
+| `github.com/davecgh/go-spew` | v1.1.1 | ISC | LICENSE |
+| `github.com/deckarep/golang-set/v2` | v2.8.0 | MIT | LICENSE |
+| `github.com/elliotchance/pie/v2` | v2.9.0 | MIT | LICENSE |
+| `github.com/forPelevin/gomoji` | v1.2.0 | MIT | LICENSE |
+| `github.com/go-quicktest/qt` | v1.101.0 | MIT | LICENSE |
+| `github.com/go-shiori/dom` | v0.0.0-20230515143342-73569d674e1c | MIT | LICENSE |
+| `github.com/go-shiori/go-readability` | v0.0.0-20241012063810-92284fa8a71f | MIT | LICENSE |
+| `github.com/go-stack/stack` | v1.8.1 | MIT | LICENSE.md |
+| `github.com/gogs/chardet` | v0.0.0-20211120154057-b7413eaefb8f | MIT | LICENSE |
+| `github.com/google/go-cmp` | v0.7.0 | BSD-3-Clause | LICENSE |
+| `github.com/hablullah/go-hijri` | v1.0.2 | MIT | LICENSE |
+| `github.com/hablullah/go-juliandays` | v1.0.0 | MIT | LICENSE |
+| `github.com/jalaali/go-jalaali` | v0.0.0-20210801064154-80525e88d958 | MIT | LICENSE |
+| `github.com/kr/pretty` | v0.3.1 | MIT | License |
+| `github.com/kr/text` | v0.2.0 | MIT | License |
+| `github.com/markusmobius/go-dateparser` | v1.2.3 | BSD-3-Clause | LICENSE, LICENSE_dateparser.txt |
+| `github.com/markusmobius/go-domdistiller` | v0.0.0-20240926050704-25b8d046ffb4 | MIT, Apache-2.0 and BSD-3-Clause (derived code) | LICENSE, LICENSE-boilerpipe.txt, LICENSE-domdistiller.txt, NOTICE-boilerpipe.txt |
+| `github.com/markusmobius/go-htmldate` | v1.9.1 | Apache-2.0 | LICENSE |
+| `github.com/markusmobius/go-trafilatura` | v1.12.2 | Apache-2.0 | LICENSE |
+| `github.com/mattn/go-colorable` | v0.1.13 | MIT | LICENSE |
+| `github.com/mattn/go-isatty` | v0.0.24 | MIT | LICENSE |
+| `github.com/mxschmitt/playwright-go` | v0.6201.1 | MIT | LICENSE |
+| `github.com/pmezard/go-difflib` | v1.0.0 | BSD-2-Clause | LICENSE |
+| `github.com/rivo/uniseg` | v0.4.7 | MIT | LICENSE.txt |
+| `github.com/rogpeppe/go-internal` | v1.14.1 | BSD-3-Clause | LICENSE |
+| `github.com/rs/zerolog` | v1.33.0 | MIT | LICENSE |
+| `github.com/stretchr/testify` | v1.9.0 | MIT | LICENSE |
+| `github.com/tetratelabs/wazero` | v1.8.1 | Apache-2.0 | LICENSE, NOTICE |
+| `github.com/wasilibs/go-re2` | v1.7.0 | MIT and BSD-3-Clause (embedded RE2 notices) | LICENSE, NOTICE.txt |
+| `github.com/wasilibs/nottinygc` | v0.4.0 | MIT | LICENSE |
+| `github.com/wasilibs/wazero-helpers` | v0.0.0-20240620070341-3dff1577cd52 | MIT | LICENSE |
+| `github.com/yosssi/gohtml` | v0.0.0-20201013000340-ee4748c638f4 | MIT | LICENSE |
+| `golang.org/x/exp` | v0.0.0-20241009180824-f66d83c29e7c | BSD-3-Clause | LICENSE |
+| `golang.org/x/net` | v0.60.0 | BSD-3-Clause | LICENSE |
+| `golang.org/x/sync` | v0.24.0 | BSD-3-Clause | LICENSE |
+| `golang.org/x/sys` | v0.49.0 | BSD-3-Clause | LICENSE |
+| `golang.org/x/text` | v0.43.0 | BSD-3-Clause | LICENSE |
+| `gopkg.in/check.v1` | v1.0.0-20201130134442-10cb98267c6c | BSD-2-Clause | LICENSE |
+
+The cached go-domdistiller `LICENSE-domdistiller.txt` is empty; its README
+identifies the Chromium-derived code as BSD-style and source headers retain
+the Chromium authors notice. The upstream BSD text is reproduced in the root
+notices with its source. The other cached texts above are reproduced with trailing whitespace normalized.
+
+Additional shared runtime and upstream test dependencies verified in the cache:
+
+| Module | Version | Verified license | Cache files read |
+| --- | --- | --- | --- |
+| `github.com/coder/websocket` | v1.8.13 | ISC | LICENSE.txt |
+| `github.com/sebdah/goldie/v2` | v2.5.3 | MIT | LICENSE |
+| `github.com/sergi/go-diff` | v1.3.2-0.20230802210424-5b0b94c5c0d3 | MIT | LICENSE |
+| `github.com/yuin/goldmark` | v1.7.1 | MIT | LICENSE |
+| `gopkg.in/yaml.v2` | v2.4.0 | MIT and Apache-2.0 | LICENSE, LICENSE.libyaml, NOTICE |
+| `gopkg.in/yaml.v3` | v3.0.1 | MIT and Apache-2.0 | LICENSE, NOTICE |

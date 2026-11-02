@@ -84,7 +84,7 @@ func TestRuntimeProjectionRunBudgetContext(t *testing.T) {
 			run := testRun(Profile{ExplicitFinish: tc.autonomous, WallSource: tc.source})
 			run.Tracker.Limit.MaxSeconds = 3600
 			e.runOne(context.Background(), run, toolCall("probe", "probe", `{}`))
-			want := tools.WithGitHistoryRunID(tools.WithRunInstruction(context.Background(), run.Request), string(run.ID))
+			want := tools.WithGitHistoryRunID(tools.WithRunInstruction(tools.WithSourceRun(context.Background(), run.ID), run.Request), string(run.ID))
 			if tc.autonomous {
 				want = tools.WithRuntimeBudget(want, run.StartedAt, tc.wantTotal)
 			}

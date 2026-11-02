@@ -43,6 +43,8 @@ type StoredMessage struct {
 	ConversationID types.ConversationID `json:"conversation_id"`
 	Role           string               `json:"role"`
 	Text           string               `json:"text"`
+	Changes        []api.FileChange     `json:"changes,omitempty"`
+	Sources        []api.SourceRef      `json:"sources,omitempty"`
 }
 
 // MemoryBackend is the in-process Backend for tests and embedded

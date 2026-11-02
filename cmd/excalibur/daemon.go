@@ -12,12 +12,15 @@ import (
 	"syscall"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
@@ -27,8 +30,12 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store/migrations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/voice"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
 
 // daemonPidFile is the process rendezvous beside daemon.addr.
@@ -111,6 +118,7 @@ func runDaemonStart(args []string) error {
 	if modelErr != nil {
 		return fmt.Errorf("daemon start: model wiring: %w", modelErr)
 	}
+	var media *tools.MediaDeps
 	var modelGateway *models.Gateway
 	var choiceDec daemon.ChoiceDecider
 	switch {
@@ -131,6 +139,10 @@ func runDaemonStart(args []string) error {
 			modelGateway = cli.BuildGateway(modelSettings, layerCfg, p)
 			defer modelGateway.Close()
 			choiceDec = cli.BuildDecider(modelSettings, modelGateway)
+			media, berr = wireengine.ModelVisionMedia(p, modelSettings.GatewayConfig(layerCfg.Provider), strings.TrimSpace(os.Getenv("EXCALIBUR_VISION_MODEL")))
+			if berr != nil {
+				fmt.Fprintf(os.Stderr, "daemon: vision unavailable: %v\n", berr)
+			}
 			fmt.Fprintf(os.Stderr, "daemon: models %s\n", modelSettings.Describe())
 		}
 	}
@@ -158,6 +170,18 @@ func runDaemonStart(args []string) error {
 		}
 	}
 
+	var usageStore *telemetry.SQLStore
+	if data != "" {
+		opts := store.TelemetryOptions()
+		opts.BlobDir = filepath.Join(data, "blobs")
+		telemetryDB, err := store.Open(ctx, filepath.Join(data, "telemetry.db"), opts, migrations.Telemetry())
+		if err != nil {
+			return fmt.Errorf("daemon start: open telemetry: %w", err)
+		}
+		defer func() { _ = telemetryDB.Close() }()
+		usageStore = telemetry.OpenTelemetryStore(telemetryDB)
+	}
+
 	var jrnl journal.Store = journal.NewMemStore()
 	if db != nil {
 		jrnl = &journal.SQLStore{W: db, R: db}
@@ -170,16 +194,24 @@ func runDaemonStart(args []string) error {
 	// never carry reasoning effort.
 	var memSvc *memory.Service
 	if db != nil {
-		memSvc = memory.NewService(db)
+		memSvc = memory.NewService(db, wireengine.VisionMemoryOption(media))
 		if emb, eerr := cli.BuildEmbedder(modelSettings, nil); eerr != nil {
 			fmt.Fprintf(os.Stderr, "daemon: embeddings disabled: %v\n", eerr)
 		} else if emb != nil {
-			memSvc = memory.NewService(db, memory.WithEmbedder(emb))
+			memSvc = memory.NewService(db, memory.WithEmbedder(emb), wireengine.VisionMemoryOption(media))
 			fmt.Fprintf(os.Stderr, "daemon: embeddings via %s\n", emb.Model())
 		}
 	}
 
-	ix := skills.NewIndex(skills.Roots{}, skills.BuiltinFS())
+	skillRoots := skills.Roots{}
+	if data != "" {
+		skillRoots.User = filepath.Join(data, "skills")
+		skillRoots.Installed = filepath.Join(data, "installed-skills")
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		skillRoots.Project = filepath.Join(cwd, ".agents", "skills")
+	}
+	ix := skills.NewIndex(skillRoots, skills.BuiltinFS())
 	_ = ix.Scan()
 
 	// Projects persist in the main database (Section 9.2): the registry
@@ -194,14 +226,27 @@ func runDaemonStart(args []string) error {
 	if modelGateway != nil {
 		endpoint = modelGateway
 	}
+	webOpts := &wireengine.BrowserWebOptions{Config: layerCfg, DataDir: data}
+	if db != nil {
+		webOpts.Blobs = wireengine.StoreBrowserBlobs{Store: db.Blob()}
+	}
 	svc, err := daemon.Assemble(daemon.AssembleOptions{
-		Store: orchStore, Orch: orch, Jrnl: jrnl, Bus: bus,
-		Models: endpoint, ModelID: modelSettings.Model,
+		Whiteboard: whiteboard.NewService(whiteboard.NewStore(db), bus),
+		BrowserWeb: webOpts,
+		Store:      orchStore, Orch: orch, Jrnl: jrnl, Bus: bus,
+		Models: endpoint, ModelID: modelSettings.Model, Media: media,
 		Memory: memSvc, Skills: ix, Vault: v, Projects: projects,
 	})
 	if err != nil {
 		return fmt.Errorf("daemon start: %w", err)
 	}
+
+	if db != nil && memSvc != nil && library.Enabled() {
+		if err := svc.ConfigureLibrary(daemon.LibraryOptions{DB: db, Memory: memSvc, Media: media, Notices: notifier, Bus: bus}); err != nil {
+			return fmt.Errorf("daemon start: %w", err)
+		}
+	}
+	defer func() { _ = svc.BrowserWeb.Close() }()
 
 	// Agenda over SQLite when available, memory stores otherwise.
 	var agendaStore agenda.AgendaStore = agenda.NewMemoryAgendaStore()
@@ -217,6 +262,20 @@ func runDaemonStart(args []string) error {
 		return err
 	}
 	ag := agenda.NewAgenda(agendaStore, reminderStore, launcher)
+	reminderService := &agenda.ReminderService{Store: reminderStore, Agenda: ag, DB: db, Bus: bus}
+	reminderService.WireTool(svc.Tools)
+	ag.OnReminderFired = func(r agenda.Reminder) {
+		_, _ = bus.Publish(api.EventReminderFired, nil, nil, api.ReminderEvent{Reminder: agenda.ReminderView(&r)})
+	}
+	taskQueries := daemon.NewTaskQueries(db, bus)
+	if taskQueries != nil {
+		if t, err := svc.Tools.Get("task_db"); err == nil {
+			if stub, ok := t.(*tools.StubTool); ok {
+				adapter := &wireengine.TaskDBAdapter{Store: taskQueries, Scope: types.GeneralScope()}
+				stub.Provider = adapter.Invoke
+			}
+		}
+	}
 
 	trigLauncher, err := daemon.NewDaemonTriggerLauncher(orch, orchStore, notifier)
 	if err != nil {
@@ -236,17 +295,62 @@ func runDaemonStart(args []string) error {
 	if err != nil {
 		return err
 	}
+	var principal *daemon.PrincipalService
+	if db != nil {
+		// Profile seeding is best effort and logs its own failures.
+		principal, _ = daemon.NewPrincipalService(ctx, db)
+	}
+	language := "en"
+	if principal != nil {
+		if p, err := principal.Get(ctx); err == nil {
+			language = p.Language
+		}
+	}
+	automationService := newAutomationService(db, filepath.Join(data, "automations"), language, &daemon.AutomationAgentRunner{Services: svc, Endpoint: endpoint, ModelID: modelSettings.Model}, &daemon.AutomationToolInvoker{Registry: svc.Tools, Executor: svc.Exec}, &daemon.AutomationNotifier{Master: m})
+	if err := automations.WireTool(svc.Tools, automationService); err != nil {
+		return err
+	}
+	unsubscribeAutomations := daemon.WireAutomationEvents(automationService, bus)
+	defer unsubscribeAutomations()
+	svc.Automations = automationService
+	var audioBlobs gateway.BlobStore = gateway.NewMemoryBlobs()
+	if db != nil {
+		audioBlobs = gateway.StoreBlobs{Store: db.Blob()}
+	}
+	// Reload the configured credential file and vault at the audio execution boundary.
+	voiceModels := layerCfg.Models
+	if voiceModels.CredentialsFile == "" {
+		voiceModels.CredentialsFile = modelSettings.CredentialsFile
+	}
+	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
-		Tasks:    tasks,
-		Caps:     daemon.NewCapabilityRoutes(nil),
-		Memory:   memSvc,
-		Skills:   ix,
-		Projects: projects,
-		History:  workspace.NewHistory(),
-		Config:   &daemon.FileConfig{},
-		Metrics:  &daemon.MetricsStore{},
-		Vault:    v,
+		WorkspaceRoots: func(context.Context) []string {
+			if workspaceRoot == "" {
+				return nil
+			}
+			return []string{workspaceRoot}
+		},
+		FileBlobs:   audioBlobs,
+		Voice:       &daemon.VoiceRoutes{Client: &voice.Client{Config: layerCfg.Voice, Credentials: voice.ModelCredentials(voiceModels, daemon.VaultSecretResolver(v))}, Blobs: audioBlobs},
+		Sources:     svc.Sources,
+		TaskQueries: taskQueries, Reminders: reminderService, Automations: automationService,
+		Whiteboard: svc.Whiteboard,
+		Library:    daemon.LibraryRoutesFor(memSvc, svc.Library, []string{"general"}),
+		Principal:  principal,
+		Tasks:      tasks,
+		Caps:       daemon.NewCapabilityRoutes(nil),
+		Memory:     memSvc,
+		Skills:     ix,
+		Projects:   projects,
+		History:    svc.History,
+		Config:     &daemon.FileConfig{},
+		Metrics:    &daemon.MetricsStore{},
+		Telemetry:  usageStore,
+		Vault:      v,
 	})
+
+	daemon.WireAssistantTurns(backend, svc, endpoint, modelSettings.Model)
+	backend.StartActivity(ctx)
 
 	// Services that run for the daemon lifetime (Sections 5.2, 10.6,
 	// 21.1-21.3, 21.9, 4.7). Each is armed here, so Start launches it
@@ -265,7 +369,10 @@ func runDaemonStart(args []string) error {
 
 	gcfg := gateway.DefaultConfig()
 	gcfg.Listen = *listen
-	g := gateway.New(gcfg, backend, gateway.NewMemoryBlobs(), bus)
+	if db != nil {
+		gcfg.DaemonBlobs = gateway.StoreBlobs{Store: db.Blob()}
+	}
+	g := gateway.New(gcfg, backend, audioBlobs, bus)
 	d := daemon.New(daemon.Config{Listen: *listen, DataDir: data, RuntimeDir: runtime},
 		daemon.Deps{
 			Gate: g, Master: m, Orch: orch, Bus: bus, Backend: backend,

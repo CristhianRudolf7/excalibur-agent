@@ -97,16 +97,20 @@ type VectorScorer interface {
 // suggestion and loading (Sections 12.1-12.4). All methods are safe
 // for concurrent use.
 type Index struct {
-	mu          sync.RWMutex
-	roots       Roots
-	builtin     fs.FS
-	entries     map[string]*Entry
-	conflicts   []Conflict
-	diagnostics []Diagnostic
-	stats       map[string]map[string]*modelStats
-	disabled    map[string]map[string]bool
-	vector      VectorScorer
-	toolOK      func(string) bool
+	mu            sync.RWMutex
+	roots         Roots
+	builtin       fs.FS
+	entries       map[string]*Entry
+	conflicts     []Conflict
+	diagnostics   []Diagnostic
+	stats         map[string]map[string]*modelStats
+	disabled      map[string]map[string]bool
+	vector        VectorScorer
+	toolOK        func(string) bool
+	excludedNames map[string]bool
+
+	mutationMu     sync.Mutex
+	stateOverrides map[string]State
 }
 
 // modelStats counts task outcomes with and without one skill for
@@ -120,6 +124,16 @@ type modelStats struct {
 
 // Option configures an Index.
 type Option func(*Index)
+
+// WithExcludedNames omits named skills from every search, load and suggestion
+// path using this index. Other index behavior is unchanged.
+func WithExcludedNames(names ...string) Option {
+	excluded := make(map[string]bool, len(names))
+	for _, name := range names {
+		excluded[name] = true
+	}
+	return func(ix *Index) { ix.excludedNames = excluded }
+}
 
 // WithVectorScorer plugs the vector leg of suggestion/search.
 func WithVectorScorer(v VectorScorer) Option {
@@ -180,7 +194,7 @@ func listDir(root, dir string) []candidate {
 	}
 	var out []candidate
 	for _, e := range ents {
-		if !e.IsDir() {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		out = append(out, candidate{root: root, dir: filepath.Join(dir, e.Name()), name: e.Name()})
@@ -285,6 +299,12 @@ func (ix *Index) readRef(e *Entry, ref string) ([]byte, error) {
 // and refreshes the lexical state. Scan is deterministic: roots
 // resolve in precedence order and names sort before merging.
 func (ix *Index) Scan() error {
+	ix.mutationMu.Lock()
+	defer ix.mutationMu.Unlock()
+	return ix.scan()
+}
+
+func (ix *Index) scan() error {
 	var cands []candidate
 	for _, r := range ix.roots.OrderedRoots() {
 		cands = append(cands, listDir(r.Name, r.Dir)...)
@@ -307,6 +327,9 @@ func (ix *Index) Scan() error {
 		sf, err := ParseSkillFile(raw)
 		if err != nil {
 			diags = append(diags, Diagnostic{Skill: c.name, Path: c.dir, Code: CodeBadFrontmatter, Detail: err.Error()})
+			continue
+		}
+		if ix.excludedNames[sf.Frontmatter.Name] {
 			continue
 		}
 		byName[c.name] = append(byName[c.name], loaded{c: c, raw: raw, file: sf})
@@ -384,6 +407,11 @@ func (ix *Index) Scan() error {
 
 	ix.mu.Lock()
 	defer ix.mu.Unlock()
+	for name, st := range ix.stateOverrides {
+		if e := entries[name]; e != nil {
+			e.State = st
+		}
+	}
 	ix.entries = entries
 	ix.conflicts = conflicts
 	ix.diagnostics = diags
@@ -466,6 +494,8 @@ func (ix *Index) Conflicts() []Conflict {
 // SetState moves a skill between lifecycle states (Section 12.2:
 // active, draft, obsolete, archived).
 func (ix *Index) SetState(name string, st State) error {
+	ix.mutationMu.Lock()
+	defer ix.mutationMu.Unlock()
 	if !ValidState(st) {
 		return &Diagnostic{Skill: name, Code: CodeBadState, Detail: "unknown state " + string(st)}
 	}
@@ -476,6 +506,10 @@ func (ix *Index) SetState(name string, st State) error {
 		return &Diagnostic{Skill: name, Code: CodeMissingFile, Detail: "skill is not indexed"}
 	}
 	e.State = st
+	if ix.stateOverrides == nil {
+		ix.stateOverrides = map[string]State{}
+	}
+	ix.stateOverrides[name] = st
 	return nil
 }
 

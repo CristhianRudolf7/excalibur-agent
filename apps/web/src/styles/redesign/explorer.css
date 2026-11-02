@@ -1,0 +1,27 @@
+.workspace-explorer {
+  min-height: 0;
+  overflow: auto;
+}
+.workspace-explorer > .select-trigger {
+  width: calc(100% - 16px);
+  margin: 0 8px 8px;
+  min-width: 0;
+}
+.project-explorer .tree-row {
+  width: 100%;
+  height: 32px;
+  text-align: left;
+}
+.project-explorer .tree-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-explorer .tree-row svg,
+.project-explorer .changed-dot {
+  flex-shrink: 0;
+}
+.project-explorer .tree-row:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}

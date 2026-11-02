@@ -425,7 +425,7 @@ func writeRecord(root string, rec InstallRecord) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(recordsPath(root), append(data, '\n'), 0o644)
+	return atomicContent(recordsPath(root), append(data, '\n'))
 }
 
 // copySkillTree copies a candidate tree into a staging area,

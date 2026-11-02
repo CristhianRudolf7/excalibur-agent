@@ -13,8 +13,8 @@ func TestRegistriesValidate(t *testing.T) {
 	if err := main.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if main.Latest() != 5 {
-		t.Fatalf("main latest = %d, want 5", main.Latest())
+	if main.Latest() != 9 {
+		t.Fatalf("main latest = %d, want 9", main.Latest())
 	}
 	tele := Telemetry()
 	if err := tele.Validate(); err != nil {

@@ -20,6 +20,11 @@ import (
 
 // Config carries the gate surface of Section 3.5.
 type Config struct {
+	// DaemonBlobs overrides the transport store with the daemon database store.
+	DaemonBlobs BlobStore
+	// BlobMIME optionally resolves a document MIME by original digest.
+	BlobMIME func(context.Context, string) (string, error)
+
 	// Listen is the bind address. The gate listens on loopback by
 	// default; non-loopback binds are rejected unless AllowRemote is
 	// set (tests may set it explicitly).
@@ -62,6 +67,9 @@ func New(cfg Config, backend Backend, blobs BlobStore, bus *telemetry.Bus) *Serv
 	if backend == nil {
 		backend = NewMemoryBackend(bus)
 	}
+	if cfg.DaemonBlobs != nil {
+		blobs = cfg.DaemonBlobs
+	}
 	if blobs == nil {
 		blobs = NewMemoryBlobs()
 	}
@@ -77,6 +85,7 @@ func New(cfg Config, backend Backend, blobs BlobStore, bus *telemetry.Bus) *Serv
 	mux.HandleFunc("/rpc", s.serveRPC)
 	mux.HandleFunc("/ws", s.serveWS)
 	mux.HandleFunc("/blobs/", s.serveBlobs)
+	mux.HandleFunc("/blobs", s.uploadBlob)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -326,6 +335,22 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 		api.MethodTaskPause, api.MethodTaskResume, api.MethodTaskList,
 		api.MethodTaskLogs:
 		res, err := s.backend.TaskOp(ctx, method, params)
+		if err != nil {
+			return nil, asAPIError(err)
+		}
+		return res, nil
+	case api.MethodVoiceStatus, api.MethodVoiceTranscribe, api.MethodVoiceSpeak,
+		api.MethodAutomationsList, api.MethodAutomationsGet, api.MethodAutomationsRuns, api.MethodAutomationsRun, api.MethodAutomationsPause, api.MethodAutomationsResume, api.MethodAutomationsDelete, api.MethodTasksQuery, api.MethodTasksGet, api.MethodRemindersList, api.MethodRemindersCreate, api.MethodRemindersUpdate, api.MethodRemindersDelete, api.MethodSkillsGroups, api.MethodSkillsList, api.MethodSkillsGet, api.MethodSkillsUpdate, api.MethodSkillsSetState, api.MethodSkillsDelete, api.MethodUsageSummary:
+		res, err := s.backend.Passthrough(ctx, method, params)
+		if err != nil {
+			return nil, asAPIError(err)
+		}
+		return res, nil
+	case api.MethodPrincipalGet:
+		if len(params) > 0 && !json.Valid(params) {
+			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad principal.get params"}
+		}
+		res, err := s.backend.Passthrough(ctx, method, params)
 		if err != nil {
 			return nil, asAPIError(err)
 		}

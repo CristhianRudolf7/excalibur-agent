@@ -1,0 +1,1360 @@
+/* Electric-blue work views. Layout regions and RPC behavior remain unchanged. */
+.work-page {
+  background: var(--background);
+  padding: 36px;
+  font-size: 13px;
+  animation: work-view-in var(--dur-slow) var(--ease-out) both;
+}
+.work-header {
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.work-header > svg {
+  display: none;
+}
+.work-eyebrow {
+  display: block;
+  color: var(--primary-strong);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.work-header h1 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 1.2;
+}
+.work-header p {
+  margin-top: 7px;
+  font-size: 12px;
+}
+.work-page button,
+.work-form button,
+.work-detail button {
+  border-radius: 10px;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.work-page button:active,
+.work-form button:active {
+  transform: scale(0.97);
+}
+.work-page :focus-visible,
+.work-dialog :focus-visible,
+.work-drawer :focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.work-page .primary-button,
+.work-form .primary-button {
+  padding: 10px 14px;
+  color: var(--primary-foreground);
+  background: var(--accent-gradient);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--primary-foreground) 25%, transparent),
+    0 4px 12px var(--accent-glow);
+  font-weight: 600;
+}
+.work-page .primary-button:hover,
+.work-form .primary-button:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px var(--accent-glow);
+}
+.work-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.work-metric {
+  position: relative;
+  overflow: hidden;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  animation: work-view-in var(--dur-slow) var(--ease-out) both;
+}
+.work-metric:nth-child(2) {
+  animation-delay: 35ms;
+}
+.work-metric:nth-child(3) {
+  animation-delay: 70ms;
+}
+.work-metric:nth-child(4) {
+  animation-delay: 105ms;
+}
+.work-metric-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.work-metric > strong {
+  display: block;
+  margin-top: 16px;
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -1.5px;
+  font-variant-numeric: tabular-nums;
+}
+.work-metric-caption {
+  display: block;
+  color: var(--muted-foreground);
+  margin-top: 8px;
+  font-size: 11px;
+}
+.work-metric-line {
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 2px;
+  background: var(--accent-tint-strong);
+}
+.work-metric-ink {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--ink-accent);
+}
+.work-metric-ink .work-metric-label {
+  color: var(--ink-foreground);
+}
+.work-metric-ink .work-metric-caption {
+  color: var(--ink-muted);
+}
+.work-metric-ink .work-metric-line {
+  background: var(--ink-accent);
+}
+.work-toolbar {
+  gap: 10px;
+  margin: 0 0 18px;
+}
+.work-search {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 140px;
+  position: relative;
+}
+.work-search > svg {
+  position: absolute;
+  left: 13px;
+  width: 16px;
+  height: 16px;
+  color: var(--icon);
+  pointer-events: none;
+}
+.work-page .work-search input {
+  padding-left: 38px;
+  width: 100%;
+}
+.work-page input,
+.work-page select,
+.work-form input,
+.work-form select {
+  background: var(--surface);
+  border-radius: 10px;
+  font-size: 13px;
+  padding: 11px 12px;
+}
+.work-tabs {
+  position: relative;
+  isolation: isolate;
+  gap: 5px;
+  padding: 4px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  scrollbar-width: thin;
+  scroll-padding-inline: 4px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    var(--foreground) 4px,
+    var(--foreground) calc(100% - 4px),
+    transparent
+  );
+}
+.work-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  background: transparent;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-weight: 500;
+  font-size: 12px;
+}
+.work-tabs button:hover {
+  color: var(--primary-strong);
+  background: var(--accent-tint);
+}
+.work-tabs button[aria-selected='true'] {
+  color: var(--primary-strong);
+  background: transparent;
+}
+.work-tabs .work-tab-indicator {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  z-index: -1;
+  margin: 0;
+  opacity: 1;
+  border-radius: 10px;
+  background: var(--accent-tint-strong);
+  transform-origin: left;
+  transition: transform var(--dur-base) var(--ease-out);
+  pointer-events: none;
+}
+.work-view-toggle {
+  position: relative;
+  isolation: isolate;
+  background: var(--surface);
+  border-radius: 10px;
+  gap: 0;
+}
+.work-view-toggle::before {
+  position: absolute;
+  content: '';
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 7px;
+  background: var(--accent-tint-strong);
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.work-view-toggle.is-board::before {
+  transform: translateX(100%);
+}
+.work-view-toggle button {
+  color: var(--muted-foreground);
+  background: transparent;
+}
+.work-view-toggle button[aria-pressed='true'] {
+  color: var(--primary-strong);
+  background: transparent;
+}
+.work-list,
+.work-board {
+  animation: work-view-in var(--dur-base) var(--ease-out) both;
+}
+.work-list {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 5px;
+}
+.work-task {
+  padding: 16px 12px;
+  gap: 12px;
+  border-radius: 16px !important;
+  background: var(--surface);
+  animation: work-view-in var(--dur-base) var(--ease-out) both;
+  animation-delay: var(--work-delay, 0ms);
+}
+.work-task:hover {
+  background: var(--accent-tint);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.work-task strong {
+  font-weight: 500;
+  font-size: 13px;
+}
+.work-task-text {
+  gap: 5px;
+}
+.work-task-text > small:first-child {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+.work-status-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--tertiary);
+  border-radius: 50%;
+  color: var(--muted-foreground);
+}
+.work-status-icon svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.5;
+}
+.work-status-in_progress {
+  border-color: var(--primary);
+  background: linear-gradient(90deg, var(--primary) 50%, transparent 50%);
+}
+.work-status-done {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.work-status-blocked,
+.work-status-failed {
+  border-color: var(--blocked);
+  color: var(--blocked);
+}
+.work-status-cancelled {
+  border-style: dashed;
+}
+.work-task-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.work-progress-track {
+  display: block;
+  width: 52px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+.work-progress-track > span {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--primary);
+  transform-origin: left;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.work-task-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.work-task-due svg {
+  width: 13px;
+  height: 13px;
+}
+.work-badge {
+  border-radius: 999px;
+  flex-shrink: 0;
+  max-width: none;
+  overflow: visible;
+  font-size: 10px;
+  background: var(--surface);
+}
+.work-badge.status-in_progress,
+.work-badge.status-done {
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+  border-color: var(--accent-tint-strong);
+}
+.work-board {
+  gap: 12px;
+  padding-bottom: 8px;
+}
+.work-board > section {
+  padding: 12px;
+  min-width: 250px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.work-board h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.work-board h2 > span:last-child {
+  margin-left: auto;
+  color: var(--tertiary);
+  font-size: 11px;
+}
+.work-board .work-task {
+  height: 140px;
+  border-radius: 10px !important;
+  align-content: center;
+  gap: 10px;
+}
+.work-board .work-task-text {
+  flex-basis: calc(100% - 30px);
+}
+.work-board .work-task-progress {
+  margin-left: 26px;
+  margin-right: auto;
+}
+.work-board .work-task-due {
+  margin-left: 26px;
+}
+.work-board .work-task strong {
+  white-space: normal;
+  line-height: 1.4;
+}
+.work-board .work-scroll {
+  min-height: 150px;
+}
+.work-virtual-row {
+  transition: none;
+}
+.work-state {
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 30px 16px;
+  gap: 12px;
+  background: var(--surface);
+}
+.work-state > svg {
+  box-sizing: content-box;
+  width: 24px;
+  height: 24px;
+  padding: 16px;
+  border-radius: 18px;
+  color: var(--primary-strong);
+  background: var(--accent-tint);
+  opacity: 1;
+}
+.work-state h3 {
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 500;
+}
+.work-state p {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.work-skeleton {
+  position: relative;
+  overflow: hidden;
+  animation: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.work-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 50px 20px 20px;
+  background: var(--muted);
+  border-radius: 8px;
+  background: linear-gradient(100deg, var(--muted), var(--accent-tint), var(--muted));
+  animation: work-loading var(--dur-slow) var(--ease-out) 1 both;
+}
+.work-toolbar button,
+.work-actions button,
+.work-more,
+.work-state button,
+.work-project-detail > button {
+  background: var(--surface);
+  border-color: var(--border);
+}
+.work-actions button:hover,
+.work-more:hover,
+.work-project-detail > button:hover {
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+}
+.work-actions button:nth-child(2) {
+  color: var(--primary-strong);
+  background: var(--accent-tint);
+}
+.work-reminder-groups > section {
+  position: relative;
+  padding-left: 24px;
+  margin-bottom: 26px;
+}
+.work-reminder-groups > section::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 20px;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.work-reminder-groups h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+.work-reminder-groups h2::before {
+  content: '';
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  left: 2px;
+  top: 3px;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  border-radius: 50%;
+}
+.work-reminder {
+  padding: 16px 18px;
+  background: var(--surface);
+  animation: work-view-in var(--dur-base) var(--ease-out) both;
+  animation-delay: var(--work-delay, 0ms);
+}
+.work-reminder strong {
+  font-weight: 500;
+  font-size: 14px;
+}
+.work-reminder:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px var(--shadow);
+}
+.work-next-due {
+  border-color: var(--primary);
+  box-shadow: inset 3px 0 var(--primary);
+}
+.work-next-due time {
+  color: var(--primary-strong);
+  font-weight: 500;
+}
+.work-toast {
+  margin-bottom: 18px;
+  box-shadow: 0 4px 18px var(--shadow);
+  animation: work-view-in var(--dur-base) var(--ease-spring) both;
+}
+.work-toast svg {
+  width: 18px;
+  height: 18px;
+}
+.work-project-grid {
+  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.work-project-card {
+  position: relative;
+  border-radius: 16px !important;
+  padding: 24px;
+  background: var(--surface);
+  animation: work-view-in var(--dur-slow) var(--ease-out) both;
+}
+.work-project-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--primary);
+  box-shadow: 0 8px 20px var(--shadow);
+}
+.work-project-card > svg {
+  box-sizing: content-box;
+  width: 20px;
+  height: 20px;
+  padding: 12px;
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+  border-radius: 16px;
+  margin-bottom: 24px;
+}
+.work-project-card::after {
+  content: '↗';
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  color: var(--primary-strong);
+  font-size: 20px;
+}
+.work-project-card h2 {
+  font-size: 18px;
+  letter-spacing: -0.4px;
+}
+.work-project-card small {
+  padding-top: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 5px;
+}
+.work-project-card code {
+  font-size: 11px;
+}
+.work-project-detail > h2 {
+  font-size: 28px;
+  letter-spacing: -0.7px;
+}
+.work-dialog,
+dialog.work-drawer {
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 50px var(--shadow);
+  animation: work-dialog-in var(--dur-base) var(--ease-out) both;
+}
+.work-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.work-dialog .work-form {
+  min-width: 0;
+  width: 100%;
+}
+.work-dialog::backdrop,
+dialog.work-drawer::backdrop {
+  animation: work-backdrop-in var(--dur-base) var(--ease-out) both;
+}
+dialog.work-drawer {
+  animation-name: work-drawer-in;
+  padding: 26px;
+}
+.work-detail {
+  font-size: 13px;
+}
+.work-detail > small {
+  color: var(--primary-strong);
+  letter-spacing: 0.05em;
+  margin-top: 16px;
+}
+.work-detail h2 {
+  font-size: 26px;
+  line-height: 1.3;
+  letter-spacing: -0.7px;
+  margin-top: 8px;
+}
+.work-detail h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 28px;
+}
+.work-detail > ul {
+  padding-left: 18px;
+  list-style: disc;
+}
+.work-detail > ul li::marker {
+  color: var(--primary);
+}
+.work-criterion {
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+.work-criterion-met {
+  border-color: var(--accent-tint-strong);
+}
+.work-criterion-check {
+  display: inline;
+  width: 16px;
+  height: 16px;
+  color: var(--primary-strong);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.work-criterion-met .work-badge {
+  color: var(--primary-strong);
+  background: var(--accent-tint);
+  border-color: var(--accent-tint-strong);
+}
+.work-criterion h4 {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  margin: 12px 0 4px;
+}
+.work-criterion p {
+  font-size: 12px;
+  margin: 6px 0;
+}
+.work-plan-timeline {
+  margin-left: 8px;
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.work-plan-timeline li {
+  position: relative;
+}
+.work-plan-timeline li > span:not(.work-plan-dot) {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.work-plan-dot {
+  position: absolute;
+  top: 12px;
+  left: -27px;
+  height: 9px;
+  width: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--primary);
+  background: var(--surface);
+}
+.work-plan-done {
+  background: var(--primary);
+}
+.work-form label {
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.work-form input,
+.work-form select {
+  color: var(--foreground);
+}
+.work-compact {
+  padding: 22px 18px;
+}
+.work-compact .work-header {
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-right: 0;
+}
+.work-compact .work-header > svg {
+  display: none;
+}
+.work-compact .work-header h1 {
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+.work-compact .work-eyebrow {
+  font-size: 10px;
+}
+.work-compact .work-task {
+  padding: 12px 5px;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.work-compact .work-task-text {
+  flex-basis: calc(100% - 30px);
+}
+.work-compact .work-task-progress {
+  margin-left: 25px;
+  margin-right: auto;
+}
+.work-compact .work-task-due {
+  margin-left: 25px;
+}
+.work-compact .work-task .work-badge {
+  padding: 2px 5px;
+}
+.work-compact .work-toolbar {
+  gap: 8px;
+}
+.work-compact .work-toolbar select {
+  max-width: 45%;
+}
+.work-compact .work-tabs button {
+  padding: 7px 8px;
+  font-size: 11px;
+}
+.work-tabs button > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin: 0;
+  padding-inline: 5px;
+  border-radius: 999px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 10px;
+  opacity: 1;
+}
+.work-tabs button[aria-selected='true'] > span {
+  background: var(--surface);
+  color: var(--primary-strong);
+}
+.work-header > div:first-of-type {
+  min-width: 0;
+}
+.work-header .work-view-toggle {
+  flex-shrink: 0;
+}
+.work-compact .work-header {
+  flex-wrap: nowrap;
+}
+.work-compact .work-header p {
+  font-size: 11px;
+  line-height: 1.5;
+}
+.work-select-trigger,
+.work-form .work-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 40px;
+  min-width: 130px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.work-select-trigger > span:first-of-type {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-select-trigger > span:last-child {
+  margin-left: auto;
+}
+.work-select-trigger svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  color: var(--primary-strong);
+}
+.work-select-trigger:hover,
+.work-select-trigger[data-state='open'],
+.work-form .work-select-trigger:hover,
+.work-form .work-select-trigger[data-state='open'] {
+  border-color: var(--primary);
+  background: var(--accent-tint);
+}
+.work-select-menu {
+  z-index: 80;
+  width: max(var(--radix-select-trigger-width), 180px);
+  max-width: calc(100vw - 24px);
+  max-height: var(--radix-select-content-available-height);
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow:
+    0 8px 20px var(--shadow),
+    0 20px 48px var(--shadow);
+  animation: work-menu-in var(--dur-fast) var(--ease-out) both;
+  transform-origin: var(--radix-select-content-transform-origin);
+}
+.work-select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+.work-select-option[data-highlighted] {
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.work-select-option[data-state='checked'] {
+  color: var(--primary-strong);
+}
+.work-select-option svg {
+  width: 15px;
+  height: 15px;
+}
+.work-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+}
+.work-form-field > span {
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.work-page input,
+.work-form input {
+  height: 40px;
+}
+.work-page input::placeholder,
+.work-form input::placeholder {
+  color: var(--tertiary);
+}
+.work-page input:focus-visible,
+.work-form input:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+.work-toolbar .work-select-trigger {
+  flex: 0 1 180px;
+}
+.work-compact .work-toolbar .work-select-trigger {
+  flex-basis: 130px;
+}
+.work-toolbar button:hover:not([aria-pressed]),
+.work-more:hover,
+.work-state button:hover,
+.work-project-detail > button:hover {
+  border-color: var(--primary);
+  color: var(--primary-strong);
+}
+.work-metric {
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.work-metric:hover {
+  transform: translateY(-2px);
+}
+.work-metric-line {
+  background: var(--accent-gradient);
+  opacity: 0.55;
+}
+.work-metric-ink .work-metric-line {
+  opacity: 1;
+}
+.work-reminder {
+  border-radius: 16px;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.work-reminder:hover {
+  transform: translateY(-1px);
+}
+.work-reminder-groups h2 span {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 22px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+}
+.work-actions button {
+  border-radius: 999px;
+  font-size: 11px;
+}
+.work-project-card {
+  border-radius: 16px !important;
+}
+.work-project-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  background: var(--accent-gradient);
+}
+.work-project-card small {
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 0 0;
+}
+.work-dialog {
+  border-radius: 20px;
+  padding: 24px;
+}
+.work-dialog .dialog-title h2 {
+  font-size: 20px;
+  letter-spacing: -0.5px;
+}
+.work-dialog > button:last-child {
+  margin-top: 8px;
+  border-radius: 10px;
+}
+.work-dialog::backdrop,
+dialog.work-drawer::backdrop {
+  backdrop-filter: blur(5px);
+}
+.work-detail > small {
+  display: inline-block;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: var(--accent-tint);
+}
+.work-criterion {
+  border-radius: 14px;
+}
+.work-criterion-met {
+  border-left: 3px solid var(--primary);
+}
+.work-detail time {
+  overflow-wrap: anywhere;
+}
+@keyframes work-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+@keyframes work-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes work-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+@keyframes work-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes work-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes work-loading {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (max-width: 900px) {
+  .work-page {
+    padding: 28px 22px;
+  }
+  .work-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .work-task-progress .work-progress-track {
+    width: 32px;
+  }
+}
+@media (max-width: 600px) {
+  .work-page {
+    padding: 24px 16px;
+  }
+  .work-header {
+    gap: 10px;
+    padding-right: 28px;
+    margin-bottom: 22px;
+  }
+  .work-header h1 {
+    font-size: 28px;
+  }
+  .work-header > svg {
+    display: none;
+  }
+  .work-header > .primary-button {
+    margin-top: 6px;
+    font-size: 12px;
+  }
+  .work-metric {
+    padding: 16px;
+  }
+  .work-metric > strong {
+    font-size: 34px;
+    margin-top: 12px;
+  }
+  .work-toolbar .work-select-trigger {
+    flex-basis: 125px;
+    min-width: 105px;
+  }
+  .work-task {
+    padding: 12px 6px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .work-task-text {
+    flex-basis: calc(100% - 28px);
+  }
+  .work-task-progress {
+    margin-left: 24px;
+    margin-right: auto;
+  }
+  .work-task-due {
+    margin-left: 24px;
+  }
+  .work-task .work-badge {
+    padding: 2px 5px;
+  }
+  .work-project-grid {
+    grid-template-columns: 1fr;
+  }
+  .work-reminder-groups > section {
+    padding-left: 18px;
+  }
+  .work-reminder {
+    padding: 14px 12px;
+  }
+  .work-actions {
+    gap: 4px;
+  }
+  .work-actions button {
+    font-size: 10px;
+    padding: 5px 6px;
+  }
+  .work-compact {
+    padding: 18px 12px;
+  }
+  dialog.work-drawer {
+    padding: 20px 16px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-select-menu,
+  .work-page,
+  .work-page *,
+  .work-page *::before,
+  .work-page *::after,
+  .work-dialog,
+  .work-dialog *,
+  .work-dialog::backdrop,
+  dialog.work-drawer,
+  dialog.work-drawer *,
+  dialog.work-drawer::backdrop {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Placeholders preserve each work view's information density. */
+.work-loading {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 0;
+}
+.work-loading .skeleton {
+  display: block;
+  height: 12px;
+  border-radius: 5px;
+}
+.work-loading-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.work-loading .work-loading-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.work-loading-copy {
+  display: grid;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.work-loading .work-loading-code {
+  width: 54px;
+  height: 8px;
+}
+.work-loading .work-loading-title {
+  width: 72%;
+}
+.work-loading .work-loading-line {
+  width: 45%;
+  height: 8px;
+}
+.work-loading .work-loading-progress {
+  width: 88px;
+  height: 6px;
+}
+.work-loading-board,
+.work-loading-projects {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.work-loading-board .work-loading-item,
+.work-loading-projects .work-loading-item,
+.work-loading-metrics .work-loading-item {
+  flex-wrap: wrap;
+  align-content: start;
+  min-height: 180px;
+}
+.work-loading-board .work-loading-item {
+  min-height: 390px;
+  background: var(--surface);
+}
+.work-loading-card {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  padding: 24px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.work-loading-card .skeleton:last-child {
+  width: 60%;
+}
+.work-loading-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 24px;
+}
+.work-loading-metrics .work-loading-item {
+  min-height: 150px;
+}
+.work-loading-metrics .work-loading-title {
+  width: 45%;
+  height: 36px;
+}
+.work-loading-reminders {
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+  gap: 24px;
+}
+.work-loading-reminders .work-loading-item {
+  min-height: 130px;
+}
+.work-loading-detail .work-loading-item {
+  border: 0;
+  padding: 16px 0;
+}
+.work-loading-detail .work-loading-icon,
+.work-loading-detail .work-loading-progress {
+  display: none;
+}
+.work-loading-files .work-loading-item {
+  padding: 10px;
+  border: 0;
+}
+.work-loading-files .work-loading-line,
+.work-loading-files .work-loading-progress {
+  display: none;
+}
+.work-loading-files .work-loading-icon {
+  border-radius: 3px;
+  width: 15px;
+  height: 18px;
+}
+.work-pending-spinner {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: work-pending-spin 0.8s linear infinite;
+}
+@keyframes work-pending-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 640px) {
+  .work-loading-projects {
+    grid-template-columns: 1fr;
+  }
+  .work-loading-board {
+    grid-template-columns: repeat(3, minmax(210px, 1fr));
+    overflow-x: auto;
+  }
+  .work-loading-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .work-loading .work-loading-progress {
+    width: 42px;
+  }
+  .work-loading-item {
+    padding: 16px 12px;
+    gap: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-pending-spinner {
+    animation: none;
+  }
+}
+.work-loading-column-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.work-loading-board .work-loading-item {
+  display: grid;
+  gap: 16px;
+}
+.work-loading-metrics .work-loading-item,
+.work-loading-projects .work-loading-item {
+  display: grid;
+  gap: 14px;
+}
+.work-loading .work-loading-number {
+  width: 54px;
+  height: 38px;
+}
+.work-loading-projects .work-loading-icon {
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+}
+.work-loading-tasks {
+  gap: 0;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.work-loading-tasks .work-loading-item {
+  height: 88px;
+  padding: 14px 12px;
+  border: 0;
+}
+.work-loading-tasks .work-loading-copy {
+  gap: 8px;
+}
+.work-loading-board {
+  grid-template-columns: repeat(6, 250px);
+  overflow-x: auto;
+}
+.work-loading-board .work-loading-item {
+  padding: 12px;
+}
+.work-loading-board .work-loading-card {
+  height: 140px;
+  padding: 18px 12px;
+  gap: 14px;
+}
+.work-loading-reminders .work-loading-item {
+  display: grid;
+  gap: 14px;
+  border: 0;
+  padding: 0;
+}
+.work-loading-reminders .work-loading-card {
+  min-height: 130px;
+  padding: 24px;
+}
+.work-loading-actions {
+  display: flex;
+  gap: 8px;
+}
+.work-loading-actions .skeleton {
+  width: 64px;
+  height: 24px;
+  border-radius: 8px;
+}

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -38,8 +39,10 @@ type Reader interface {
 // the porter. The zero value is unusable; build it with OpenSQLStore.
 // It is safe for concurrent use.
 type SQLStore struct {
-	W store.Writer
-	R Reader
+	// OnTaskUpdated is configured before use and called only after commit.
+	OnTaskUpdated func(api.TaskSummary)
+	W             store.Writer
+	R             Reader
 }
 
 // OpenSQLStore returns a PlanningStore over db. Both halves use db:
@@ -66,13 +69,31 @@ func (r readOnly) Exec(context.Context, string, ...any) (store.Result, error) {
 // txPlanning implements PlanningStore over one txDB: inside a porter
 // Write the handle is the transaction (batch path included), inside
 // a Read it is a pooled connection.
-type txPlanning struct{ db txDB }
+type txPlanning struct {
+	db      txDB
+	changes map[types.TaskID]string
+}
 
 // write runs fn in one porter transaction over a txPlanning.
 func (s *SQLStore) write(fn func(tx *txPlanning) error) error {
-	return s.W.Write(context.Background(), store.PriorityNormal, func(ctx context.Context, ex store.Execer) error {
-		return fn(&txPlanning{db: ex})
+	var updated []api.TaskSummary
+	err := s.W.Write(context.Background(), store.PriorityNormal, func(ctx context.Context, ex store.Execer) error {
+		tx := &txPlanning{db: ex}
+		if s.OnTaskUpdated != nil {
+			tx.changes = map[types.TaskID]string{}
+		}
+		if err := fn(tx); err != nil {
+			return err
+		}
+		updated = tx.changedSummaries()
+		return nil
 	})
+	if err == nil && s.OnTaskUpdated != nil {
+		for _, t := range updated {
+			s.OnTaskUpdated(t)
+		}
+	}
+	return err
 }
 
 // read runs fn on one pooled connection over a txPlanning.
@@ -283,6 +304,7 @@ const taskCols = `id,short_code,scope_id,level,request_json,origin_conversation_
 
 // CreateTask implements PlanningStore.
 func (tx *txPlanning) CreateTask(t types.Task) error {
+	tx.trackTask(t.ID)
 	ctx := bg()
 	args := taskRow(t)
 	_, err := tx.db.Exec(ctx, `INSERT INTO tasks(`+taskCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
@@ -306,6 +328,7 @@ func (tx *txPlanning) GetTask(id types.TaskID) (types.Task, error) {
 
 // UpdateTask implements PlanningStore with optimistic concurrency.
 func (tx *txPlanning) UpdateTask(t types.Task, wantVersion int) error {
+	tx.trackTask(t.ID)
 	ctx := bg()
 	rootRun := ""
 	if t.RootRunID != nil {
@@ -335,6 +358,7 @@ func (tx *txPlanning) UpdateTask(t types.Task, wantVersion int) error {
 
 // SetTaskRun implements PlanningStore.
 func (tx *txPlanning) SetTaskRun(id types.TaskID, run types.RunID, state types.TaskState) error {
+	tx.trackTask(id)
 	ctx := bg()
 	res, err := tx.db.Exec(ctx, `UPDATE tasks SET root_run_id=?,status=?,version=version+1,updated_at=? WHERE id=?`,
 		string(run), string(state), ms(time.Now().UTC()), string(id))
@@ -353,6 +377,7 @@ func (tx *txPlanning) SetTaskRun(id types.TaskID, run types.RunID, state types.T
 
 // ReopenTask implements PlanningStore.
 func (tx *txPlanning) ReopenTask(id types.TaskID, run types.RunID) error {
+	tx.trackTask(id)
 	ctx := bg()
 	cur, err := tx.GetTask(id)
 	if err != nil {
@@ -930,6 +955,7 @@ const critCols = `id,short_code,requirement_id,statement,method,expected,impact_
 
 // AddCriterion implements PlanningStore.
 func (tx *txPlanning) AddCriterion(c types.Criterion) error {
+	tx.trackRequirement(c.RequirementID)
 	ctx := bg()
 	req, err := tx.GetRequirement(c.RequirementID)
 	if err != nil {
@@ -980,6 +1006,7 @@ func (tx *txPlanning) criterionVersion(ctx context.Context, id types.CriterionID
 
 // UpdateCriterion implements PlanningStore with optimistic concurrency.
 func (tx *txPlanning) UpdateCriterion(c types.Criterion, wantVersion int) error {
+	tx.trackRequirement(c.RequirementID)
 	ctx := bg()
 	cur, err := tx.GetCriterion(c.ID)
 	if err != nil {
@@ -1134,6 +1161,13 @@ const evCols = `id,check_id,run_id,result,blob_digest,code_version_json,fingerpr
 
 // RecordEvidence implements PlanningStore.
 func (tx *txPlanning) RecordEvidence(rec EvidenceRecord) error {
+	if tx.changes != nil {
+		if chk, err := tx.GetCheck(rec.Evidence.CheckID); err == nil {
+			if c, err := tx.GetCriterion(chk.CriterionID); err == nil {
+				tx.trackRequirement(c.RequirementID)
+			}
+		}
+	}
 	ctx := bg()
 	chk, err := tx.GetCheck(rec.Evidence.CheckID)
 	if err != nil {
@@ -1246,6 +1280,7 @@ func (tx *txPlanning) ListLog(project types.ProjectID) []ProjectLogEntry {
 
 // LinkTaskRequirement implements PlanningStore.
 func (tx *txPlanning) LinkTaskRequirement(task types.TaskID, req types.RequirementID) error {
+	tx.trackTask(task)
 	ctx := bg()
 	if _, err := tx.GetTask(task); err != nil {
 		return err
@@ -1289,6 +1324,7 @@ func (tx *txPlanning) InstructionRev(scope types.Scope) int {
 
 // SetInstructionRev implements PlanningStore.
 func (tx *txPlanning) SetInstructionRev(scope types.Scope, rev int) {
+	tx.trackAllTasks()
 	ctx := bg()
 	_, _ = tx.db.Exec(ctx, `INSERT INTO instruction_revs(scope_id,rev,updated_at) VALUES(?,?,?)
 		ON CONFLICT(scope_id) DO UPDATE SET rev=excluded.rev,updated_at=excluded.updated_at`,
@@ -1297,6 +1333,7 @@ func (tx *txPlanning) SetInstructionRev(scope types.Scope, rev int) {
 
 // RecordFileEdit implements PlanningStore.
 func (tx *txPlanning) RecordFileEdit(path, fingerprint string) {
+	tx.trackAllTasks()
 	ctx := bg()
 	_, _ = tx.db.Exec(ctx, `INSERT INTO file_fingerprints(path,fingerprint,updated_at) VALUES(?,?,?)
 		ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint,updated_at=excluded.updated_at`,

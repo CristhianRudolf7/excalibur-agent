@@ -305,6 +305,9 @@ func (o *Orchestrator) Spawn(parentID types.AgentID, card DelegationCard) (types
 		return types.Agent{}, RunRecord{}, err
 	}
 	_ = tools
+	// Profiles select capabilities; the parent determines hierarchy depth.
+	// A master may delegate directly to an implementer at level 1.
+	profile.Level = level
 	child, err := agents.NewIdentity(card.Name, card.Description, profile, &parent, card.Scope)
 	if err != nil {
 		return types.Agent{}, RunRecord{}, err

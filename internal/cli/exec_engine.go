@@ -558,6 +558,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	var suggestedSkills []ctxcompiler.SkillView
 	if skillsMode.CatalogEnabled() {
 		skillsIndex = skills.NewBuiltinIndex()
+		if profile == ProfileEval {
+			skillsIndex = skills.NewEvalBuiltinIndex()
+		}
 		if err := skillsIndex.Scan(); err != nil {
 			return "", providers.Usage{}, "", fmt.Errorf("cli: scan skills catalog: %w", err)
 		}
@@ -581,8 +584,37 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			"catalog_hash": skillsIndex.CatalogHash(), "suggested": skillNames(suggestedSkills),
 		})
 	}
+	var media *tools.MediaDeps
+	if profile != ProfileEval && settings.Provider == "openai" && tools.VisionOCREnabled() {
+		visionProvider, visionErr := BuildProvider(ctx, settings, VaultSecretResolver(opts.Vault, string(run.RunID)))
+		if visionErr == nil {
+			defer visionProvider.Close()
+			media, visionErr = wireengine.ModelVisionMedia(visionProvider, settings.GatewayConfig(layerCfg.Provider), strings.TrimSpace(os.Getenv("EXCALIBUR_VISION_MODEL")))
+		}
+		if visionErr != nil {
+			fmt.Fprintf(os.Stderr, "exec: vision unavailable: %v\n", visionErr)
+		}
+	}
+	webRuntime, err := embeddedBrowserWeb(profile, opts, run, layerCfg)
+	if err != nil {
+		return "", providers.Usage{}, "", err
+	}
+	defer func() { _ = webRuntime.Close() }()
+	var web *tools.WebDeps
+	if webRuntime != nil {
+		web = webRuntime.Web
+	}
+	reminders, closeReminders, err := embeddedReminders(ctx, profile)
+	if err != nil {
+		return "", providers.Usage{}, "", fmt.Errorf("cli: open reminders: %w", err)
+	}
+	defer closeReminders()
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
-		RunID: string(run.RunID), Project: opts.ProjectDir, Vault: opts.Vault,
+		Reminders: reminders,
+		Profile:   string(profile),
+		Media:     media,
+		Web:       web,
+		RunID:     string(run.RunID), Project: opts.ProjectDir, Vault: opts.Vault,
 		Delegated:    profile == ProfileDelegate,
 		Autonomous:   true, // This entry point runs non-interactive exec/delegate/eval work.
 		KnownSecrets: runCredentialValues(ctx, settings, opts.Vault, string(run.RunID)),
@@ -591,6 +623,12 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	})
 	if err != nil {
 		return "", providers.Usage{}, "", fmt.Errorf("cli: wire embedded catalog: %w", err)
+	}
+	defer emb.Close()
+	if webRuntime != nil {
+		if err := wireengine.WireBrowser(emb, embeddedBrowserCapability(webRuntime)); err != nil {
+			return "", providers.Usage{}, "", err
+		}
 	}
 	if gw == nil {
 		return "", providers.Usage{}, "", fmt.Errorf("cli: engine path needs a gateway")

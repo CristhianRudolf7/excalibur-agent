@@ -116,3 +116,20 @@ func TestFastLaneTable(t *testing.T) {
 		}
 	})
 }
+
+func TestLooksLikeStatusQuery(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want bool
+	}{
+		{"Sí, créala.", false},
+		{"ok dale", false},
+		{"¿cómo va?", true},
+		{"what is the status", true},
+		{"qué está corriendo", true},
+	} {
+		if got := looksLikeStatusQuery(tc.in); got != tc.want {
+			t.Errorf("looksLikeStatusQuery(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}

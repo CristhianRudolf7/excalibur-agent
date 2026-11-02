@@ -1,0 +1,50 @@
+.chat-connection,
+.chat-activity {
+  padding: 8px 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.chat-interaction {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-block: 12px;
+}
+.chat-interaction input {
+  min-width: 0;
+  max-width: 100%;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+}
+.thinking-dots {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: chat-pulse 1s ease-in-out infinite alternate;
+}
+@keyframes chat-pulse {
+  to {
+    opacity: 0.3;
+    transform: scale(0.7);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots {
+    animation: none;
+  }
+}
+
+.chat-activity {
+  align-self: flex-start;
+  margin: 4px 20px 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+}

@@ -19,7 +19,7 @@ func TestEvalSkillsHashTracksCatalog(t *testing.T) {
 	if p.SkillsCatalogHash == "" || p.SkillsCatalogHash == "frozen-placeholder" {
 		t.Fatalf("eval profile carries no real catalog hash: %q", p.SkillsCatalogHash)
 	}
-	ix := skills.NewBuiltinIndex()
+	ix := skills.NewEvalBuiltinIndex()
 	if err := ix.Scan(); err != nil {
 		t.Fatal(err)
 	}

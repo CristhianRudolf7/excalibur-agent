@@ -192,3 +192,66 @@ func TestSubagentInferredActions(t *testing.T) {
 		t.Fatal(res)
 	}
 }
+
+func TestMasterCanSpawnImplementerAndAddressRunID(t *testing.T) {
+	f := newFixture(t)
+	tool := &orchestrator.SubagentTool{Orch: f.o}
+	res := toolCall(t, tool, map[string]any{"action": "spawn", "caller": string(f.master.ID), "card": map[string]any{
+		"name": "direct-worker", "description": "implements directly for master", "profile": "implementer", "goal": "g", "deliverable": "d", "scope": "general", "done_criteria": []string{"done"}, "report_contract": "summary",
+	}}, "master-spawn")
+	if res.Status != tools.StatusOK {
+		t.Fatalf("spawn: %+v", res)
+	}
+	var output struct {
+		RunID   string        `json:"run_id"`
+		AgentID types.AgentID `json:"agent_id"`
+	}
+	if err := json.Unmarshal([]byte(res.Output), &output); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := f.store.GetAgent(output.AgentID)
+	if err != nil || agent.Profile != "implementer" || agent.Level != 1 || agent.ParentID == nil || *agent.ParentID != f.master.ID {
+		t.Fatalf("identity: %+v %v", agent, err)
+	}
+	for _, args := range []map[string]any{
+		{"action": "status", "run_id": output.RunID},
+		{"action": "message", "run_id": output.RunID, "text": "verify"},
+		{"action": "message", "to": output.RunID, "text": "continue"},
+	} {
+		args["caller"] = string(f.master.ID)
+		if got := toolCall(t, tool, args, ""); got.Status != tools.StatusOK {
+			t.Fatalf("%v: %+v", args, got)
+		}
+	}
+	if got := f.store.PendingMessages(agent.ID); len(got) != 2 {
+		t.Fatalf("mailbox: %+v", got)
+	}
+	// Run IDs remain subject to the same subtree authorization as agent IDs.
+	res = toolCall(t, tool, map[string]any{"caller": string(f.parent.ID), "action": "message", "run_id": output.RunID, "text": "out of scope"}, "")
+	if res.Status != tools.StatusDenied {
+		t.Fatalf("scope bypass: %+v", res)
+	}
+}
+
+func TestFinishUsesValidOutcomeEdges(t *testing.T) {
+	for _, state := range []types.RunState{types.RunFailed, types.RunCanceled, types.RunCompleted} {
+		t.Run(string(state), func(t *testing.T) {
+			f := newFixture(t)
+			_, rec := f.spawnOk(f.parent.ID, childCard("worker", agents.ProfileImplementer))
+			if err := f.o.Finish(rec.Run.ID, state, "outcome"); err != nil {
+				t.Fatal(err)
+			}
+			if got := runState(t, f.store, rec.Run.ID); got != state {
+				t.Fatalf("state: %s", got)
+			}
+		})
+	}
+	f := newFixture(t)
+	_, rec := f.spawnOk(f.parent.ID, childCard("waiting-worker", agents.ProfileImplementer))
+	if err := f.o.SetWaiting(rec.Run.ID, types.WaitSubagents); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.o.Finish(rec.Run.ID, types.RunCompleted, "children finished"); err != nil {
+		t.Fatal(err)
+	}
+}

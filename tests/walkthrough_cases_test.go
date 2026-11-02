@@ -197,10 +197,28 @@ func TestWalkthrough264ParallelScopes(t *testing.T) {
 	}
 	hist := s.call(t, api.MethodConversationHistory, api.ConversationHistoryParams{ConversationID: "web-gastos"})
 	var h struct {
-		Messages []json.RawMessage `json:"messages"`
+		Messages []struct {
+			ConversationID string `json:"conversation_id"`
+			Role           string `json:"role"`
+			Text           string `json:"text"`
+		} `json:"messages"`
 	}
-	if err := json.Unmarshal(hist, &h); err != nil || len(h.Messages) != 1 {
-		t.Fatalf("history leaked across conversations: %v %s", err, hist)
+	if err := json.Unmarshal(hist, &h); err != nil || len(h.Messages) == 0 {
+		t.Fatalf("history missing: %v %s", err, hist)
+	}
+	// Assistant replies belong to the same conversation; nothing from the
+	// other conversation may appear.
+	users := 0
+	for _, m := range h.Messages {
+		if m.ConversationID != "web-gastos" || strings.Contains(m.Text, "thesis") {
+			t.Fatalf("history leaked across conversations: %s", hist)
+		}
+		if m.Role == "user" {
+			users++
+		}
+	}
+	if users != 1 {
+		t.Fatalf("want one user message in web-gastos, got %d: %s", users, hist)
 	}
 	// Scope isolation: a gastos row never answers a thesis query.
 	if _, err := s.mem.Propose(s.ctx, memory.Candidate{Scope: "project:gastos", Statement: "gastos ships in June"}); err != nil {

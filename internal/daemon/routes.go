@@ -4,14 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
@@ -20,6 +29,19 @@ import (
 // embedded MemoryBackend behavior so embedded profiles and unit
 // tests never need the full stack.
 type BackendServices struct {
+	FileBlobs gateway.BlobStore
+	// WorkspaceRoots supplies trusted conversation-specific roots.
+	WorkspaceRoots func(context.Context) []string
+	Voice          *VoiceRoutes
+	Sources        tools.SourceRecorder
+	TaskQueries    *tasks.SQLStore
+	Automations    automations.Service
+	Reminders      *agenda.ReminderService
+	Whiteboard     *whiteboard.Service
+	Library        *LibraryRoutes
+
+	// Principal serves the read-only local profile.
+	Principal *PrincipalService
 	// Tasks serves task.* through orchestrator runs (Section 3.6).
 	Tasks *TaskService
 	// Caps serves capability.* through the daemon registry (14.12).
@@ -38,6 +60,8 @@ type BackendServices struct {
 	Config *FileConfig
 	// Metrics serves metrics.query (Section 22.2).
 	Metrics *MetricsStore
+	// Telemetry supplies durable usage snapshots.
+	Telemetry *telemetry.SQLStore
 }
 
 // AttachServices installs the real backends on a DaemonBackend.
@@ -73,11 +97,89 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 // routes to its real backend when attached; unknown names still
 // answer CodeMethodNotFound.
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	if method == api.MethodFilesOpen {
+		return b.filesOpen(ctx, params)
+	}
+	if method == api.MethodActivityList {
+		return b.activityList(ctx, params)
+	}
+	if method == api.MethodVoiceStatus || method == api.MethodVoiceTranscribe || method == api.MethodVoiceSpeak {
+		if b.Services == nil {
+			return (*VoiceRoutes)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Voice.Op(ctx, method, params)
+	}
+
+	if strings.HasPrefix(method, "automations.") {
+		var service automations.Service
+		if b.Services != nil {
+			service = b.Services.Automations
+		}
+		return automationOp(ctx, service, method, params)
+	}
+	if strings.HasPrefix(method, "tasks.") || strings.HasPrefix(method, "reminders.") {
+		if b.Services == nil {
+			return nil, &api.Error{Code: api.CodeInternal, Message: "persistent services unavailable"}
+		}
+		if strings.HasPrefix(method, "reminders.") {
+			return b.Services.Reminders.Op(ctx, method, params)
+		}
+		if b.Services.TaskQueries == nil {
+			return nil, &api.Error{Code: api.CodeInternal, Message: "task store unavailable"}
+		}
+		if len(params) == 0 {
+			params = json.RawMessage(`{}`)
+		}
+		switch method {
+		case api.MethodTasksQuery:
+			var p api.TasksQueryParams
+			if err := json.Unmarshal(params, &p); err != nil {
+				return nil, &api.Error{Code: api.CodeInvalidParams, Message: "invalid task query"}
+			}
+			return b.Services.TaskQueries.Query(ctx, p)
+		case api.MethodTasksGet:
+			var p struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal(params, &p); err != nil || p.ID == "" {
+				return nil, &api.Error{Code: api.CodeInvalidParams, Message: "id is required"}
+			}
+			out, err := b.Services.TaskQueries.Detail(ctx, p.ID)
+			if err != nil {
+				if strings.Contains(err.Error(), "unknown task") {
+					return nil, &api.Error{Code: api.CodeUnknownTarget, Message: err.Error()}
+				}
+				return nil, err
+			}
+			return out, nil
+		}
+	}
+
+	if strings.HasPrefix(method, "whiteboard.") {
+		if b.Services == nil {
+			return (*whiteboard.Service)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Whiteboard.Op(ctx, method, params)
+	}
+	if strings.HasPrefix(method, "library.") {
+		if b.Services == nil {
+			return (*LibraryRoutes)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Library.Op(ctx, method, params)
+	}
 	svc := b.Services
 	if svc == nil {
 		return b.embed.Passthrough(ctx, method, params)
 	}
 	switch method {
+	case api.MethodPrincipalGet:
+		if len(params) > 0 && !json.Valid(params) {
+			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad principal.get params"}
+		}
+		if svc.Principal == nil {
+			return nil, &api.Error{Code: api.CodeInternal, Message: "profile store unavailable"}
+		}
+		return svc.Principal.Get(ctx)
 	case api.MethodProjectList, api.MethodProjectRegister, api.MethodProjectGet:
 		if svc.Projects != nil {
 			return ProjectOp(svc.Projects, method, params)
@@ -86,7 +188,8 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 		if svc.Memory != nil {
 			return MemoryOp(ctx, svc.Memory, method, params)
 		}
-	case api.MethodSkillsSearch, api.MethodSkillsLoad, api.MethodSkillsInstall:
+	case api.MethodSkillsGroups, api.MethodSkillsList, api.MethodSkillsGet, api.MethodSkillsUpdate, api.MethodSkillsSetState, api.MethodSkillsDelete,
+		api.MethodSkillsSearch, api.MethodSkillsLoad, api.MethodSkillsInstall:
 		if svc.Skills != nil {
 			return SkillsOp(svc.Skills, method, params)
 		}
@@ -110,6 +213,8 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 			}
 			return map[string]any{"question_id": p.QuestionID, "ok": true}, nil
 		}
+	case api.MethodUsageSummary:
+		return usageSummaryOp(ctx, svc.Metrics, svc.Telemetry, params)
 	case api.MethodMetricsQuery:
 		if svc.Metrics != nil {
 			var p api.MetricsQueryParams
@@ -225,9 +330,11 @@ func MemoryOp(ctx context.Context, svc *memory.Service, method string, params js
 	}
 }
 
-// SkillsOp routes skills.search/load/install over the RAM index.
+// SkillsOp routes skill discovery, loading and catalog management over the index.
 func SkillsOp(ix *skills.Index, method string, params json.RawMessage) (any, error) {
 	switch method {
+	case api.MethodSkillsGroups, api.MethodSkillsList, api.MethodSkillsGet, api.MethodSkillsUpdate, api.MethodSkillsSetState, api.MethodSkillsDelete:
+		return skillsCatalogOp(ix, method, params)
 	case api.MethodSkillsSearch:
 		var p api.SkillsSearchParams
 		if len(params) > 0 {
@@ -409,4 +516,20 @@ func (m *MetricsStore) Query(p api.MetricsQueryParams) map[string]any {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].At.Before(out[j].At) })
 	return map[string]any{"rows": out, "count": len(out)}
+}
+
+// NewTaskQueries connects committed planning changes to the daemon event bus.
+// Configure this shared store before binding the task_db provider and routes.
+func NewTaskQueries(db *store.DB, bus *telemetry.Bus) *tasks.SQLStore {
+	if db == nil {
+		return nil
+	}
+	queries := tasks.OpenSQLStore(db)
+	if bus != nil {
+		queries.OnTaskUpdated = func(t api.TaskSummary) {
+			id := types.TaskID(t.ID)
+			_, _ = bus.Publish(api.EventTaskUpdated, nil, &id, api.TaskUpdatedEvent{Task: t})
+		}
+	}
+	return queries
 }

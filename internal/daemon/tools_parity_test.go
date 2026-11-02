@@ -90,12 +90,14 @@ func TestDaemonToolSurfaceMatchesEmbedded(t *testing.T) {
 }
 
 // Pinned surface and profile hashes: the embedded tool list (the exec
-// and eval surface) and the frozen eval profile must not move because
+// default surface) and the frozen eval profile must not move because
 // the daemon composition changed. A deliberate change updates these
-// values in the same commit and says why.
+// values in the same commit and says why. Automations intentionally extends
+// the default catalog only (its description moved the prefix again when
+// script/notify guidance was added); the eval profile hash stays frozen.
 const (
-	embeddedToolsHash = "3d25f90e7e062fb163eea758789d42e3f5f808fd16099781e023128c132f55a1"
-	embeddedPrefix    = "9a034cb81714916681bc8c6c7cb6f3b18fdd0a730a9499680440284572f455d9"
+	embeddedToolsHash = "2197e26b2ebd988cc25934958b5d2fcd4240f5dd97bebc7d26dd5104a3faece2"
+	embeddedPrefix    = "13e36f12dbbd571bb406e6fdaa55633ed619bf8724d03a1716e443a8faf61557"
 	evalProfileHash   = "4ecb6a58986660326b7d20d912918d479e7c72140c6e04ab38d83a23315fec28"
 )
 

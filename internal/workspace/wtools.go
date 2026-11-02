@@ -145,7 +145,7 @@ func (t *RevertEditTool) Definition() tools.Definition {
 	}
 }
 
-func (t *RevertEditTool) Invoke(_ context.Context, inv tools.Invocation) (tools.Result, error) {
+func (t *RevertEditTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
 	var a struct {
 		EditID string `json:"edit_id"`
 	}
@@ -162,7 +162,7 @@ func (t *RevertEditTool) Invoke(_ context.Context, inv tools.Invocation) (tools.
 	if t.Deps != nil {
 		runID = t.Deps.RunID
 	}
-	newID, err := t.Deps.History.Revert(a.EditID, runID, "revert_edit")
+	newID, err := t.Deps.History.Revert(a.EditID, tools.ExecutingRunID(ctx, runID), "revert_edit")
 	if err != nil {
 		if c, ok := err.(*ConflictError); ok {
 			return tools.Result{Status: tools.StatusToolError, Output: c.Error()}, nil

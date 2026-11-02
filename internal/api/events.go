@@ -14,6 +14,8 @@ type MessageEvent struct {
 	ConversationID types.ConversationID `json:"conversation_id"`
 	Role           string               `json:"role"`
 	Text           string               `json:"text"`
+	Changes        []FileChange         `json:"changes,omitempty"`
+	Sources        []SourceRef          `json:"sources,omitempty"`
 }
 
 // RunProgressEvent carries run progress: state, step and the live tool
@@ -70,7 +72,25 @@ type EventTypeInfo struct {
 }
 
 // EventTypes enumerates every typed event of the bus contract.
+const EventLibraryDocumentUpdated types.EventType = "library.document_updated"
+
 var EventTypes = []EventTypeInfo{
+	{EventActivityUpdated, "ActivityUpdatedEvent", "Conversation activity changed."},
+	{EventTaskUpdated, "TaskUpdatedEvent", "A task changed."},
+	{EventAutomationUpdated, "AutomationEvent", "An automation changed."},
+	{EventAutomationDeleted, "AutomationDeletedEvent", "An automation was deleted."},
+	{EventAutomationRun, "AutomationRunEvent", "An automation run changed."},
+	{EventReminderUpdated, "ReminderEvent", "A reminder changed."},
+	{EventReminderFired, "ReminderEvent", "A reminder fired."},
+
+	{"whiteboard.opened", "WhiteboardOpenedEvent", "Whiteboard opened."},
+	{"whiteboard.ops", "WhiteboardOpsEvent", "Whiteboard ops."},
+	{"whiteboard.focus", "WhiteboardFocusEvent", "Whiteboard focus."},
+	{"whiteboard.highlight", "WhiteboardHighlightEvent", "Whiteboard highlight."},
+	{"whiteboard.snapshot_requested", "WhiteboardSnapshotRequestedEvent", "Whiteboard snapshot requested."},
+	{"whiteboard.closed", "WhiteboardEvent", "Whiteboard closed."},
+
+	{EventLibraryDocumentUpdated, "DocumentInfo", "A library document changed."},
 	{types.EventMessageCreated, "MessageEvent", "A message was persisted."},
 	{types.EventRunStateChanged, "RunProgressEvent", "A run changed state."},
 	{types.EventRunProgress, "RunProgressEvent", "Run progress update."},
@@ -132,4 +152,10 @@ type ErrorEvent struct {
 	RunID   *types.RunID `json:"run_id,omitempty"`
 	Code    int          `json:"code"`
 	Message string       `json:"message"`
+}
+
+// WhiteboardEvent is the common conversation envelope for board events.
+type WhiteboardEvent struct {
+	ConversationID string `json:"conversation_id"`
+	BoardID        string `json:"board_id"`
 }

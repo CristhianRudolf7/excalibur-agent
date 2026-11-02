@@ -64,9 +64,10 @@ func runInstall(args []string) error {
 		return err
 	}
 	in := &daemon.Installer{
-		Dirs:    installDirs(),
-		Service: installService(),
-		Prober:  cmdEnvProber{},
+		BrowserStep: daemon.InstallBrowserDriver,
+		Dirs:        installDirs(),
+		Service:     installService(),
+		Prober:      cmdEnvProber{},
 	}
 	rep, err := in.Install(daemon.InstallOptions{
 		Autostart:      *autostart,
@@ -84,6 +85,7 @@ func runInstall(args []string) error {
 		return nil
 	}
 	fmt.Printf("data: %s\nconfig: %s\nunit: %s\n", rep.DataDir, rep.ConfigFile, rep.UnitStatus)
+	fmt.Println(rep.Browser)
 	for _, w := range rep.Warnings {
 		fmt.Printf("warning: %s\n", w)
 	}

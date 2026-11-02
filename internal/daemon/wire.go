@@ -162,17 +162,20 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // AttachServices installs the real daemon-side backends; without them
 // every family degrades to the embedded backend.
 type DaemonBackend struct {
-	Master *master.Master
-	Ctrls  *OrchControl
-	Bus    *telemetry.Bus
-	embed  *gateway.MemoryBackend
+	Master   *master.Master
+	Ctrls    *OrchControl
+	Bus      *telemetry.Bus
+	activity activityState
+	embed    *gateway.MemoryBackend
 	// Services holds the real backends; nil keeps embedded behavior.
 	Services *daemonServices
 }
 
 // NewDaemonBackend returns the composed backend.
 func NewDaemonBackend(m *master.Master, ctrls *OrchControl, bus *telemetry.Bus) *DaemonBackend {
-	return &DaemonBackend{Master: m, Ctrls: ctrls, Bus: bus, embed: gateway.NewMemoryBackend(bus)}
+	b := &DaemonBackend{Master: m, Ctrls: ctrls, Bus: bus, embed: gateway.NewMemoryBackend(bus)}
+	b.configureAssistantOutput()
+	return b
 }
 
 // ConversationSend implements gateway.Backend through master intake:
@@ -186,7 +189,11 @@ func (b *DaemonBackend) ConversationSend(ctx context.Context, clientID, clientMs
 	if err != nil {
 		return "", false, err
 	}
-	_ = out
+	if out.Handled && out.Reply != "" {
+		if _, err := b.Master.SendAssistant(ctx, conversationID, out.Reply, nil); err != nil {
+			return id, false, err
+		}
+	}
 	return id, false, nil
 }
 
@@ -202,7 +209,7 @@ func (b *DaemonBackend) ConversationHistory(_ context.Context, conversationID st
 			}
 			out = append(out, gateway.StoredMessage{
 				ID: h.ID, ConversationID: types.ConversationID(conversationID),
-				Role: h.Role, Text: h.Text,
+				Role: h.Role, Text: h.Text, Sources: h.Sources, Changes: h.Changes,
 			})
 		}
 		if limit > 0 && len(out) > limit {
@@ -291,4 +298,17 @@ func forwardEvent(bus *telemetry.Bus, notify *master.Notifier, ev orchestrator.E
 			Content: ev.Detail,
 		})
 	}
+}
+
+// ConversationSendAttachments is the additive transport seam for document ids.
+// The text-only Backend contract continues through ConversationSend.
+func (b *DaemonBackend) ConversationSendAttachments(ctx context.Context, clientID, clientMsgID, conversationID, text string, attachments []string) (types.MessageID, bool, error) {
+	if b.Master == nil {
+		return b.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
+	}
+	id, out, err := b.Master.ReceiveWithAttachments(ctx, clientID, clientMsgID, conversationID, text, attachments)
+	if err == nil && out.Handled && out.Reply != "" {
+		_, err = b.Master.SendAssistant(ctx, conversationID, out.Reply, nil)
+	}
+	return id, false, err
 }

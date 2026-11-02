@@ -24,7 +24,9 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
 // errNoModel is the step failure of a daemon without a configured
@@ -44,6 +46,12 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
+	Workdir    string
+	History    *wireengine.SharedHistory
+	Leases     *workspace.LeaseManager
+	Whiteboard *whiteboard.Service
+	Media      *tools.MediaDeps
+	BrowserWeb *wireengine.BrowserWeb
 	// Caps are the native capabilities whose tools join the registry.
 	Caps *capabilities.Registry
 	// Models is the configured model endpoint; nil means unconfigured.
@@ -71,9 +79,13 @@ type engineWiring struct {
 // daemonTools is the composed daemon tool surface: the engine runs
 // through Exec and resolves definitions from Registry.
 type daemonTools struct {
-	Registry *tools.MapRegistry
-	Catalog  *tools.DeferredCatalog
-	Exec     *tools.Executor
+	SharedHistory *wireengine.SharedHistory
+	Leases        *workspace.LeaseManager
+	History       *workspace.History
+	Sources       tools.SourceRecorder
+	Registry      *tools.MapRegistry
+	Catalog       *tools.DeferredCatalog
+	Exec          *tools.Executor
 }
 
 // buildEngine assembles the daemon step engine over the same registry
@@ -86,13 +98,39 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 			Orch: w.Orch, OrchStore: w.OrchStore, Root: w.Root, Scope: types.GeneralScope(),
 		}
 	}
+	var web *tools.WebDeps
+	if w.BrowserWeb != nil {
+		web = w.BrowserWeb.Web
+	}
+	// Keep source attribution separate from tool definitions and eval pins.
+	if web == nil {
+		web = &tools.WebDeps{}
+	} else {
+		copy := *web
+		web = &copy
+	}
+	if web.Sources == nil {
+		web.Sources = &tools.MemorySourceRecorder{}
+	}
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
-		Vault:   w.Vault,
-		Skills:  w.Skills,
-		Surface: surface,
+		Workdir: w.Workdir, History: w.History, Leases: w.Leases,
+		Whiteboard: w.Whiteboard,
+		Web:        web,
+		Vault:      w.Vault,
+		Media:      w.Media,
+		Skills:     w.Skills,
+		Surface:    surface,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("daemon: build tool surface: %w", err)
+	}
+	// Daemon delegation must never use the embedded record-only adapter,
+	// including when the authoritative orchestrator store is SQL-backed.
+	if w.Orch != nil {
+		emb.Registry.Unregister("subagent")
+		if err := emb.Registry.Register(&orchestrator.SubagentTool{Orch: w.Orch}); err != nil {
+			return nil, nil, err
+		}
 	}
 	if w.Memory != nil {
 		memory.WireMemoryTools(emb.Registry, w.Memory)
@@ -100,6 +138,12 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 	if w.Caps != nil {
 		for _, id := range w.Caps.IDs() {
 			if c, ok := w.Caps.Lookup(id); ok {
+				if id == "browser" {
+					if err := wireengine.WireBrowser(emb, c); err != nil {
+						return nil, nil, err
+					}
+					continue
+				}
 				if ts, err := tools.ToolsFromCapability(capabilityInvoker{id: id, cap: c}); err == nil {
 					for _, t := range ts {
 						_ = emb.Registry.Register(t)
@@ -108,7 +152,7 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 			}
 		}
 	}
-	dt := &daemonTools{Registry: emb.Registry, Catalog: emb.Catalog, Exec: emb.Exec}
+	dt := &daemonTools{SharedHistory: emb.History, Leases: emb.Leases, History: emb.History.Work, Sources: web.Sources, Registry: emb.Registry, Catalog: emb.Catalog, Exec: emb.Exec}
 	var endpoint engine.ModelEndpoint = unconfiguredModels{}
 	if w.Models != nil {
 		endpoint = w.Models

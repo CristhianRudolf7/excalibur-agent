@@ -132,14 +132,19 @@ type respResponse struct {
 func buildInput(msgs []providers.Message) ([]any, error) {
 	out := make([]any, 0, len(msgs))
 	for i, m := range msgs {
+		if len(m.Images) > 0 && m.Role != providers.RoleUser {
+			return nil, fmt.Errorf("responses: images require a user message")
+		}
 		switch m.Role {
 		case providers.RoleSystem, providers.RoleUser:
-			out = append(out, map[string]any{
-				"role": string(m.Role),
-				"content": []respTextPart{
-					{Type: "input_text", Text: m.Content},
-				},
-			})
+			parts := []any{respTextPart{Type: "input_text", Text: m.Content}}
+			for _, img := range m.Images {
+				if m.Role != providers.RoleUser || img.URL == "" {
+					return nil, fmt.Errorf("responses: images require a user message and nonempty URL")
+				}
+				parts = append(parts, map[string]string{"type": "input_image", "image_url": img.URL})
+			}
+			out = append(out, map[string]any{"role": string(m.Role), "content": parts})
 		case providers.RoleAssistant:
 			if m.Content != "" {
 				out = append(out, map[string]any{

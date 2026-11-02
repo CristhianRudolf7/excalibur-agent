@@ -132,3 +132,35 @@ func contains(s, sub string) bool {
 		return false
 	})()
 }
+
+func TestSharedHistoryUsesExecutingRun(t *testing.T) {
+	emb, err := BuildEmbedded(EmbeddedOptions{RunID: "fallback"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "new.txt")
+	invoke := func(run, name string, args any) {
+		t.Helper()
+		raw, _ := json.Marshal(args)
+		res, err := emb.Exec.Execute(tools.WithSourceRun(context.Background(), run), name, raw, tools.ExecuteOptions{})
+		if err != nil || res.Status != tools.StatusOK {
+			t.Fatalf("%s: %+v %v", name, res, err)
+		}
+	}
+	invoke("run_one", "write_file", map[string]string{"path": path, "content": "one"})
+	invoke("run_two", "edit_file", map[string]string{"path": path, "old_text": "one", "new_text": "two"})
+	invoke("run_two", "apply_patch", map[string]any{"ops": []map[string]string{{"op": "update", "path": path, "old_text": "two", "new_text": "three"}}})
+	c := emb.History.Work.Changes([]string{"run_two"}, nil)
+	if len(c) != 1 || c[0].Status != "modified" || *c[0].Content != "three" || c[0].Hunks[0].Lines[0] != "-one" {
+		t.Fatalf("run attribution: %+v", c)
+	}
+	versions := emb.History.Work.Versions(path)
+	invoke("run_three", "revert_edit", map[string]string{"edit_id": versions[2].ID})
+	c = emb.History.Work.Changes([]string{"run_three"}, nil)
+	if len(c) != 1 || *c[0].Content != "two" {
+		t.Fatalf("revert attribution: %+v", c)
+	}
+	if len(emb.History.Work.Changes([]string{"fallback"}, nil)) != 0 {
+		t.Fatal("used registry identity")
+	}
+}

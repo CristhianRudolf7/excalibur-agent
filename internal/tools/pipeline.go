@@ -422,7 +422,8 @@ func (e *Executor) contextForCancel(parent context.Context, mode types.CancelMod
 	case types.CancelAfterCompletion:
 		// Detach from parent cancellation; only the timeout applies so
 		// atomic writes, git operations and transactions finish first.
-		return context.WithTimeout(context.Background(), timeout)
+		// Preserve execution identity and other values for shared tools.
+		return context.WithTimeout(context.WithoutCancel(parent), timeout)
 	case types.CancelCooperative:
 		// Cooperative tools are asked to stop; the executor still bounds
 		// the wait by the timeout.

@@ -7,6 +7,7 @@ import "time"
 // value, and later milestones overlay file, environment and flag
 // layers on top.
 type Config struct {
+	Voice         VoiceConfig         `json:"voice" toml:"voice"`
 	Master        MasterConfig        `json:"master" toml:"master"`
 	Engine        EngineConfig        `json:"engine" toml:"engine"`
 	Porter        PorterConfig        `json:"porter" toml:"porter"`
@@ -18,6 +19,8 @@ type Config struct {
 	Vault         VaultConfig         `json:"vault" toml:"vault"`
 	Resources     ResourcesConfig     `json:"resources" toml:"resources"`
 	Models        ModelsConfig        `json:"models" toml:"models"`
+	Browser       BrowserConfig       `json:"browser" toml:"browser"`
+	Search        SearchConfig        `json:"search" toml:"search"`
 }
 
 // MasterConfig governs the master turn and reception (Sections 5.3,
@@ -259,6 +262,9 @@ type ResourcesConfig struct {
 // Default returns the Appendix B initial values.
 func Default() Config {
 	return Config{
+		Voice:   VoiceConfig{Provider: "openai", STTModel: "gpt-4o-mini-transcribe", TTSModel: "gpt-4o-mini-tts", Voice: "alloy"},
+		Browser: defaultBrowser(),
+		Search:  defaultSearch(),
 		Master: MasterConfig{
 			MaxSteps:          8,
 			RegenCancelWindow: 2 * time.Second,
@@ -344,4 +350,13 @@ func Default() Config {
 // Validate checks value ranges.
 func (c Config) Validate() error {
 	return validateStruct(c)
+}
+
+// VoiceConfig configures client audio operations; nil Enabled follows key availability.
+type VoiceConfig struct {
+	Provider string `json:"provider" toml:"provider"`
+	STTModel string `json:"stt_model" toml:"stt_model"`
+	TTSModel string `json:"tts_model" toml:"tts_model"`
+	Voice    string `json:"voice" toml:"voice"`
+	Enabled  *bool  `json:"enabled,omitempty" toml:"enabled"`
 }

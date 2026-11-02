@@ -12,8 +12,8 @@ import (
 )
 
 // ConversationStore persists intake messages and the active scope
-// per conversation (Sections 6.1, 9.3). The daemon backs it with
-// SQLite; tests use MemStore.
+// per conversation (Sections 6.1, 9.3). The daemon and tests currently
+// use MemStore; the interface also permits durable implementations.
 type ConversationStore interface {
 	SaveMessage(ctx context.Context, conv string, msg Normalized) (types.MessageID, error)
 	History(conv string, limit int) []Normalized
@@ -50,6 +50,7 @@ func (m *MemStore) SaveMessage(_ context.Context, conv string, msg Normalized) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := types.NewMessageID()
+	msg.Changes = api.CloneChanges(msg.Changes)
 	m.msgs[conv] = append(m.msgs[conv], msg)
 	m.ids[conv] = append(m.ids[conv], id)
 	return id, nil
@@ -63,7 +64,11 @@ func (m *MemStore) History(conv string, limit int) []Normalized {
 	if limit > 0 && len(rows) > limit {
 		rows = rows[len(rows)-limit:]
 	}
-	return append([]Normalized(nil), rows...)
+	out := append([]Normalized(nil), rows...)
+	for i := range out {
+		out[i].Changes = api.CloneChanges(out[i].Changes)
+	}
+	return out
 }
 
 // MessageIDs implements ConversationStore.
@@ -139,6 +144,7 @@ type Master struct {
 	events   []TurnEvent
 	mu       sync.Mutex
 	loc      *time.Location
+	output   AssistantOutput
 }
 
 // New returns a master over its seams.
@@ -162,18 +168,22 @@ func New(cfg Config, store ConversationStore, lex *Lexicon, dec Decider, control
 		defer m.mu.Unlock()
 		m.events = append(m.events, e)
 	})
+	m.turns.reply = func(ctx context.Context, conv, text string, tree []string) error {
+		_, err := m.SendAssistant(ctx, conv, text, tree)
+		return err
+	}
 	return m
 }
 
 // History returns one conversation's persisted messages oldest first
-// for the gate conversation.history family. Intake persists only
-// client messages (Section 6.1); assistant turns render from live
-// turn state, not from this store.
+// for the gate conversation.history family, including validated assistant output.
 type HistoryMessage struct {
 	ID             types.MessageID
 	ConversationID string
 	Role           string
 	Text           string
+	Changes        []api.FileChange
+	Sources        []api.SourceRef
 }
 
 // History implements the gate history read over the conversation
@@ -187,7 +197,11 @@ func (m *Master) History(conv string, limit int) []HistoryMessage {
 		if i < len(ids) {
 			id = ids[i]
 		}
-		out = append(out, HistoryMessage{ID: id, ConversationID: conv, Role: "user", Text: n.Text})
+		role := n.Role
+		if role == "" {
+			role = "user"
+		}
+		out = append(out, HistoryMessage{ID: id, ConversationID: conv, Role: role, Text: n.Text, Sources: cloneSources(n.Sources), Changes: api.CloneChanges(n.Changes)})
 	}
 	return out
 }
@@ -214,13 +228,19 @@ func (m *Master) Events() []TurnEvent {
 // run or tool (Section 5.3.1). Duplicate client_msg_id returns the
 // already assigned msg_id (Section 3.5).
 func (m *Master) Receive(ctx context.Context, clientID, clientMsgID, conv string, text string) (types.MessageID, Outcome, error) {
+	return m.ReceiveWithAttachments(ctx, clientID, clientMsgID, conv, text, nil)
+}
+
+// ReceiveWithAttachments preserves document ids supplied by a conversation
+// transport. Receive remains compatible with text-only channel adapters.
+func (m *Master) ReceiveWithAttachments(ctx context.Context, clientID, clientMsgID, conv, text string, attachments []string) (types.MessageID, Outcome, error) {
 	if strings.TrimSpace(text) == "" {
 		return "", Outcome{}, fmt.Errorf("master: empty message")
 	}
 	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
 		return id, Outcome{}, nil
 	}
-	msg := Normalized{Text: text, Channel: "api", Language: "en"}
+	msg := Normalized{Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
 	persist := func(n Normalized) (types.MessageID, error) {
 		return m.store.SaveMessage(ctx, conv, n)
 	}
@@ -239,4 +259,16 @@ func (m *Master) Receive(ctx context.Context, clientID, clientMsgID, conv string
 	}
 	m.turns.Deliver(conv, in)
 	return in.MsgID, Outcome{}, nil
+}
+
+// SetTurnCaller installs production engine turns before accepting messages.
+func (m *Master) SetTurnCaller(caller TurnCaller) {
+	m.turns.mu.Lock()
+	defer m.turns.mu.Unlock()
+	m.turns.caller = caller
+}
+
+// TurnHistory exposes bounded normalized context, including attachment ids.
+func (m *Master) TurnHistory(conv string, limit int) []Normalized {
+	return m.store.History(conv, limit)
 }

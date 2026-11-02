@@ -92,25 +92,29 @@ var (
 	libraryIngestSchema = schemaFor(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"scope":     map[string]any{"type": "string", "minLength": 1},
-			"title":     map[string]any{"type": "string", "minLength": 1},
-			"mime":      map[string]any{"type": "string", "minLength": 1},
-			"origin":    map[string]any{"type": "string"},
-			"text":      map[string]any{"type": "string"},
-			"pages":     map[string]any{"type": "array", "items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
-			"paginated": map[string]any{"type": "boolean"},
-			"library":   map[string]any{"type": "boolean"},
+			"path":        strProp("Local document path copied to the blob store"),
+			"blob_digest": strProp("SHA-256 digest of an uploaded blob"),
+			"name":        strProp("Original file name"),
+			"scope":       map[string]any{"type": "string", "minLength": 1},
+			"title":       map[string]any{"type": "string", "minLength": 1},
+			"mime":        map[string]any{"type": "string", "minLength": 1},
+			"origin":      map[string]any{"type": "string"},
+			"text":        map[string]any{"type": "string"},
+			"pages":       map[string]any{"type": "array", "items": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
+			"paginated":   map[string]any{"type": "boolean"},
+			"library":     map[string]any{"type": "boolean"},
 		},
-		"required":             []string{"scope", "title", "mime"},
+		"required":             []string{},
 		"additionalProperties": false,
 	})
 	librarySearchSchema = schemaFor(map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"query":  map[string]any{"type": "string", "minLength": 1},
-			"scopes": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"run_id": map[string]any{"type": "string"},
-			"k":      map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
+			"query":        map[string]any{"type": "string", "minLength": 1},
+			"scopes":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"run_id":       map[string]any{"type": "string"},
+			"document_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 100},
+			"k":            map[string]any{"type": "integer", "minimum": 1, "maximum": 50},
 		},
 		"required":             []string{"query"},
 		"additionalProperties": false,
@@ -308,23 +312,50 @@ func (t *libraryIngestTool) Definition() tools.Definition {
 		InputSchema: libraryIngestSchema,
 		Effect:      types.EffectWriteLocal, Idempotency: types.IdemKeyed, Cancel: types.CancelAfterCompletion,
 		Timeout: 120_000_000_000, OutputBudget: tools.DefaultOutputBudget,
-		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
+		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"},
 		Group: "memory", Tags: []string{"library"}, Keywords: []string{"library", "ingest", "document"}}
 }
 
 func (t *libraryIngestTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
+	if t.svc == nil {
+		return tools.Result{Status: tools.StatusInputError, Output: "library memory service is not wired"}, nil
+	}
 	var a struct {
-		Scope     string     `json:"scope"`
-		Title     string     `json:"title"`
-		MIME      string     `json:"mime"`
-		Origin    string     `json:"origin"`
-		Text      string     `json:"text"`
-		Pages     [][]string `json:"pages"`
-		Paginated bool       `json:"paginated"`
-		Library   bool       `json:"library"`
+		Path       string     `json:"path"`
+		BlobDigest string     `json:"blob_digest"`
+		Name       string     `json:"name"`
+		Scope      string     `json:"scope"`
+		Title      string     `json:"title"`
+		MIME       string     `json:"mime"`
+		Origin     string     `json:"origin"`
+		Text       string     `json:"text"`
+		Pages      [][]string `json:"pages"`
+		Paginated  bool       `json:"paginated"`
+		Library    bool       `json:"library"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
+	}
+
+	if a.Scope == "" && len(t.svc.scopes) == 1 {
+		a.Scope = t.svc.scopes[0]
+	}
+	if _, err := t.svc.resolveScopes([]string{a.Scope}); err != nil {
+		return toolErr(err)
+	}
+	if a.Path != "" || a.BlobDigest != "" {
+		if a.Text != "" || len(a.Pages) > 0 {
+			return tools.Result{Status: tools.StatusInputError, Output: "text/pages cannot be combined with path or blob_digest"}, nil
+		}
+		binding := t.svc.librarySubmitter.Load()
+		if binding == nil || binding.submitter == nil {
+			return tools.Result{Status: tools.StatusInputError, Output: "background library ingester is not wired"}, nil
+		}
+		doc, existing, err := binding.submitter.SubmitLibrary(ctx, a.Scope, DocMeta{Title: a.Title, SourceName: a.Name, MIME: a.MIME, Origin: a.Origin, BlobDigest: a.BlobDigest}, a.Path)
+		if err != nil {
+			return toolErr(err)
+		}
+		return ok(map[string]any{"document": doc, "existing": existing, "document_id": doc.ID, "version": doc.Version})
 	}
 	if a.Scope == "" || a.Title == "" || a.MIME == "" {
 		return tools.Result{Status: tools.StatusInputError, Output: "scope, title and mime are required"}, nil
@@ -338,7 +369,14 @@ func (t *libraryIngestTool) Invoke(ctx context.Context, inv tools.Invocation) (t
 }
 
 func (t *libraryIngestTool) ResourceKeys(args json.RawMessage) ([]string, error) {
-	return scopeKeys(args)
+	keys, err := scopeKeys(args)
+	if err != nil || len(keys) > 0 {
+		return keys, err
+	}
+	if t.svc != nil && len(t.svc.scopes) == 1 {
+		return []string{"scope:" + t.svc.scopes[0]}, nil
+	}
+	return []string{"library:ingest"}, nil
 }
 
 type librarySearchTool struct{ svc *Service }
@@ -349,16 +387,23 @@ func (t *librarySearchTool) Definition() tools.Definition {
 		InputSchema: librarySearchSchema,
 		Effect:      types.EffectReadOnly, Idempotency: types.IdemPure, Cancel: types.CancelImmediate,
 		Timeout: 60_000_000_000, OutputBudget: tools.DefaultOutputBudget, Fast: true,
-		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
+		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"},
 		Group: "memory", Tags: []string{"library"}, Keywords: []string{"library", "search", "documents"}}
 }
 
 func (t *librarySearchTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
+	if !libraryEnabled() {
+		return toolErr(&inputError{"memory: library disabled"})
+	}
+	if t.svc == nil {
+		return toolErr(fmt.Errorf("memory: library service not wired"))
+	}
 	var a struct {
-		Query  string   `json:"query"`
-		Scopes []string `json:"scopes"`
-		RunID  string   `json:"run_id"`
-		K      int      `json:"k"`
+		DocumentIDs []string `json:"document_ids"`
+		Query       string   `json:"query"`
+		Scopes      []string `json:"scopes"`
+		RunID       string   `json:"run_id"`
+		K           int      `json:"k"`
 	}
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
@@ -366,23 +411,29 @@ func (t *librarySearchTool) Invoke(ctx context.Context, inv tools.Invocation) (t
 	if strings.TrimSpace(a.Query) == "" {
 		return tools.Result{Status: tools.StatusInputError, Output: "query is required"}, nil
 	}
-	hits, semantic, err := t.svc.LibrarySearch(ctx, a.Scopes, a.RunID, a.Query, a.K)
+	hits, semantic, err := t.svc.LibrarySearch(ctx, t.svc.libraryDefaultScopes(a.Scopes), a.RunID, a.Query, a.K, a.DocumentIDs...)
 	if err != nil {
 		return toolErr(err)
 	}
 	type wireHit struct {
-		Ref      string  `json:"ref"`
-		Citation string  `json:"citation"`
-		Score    float64 `json:"score"`
+		Text     string      `json:"text"`
+		Context  ExpandedHit `json:"context"`
+		Ref      string      `json:"ref"`
+		Citation string      `json:"citation"`
+		Score    float64     `json:"score"`
 	}
 	out := make([]wireHit, 0, len(hits))
 	for _, h := range hits {
-		out = append(out, wireHit{
+		expanded, err := t.svc.ExpandHit(ctx, t.svc.libraryDefaultScopes(a.Scopes), h)
+		if err != nil {
+			return toolErr(err)
+		}
+		out = append(out, wireHit{Text: h.Chunk.Text, Context: expanded,
 			Ref:      fmt.Sprintf("[[doc:%s#%s]]", h.Doc.ID, h.Chunk.ID),
 			Citation: h.Citation.Verbatim, Score: h.Score,
 		})
 	}
-	return ok(map[string]any{"hits": out, "semantic": semantic})
+	return ok(map[string]any{"hits": out, "semantic": semantic, "notice": untrustedLibraryNotice})
 }
 
 func (t *librarySearchTool) ResourceKeys(args json.RawMessage) ([]string, error) {
@@ -652,6 +703,10 @@ func MemoryTools(svc *Service) []tools.Tool {
 		&librarySearchTool{svc: svc},
 		&docReadTool{svc: svc},
 		&docEditTool{svc: svc},
+		&libraryBrowseTool{name: ToolLibraryList, svc: svc},
+		&libraryBrowseTool{name: ToolLibraryView, svc: svc},
+		&libraryBrowseTool{name: ToolLibraryGrep, svc: svc},
+		&libraryBrowseTool{name: ToolLibraryStatus, svc: svc},
 	}
 }
 
@@ -661,10 +716,20 @@ func MemoryTools(svc *Service) []tools.Tool {
 // Section 14.12: wiring never changes the catalog prefix).
 func WireMemoryTools(reg *tools.MapRegistry, svc *Service) {
 	for _, real := range MemoryTools(svc) {
+		if _, browse := real.(*libraryBrowseTool); browse && !libraryEnabled() {
+			continue
+		}
+		if real.Definition().Name == ToolLibraryIngest {
+			WireLibraryIngestTool(reg, svc)
+			continue
+		}
 		existing, err := reg.Get(real.Definition().Name)
 		if err != nil {
 			_ = reg.Register(real)
 			continue
+		}
+		if browse, ok := existing.(*libraryBrowseTool); ok {
+			browse.svc = svc
 		}
 		if stub, ok := existing.(*tools.StubTool); ok {
 			provider := real
@@ -705,4 +770,11 @@ func (a *VisionToolAdapter) ExtractText(ctx context.Context, input string, pages
 		out = append(out, splitParagraphs(p.Text))
 	}
 	return out, nil
+}
+
+// WireLibraryIngestTool replaces the deferred simulated capability in the shared
+// catalog. It never changes the core prefix; callers mark the name deferred.
+func WireLibraryIngestTool(reg *tools.MapRegistry, svc *Service) {
+	reg.Unregister(ToolLibraryIngest)
+	_ = reg.Register(&libraryIngestTool{svc: svc})
 }

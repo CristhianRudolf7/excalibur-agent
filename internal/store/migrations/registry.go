@@ -72,6 +72,10 @@ func Main() *Registry {
 	_ = r.Register(store.Migration{Version: 3, Name: "memory-fts", Up: upV3})
 	_ = r.Register(store.Migration{Version: 4, Name: "agenda-files-vec", Up: upV4})
 	_ = r.Register(store.Migration{Version: 5, Name: "wiring-tables", Up: upV5})
+	_ = r.Register(store.Migration{Version: 6, Name: "document-library", Up: upV6})
+	_ = r.Register(LibraryJobs())
+	_ = r.Register(store.Migration{Version: 8, Name: "whiteboards", Up: upV8})
+	_ = r.Register(store.Migration{Version: 9, Name: "automations", Up: upV9})
 	return r
 }
 

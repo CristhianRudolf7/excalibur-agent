@@ -266,22 +266,43 @@ type LibraryHit struct {
 // LibrarySearch answers queries with citable fragments (Section
 // 10.9 step 4). runID records which run retrieved each chunk so
 // citation validation can prove the tree actually read it.
-func (s *Service) LibrarySearch(ctx context.Context, scopes []string, runID, query string, k int) ([]LibraryHit, bool, error) {
+func (s *Service) LibrarySearch(ctx context.Context, scopes []string, runID, query string, k int, docIDs ...string) ([]LibraryHit, bool, error) {
 	scopes, err := s.resolveScopes(scopes)
 	if err != nil {
 		return nil, false, err
 	}
+	if len(docIDs) > 100 {
+		return nil, false, &inputError{"memory: at most 100 document filters"}
+	}
 	if k <= 0 {
 		k = 10
+	}
+	if k > 100 {
+		k = 100
 	}
 	perList := s.settings.CandidatesPerList
 	if perList <= 0 {
 		perList = 50
 	}
-	lexical := s.chunkLexicalList(ctx, scopes, query, perList)
-	semantic, semanticOK := s.chunkSemanticList(ctx, scopes, query, perList)
+	lexical := s.chunkLexicalList(ctx, scopes, query, perList, docIDs...)
+	semantic, semanticOK := s.chunkSemanticList(ctx, scopes, query, perList, docIDs...)
 	fused := fuseRRF(s.settings.RRFFusedK, lexical, semantic)
-	hits := s.loadHits(ctx, fused, k)
+	// Apply document filters before taking the requested result count.
+	hits := s.loadHits(ctx, fused, len(fused))
+	filtered := hits[:0]
+	allowed := map[string]bool{}
+	for _, id := range docIDs {
+		allowed[id] = true
+	}
+	for _, h := range hits {
+		if len(docIDs) == 0 || allowed[h.Doc.ID] {
+			filtered = append(filtered, h)
+			if len(filtered) >= k {
+				break
+			}
+		}
+	}
+	hits = filtered
 	if runID != "" && len(hits) > 0 {
 		_ = s.ctxWrite(ctx, func(ctx context.Context, ex store.Execer) error {
 			for _, h := range hits {
@@ -294,7 +315,7 @@ func (s *Service) LibrarySearch(ctx context.Context, scopes []string, runID, que
 	return hits, semanticOK, nil
 }
 
-func (s *Service) chunkLexicalList(ctx context.Context, scopes []string, query string, limit int) []string {
+func (s *Service) chunkLexicalList(ctx context.Context, scopes []string, query string, limit int, docIDs ...string) []string {
 	match := ftsOr(query, quotedPhrases(query))
 	if match == "" {
 		return nil
@@ -303,9 +324,16 @@ func (s *Service) chunkLexicalList(ctx context.Context, scopes []string, query s
 	_ = s.read(ctx, func(ctx context.Context, q store.Queryer) error {
 		args := []any{match}
 		args = append(args, scopeArgs(scopes)...)
-		rows, err := q.Query(ctx, `SELECT c.id FROM doc_chunks_fts x JOIN doc_chunks c ON c.id = x.id
-			WHERE doc_chunks_fts MATCH ? AND c.scope_id IN (`+placeholders(len(scopes))+`)
-			ORDER BY bm25(doc_chunks_fts) LIMIT ?`, append(args, limit)...)
+		filter := ""
+		if len(docIDs) > 0 {
+			filter = " AND c.doc_id IN (" + placeholders(len(docIDs)) + ")"
+			for _, id := range docIDs {
+				args = append(args, id)
+			}
+		}
+		rows, err := q.Query(ctx, `SELECT c.id FROM doc_chunks_fts x JOIN doc_chunks c ON c.id = x.id JOIN documents d ON d.id=c.doc_id AND d.version=c.version
+			WHERE doc_chunks_fts MATCH ? AND d.scope_id IN (`+placeholders(len(scopes))+`)
+			`+filter+` ORDER BY bm25(doc_chunks_fts) LIMIT ?`, append(args, limit)...)
 		if err != nil {
 			return err
 		}
@@ -322,7 +350,7 @@ func (s *Service) chunkLexicalList(ctx context.Context, scopes []string, query s
 	return ids
 }
 
-func (s *Service) chunkSemanticList(ctx context.Context, scopes []string, query string, limit int) ([]string, bool) {
+func (s *Service) chunkSemanticList(ctx context.Context, scopes []string, query string, limit int, docIDs ...string) ([]string, bool) {
 	cur, prev, prevSpace := s.embedSnapshot()
 	if cur == nil {
 		return nil, false
@@ -333,7 +361,7 @@ func (s *Service) chunkSemanticList(ctx context.Context, scopes []string, query 
 	if vecs, err := cur.Embed(ctx, []string{query}); err == nil && len(vecs) > 0 {
 		qv := fitDims(vecs[0], s.settings.EmbeddingDimensions)
 		space := spaceID(cur.Model(), s.settings.EmbeddingDimensions)
-		if ids, err := s.vectorNeighbors(ctx, "doc_chunk", qv, scopes, space, limit); err == nil && len(ids) > 0 {
+		if ids, err := s.libraryVectorNeighbors(ctx, qv, scopes, space, limit, docIDs); err == nil && len(ids) > 0 {
 			for _, id := range aboveFloor(ctx, s, "doc_chunk", qv, space, ids) {
 				if !seen[id] {
 					seen[id] = true
@@ -346,7 +374,7 @@ func (s *Service) chunkSemanticList(ctx context.Context, scopes []string, query 
 	if prev != nil && prevSpace != "" {
 		if vecs, err := prev.Embed(ctx, []string{query}); err == nil && len(vecs) > 0 {
 			qv := fitDims(vecs[0], s.settings.EmbeddingDimensions)
-			if ids, err := s.vectorNeighbors(ctx, "doc_chunk", qv, scopes, prevSpace, limit); err == nil {
+			if ids, err := s.libraryVectorNeighbors(ctx, qv, scopes, prevSpace, limit, docIDs); err == nil {
 				for _, id := range aboveFloor(ctx, s, "doc_chunk", qv, prevSpace, ids) {
 					if !seen[id] {
 						seen[id] = true
@@ -374,7 +402,7 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit, k int) []Libra
 			for _, id := range fc {
 				args = append(args, id)
 			}
-			rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text FROM doc_chunks WHERE id IN (`+placeholders(len(fc))+`)`, args...)
+			rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text, page_label, anchor FROM doc_chunks WHERE id IN (`+placeholders(len(fc))+`)`, args...)
 			if err != nil {
 				return err
 			}
@@ -410,7 +438,7 @@ func (s *Service) loadHits(ctx context.Context, fused []fusedHit, k int) []Libra
 			continue
 		}
 		d, ok := docs[c.Doc]
-		if !ok {
+		if !ok || c.Version != d.Version {
 			continue
 		}
 		hits = append(hits, LibraryHit{Doc: d, Chunk: c, Citation: RenderCitation(d, c), Score: h.score})
@@ -469,7 +497,7 @@ func (s *Service) ListChunks(ctx context.Context, scopes []string, docID string)
 
 // getChunkTx loads one chunk of a document.
 func getChunkTx(ctx context.Context, q store.Queryer, docID, chunkID string) (Chunk, error) {
-	rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text FROM doc_chunks WHERE id=? AND doc_id=?`, chunkID, docID)
+	rows, err := q.Query(ctx, `SELECT id, doc_id, version, page, paragraph, char_start, char_end, section_path, text, page_label, anchor FROM doc_chunks WHERE id=? AND doc_id=?`, chunkID, docID)
 	if err != nil {
 		return Chunk{}, err
 	}
@@ -503,9 +531,15 @@ func ParseCitationRef(ref string) (docID, chunkID string, ok bool) {
 // 5): unpaginated formats cite section and paragraph, never an
 // invented page.
 func RenderCitation(doc LibraryDoc, c Chunk) Citation {
-	cit := Citation{ChunkID: c.ID, DocID: doc.ID, DocTitle: doc.Title, Page: c.Page, Paragraph: c.Paragraph, Section: c.Section}
+	cit := Citation{ChunkID: c.ID, DocID: doc.ID, DocTitle: doc.Title, Page: c.Page, Paragraph: c.Paragraph, Section: c.Section, PageLabel: c.PageLabel}
 	switch {
-	case c.Page > 0:
+	case strings.Contains(c.Anchor, "!"):
+		cit.Verbatim = fmt.Sprintf("%s, %s", doc.Title, c.Anchor)
+	case doc.Format == "pptx" || doc.Format == "odp":
+		cit.Verbatim = fmt.Sprintf("%s, slide %d", doc.Title, c.Page)
+	case c.Page > 0 && c.PageLabel != "" && (doc.Paginated || doc.Format == ""):
+		cit.Verbatim = fmt.Sprintf("%s, p. %s, ¶ %d", doc.Title, c.PageLabel, c.Paragraph)
+	case c.Page > 0 && (doc.Paginated || doc.Format == ""):
 		cit.Verbatim = fmt.Sprintf("%s, p. %d, ¶ %d", doc.Title, c.Page, c.Paragraph)
 	case c.Section != "":
 		cit.Verbatim = fmt.Sprintf("%s, § %s, ¶ %d", doc.Title, c.Section, c.Paragraph)

@@ -17,6 +17,8 @@ import (
 // time (Appendix A file_versions, Section 13.7).
 type FileVersion struct {
 	ID        string    `json:"id"`
+	Created   bool      `json:"created,omitempty"`
+	Deleted   bool      `json:"deleted,omitempty"`
 	Path      string    `json:"path"`
 	Preimage  string    `json:"preimage_ref"`
 	Postimage string    `json:"postimage_ref"`
@@ -71,7 +73,8 @@ func (h *History) Blob(ref string) ([]byte, bool) {
 }
 
 // Record appends a version for path with its pre and post content,
-// returning the version id.
+// returning the version id. Nil pre/post means the file was absent; use a
+// non-nil empty slice to represent an existing empty file.
 func (h *History) Record(path string, pre, post []byte, runID, toolCall string) string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -91,7 +94,7 @@ func (h *History) Record(path string, pre, post []byte, runID, toolCall string) 
 	postRef := blobRefOf(post)
 	h.blobs[preRef] = append([]byte(nil), pre...)
 	h.blobs[postRef] = append([]byte(nil), post...)
-	v := FileVersion{ID: id, Path: filepath.Clean(path), Preimage: preRef, Postimage: postRef, RunID: runID, ToolCall: toolCall, At: at}
+	v := FileVersion{Created: pre == nil, Deleted: post == nil, ID: id, Path: filepath.Clean(path), Preimage: preRef, Postimage: postRef, RunID: runID, ToolCall: toolCall, At: at}
 	h.byID[id] = len(h.vers)
 	h.vers = append(h.vers, v)
 	return id
@@ -103,6 +106,11 @@ func (h *History) Record(path string, pre, post []byte, runID, toolCall string) 
 // file_history and revert_edit observe the same edits (Section 13.7).
 // A duplicate id is ignored, keeping the mirror idempotent.
 func (h *History) RecordWithID(id, path string, pre, post []byte, runID, toolCall string, at time.Time) {
+	h.RecordFileWithID(id, path, pre, post, runID, toolCall, at, false, false)
+}
+
+// RecordFileWithID mirrors a tool version including file existence metadata.
+func (h *History) RecordFileWithID(id, path string, pre, post []byte, runID, toolCall string, at time.Time, created, deleted bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.byID == nil {
@@ -125,7 +133,7 @@ func (h *History) RecordWithID(id, path string, pre, post []byte, runID, toolCal
 	postRef := blobRefOf(post)
 	h.blobs[preRef] = append([]byte(nil), pre...)
 	h.blobs[postRef] = append([]byte(nil), post...)
-	v := FileVersion{ID: id, Path: filepath.Clean(path), Preimage: preRef, Postimage: postRef, RunID: runID, ToolCall: toolCall, At: at}
+	v := FileVersion{Created: created, Deleted: deleted, ID: id, Path: filepath.Clean(path), Preimage: preRef, Postimage: postRef, RunID: runID, ToolCall: toolCall, At: at}
 	h.byID[id] = len(h.vers)
 	h.vers = append(h.vers, v)
 	if h.counter < uint64(len(h.vers)) {
@@ -200,7 +208,7 @@ func (h *History) Revert(editID, runID, toolCall string) (string, error) {
 		if err := atomicWrite(v.Path, pre); err != nil {
 			return "", err
 		}
-		return h.Record(v.Path, cur, pre, runID, toolCall), nil
+		return h.Record(v.Path, cur, append([]byte{}, pre...), runID, toolCall), nil
 	}
 	// Otherwise undo the recorded change on top of the current
 	// content: a three-way merge of base=postimage (the common

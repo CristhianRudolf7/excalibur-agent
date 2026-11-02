@@ -89,3 +89,19 @@ func ProfileRedactor(v *vault.Vault, autonomous bool, known [][]byte) tools.Reda
 		return r.RedactLiterals(s)
 	}
 }
+
+// PDFSecretResolver resolves PDF password references with the pdf_ops identity.
+// The resolved value stays inside the PDF operation; use is recorded by vault.
+func PDFSecretResolver(v *vault.Vault, runID, project string, delegated bool) func(context.Context, string) (string, error) {
+	if v == nil {
+		return nil
+	}
+	return func(ctx context.Context, ref string) (string, error) {
+		res, err := v.Resolve(ctx, vault.ResolveRequest{Ref: ref, Tool: "pdf_ops", RunID: runID, Project: project, Delegated: delegated, Dest: vault.DestFile})
+		if err != nil {
+			return "", vault.ResolveError(err, ref)
+		}
+		defer vault.ZeroBytes(res.Value)
+		return string(res.Value), nil
+	}
+}

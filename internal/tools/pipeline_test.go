@@ -223,3 +223,17 @@ func TestKeyedIdempotencyKeyGenerated(t *testing.T) {
 		t.Fatalf("keyed tools need a key, got %q", gotKey)
 	}
 }
+
+func TestAtomicToolContextPreservesRunIdentity(t *testing.T) {
+	ex := NewExecutor(NewMapRegistry())
+	parent, stop := context.WithCancel(WithSourceRun(context.Background(), "run_atomic"))
+	stop()
+	ctx, cancel := ex.contextForCancel(parent, types.CancelAfterCompletion, time.Second)
+	defer cancel()
+	if ctx.Err() != nil || ExecutingRunID(ctx, "") != "run_atomic" {
+		t.Fatalf("atomic context lost execution identity or inherited cancellation")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("atomic timeout missing")
+	}
+}

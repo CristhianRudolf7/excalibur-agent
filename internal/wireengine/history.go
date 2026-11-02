@@ -61,7 +61,7 @@ func (h *SharedHistory) Append(v tools.FileVersion) {
 	if h.Work != nil {
 		pre, _ := h.Blob(v.Preimage)
 		post, _ := h.Blob(v.Postimage)
-		h.Work.RecordWithID(v.ID, filepath.Clean(v.Path), pre, post, v.RunID, v.ToolCall, v.At)
+		h.Work.RecordFileWithID(v.ID, filepath.Clean(v.Path), pre, post, v.RunID, v.ToolCall, v.At, v.Created, v.Deleted)
 	}
 }
 
@@ -75,7 +75,7 @@ func (h *SharedHistory) Versions(path string) []tools.FileVersion {
 		out := make([]tools.FileVersion, 0, len(vers))
 		for _, v := range vers {
 			out = append(out, tools.FileVersion{
-				ID: v.ID, Path: v.Path, Preimage: v.Preimage,
+				ID: v.ID, Path: v.Path, Preimage: v.Preimage, Created: v.Created, Deleted: v.Deleted,
 				Postimage: v.Postimage, RunID: v.RunID,
 				ToolCall: v.ToolCall, At: v.At,
 			})

@@ -1,10 +1,13 @@
 package gateway
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -211,7 +214,19 @@ func (s *Server) serveBlobs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer func() { _ = rc.Close() }()
-		w.Header().Set("Content-Type", "application/octet-stream")
+		contentType := r.URL.Query().Get("mime")
+		if contentType == "" && s.cfg.BlobMIME != nil {
+			contentType, _ = s.cfg.BlobMIME(r.Context(), digest)
+		}
+		mediaType, _, mimeErr := mime.ParseMediaType(contentType)
+		if mimeErr != nil || !strings.Contains(mediaType, "/") {
+			contentType = "application/octet-stream"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if mediaType == "application/pdf" {
+			w.Header().Set("Content-Disposition", "inline")
+		}
 		w.Header().Set("Content-Length", fmt.Sprint(size))
 		if r.Method == http.MethodHead {
 			return
@@ -220,4 +235,27 @@ func (s *Server) serveBlobs(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// uploadBlob accepts binary content and returns its calculated reference.
+// MIME is supplied again to voice.transcribe and to GET /blobs/{ref}?mime=...
+func (s *Server) uploadBlob(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBlobBytes))
+	if err != nil {
+		http.Error(w, "blob upload failed or exceeds limit", http.StatusRequestEntityTooLarge)
+		return
+	}
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if err := s.blobs.Put(digest, bytes.NewReader(data)); err != nil {
+		http.Error(w, "blob storage failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]string{"audio_blob": digest, "blob_digest": digest})
 }

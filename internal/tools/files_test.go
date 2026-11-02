@@ -239,3 +239,30 @@ func TestFingerprintCheckNilExpected(t *testing.T) {
 		t.Fatal("empty expected means no constraint")
 	}
 }
+
+func TestPatchHistoryExcludesFailedWrites(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	good, bad := filepath.Join(dir, "good"), filepath.Join(blocker, "bad")
+	deps := newFileTestDeps()
+	raw, _ := json.Marshal(map[string]any{"ops": []map[string]string{{"op": "add", "path": good, "new_text": "saved"}, {"op": "add", "path": bad, "new_text": "never written"}}})
+	result, err := (&ApplyPatchTool{Deps: deps}).Invoke(WithSourceRun(context.Background(), "actual"), Invocation{Arguments: raw})
+	if err != nil || result.Status != StatusToolError {
+		t.Fatalf("patch: %+v %v", result, err)
+	}
+	if len(deps.History.Versions(bad)) != 0 {
+		t.Fatal("failed write recorded")
+	}
+	versions := deps.History.Versions(good)
+	if len(versions) != 1 || versions[0].RunID != "actual" || !versions[0].Created {
+		t.Fatalf("successful write: %+v", versions)
+	}
+}
+
+// scriptedDiagnostics is a DiagnosticProvider used in tests.
+type scriptedDiagnostics struct{ msg string }
+
+func (s scriptedDiagnostics) Diagnostics(_ []string) string { return s.msg }

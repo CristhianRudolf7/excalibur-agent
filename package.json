@@ -1,0 +1,15 @@
+{
+  "name": "excalibur-workspace",
+  "private": true,
+  "description": "JavaScript workspace for the Excalibur web interface and public site.",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:web": "pnpm --filter @excalibur/web dev",
+    "dev:site": "pnpm --filter @excalibur/site dev",
+    "build": "pnpm -r build",
+    "check": "pnpm -r check"
+  }
+}
