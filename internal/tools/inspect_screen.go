@@ -57,7 +57,7 @@ func inspectScreenText(ctx context.Context, img image.Image) (string, error) {
 		return "", nil
 	}
 	text := strings.Trim(strings.Join(best.lines, "\n"), "\n")
-	header := fmt.Sprintf("screen_text (grid %dx%d, mean_confidence %.3f):\n", best.grid.cols, best.grid.rows, best.confidence)
+	header := fmt.Sprintf("screen_text_grid: %dx%d\nscreen_text_mean_confidence: %.3f\nscreen_text:\n", best.grid.cols, best.grid.rows, best.confidence)
 	const suffix = "\n[screen_text truncated]\n"
 	if len(header)+len(text)+1 > screenTextMaxBytes {
 		text = text[:screenTextMaxBytes-len(header)-len(suffix)]

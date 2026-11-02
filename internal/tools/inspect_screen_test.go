@@ -50,7 +50,7 @@ func recoveredScreen(t *testing.T, img image.Image) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, text, ok := strings.Cut(out, "):\n")
+	_, text, ok := strings.Cut(out, "screen_text:\n")
 	if !ok {
 		t.Fatalf("screen not detected: %q", out)
 	}
@@ -64,7 +64,7 @@ func TestInspectScreenTextGeometriesAndColors(t *testing.T) {
 		for _, palette := range [][2]color.Color{{color.White, color.NRGBA{B: 168, A: 255}}, {color.Black, color.White}, {color.NRGBA{R: 255, G: 255, A: 255}, color.NRGBA{R: 128, A: 255}}} {
 			img := renderScreen(t, g, lines, palette[0], palette[1])
 			got, out := recoveredScreen(t, img)
-			if got != want || !strings.Contains(out, "mean_confidence 1.000") {
+			if got != want || !strings.Contains(out, "screen_text_mean_confidence: 1.000") {
 				t.Fatalf("%+v %v: got %q want %q; %s", g, palette, got, want, out)
 			}
 		}
@@ -108,7 +108,7 @@ func TestInspectScreenNoiseAndUnknownCells(t *testing.T) {
 		}
 	}
 	got, out := recoveredScreen(t, img)
-	if got != line || strings.Contains(out, "mean_confidence 1.000") {
+	if got != line || strings.Contains(out, "screen_text_mean_confidence: 1.000") {
 		t.Fatalf("noisy recovery: %q (%s)", got, out)
 	}
 	// Replace one glyph with unsupported noise: retain the screen but expose
@@ -187,7 +187,7 @@ func TestInspectImageScreenTextAutomaticRequestedAndBounded(t *testing.T) {
 	imageFixture(t, root, "text.png", img)
 	for _, args := range []map[string]any{{"path": "text.png"}, {"path": "text.png", "text": true}} {
 		r := fileCall(t, tool, args)
-		requireImageOutput(t, r, "screen_text (grid 80x25, mean_confidence 1.000):\nRead this screen\n")
+		requireImageOutput(t, r, "screen_text_grid: 80x25\nscreen_text_mean_confidence: 1.000\nscreen_text:\nRead this screen\n")
 		if strings.Index(r.Output, "screen_text") > strings.Index(r.Output, "ASCII (") {
 			t.Fatal("screen text must precede thumbnail")
 		}

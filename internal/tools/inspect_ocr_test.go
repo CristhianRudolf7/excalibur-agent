@@ -176,8 +176,10 @@ func TestInspectImageOCRPreparesTwoColorNearestRaster(t *testing.T) {
 				if prepared.Bounds().Size() != image.Pt(size.X*scale, size.Y*scale) {
 					t.Fatalf("wrong OCR size: %v", prepared.Bounds())
 				}
-				for y := 0; y < size.Y*scale; y++ {
-					for x := 0; x < size.X*scale; x++ {
+				// Check every small-fixture pixel, and sample the size-boundary
+				// fixtures. Instrumented test work shares the real OCR deadline.
+				for y := 0; y < size.Y*scale; y += max(1, size.Y*scale/64) {
+					for x := 0; x < size.X*scale; x += max(1, size.X*scale/64) {
 						want := uint32(0xffffff)
 						if imageRGB(img, x/scale, y/scale)>>16 > 0 {
 							want = 0
