@@ -25,14 +25,28 @@ func (s Snapshot) RenderCompact(maxBytes int) string {
 	if s.Distro != "" {
 		b.WriteString(" (" + s.Distro + ")")
 	}
-	fmt.Fprintf(&b, " arch=%s cpus=%d", s.Arch, s.CPUs)
+	cpus := float64(s.CPUs)
+	if s.EffectiveCPUs > 0 {
+		cpus = s.EffectiveCPUs
+	}
+	fmt.Fprintf(&b, " arch=%s cpus=%g", s.Arch, cpus)
 	if s.MemTotalBytes > 0 {
 		fmt.Fprintf(&b, " mem=%s", humanBytes(s.MemTotalBytes))
+	}
+	if s.HostCPUs > 0 {
+		fmt.Fprintf(&b, " (host cpus %d)", s.HostCPUs)
+	}
+	if s.HostMemBytes > 0 {
+		fmt.Fprintf(&b, " (host mem %s)", MemoryLabel(s.HostMemBytes))
 	}
 	if s.DiskFreeBytes > 0 {
 		fmt.Fprintf(&b, " diskfree=%s", humanBytes(s.DiskFreeBytes))
 	}
 	b.WriteString("\n")
+	if s.MemoryLimited && EffectiveLimitsEnabled() {
+		jobs := (ResourceLimits{CPUs: cpus, MemoryBytes: s.MemTotalBytes}).ParallelJobs()
+		fmt.Fprintf(&b, "Build/test with at most %d parallel jobs; lower after an out-of-memory kill.\n", jobs)
+	}
 	if s.DefaultShell != "" {
 		b.WriteString("shell: " + s.DefaultShell)
 		if len(s.Shells) > 1 {

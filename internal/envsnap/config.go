@@ -20,6 +20,9 @@ const (
 
 // Config tunes collection. Zero values are filled by Normalize.
 type Config struct {
+	// ProcRoot and SysRoot override resource files for local simulation.
+	ProcRoot string
+	SysRoot  string
 	// Enabled gates collection and injection (default true).
 	Enabled bool
 	// Timeout bounds the whole collection pass (default 4s).

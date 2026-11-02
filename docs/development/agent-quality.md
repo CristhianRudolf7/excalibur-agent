@@ -5314,3 +5314,28 @@ and actions only. The original `control_note` records remain available for
 producer guidance. The byte cap is unchanged, including custom
 `EXCALIBUR_CONTROL_TAIL_BYTES` values. Set the priority switch to `0` to restore
 insertion-based selection and prefix clipping.
+
+### Effective resource limits (envsnap and terminal, F1–F3)
+
+`EXCALIBUR_EFFECTIVE_LIMITS` defaults to on. Set it to `0`, `off`, or
+`false` to restore host-only resource reporting and disable the associated
+parallelism guidance and OOM diagnostics. It applies to all profiles because
+resource availability is an environment fact (Sections 5.2 and 13.5).
+
+The environment snapshot reports effective memory and CPUs from Linux cgroup
+v2 `memory.max`, `memory.high`, `cpu.max`, and cpusets, with v1 controller
+fallbacks. It considers visible ancestors, subtree mounts and cgroup namespaces;
+missing, malformed and unlimited controls preserve the host fallback. CPU quotas
+remain fractional in the rendered snapshot; integer CPU consumers receive at
+least one CPU and otherwise the rounded-down effective count. Host memory and
+online CPU capacity appear as secondary facts only when they differ.
+
+Validation uses fake proc/sys roots in `internal/envsnap/resources_test.go` and
+requires no changes to the host's resource controls.
+
+For a constrained memory budget, the snapshot adds one sentence immediately
+following the resource facts: build/test with at most the rounded-down minimum
+of effective CPUs and effective memory divided by 1.5 GiB per job, with a minimum
+of one job, and lower parallelism after an OOM kill. The two-job sentence costs
+76 bytes including its newline, within an 80-byte test budget; it shares the
+snapshot's existing render cap. Unconstrained snapshots omit the sentence.

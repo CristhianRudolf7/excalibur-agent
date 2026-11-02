@@ -26,57 +26,6 @@ func detectDistro() string {
 	return ""
 }
 
-// detectMemTotal parses MemTotal from /proc/meminfo (Linux, kB).
-func detectMemTotal() int64 {
-	raw, err := os.ReadFile("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		f, ok := strings.CutPrefix(line, "MemTotal:")
-		if !ok {
-			continue
-		}
-		f = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(f), "kB"))
-		var kb int64
-		if _, err := scanInt(f, &kb); err == nil && kb > 0 {
-			return kb * 1024
-		}
-	}
-	return 0
-}
-
-func scanInt(s string, out *int64) (int, error) {
-	var v int64
-	var neg bool
-	i := 0
-	if strings.HasPrefix(s, "-") {
-		neg = true
-		i = 1
-	}
-	for ; i < len(s); i++ {
-		c := s[i]
-		if c < '0' || c > '9' {
-			break
-		}
-		v = v*10 + int64(c-'0')
-	}
-	if i == 0 {
-		return 0, errNotInt
-	}
-	if neg {
-		v = -v
-	}
-	*out = v
-	return i, nil
-}
-
-type intErr string
-
-func (e intErr) Error() string { return string(e) }
-
-const errNotInt = intErr("envsnap: not an integer")
-
 // probeVersion runs "<bin> --version" (falling back to "version" for
 // Go-style tools) with a short timeout and returns the first line,
 // truncated. Empty means present but version unknown.

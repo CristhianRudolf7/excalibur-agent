@@ -2,6 +2,7 @@ package envsnap
 
 import (
 	"context"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,6 +42,10 @@ type Snapshot struct {
 	OS            string            `json:"os"`
 	Distro        string            `json:"distro,omitempty"`
 	Arch          string            `json:"arch"`
+	EffectiveCPUs float64           `json:"effective_cpus,omitempty"`
+	HostCPUs      int               `json:"host_cpus,omitempty"`
+	HostMemBytes  int64             `json:"host_mem_bytes,omitempty"`
+	MemoryLimited bool              `json:"memory_limited,omitempty"`
 	CPUs          int               `json:"cpus"`
 	MemTotalBytes int64             `json:"mem_total_bytes,omitempty"`
 	DiskFreeBytes int64             `json:"disk_free_bytes,omitempty"`
@@ -109,7 +114,7 @@ func (c *Collector) Collect(ctx context.Context) Snapshot {
 		Workdir:   cfg.Workdir,
 	}
 	snap.Distro = detectDistro()
-	snap.MemTotalBytes = detectMemTotal()
+	snap.applyResources(ResourceReader{ProcRoot: cfg.ProcRoot, SysRoot: cfg.SysRoot}.Limits())
 	if free, ok := detectDiskFree(cfg.Workdir); ok {
 		snap.DiskFreeBytes = free
 	}
@@ -230,4 +235,22 @@ func pickDefaultShell(shells []string) string {
 		}
 	}
 	return "/bin/sh"
+}
+
+// applyResources keeps legacy integer CPU consumers conservative while the
+// rendered snapshot preserves fractional quotas.
+func (s *Snapshot) applyResources(l ResourceLimits) {
+	s.CPUs = max(1, int(math.Floor(l.CPUs)))
+	s.MemTotalBytes = l.MemoryBytes
+	if !EffectiveLimitsEnabled() {
+		return
+	}
+	s.EffectiveCPUs = l.CPUs
+	s.MemoryLimited = l.MemoryLimited
+	if l.CPUs != float64(l.HostCPUs) {
+		s.HostCPUs = l.HostCPUs
+	}
+	if l.MemoryBytes != l.HostMemory {
+		s.HostMemBytes = l.HostMemory
+	}
 }
