@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/envsnap"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 )
@@ -42,11 +43,13 @@ const (
 // TerminalDeps wires platform interfaces into the session manager.
 // Nil entries degrade gracefully for tests and embedded use.
 type TerminalDeps struct {
-	Group    platform.ProcessGroup
-	Priority platform.ProcessPriority
-	Isolator platform.Isolator
-	PTY      platform.PTY
-	OnEvict  func(sessionID SessionID, owner, cmd string)
+	// Resources overrides Linux proc/sys resource files for local simulation.
+	Resources *envsnap.ResourceReader
+	Group     platform.ProcessGroup
+	Priority  platform.ProcessPriority
+	Isolator  platform.Isolator
+	PTY       platform.PTY
+	OnEvict   func(sessionID SessionID, owner, cmd string)
 }
 
 // SessionID identifies a terminal session.
@@ -93,6 +96,8 @@ type Session struct {
 	UsePTY  bool
 	Started time.Time
 
+	oomWatch     *envsnap.OOMWatch
+	oom          envsnap.OOMObservation
 	submittedCmd string
 	mu           sync.Mutex
 	buf          bytes.Buffer
@@ -134,6 +139,7 @@ func (s *Session) markDone(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.exited {
+		s.oom = s.oomWatch.Finish()
 		s.exited = true
 		s.exitErr = err
 		s.lastUse = time.Now()
@@ -305,6 +311,7 @@ func (m *SessionManager) StartContext(ctx context.Context, owner, cmd, dir strin
 		Cmd: cmd, Dir: dir, UsePTY: usePTY, Started: m.now(), done: make(chan struct{}),
 	}
 	s.lastUse = s.Started
+	s.oomWatch = m.resourceReader().WatchOOM()
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.order = append(m.order, s.ID)
@@ -473,6 +480,7 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string, yie
 		Detached: true,
 	}
 	s.lastUse = s.Started
+	s.oomWatch = m.resourceReader().WatchOOM()
 	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", string(s.ID), s.Started.UnixNano()))
 	s.LogPath = logPath
 	if runtime.GOOS != "linux" || !DetachBackgroundEnabled() {

@@ -12,7 +12,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -280,10 +279,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	nonZero := false
 	switch {
 	case exited && !alive:
-		label := strconv.Itoa(code)
-		if signal != "" {
-			label += " (" + signal + ")"
-		}
+		label := s.exitLabel(code, signal)
 		fmt.Fprintf(&b, "exit: %s  duration: %.1fs  session: %s  alive: false\n", label, dur.Seconds(), s.ID)
 		nonZero = code != 0
 		if execErrorStatusEnabled() {
@@ -504,6 +500,11 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (result Result,
 		b.WriteString(note)
 		for _, s := range sums {
 			fmt.Fprintf(&b, "- %s alive=%v owner=%s cmd=%q\n", s.ID, s.Alive, s.Owner, s.Cmd)
+			if session, ok := m.Get(s.ID); ok && !s.Alive {
+				if code, signal, done := sessionExit(session); done && session.hasOOMDiagnostic(code) {
+					fmt.Fprintf(&b, "  exit: %s\n", session.exitLabel(code, signal))
+				}
+			}
 			b.WriteString(report(s.Cmd, s.Tail))
 			if s.Tail != "" {
 				b.WriteString("  tail:\n")
@@ -1222,13 +1223,23 @@ func isSecretRef(s string) bool {
 // Session completion exposes the actual process exit for source-bound build
 // receipts; it cannot be inferred from a progress message or a retained binary.
 func sessionResultExit(m *SessionManager, id string, exited bool, res Result) Result {
-	if !switchDefaultOn("EXCALIBUR_BUILD_EVIDENCE") || !exited {
+	if !exited {
 		return res
 	}
 	if s, ok := m.Get(SessionID(id)); ok {
-		if code, _, done := sessionExit(s); done {
-			res.ExitCode = &code
-			res.Output = fmt.Sprintf("exit: %d  session: %s\n", code, id) + res.Output
+		if code, signal, done := sessionExit(s); done {
+			evidence := switchDefaultOn("EXCALIBUR_BUILD_EVIDENCE")
+			if evidence {
+				res.ExitCode = &code
+			}
+			diagnostic := s.hasOOMDiagnostic(code)
+			if evidence || diagnostic {
+				label := fmt.Sprint(code)
+				if diagnostic {
+					label = s.exitLabel(code, signal)
+				}
+				res.Output = fmt.Sprintf("exit: %s  session: %s\n", label, id) + res.Output
+			}
 		}
 	}
 	return res

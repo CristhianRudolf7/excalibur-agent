@@ -5339,3 +5339,29 @@ of effective CPUs and effective memory divided by 1.5 GiB per job, with a minimu
 of one job, and lower parallelism after an OOM kill. The two-job sentence costs
 76 bytes including its newline, within an 80-byte test budget; it shares the
 snapshot's existing render cap. Unconstrained snapshots omit the sentence.
+
+Terminal sessions sample the nearest readable memory-controller counters before
+launch and freeze the after-sample at completion. An increased v2
+`memory.events` `oom_kill` (or v1 `memory.oom_control` `oom_kill`) adds
+"killed by the out-of-memory killer (memory limit X); reduce parallelism or
+memory use" to the result header. The retry recommendation halves the computed
+job budget, with a minimum of one; a serial retry must reduce memory use.
+Descendant kills are visible even when the shell/build driver returns a
+different status. The original process exit code is preserved. Foreground,
+PTY, detached and background sessions use the same completion path; later
+reads, waits and listings retain the diagnosis, independently of build evidence.
+
+An exit 137 with unavailable kill counters says "SIGKILL; possibly out of
+memory". Unchanged/reset counters never establish a kill. On v1 kernels without
+an `oom_kill` field, an increased `memory.failcnt` only establishes allocation
+pressure and retains the uncertain wording: allocation failure alone does not
+prove that the kernel killed a process. Counters describe the command's shared
+cgroup, so concurrent commands in that same cgroup can share an event; a readable
+local counter takes precedence over unrelated ancestor events. Missing resource
+files degrade gracefully. No diagnostic changes process scheduling or limits.
+
+Additional tests in `internal/envsnap/oom_test.go` and
+`internal/tools/terminal_resources_linux_test.go` use fake cgroup files and
+controlled shell exits/signals. They cover counter changes, counter resets,
+v1 fallback, uncertain SIGKILL, killed workers, frozen background results,
+PTY paths and the disabled switch without allocating excessive memory.
