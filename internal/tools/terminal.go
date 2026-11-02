@@ -104,6 +104,8 @@ type Session struct {
 	pty        platform.PTYSession
 	proc       *os.Process
 	Detached   bool
+	// Survivable marks autonomous foreground sessions with persistent log output.
+	Survivable bool
 	LogPath    string
 	Pid        int
 }
@@ -323,6 +325,18 @@ func (m *SessionManager) nextSeq() uint64 {
 }
 
 func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
+	// Autonomous exec sessions may deliver long-running services even without
+	// background:true. File output and an independent process session let those
+	// services outlive the harness. Assistant sessions retain parent-death cleanup.
+	if runtime.GOOS == "linux" && CurrentExecScope().Active && switchDefaultOn("EXCALIBUR_SURVIVE_SESSIONS") {
+		logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", s.ID, s.Started.UnixNano()))
+		s.mu.Lock()
+		s.Survivable = true
+		s.LogPath = logPath
+		s.mu.Unlock()
+		m.startDetachedPipe(s, cmd, dir, env, logPath)
+		return
+	}
 	if err := m.preflight(s, cmd); err != nil {
 		s.markDone(err)
 		return
@@ -533,7 +547,7 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 	}
 	s.mu.Unlock()
 	_ = logF.Close()
-	if !BackgroundYieldEnabled() {
+	if s.Detached && !BackgroundYieldEnabled() {
 		s.appendOut([]byte(fmt.Sprintf("detached service pid %d log %s\n", s.Pid, logPath)))
 	}
 	// Completion is published only after the log is drained. Otherwise a
@@ -586,7 +600,7 @@ func (m *SessionManager) Surviving() []SurvivingProcess {
 	var out []SurvivingProcess
 	for _, s := range snaps {
 		s.mu.Lock()
-		det := s.Detached
+		det := s.Detached || s.Survivable
 		pid := s.Pid
 		if pid == 0 && s.proc != nil {
 			pid = s.proc.Pid
@@ -600,6 +614,7 @@ func (m *SessionManager) Surviving() []SurvivingProcess {
 		if !det {
 			continue
 		}
+		alive = alive || groupAlive(pid)
 		out = append(out, SurvivingProcess{
 			Session: id, Pid: pid, Command: cmd,
 			LogPath: logPath, Started: started, Alive: alive,
@@ -912,8 +927,9 @@ func (m *SessionManager) Close(id SessionID) error {
 // StopHelperEnvSwitch gates the run-end stop of helper sessions (item 46).
 const StopHelperEnvSwitch = "EXCALIBUR_STOP_HELPERS"
 
-// StopHelperSessions ends the non-detached sessions of this run when the
-// run ends. Each helper's process group gets SIGTERM and, if members remain
+// StopHelperSessions ends finite package-manager/build helpers when the
+// run ends. Open agent sessions and TCP listeners are preserved by default.
+// Each finite helper gets SIGTERM and, if group members remain
 // after the usual margin, SIGKILL. Detached background services (W10) are
 // left alone: keeping them running after the agent exits is the purpose of
 // detaching them. The switch EXCALIBUR_STOP_HELPERS (default on) keeps
@@ -922,6 +938,8 @@ func (m *SessionManager) StopHelperSessions() []SessionID {
 	if !switchDefaultOn(StopHelperEnvSwitch) {
 		return nil
 	}
+	preserve := switchDefaultOn("EXCALIBUR_SURVIVE_SESSIONS")
+	table := readProcessTable()
 	m.mu.Lock()
 	var helpers []*Session
 	for _, sid := range m.order {
@@ -937,6 +955,19 @@ func (m *SessionManager) StopHelperSessions() []SessionID {
 		s.mu.Unlock()
 		if pid <= 0 || !groupAlive(pid) {
 			continue
+		}
+		if preserve {
+			if processTreeListeningTCP(pid) {
+				continue
+			}
+			finite := false
+			for _, p := range table.tree(pid) {
+				pkg, build := classifyProcess(p)
+				finite = finite || pkg || build
+			}
+			if !finite {
+				continue
+			}
 		}
 		stopGroup(pid)
 		stopped = append(stopped, s.ID)

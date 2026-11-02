@@ -148,7 +148,9 @@ func TestStopHelperSessionsEndsHelpersKeepsServices(t *testing.T) {
 		t.Skip("Linux process groups")
 	}
 	m := NewSessionManager(TerminalDeps{})
-	helper, _, _ := m.Start("test", "sleep 60", "", false, 250, nil)
+	helperDir := t.TempDir()
+	writeScript(t, helperDir, "make", "sleep 60")
+	helper, _, _ := m.Start("test", filepath.Join(helperDir, "make"), "", false, 250, nil)
 	service, _, _ := m.StartDetached("test", "sleep 60", "", nil)
 	defer m.Close(helper.ID)
 	defer m.Close(service.ID)

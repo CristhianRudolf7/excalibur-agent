@@ -109,3 +109,42 @@ func groupAlive(pgid int) bool {
 	err := syscall.Kill(-pgid, 0)
 	return err == nil || err == syscall.EPERM
 }
+
+// processTreeListeningTCP protects services by actual socket ownership,
+// regardless of whether their launch command looks like a server.
+func processTreeListeningTCP(root int) bool {
+	listening := map[string]bool{}
+	for _, table := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
+		raw, err := os.ReadFile(table)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 9 && fields[3] == "0A" {
+				listening[fields[9]] = true
+			}
+		}
+	}
+	if len(listening) == 0 {
+		return false
+	}
+	for _, p := range readProcessTable().tree(root) {
+		dir := filepath.Join("/proc", strconv.Itoa(p.PID), "fd")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			target, err := os.Readlink(filepath.Join(dir, entry.Name()))
+			if err != nil || !strings.HasPrefix(target, "socket:[") {
+				continue
+			}
+			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
+			if listening[inode] {
+				return true
+			}
+		}
+	}
+	return false
+}

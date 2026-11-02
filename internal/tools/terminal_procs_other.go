@@ -15,3 +15,5 @@ func processHoldsTerminal(pid int) bool { return false }
 func signalGroup(pgid int, kill bool) error { return errors.ErrUnsupported }
 
 func groupAlive(pgid int) bool { return false }
+
+func processTreeListeningTCP(root int) bool { return false }

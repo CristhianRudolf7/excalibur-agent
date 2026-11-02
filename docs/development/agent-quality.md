@@ -5012,3 +5012,16 @@ finish now with what works; refusals are advisory from here". From 85%, a
 valid finish call or an already pending confirmation completes immediately,
 without another verification pass. This uses elapsed wall time and works with
 time-only budgets. Interactive assistant verification retains its policy.
+
+### Open terminal sessions and services
+
+`EXCALIBUR_SURVIVE_SESSIONS` (default on) preserves open sessions at autonomous
+run end. `EXCALIBUR_STOP_HELPERS` still stops identified package-manager and
+build process trees; a listening TCP socket anywhere in the tree protects the
+session from cleanup. Turning survival off restores the earlier cleanup policy.
+
+In exec scope, ordinary non-PTY commands use independent Linux process sessions
+and write stdout/stderr directly to persistent log files. Polling tails those
+files during the run, so services keep producing output after the harness
+exits. Surviving foreground sessions are included in the service audit record.
+Interactive assistant terminal behavior retains its existing contract.

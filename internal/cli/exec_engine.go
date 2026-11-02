@@ -1095,8 +1095,8 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	// (pid, command, log) that outlive the agent, next to the other
 	// trial artifacts.
 	if emb.Sessions != nil {
-		// Non-detached helper sessions end with the run (item 46); detached
-		// background services are left running by design.
+		// Finite package/build helpers end with the run; open sessions and
+		// listening services retain their process and file-backed output.
 		emb.Sessions.StopHelperSessions()
 		surviving := emb.Sessions.Surviving()
 		writeServicesRecord(run.Dir, surviving, tools.DetachBackgroundEnabled())
