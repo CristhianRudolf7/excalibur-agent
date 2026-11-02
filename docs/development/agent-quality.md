@@ -5402,14 +5402,14 @@ and unchanged comparisons, tolerance, geometry, deterministic output,
 path containment, malformed inputs, header/file limits and cancellation.
 Profile tests cover enabled/disabled availability for every worker profile.
 
-`ocr: true` optionally runs an already installed `tesseract` against the
-validated image path, with a three-second timeout and a 2,048-byte text
+`ocr: true` optionally runs an already installed `tesseract` against a
+prepared copy of the validated image, with a three-second timeout and a 2,048-byte text
 cap. Missing installations, errors, empty output and timeouts produce a
 single-line hint alongside the pixel report. Nothing is installed and no
 OCR runs without this opt-in. Fake-runner tests verify invocation, opt-in,
 availability, deadlines, failure handling and bounded output.
 
-The working method adds two sentences asking workers to capture visual
+The working method asks workers to capture visual
 or interactive results and inspect them, correct blank/unchanged screens
 instead of relying on process checks, and use before/after `compare_to`
 for input-driven changes. The independent verifier requires this evidence
@@ -5420,7 +5420,7 @@ so they remain visible in shorter excerpts. This adds no deterministic
 classifier or new completion policy.
 
 With other default switches unchanged, the method grows from 2,998 to
-3,294 bytes (+296), and the verifier instruction grows by 240 bytes. The
+3,299 bytes (+301), and the verifier instruction grows by 240 bytes. The
 method's size tests now allow 3,300 bytes to retain all previous guidance.
 Switch tests check both prompt deltas, visual and interactive evidence
 requirements, direct-call evidence inclusion and default-thumbnail retention.
@@ -5458,3 +5458,32 @@ evidence excerpts retain it; the complete report remains capped at 12 KB.
 Generated-image tests cover the geometries, color polarities, printable ASCII,
 borders and blocks, noise, unknown cells, graphical rejection, cancellation,
 automatic/explicit requests, the switch and UTF-8 output limits.
+
+Optional OCR uses the same `EXCALIBUR_INSPECT_IMAGE` switch. It finds the two
+dominant RGB colors and maps each pixel to the nearer color, normalized to
+white for the dominant background and black for the foreground. Images at
+most 1024×768 are enlarged 3× with nearest-neighbor sampling; larger images
+retain their dimensions. Histogram memory is bounded even for photographic
+input. A private temporary PNG supports every input format already decoded
+by the tool and is removed after success, failure or cancellation. The source
+image is never modified. Preparation and execution share the three-second
+deadline. OCR text precedes thumbnails to survive bounded evidence excerpts.
+
+If Tesseract is missing, the hint identifies the OS package using Linux
+`/etc/os-release` IDs/families, with Debian/Ubuntu, Fedora/RHEL, Arch, Alpine
+and openSUSE commands, plus macOS/Windows hints for portable builds and a
+generic package-manager hint for unknown systems. These are suggestions
+only; the tool installs nothing. Fake-runner tests inspect the exact
+monochrome PNG, scale boundaries, nearest-neighbor pixels, file permissions,
+source preservation, cleanup and combined report bounds. Other tests cover
+OS-family hints, cancellation and dense-color histogram input.
+
+The existing visual-guidance paragraph now asks workers to read
+`screen_text`/OCR before acting and use on-screen errors/setup messages to
+change configuration. It retains image capture, the unmet-goal warning for
+blank/unchanged screens, and before/after comparisons for input changes.
+This reuses `EXCALIBUR_INSPECT_IMAGE` and applies to assistant workers as well
+as exec/eval. The paragraph is 301 bytes, up from 296 (+5), and the default
+method is 3,299 bytes, up from 3,294 (+5), within its existing 3,300-byte
+budget. No new paragraph or verifier instruction is added. The switch test
+asserts the added guidance, single-paragraph form and byte bound.

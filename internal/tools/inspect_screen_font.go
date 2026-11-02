@@ -2,12 +2,12 @@ package tools
 
 // Embedded glyphs from console-setup Fonts/bdf/u_vga16.bdf (UniVGA,
 // Dmitry Bolkhovityanov; permissive X11 license below) and legacy14a.bdf
-// (VGA 8x14; public domain per console-setup COPYRIGHT.fonts). Missing
+// (VGA 8x14; public domain per console-setup copyright.fonts). Missing
 // mixed borders and vertical half blocks in legacy14a use edge-row
 // cropping of UniVGA. Only printable ASCII and CP437 0xB0..0xDF
 // (borders, shading, blocks) are retained.
 // Sources: https://salsa.debian.org/installer-team/console-setup/-/tree/master/Fonts/bdf
-// License: https://salsa.debian.org/installer-team/console-setup/-/blob/master/COPYRIGHT.fonts
+// License: https://salsa.debian.org/installer-team/console-setup/-/blob/master/copyright.fonts
 // Rows use bit 7 as the leftmost pixel. CP437 0xC0..0xDF repeat bit 0 in
 // a ninth column; every other glyph leaves that column blank.
 //

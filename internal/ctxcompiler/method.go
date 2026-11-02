@@ -237,4 +237,4 @@ const preservedInputGuidance = "Inspect disposable copies before opening or chan
 const defaultPreflightGuidance = "Before expensive work, reuse fresh preflight evidence or exercise the requested default command on small input through final output files. Overrides, accepted API calls and progress prove neither the default path nor final serialization.\n"
 
 // Local image evidence applies to assistant worker runs as well as exec/eval.
-const visualInspectionGuidance = "For visual/interactive results (desktop, window, render, key response), capture an image and use inspect_image; a blank/unchanged screen means the goal is not reached: change configuration rather than re-check processes. For input-driven visible changes, capture before/after and use compare_to.\n"
+const visualInspectionGuidance = "For visual/interactive results, capture an image and use inspect_image; read screen_text/OCR before acting. Blank/unchanged screens leave the goal unmet; use screen errors/setup messages to change configuration before re-checking processes. For input changes, capture before/after and use compare_to.\n"

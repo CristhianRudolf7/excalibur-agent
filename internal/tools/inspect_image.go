@@ -169,13 +169,13 @@ func (t *InspectImageTool) Invoke(ctx context.Context, inv Invocation) (Result, 
 	if screen == "" && a.Text {
 		screen = "screen_text: unavailable (no supported character grid detected)\n"
 	}
+	if a.OCR {
+		screen += t.imageOCR(ctx, img)
+	}
 	// Keep readable screen evidence ahead of the thumbnail in short excerpts.
 	if screen != "" {
 		metrics, thumbnail, _ := strings.Cut(out, "ASCII (")
 		out = metrics + screen + "ASCII (" + thumbnail
-	}
-	if a.OCR {
-		out += t.imageOCR(ctx, path)
 	}
 	if len(out) > int(t.Definition().OutputBudget) {
 		const suffix = "\n[image report truncated]\n"
