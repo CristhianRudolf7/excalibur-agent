@@ -331,7 +331,7 @@ func TestWorkingMethodOffIsLegacyGolden(t *testing.T) {
 
 // With the default (on) the eight original steps stay verbatim and
 // the evidence rules follow them: nine numbered lines (9 to 17), the
-// whole block under 3,750 bytes, including visual inspection guidance,
+// whole block under 4,000 bytes, including visual inspection guidance,
 // because it is the L0 prefix shared by every run.
 var evidenceLineRe = regexp.MustCompile(`(?m)^(9|1[0-7])\. `)
 
@@ -360,8 +360,8 @@ func TestWorkingMethodV2AddsEvidenceRules(t *testing.T) {
 	if n := len(evidenceLineRe.FindAllString(m, -1)); n != 9 {
 		t.Errorf("want 9 evidence lines (numbers 9 to 17), got %d", n)
 	}
-	if len(m) > 3750 {
-		t.Errorf("method block is %d bytes; the L0 budget is 3,750 bytes including visual inspection guidance", len(m))
+	if len(m) > 4000 {
+		t.Errorf("method block is %d bytes; the L0 budget is 4,000 bytes including visual inspection guidance", len(m))
 	}
 	if !strings.HasSuffix(m, "instead of re-reading large outputs.") {
 		t.Error("the Rules line must still close the block")
@@ -387,7 +387,7 @@ func TestWorkingMethodDataFormatCheck(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing data format instruction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 3750 {
+	if len(ctxcompiler.WorkingMethod()) > 4000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_METHOD_DATA_FORMAT", "off")
@@ -403,7 +403,7 @@ func TestWorkingMethodBroadReverification(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing broad verification instruction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 3750 {
+	if len(ctxcompiler.WorkingMethod()) > 4000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "off")
@@ -419,7 +419,7 @@ func TestWorkingMethodNoOutsideCode(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing instruction restriction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 3750 {
+	if len(ctxcompiler.WorkingMethod()) > 4000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_METHOD_NO_OUTSIDE_CODE", "off")

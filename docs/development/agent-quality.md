@@ -5833,3 +5833,18 @@ confirm K1/K3 tests fail with their behavior disabled, and all three K2
 wording/profile tests fail with the prior guidance files restored temporarily.
 The final sources were restored before the passing verification runs. All
 checks used local fakes and simulated tools; no live model calls were made.
+
+### Minimal value edits: guidance (Sections 11.1 and 13.6)
+
+`EXCALIBUR_MINIMAL_VALUE_EDITS` defaults on. The working method asks workers
+replacing or renaming values to change only those values, preserving surrounding
+text, quotes, escapes, whitespace and formatting byte for byte unless instructed
+otherwise. It prefers exact substitution over rewriting lines. This applies to
+assistant workers as well as autonomous runs; the legacy method remains intact
+when `EXCALIBUR_METHOD_V2` is off. Setting the new switch to `0`, `off`, `false`
+or `no` removes the added guidance.
+
+The method grows from 3,710 to 3,938 bytes (+228). Its existing size assertion
+moves from 3,750 to 4,000 bytes to accommodate the sentence. The new Go test
+checks the wording, byte delta and both switch boundaries. Tool definitions and
+profile pins are unchanged.

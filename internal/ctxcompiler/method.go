@@ -177,7 +177,11 @@ func WorkingMethod() string {
 	if envFlagDefaultOn(nil, "EXCALIBUR_EXAMPLE_FORMAT") {
 		example = exampleFormatGuidance
 	}
-	return workingMethodSteps + workingMethodEvidence + disagreement + example + visualCheck + inputCare + preflight + dataCheck + broadCheck + restriction +
+	minimalEdits := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_MINIMAL_VALUE_EDITS") {
+		minimalEdits = minimalValueEditsGuidance
+	}
+	return workingMethodSteps + workingMethodEvidence + disagreement + example + minimalEdits + visualCheck + inputCare + preflight + dataCheck + broadCheck + restriction +
 		"Rules: do not stop early; use tools. Use pinned working notes instead of re-reading large outputs."
 }
 
@@ -255,3 +259,5 @@ const disagreementGuidance = "When an oracle disagrees, explain concrete samples
 const exampleFormatGuidance = "If request example values cannot be reproduced from supplied input, treat them as format-only; invent no offsets, scaling or renaming to match. For programs meant for other inputs, test a second, different input you create.\n"
 
 const inPlaceInputGuidance = "Preserve only inputs that must stay unchanged; inspect copies. For in-place edits, keep the deliverable at its best version so far. Never rewrite inputs to match output.\n"
+
+const minimalValueEditsGuidance = "When asked to replace or rename values, change only those values; keep surrounding text, quoting, escaping, whitespace and formatting byte-identical unless asked otherwise. Prefer exact string substitution over rewriting lines.\n"
