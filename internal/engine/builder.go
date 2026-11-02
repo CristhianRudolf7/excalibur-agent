@@ -191,6 +191,10 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 			defs[i].Description = ctxcompiler.AdaptToolDescription(ctxcompiler.PromptMuse, defs[i].Name, defs[i].Description)
 		}
 	}
+	if err := b.stabilizePrefix(run, &snap, &compiled, &defs, cfg, counter); err != nil {
+		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
+	}
+	boundControlLayer(&compiled, counter)
 	req := compiled.ToChatRequest("", defs, b.MaxTokens, b.ReasoningEffort, toolChoice)
 	compiled.AppendActivityMessages(&req, snap.Activity)
 	// Pairing invariant before every model request: strict wires

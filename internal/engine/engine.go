@@ -214,6 +214,10 @@ type Run struct {
 	GateInput    tasks.GateInput
 	LastGate     tasks.GateReport
 	refusals     *refusalState
+	noteKeys     map[string]string
+	noteJournal  *journal.Recorder
+	review       reviewVerdict
+	prefix       requestPrefix
 	Volatile     []string
 	RecoveryNote string
 	History      []ctxcompiler.ActivityEvent
@@ -426,7 +430,7 @@ func (r *Run) InjectNote(note string) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.Volatile = append(r.Volatile, note)
+	r.controlNoteLocked(controlNoteKey(note), note)
 }
 
 // PendingDirectives returns the queued directives.
@@ -655,8 +659,10 @@ func (e *Engine) Admit(ctx context.Context, run *Run) error {
 
 // Start moves queued -> running.
 func (e *Engine) Start(ctx context.Context, run *Run) error {
+	rec := e.recorder(run.ID)
 	run.mu.Lock()
 	defer run.mu.Unlock()
+	run.noteJournal = rec
 	from := run.state
 	if err := run.transition(types.RunRunning); err != nil {
 		return err

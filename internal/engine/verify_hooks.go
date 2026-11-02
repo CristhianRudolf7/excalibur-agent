@@ -23,6 +23,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 )
 
@@ -201,7 +202,18 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 		smaller = shortRules + smaller[at:]
 	}
-	resp, _, err := e.verifierChat(ctx, run, "verifier.strong", prompt, smaller, maxTokens, func(reply string) bool { return tasks.ParseStrongVerdict(reply, drafts).Explicit })
+	key := e.reviewVersion(run, cfg, drafts, history)
+	var resp providers.ChatResponse
+	var err error
+	cached, reused := run.cachedReview(key)
+	if reused && switchOn("EXCALIBUR_VERDICT_REUSE") {
+		resp.Message.Content = cached
+	} else {
+		resp, _, err = e.verifierChat(ctx, run, "verifier.strong", prompt, smaller, maxTokens, func(reply string) bool { return tasks.ParseStrongVerdict(reply, drafts).Explicit })
+		if err == nil && tasks.ParseStrongVerdict(resp.Message.Content, drafts).Explicit && switchOn("EXCALIBUR_VERDICT_REUSE") {
+			run.cacheReview(key, resp.Message.Content)
+		}
+	}
 	if err != nil {
 		if tasks.VerifierVerdictEnabled() {
 			return e.verifierUnverified(run, "independent verifier unavailable or produced no verdict; result is unverified; retry verification")

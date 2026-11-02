@@ -121,7 +121,7 @@ func (e *Engine) promptFinishCheck(run *Run) {
 		note += " Repeated verification returned unchanged evidence; avoid re-running the same check unless artifacts changed."
 	}
 	run.promptFinishSignatures[signature] = true
-	run.Volatile = append(run.Volatile, note)
+	run.controlNoteLocked(controlNoteKey(note), note)
 	run.writePromptFinishRecordLocked()
 }
 

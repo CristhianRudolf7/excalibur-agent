@@ -86,8 +86,8 @@ func TestStrongVerifierDisagreementReturnsToWorkThenBlocks(t *testing.T) {
 	// Verifier disagreement is a blocking honest state (Section 7.3):
 	// after two rounds both positions stand.
 	mustState(t, run, types.RunBlocked)
-	if model.calls() != 4 {
-		t.Fatalf("two finish attempts each carry final plus verifier, got %d calls", model.calls())
+	if model.calls() != 3 {
+		t.Fatalf("two finish attempts share one unchanged verifier verdict, got %d calls", model.calls())
 	}
 	if got := tasks.CompactNote(run.LastGate); !strings.Contains(strings.ToLower(got), "verifier") {
 		t.Fatalf("pendings should carry the verifier reasons: %q", got)

@@ -5030,3 +5030,29 @@ exits. PTY sessions retain a real terminal and interactive input; an independent
 output pump holds their terminal open and records output after harness exit.
 Surviving foreground sessions are included in the service audit record.
 Interactive assistant terminal behavior retains its existing contract.
+
+### Round 2: stable request prefixes (engine, C1)
+
+`EXCALIBUR_STABLE_PREFIX` defaults on. A run retains its initial system,
+identity, scope, task instruction and tool definitions. Changed scope/task
+facts travel as versioned activity deltas with explicit retirement of old
+facts. Compaction refreshes L3 at the Section 11.4 boundary. The volatile
+control tail remains outside the stable prefix; observation masking retains
+its existing batched policy. Setting the switch to `0` restores re-rendering.
+
+### Round 2: bounded control guidance (engine, C2)
+
+`EXCALIBUR_CONTROL_TAIL` defaults on. Control guidance replaces the prior
+note with the same issue category, evicts oldest categories as needed, and
+caps the complete volatile layer to `EXCALIBUR_CONTROL_TAIL_BYTES` (default
+2048 bytes). Full notes, including retired versions, remain in `control_note`
+audit journal entries. `0` restores cumulative guidance.
+
+### Round 2: versioned verifier verdicts (engine, C3)
+
+`EXCALIBUR_VERDICT_REUSE` defaults on. Validation, confirmation and completion
+reuse an explicit independent verdict for unchanged instruction, criteria,
+verification settings, executable evidence and inspected file contents/modes.
+Identical repeated checks share an evidence version. Delivery prose does not
+force another review. Missing replies and provider errors are never cached.
+Setting `0` requests a new review on each attempt.
