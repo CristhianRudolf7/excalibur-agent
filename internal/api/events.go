@@ -75,6 +75,8 @@ type EventTypeInfo struct {
 const EventLibraryDocumentUpdated types.EventType = "library.document_updated"
 
 var EventTypes = []EventTypeInfo{
+	{EventArtifactCreated, "ArtifactCreatedEvent", "A visual artifact was persisted."},
+	{EventArtifactReady, "ArtifactReadyEvent", "A turn finished with visual artifacts."},
 	{EventActivityUpdated, "ActivityUpdatedEvent", "Conversation activity changed."},
 	{EventTaskUpdated, "TaskUpdatedEvent", "A task changed."},
 	{EventAutomationUpdated, "AutomationEvent", "An automation changed."},

@@ -36,6 +36,10 @@ func WireAssistantTurns(b *DaemonBackend, s *Services, endpoint engine.ModelEndp
 	}
 	a := &assistantTurns{backend: b, services: s, endpoint: endpoint, modelID: modelID, disabled: raw == "0" || raw == "false" || raw == "off"}
 	if s != nil {
+		b.artifacts = &artifactStore{journal: s.Jrnl, bus: b.Bus}
+		if b.Services != nil {
+			b.artifacts.blobs = b.Services.FileBlobs
+		}
 		s.delegations = newChatDelegations(a)
 	}
 	b.Master.SetTurnCaller(a)
@@ -101,7 +105,8 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if whiteboard.Enabled() {
 		allow["whiteboard"] = true
 	}
-	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }}
+	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }}
+	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
 		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text))
 	}

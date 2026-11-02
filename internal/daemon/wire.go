@@ -162,11 +162,12 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // AttachServices installs the real daemon-side backends; without them
 // every family degrades to the embedded backend.
 type DaemonBackend struct {
-	Master   *master.Master
-	Ctrls    *OrchControl
-	Bus      *telemetry.Bus
-	activity activityState
-	embed    *gateway.MemoryBackend
+	Master    *master.Master
+	Ctrls     *OrchControl
+	Bus       *telemetry.Bus
+	activity  activityState
+	artifacts *artifactStore
+	embed     *gateway.MemoryBackend
 	// Services holds the real backends; nil keeps embedded behavior.
 	Services *daemonServices
 }

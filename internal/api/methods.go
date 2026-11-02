@@ -127,6 +127,8 @@ type MethodInfo struct {
 // reject unknown methods with CodeMethodNotFound and the contracts
 // export test requires every entry to appear in packages/contracts.
 var Methods = []MethodInfo{
+	{MethodArtifactsGet, "artifacts", "Fetch a visual artifact and its source in a conversation run."},
+	{MethodArtifactsList, "artifacts", "List retained visual artifacts in a conversation."},
 	{MethodActivityList, "activity", "List conversation activity."},
 	{MethodFilesOpen, "files", "Open a workspace file."},
 	{MethodVoiceStatus, "voice", "Read voice availability."},

@@ -158,7 +158,8 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		d.finish(conv, id, types.RunFailed, err.Error())
 		return
 	}
-	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: dt.Exec, reg: dt.Registry}, allowed: map[string]bool{}, runID: id, root: agent.ID}
+	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: dt.Exec, reg: dt.Registry, artifacts: &artifactTurn{store: d.owner.backend.artifacts, conversation: conv, run: id}}, allowed: map[string]bool{}, runID: id, root: agent.ID}
+	defer d.owner.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish) }
 	for _, name := range allowed {
 		runner.allowed[name] = true
@@ -205,6 +206,7 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	if err == nil {
 		err = driveChatChild(ctx, s.Orch, eng, run)
 	}
+	d.owner.finishArtifacts(ctx, runner.artifacts)
 	_ = s.Store.RecordUsage(types.RunID(id), engine.NewRunner(eng, run).Snapshot().Usage)
 	state, _ := s.Orch.RunState(types.RunID(id))
 	if state.IsTerminal() {

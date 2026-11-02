@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -569,13 +570,19 @@ func (c capabilityInvoker) Update(taskID string, answer json.RawMessage) (capabi
 // engine ToolRunner seam: execution runs the pipeline, definitions
 // resolve from the same registry the daemon assembled.
 type daemonToolRunner struct {
-	ex  *tools.Executor
-	reg *tools.MapRegistry
+	ex        *tools.Executor
+	reg       *tools.MapRegistry
+	artifacts *artifactTurn
 }
 
 // Execute implements engine.ToolRunner.
 func (r *daemonToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, opts tools.ExecuteOptions) (tools.Result, error) {
-	return r.ex.Execute(ctx, name, args, opts)
+	res, err := r.ex.Execute(ctx, name, args, opts)
+	artifactErr := r.artifacts.collect(ctx, opts.CallID, res.Artifacts)
+	if artifactErr != nil {
+		err = errors.Join(err, artifactErr)
+	}
+	return res, err
 }
 
 // Definition implements engine.ToolRunner.

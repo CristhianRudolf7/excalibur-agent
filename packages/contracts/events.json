@@ -2,6 +2,8 @@
   "version": 0,
   "description": "Excalibur typed bus events. Exported from internal/api EventTypes; do not edit by hand without updating the registry.",
   "events": [
+    {"type": "artifact.created", "payload": "ArtifactCreatedEvent", "summary": "A visual artifact was persisted."},
+    {"type": "artifact.ready", "payload": "ArtifactReadyEvent", "summary": "A turn finished with visual artifacts."},
     {"type": "activity.updated", "payload": "ActivityUpdatedEvent", "summary": "Conversation activity changed."},
 
     { "type": "task.updated", "payload": "TaskUpdatedEvent", "summary": "A task changed." },
@@ -34,6 +36,112 @@
     {"type": "automation.run", "payload": "AutomationRunEvent", "summary": "An automation run changed."}
   ],
   "$defs": {
+    "Artifact": {
+      "type": "object",
+      "required": [
+        "id",
+        "conversation_id",
+        "run_id",
+        "tool_call_id",
+        "kind",
+        "title",
+        "format",
+        "mime",
+        "created_at",
+        "url_or_path",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "tool_call_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "format": {
+          "enum": [
+            "svg",
+            "png",
+            "pdf"
+          ]
+        },
+        "dialect": {
+          "type": "string"
+        },
+        "group": {
+          "type": "string"
+        },
+        "mime": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "url_or_path": {
+          "type": "string"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        }
+      }
+    },
+    "ArtifactCreatedEvent": {
+      "type": "object",
+      "required": [
+        "conversation_id",
+        "run_id",
+        "artifact"
+      ],
+      "properties": {
+        "conversation_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      }
+    },
+    "ArtifactReadyEvent": {
+      "type": "object",
+      "required": [
+        "conversation_id",
+        "run_id",
+        "artifacts"
+      ],
+      "properties": {
+        "conversation_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "artifacts": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "$ref": "#/$defs/Artifact"
+          }
+        }
+      }
+    },
     "ActivityItem": {"type": "object", "required": ["id", "kind", "name", "state", "started_at", "updated_at"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "goal": {"type": "string", "maxLength": 300}, "profile": {"type": "string"}, "step": {"type": "string"}, "parent_id": {"type": "string"}, "error": {"type": "string"}, "kind": {"enum": ["subagent", "task", "automation"]}, "state": {"enum": ["queued", "running", "waiting", "paused", "completed", "failed", "cancelled"]}, "started_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "finished_at": {"type": "string", "format": "date-time"}, "progress": {"$ref": "#/$defs/ActivityProgress"}}},
     "ActivityProgress": {"type": "object", "required": ["done", "total"], "properties": {"done": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 0}}},
     "ActivityUpdatedEvent": {"type": "object", "required": ["item"], "properties": {"item": {"$ref": "#/$defs/ActivityItem"}}},

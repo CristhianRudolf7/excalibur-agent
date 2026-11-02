@@ -97,6 +97,9 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 // routes to its real backend when attached; unknown names still
 // answer CodeMethodNotFound.
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	if method == api.MethodArtifactsGet || method == api.MethodArtifactsList {
+		return b.artifactOp(ctx, method, params)
+	}
 	if method == api.MethodFilesOpen {
 		return b.filesOpen(ctx, params)
 	}
