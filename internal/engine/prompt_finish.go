@@ -57,6 +57,18 @@ func (r *Run) recordFinishVerifierReport(history []tasks.HistoryTool, explicit, 
 func (r *Run) retirePromptFinishNoteLocked() {
 	for _, note := range r.Volatile {
 		if strings.HasPrefix(note, PromptFinishNote) {
+			// The legacy tail ablation only appends notes, so explicitly retire all
+			// positive guidance there as well when current evidence contradicts it.
+			if !switchOn("EXCALIBUR_CONTROL_TAIL") {
+				var kept []string
+				for _, current := range r.Volatile {
+					if !strings.HasPrefix(current, PromptFinishNote) {
+						kept = append(kept, current)
+					}
+				}
+				r.Volatile = kept
+				r.controlKeys = nil
+			}
 			r.controlNoteLocked(controlNoteKey(note), "")
 			return
 		}

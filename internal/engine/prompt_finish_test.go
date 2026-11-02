@@ -195,3 +195,22 @@ func TestReviewIdentityIncludesImageEvidence(t *testing.T) {
 		t.Fatal("changed screen reused verifier identity")
 	}
 }
+
+func TestPromptFinishRetiresContradictionWithoutControlTail(t *testing.T) {
+	t.Setenv("EXCALIBUR_CONTROL_TAIL", "0")
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.Artifacts = artifactOffCfg()
+	r := explicitRun()
+	r.Workdir = t.TempDir()
+	r.Request = "Create result.txt"
+	addFinishCheck(r, "a", "grep ok result.txt", false)
+	e.promptFinishCheck(r)
+	if !strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+		t.Fatal("passing state lost note")
+	}
+	r.recordFinishVerifierReport(historyTools(r.History), true, true)
+	e.promptFinishCheck(r)
+	if strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+		t.Fatal("legacy control tail retained contradicted guidance")
+	}
+}
