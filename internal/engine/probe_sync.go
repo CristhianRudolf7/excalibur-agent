@@ -32,12 +32,14 @@ type trialFiles map[string]string // literal path -> complete content (bounded)
 type probeCopy struct {
 	deliverable, copy, original string
 	improved                    bool
-	noted, reserveNoted         bool
 }
+type probeReminder struct{ noted, reserveNoted, active bool }
+
 type probeSyncState struct {
-	request string
-	copies  map[string]*probeCopy
-	checks  map[string]checkMeasurement
+	request   string
+	copies    map[string]*probeCopy
+	checks    map[string]checkMeasurement
+	reminders map[string]*probeReminder
 }
 type trialObservation struct {
 	required trialFiles
@@ -135,6 +137,9 @@ func readTrialFiles(paths []string) trialFiles {
 	files := trialFiles{}
 	remaining := int64(trialByteLimit)
 	entries := 0
+	visited := map[string]bool{}
+	paths = append([]string(nil), paths...)
+	sort.Strings(paths)
 	for _, root := range paths {
 		if entries >= trialFileLimit || remaining <= 0 {
 			break
@@ -143,6 +148,13 @@ func readTrialFiles(paths []string) trialFiles {
 			if err != nil {
 				return err
 			}
+			if visited[path] {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			visited[path] = true
 			entries++
 			if entries > trialFileLimit || remaining <= 0 {
 				return fs.SkipAll
@@ -180,18 +192,37 @@ func trialCheck(tc providers.ToolCall, res tools.Result) (string, bool) {
 	if tc.Name != "exec" || (res.Status != tools.StatusOK && res.Status != tools.StatusToolError) {
 		return "", false
 	}
-	h := tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output}
+	h := tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output, Sessions: res.Sessions}
 	if tasks.HistoryRunning(h) {
 		return "", false
 	}
 	command := execCommand(h.Args)
-	if command == "" || isProbeCommand(command) || !tasks.ExercisesDeliverable(command) {
+	parts := tasks.SplitShellSegments(command)
+	if len(parts) == 0 {
 		return "", false
 	}
-	if tasks.LastArtifactChange([]tasks.HistoryTool{h}) >= 0 && !tasks.EntryVerifiesChanges(h) {
+	last := strings.TrimSpace(parts[len(parts)-1])
+	if last == "" || isProbeCommand(last) || !tasks.ExercisesDeliverable(last) || tasks.MayWriteCommand(last) {
 		return "", false
 	}
-	return tasks.NormalizeCallArgs(string(tc.Arguments)), true
+	var args map[string]any
+	if json.Unmarshal(tc.Arguments, &args) != nil {
+		return "", false
+	}
+	args["command"] = last
+	// Preserve shell directory/environment context when ignoring earlier edits.
+	var context []string
+	for _, part := range parts[:len(parts)-1] {
+		words := commandWords(part)
+		if len(words) > 0 && (words[0][0] == "cd" || words[0][0] == "export") {
+			context = append(context, part)
+		}
+	}
+	if len(context) > 0 {
+		args["trial_context"] = context
+	}
+	encoded, _ := json.Marshal(args)
+	return tasks.NormalizeCallArgs(string(encoded)), true
 }
 
 // Explicit diagnostic totals compare across changing output/timing text. Do not
@@ -224,6 +255,9 @@ func measureTrialCheck(tc providers.ToolCall, res tools.Result) checkMeasurement
 		add(m[1], m[2])
 	}
 	code, known := exitCodeOfOutput(res.Output)
+	if !known && len(res.Sessions) == 1 && !res.Sessions[0].Alive && res.Sessions[0].ExitCode != nil {
+		code, known = *res.Sessions[0].ExitCode, true
+	}
 	failed, _ := execFailed(tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output})
 	passed := res.Status == tools.StatusOK && known && code == 0 && !failed
 	for _, n := range counts {
@@ -267,7 +301,12 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 	defer r.mu.Unlock()
 	state := &r.probes
 	if state.request != request || state.copies == nil {
-		*state = probeSyncState{request: request, copies: map[string]*probeCopy{}, checks: map[string]checkMeasurement{}}
+		for path, reminder := range state.reminders {
+			if reminder.active {
+				r.retireProbeNoteLocked(path)
+			}
+		}
+		*state = probeSyncState{request: request, copies: map[string]*probeCopy{}, checks: map[string]checkMeasurement{}, reminders: map[string]*probeReminder{}}
 	}
 	// Require an observed write of identical content. Reading a preexisting
 	// duplicate must never be mistaken for creating a working copy.
@@ -310,10 +349,10 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 		}
 		measurement := measureTrialCheck(tc, results[i])
 		old, seen := state.checks[command]
+		operands := readTrialFiles(trialCheckOperands(command, dir))
 		for _, copy := range state.copies {
 			// Only literal files actually used by this check qualify, not another
 			// sibling with the same basename in an unrelated directory.
-			operands := readTrialFiles(trialOperands(tc, dir))
 			if content, used := operands[copy.copy]; used && trialDigest(content) != copy.original && (measurement.passed || (seen && measurement.improves(old))) {
 				copy.improved = true
 			}
@@ -331,6 +370,12 @@ func (e *Engine) probeSyncCheck(r *Run, now time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.probes.request != r.Request {
+		for path, reminder := range r.probes.reminders {
+			if reminder.active {
+				r.retireProbeNoteLocked(path)
+				reminder.active = false
+			}
+		}
 		return
 	}
 	var paths []string
@@ -342,28 +387,37 @@ func (e *Engine) probeSyncCheck(r *Run, now time.Time) {
 	explicit := r.Profile.WallSource != "default" && total > 0 && !r.StartedAt.IsZero()
 	half := explicit && now.Sub(r.StartedAt) >= total/2
 	reserve := explicit && now.Sub(r.StartedAt) >= total*70/100
-	var keys []string
-	for key := range r.probes.copies {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		copy := r.probes.copies[key]
+	eligible := map[string]bool{}
+	for _, copy := range r.probes.copies {
 		original, exists := files[copy.deliverable]
 		content, readable := files[copy.copy]
-		noteKey := "budget.probe_sync." + trialDigest(copy.deliverable)
-		if !exists || !readable || trialDigest(original) != copy.original || trialDigest(content) == copy.original {
-			if copy.noted {
-				r.controlNoteLocked(noteKey, "")
-			}
-			continue
+		if exists && readable && trialDigest(original) == copy.original && trialDigest(content) != copy.original {
+			eligible[copy.deliverable] = eligible[copy.deliverable] || copy.improved
 		}
-		first := !copy.noted && (copy.improved || half)
-		repeat := copy.noted && !copy.reserveNoted && reserve
+	}
+	for path, reminder := range r.probes.reminders {
+		if _, exists := eligible[path]; !exists && reminder.active {
+			r.retireProbeNoteLocked(path)
+			reminder.active = false
+		}
+	}
+	var pathsToRemind []string
+	for path := range eligible {
+		pathsToRemind = append(pathsToRemind, path)
+	}
+	sort.Strings(pathsToRemind)
+	for _, path := range pathsToRemind {
+		reminder := r.probes.reminders[path]
+		if reminder == nil {
+			reminder = &probeReminder{}
+			r.probes.reminders[path] = reminder
+		}
+		first := !reminder.noted && (eligible[path] || half)
+		repeat := reminder.noted && !reminder.reserveNoted && reserve
 		if first || repeat {
-			copy.noted = true
-			copy.reserveNoted = reserve
-			r.controlNoteLocked(noteKey, "you are editing a copy; the deliverable at "+copy.deliverable+" is unchanged — copy your best version back now")
+			reminder.noted, reminder.active = true, true
+			reminder.reserveNoted = reserve
+			r.controlNoteLocked("budget.probe_sync."+trialDigest(path), "you are editing a copy; the deliverable at "+path+" is unchanged — copy your best version back now")
 		}
 	}
 }
@@ -453,4 +507,51 @@ func trialCopyEdges(tc providers.ToolCall, workdir string, required trialFiles) 
 		return true
 	})
 	return edges
+}
+
+// The append-only tail ablation also needs explicit stale-note retirement.
+func (r *Run) retireProbeNoteLocked(path string) {
+	if !switchOn("EXCALIBUR_CONTROL_TAIL") {
+		var kept []string
+		for _, note := range r.Volatile {
+			if !strings.HasPrefix(note, "you are editing a copy; the deliverable at "+path+" is unchanged") {
+				kept = append(kept, note)
+			}
+		}
+		r.Volatile, r.controlKeys = kept, nil
+	}
+	r.controlNoteLocked("budget.probe_sync."+trialDigest(path), "")
+}
+
+// Only the final checker and its directory context establish use of a copy;
+// an earlier edit naming that copy must not lend an unrelated check evidence.
+func trialCheckOperands(signature, workdir string) []string {
+	var args struct {
+		Workdir string   `json:"workdir"`
+		Context []string `json:"trial_context"`
+	}
+	_ = json.Unmarshal([]byte(signature), &args)
+	if args.Workdir != "" {
+		workdir = resolveFinishPath(workdir, args.Workdir)
+	}
+	for _, part := range args.Context {
+		f, err := syntax.NewParser().Parse(strings.NewReader(part), "")
+		if err != nil {
+			continue
+		}
+		syntax.Walk(f, func(n syntax.Node) bool {
+			call, ok := n.(*syntax.CallExpr)
+			if ok && len(call.Args) == 2 && literalTrialWord(call.Args[0]) == "cd" {
+				if path := literalTrialWord(call.Args[1]); path != "" {
+					workdir = resolveFinishPath(workdir, path)
+				}
+			}
+			return true
+		})
+	}
+	var fields map[string]any
+	_ = json.Unmarshal([]byte(signature), &fields)
+	fields["workdir"] = workdir
+	encoded, _ := json.Marshal(fields)
+	return trialOperands(providers.ToolCall{Name: "exec", Arguments: encoded}, workdir)
 }

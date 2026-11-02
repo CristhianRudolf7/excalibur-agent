@@ -174,3 +174,14 @@ func TestManualTrialsBatchHook(t *testing.T) {
 		t.Fatal("batch hook missing", probeNotes(r))
 	}
 }
+
+func TestManualTrialsCombinedEditsAndChecks(t *testing.T) {
+	e, r, path, _ := probeRun(t)
+	for i := 0; i < 5; i++ {
+		command := fmt.Sprintf("sed -i s/choice/choice%d/ %s && python3 validate.py %s", i, path, path)
+		manualTrial(t, e, r, trialCall("exec", map[string]string{"command": command}), "exit: 1\n4 warnings\n", func() { writeTrialFile(t, path, fmt.Sprintf("choice%d\n", i)) })
+	}
+	if !strings.Contains(probeNotes(r), manualTrialsNote) {
+		t.Fatal("combined trials were not counted", probeNotes(r))
+	}
+}

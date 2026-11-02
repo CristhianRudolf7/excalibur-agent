@@ -99,6 +99,9 @@ func (e *Engine) observeManualTrials(r *Run, calls []providers.ToolCall, results
 	}
 	for i, tc := range calls {
 		command, check := trialCheck(tc, results[i])
+		if changed && tc.Name == "exec" && len(tasks.SplitShellSegments(execCommand(string(tc.Arguments)))) < 2 {
+			check = false
+		}
 		if !check {
 			// Unknown writes cannot stand in for an observed small edit. Read-only
 			// inspection between the edit and check leaves the trial intact.

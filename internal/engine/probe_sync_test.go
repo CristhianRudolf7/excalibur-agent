@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,5 +235,100 @@ func TestProbeSyncBatchHook(t *testing.T) {
 	}
 	if len(r.probes.copies) != 1 {
 		t.Fatal("batch failed to observe copy", r.probes)
+	}
+}
+
+func TestProbeSyncMultipleCopiesShareReminder(t *testing.T) {
+	e, r, original, copy := probeRun(t)
+	createTrialCopy(t, e, r, original, copy)
+	other := filepath.Join(r.Workdir, "probe", "other.csv")
+	createTrialCopy(t, e, r, original, other)
+	editTrialCopy(t, e, r, copy, "alpha\nbest\n")
+	e.probeSyncCheck(r, r.StartedAt.Add(50*time.Second))
+	if !strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("unchanged sibling erased reminder", probeNotes(r))
+	}
+	r.InjectControlNote("budget.probe_sync."+trialDigest(original), "")
+	editTrialCopy(t, e, r, other, "alpha\nother\n")
+	e.probeSyncCheck(r, r.StartedAt.Add(60*time.Second))
+	if probeNotes(r) != "" {
+		t.Fatal("another copy repeated the first reminder", probeNotes(r))
+	}
+	e.probeSyncCheck(r, r.StartedAt.Add(70*time.Second))
+	if !strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("reserve reminder missing")
+	}
+}
+func TestProbeSyncRetiresLegacyAndChangedRequest(t *testing.T) {
+	for _, scenario := range []string{"legacy", "request"} {
+		t.Run(scenario, func(t *testing.T) {
+			if scenario == "legacy" {
+				t.Setenv("EXCALIBUR_CONTROL_TAIL", "off")
+			}
+			e, r, original, copy := probeRun(t)
+			createTrialCopy(t, e, r, original, copy)
+			editTrialCopy(t, e, r, copy, "alpha\nbest\n")
+			e.probeSyncCheck(r, r.StartedAt.Add(50*time.Second))
+			if scenario == "request" {
+				r.Request = "Read documentation."
+			} else {
+				writeTrialFile(t, original, "alpha\nbest\n")
+			}
+			e.probeSyncCheck(r, r.StartedAt.Add(60*time.Second))
+			if strings.Contains(probeNotes(r), "you are editing a copy") {
+				t.Fatal("stale reminder", probeNotes(r))
+			}
+		})
+	}
+}
+func TestProbeSyncCombinedEditAndFailedCheckImprovement(t *testing.T) {
+	e, r, original, copy := probeRun(t)
+	createTrialCopy(t, e, r, original, copy)
+	for i, n := range []int{4, 3} {
+		tc := trialCall("exec", map[string]string{"command": fmt.Sprintf("sed -i s/choice/choice%d/ %s && python3 validate.py %s", i, copy, copy)})
+		observeTrial(t, e, r, tc, fmt.Sprintf("exit: 1\n%d warnings\n", n), func() { writeTrialFile(t, copy, fmt.Sprintf("choice%d\n", i)) })
+	}
+	if !strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("combined check lost improvement", probeNotes(r))
+	}
+}
+func TestProbeSyncStepHook(t *testing.T) {
+	e, r, original, copy := probeRun(t)
+	createTrialCopy(t, e, r, original, copy)
+	editTrialCopy(t, e, r, copy, "alpha\nbest\n")
+	runner := scriptedRunner()
+	runner.add("read_file", types.EffectReadOnly, types.IdemPure)
+	e.deps.Tools = runner
+	e.deps.Models = &fakeEndpoint{responses: []providers.ChatResponse{toolResp(trialCall("read_file", map[string]string{"path": original}))}}
+	_, js := testEngine(&fakeEndpoint{}, runner, passingGate())
+	startRun(t, e, r, js)
+	e.deps.Clock = func() time.Time { return r.StartedAt.Add(50 * time.Second) }
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := e.step(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("step hook missing", probeNotes(r))
+	}
+}
+
+func TestProbeSyncUnrelatedFinalCheckDoesNotVerifyCopy(t *testing.T) {
+	e, r, original, copy := probeRun(t)
+	createTrialCopy(t, e, r, original, copy)
+	tc := trialCall("exec", map[string]string{"command": "sed -i s/alpha/best/ " + copy + " && python3 validate.py unrelated.csv"})
+	observeTrial(t, e, r, tc, "exit: 0\n0 warnings\n", func() { writeTrialFile(t, copy, "best\nbeta\n") })
+	if strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("unrelated check verified copy", probeNotes(r))
+	}
+}
+func TestProbeSyncCheckerDirectoryContext(t *testing.T) {
+	e, r, original, copy := probeRun(t)
+	createTrialCopy(t, e, r, original, copy)
+	editTrialCopy(t, e, r, copy, "alpha\nbest\n")
+	tc := trialCall("exec", map[string]string{"command": "cd '" + filepath.Dir(copy) + "' && python3 ../validate.py candidate.csv"})
+	observeTrial(t, e, r, tc, "exit: 0\n0 warnings\n", nil)
+	if !strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatal("checker directory context lost copy", probeNotes(r))
 	}
 }

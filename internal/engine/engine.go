@@ -388,6 +388,7 @@ type Run struct {
 	earlyDeliverablesNoted bool
 	probes                 probeSyncState
 	manualTrials           manualTrialState
+	trialSessions          map[string]providers.ToolCall
 	deadlinePaced          uint8
 	// safetyCapNoted marks the one-time safety-cap note in time-only
 	// mode.
@@ -1480,7 +1481,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		runIdx = append(runIdx, i)
 	}
 	beforeRecheck := run.recheckSnapshot()
-	beforeTrials := e.captureTrialObservation(run, runCalls)
+	beforeTrials := e.captureTrialObservation(run, run.trialCalls(runCalls, nil))
 	results := make([]tools.Result, len(batch))
 	if len(runCalls) > 0 {
 		ran := e.runParallel(ctx, run, runCalls)
@@ -1489,8 +1490,9 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		}
 	}
 	executed := executedResults(results, runIdx)
-	e.observeProbeCopies(run, runCalls, executed, beforeTrials)
-	e.observeManualTrials(run, runCalls, executed, beforeTrials)
+	trialCalls := run.trialCalls(runCalls, executed)
+	e.observeProbeCopies(run, trialCalls, executed, beforeTrials)
+	e.observeManualTrials(run, trialCalls, executed, beforeTrials)
 	e.probeSyncCheck(run, e.deps.Clock())
 	for i, msg := range refused {
 		if msg != "" {

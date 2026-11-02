@@ -5807,3 +5807,29 @@ assistant scope, improving and flat measurements, normalized repeated errors,
 inspection between trials, negative cases, file-change bounds, and real batch
 wiring with fake execution (Section 18.3). No existing loop tests changed.
 The hint is 122 bytes and adds no static prompt text.
+
+Combined edit/check shell calls retain the final check's identity and shell
+working-directory context, so changing a replacement expression does not hide
+repeated checks. An editing-only call is not a trial result. Read/wait receipts
+for a running checker resolve to its original command; writing to that session
+invalidates the association. Typed exit receipts can establish a passing check
+without a textual exit header. The session association is bounded to 256
+commands of at most 64 KiB each and is removed on completion.
+
+K1 reminders are bounded per required deliverable even when several working
+copies exist. An unchanged sibling cannot erase another copy's reminder, and
+sync-back or a changed request retires stale advice under either control-tail
+mode. Additional tests cover these cases, combined failed-check improvements,
+timed step wiring, delayed results, and the terminal-to-batch integration.
+The copy reminder uses 92 UTF-8 bytes plus the required path. Check use is
+attributed to the final checker, not an earlier edit in the same shell call;
+relative operands honor literal `cd` context. Tests include an unrelated final
+check to prevent borrowing its passing result for an edited copy.
+
+Round 13 validation: repository formatting, vet, staticcheck, native/Darwin/
+Windows builds and the goroutine check pass. Memory-capped race suites pass
+for engine, tools, CLI, context compiler and scope guard. Regression checks
+confirm K1/K3 tests fail with their behavior disabled, and all three K2
+wording/profile tests fail with the prior guidance files restored temporarily.
+The final sources were restored before the passing verification runs. All
+checks used local fakes and simulated tools; no live model calls were made.
