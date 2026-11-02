@@ -142,8 +142,8 @@ func TestInspectScreenThirdColorAndReverseVideo(t *testing.T) {
 	// A cursor/highlight color on one background pixel must not obscure text.
 	img.Set(0, 0, color.NRGBA{R: 128, A: 255})
 	got, _ := recoveredScreen(t, img)
-	// A uniform reverse-video space has the same raster as a full block.
-	if got != "Normal text\nReverse█text" {
+	// Neighboring reverse-video glyphs establish the background of the space.
+	if got != "Normal text\nReverse text" {
 		t.Fatalf("third color/reverse video: %q", got)
 	}
 }
@@ -189,7 +189,7 @@ func TestInspectImageScreenTextAutomaticRequestedAndBounded(t *testing.T) {
 	imageFixture(t, root, "text.png", img)
 	for _, args := range []map[string]any{{"path": "text.png"}, {"path": "text.png", "text": true}} {
 		r := fileCall(t, tool, args)
-		requireImageOutput(t, r, "screen_text_grid: 80x25\nscreen_text_mean_confidence: 1.000\nscreen_text:\nRead this screen\n")
+		requireImageOutput(t, r, "screen_text_grid: 80x25\nscreen_text_mean_confidence: 1.000\nscreen_text_line_confidence: 1:1.000\nscreen_text:\nRead this screen\n")
 		if strings.Index(r.Output, "screen_text") > strings.Index(r.Output, "ASCII (") {
 			t.Fatal("screen text must precede thumbnail")
 		}
@@ -211,5 +211,110 @@ func TestInspectImageScreenTextAutomaticRequestedAndBounded(t *testing.T) {
 	t.Setenv("EXCALIBUR_INSPECT_IMAGE", "0")
 	if r := fileCall(t, tool, map[string]any{"path": "text.png", "text": true}); r.Status != StatusDenied {
 		t.Fatal("screen reader ignored disabled tool")
+	}
+}
+
+func TestInspectScreenShiftedFontAndAmbiguity(t *testing.T) {
+	g := screenGrid{9, 16, 1, 80, 25}
+	for _, char := range "ATWMxf0" {
+		for _, glyph := range screenFont16 {
+			if glyph.char != char {
+				continue
+			}
+			var cell [16]uint16
+			for y := range cell {
+				cell[y] = screenGlyphRow(glyph, g.width, y) >> 1
+			}
+			match := matchScreenCell(cell, g, screenFont16)
+			if match.char != char || match.confidence >= 1 {
+				t.Fatalf("shifted %q: %+v", char, match)
+			}
+		}
+	}
+	// Two equally plausible letters must remain uncertain, even with a high
+	// absolute match score. Neither reference is the observed raster.
+	a := screenGlyph{code: 'A', char: 'A'}
+	for y := 4; y < 11; y++ {
+		a.rows[y] = 0x3c
+	}
+	b := a
+	b.code, b.char = 'B', 'B'
+	a.rows[3] = 0x08
+	b.rows[3] = 0x10
+	var cell [16]uint16
+	for y := range cell {
+		cell[y] = screenGlyphRow(a, 9, y)
+	}
+	cell[3] = 0x18 << 1
+	match := matchScreenCell(cell, g, []screenGlyph{a, b})
+	if match.char != '?' || match.confidence < .8 {
+		t.Fatalf("ambiguous raster: %+v", match)
+	}
+}
+
+func TestInspectScreenLineConfidenceAndLocalSpaces(t *testing.T) {
+	g := screenGrid{9, 16, 1, 80, 25}
+	lines := []string{"First line", "  Inverse text cells"}
+	img := renderScreen(t, g, lines, color.White, color.NRGBA{B: 168, A: 255})
+	for y := 16; y < 32; y++ {
+		for x := 0; x < len(lines[1])*9; x++ {
+			if imageRGB(img, x, y) == 0xffffff {
+				img.Set(x, y, color.Black)
+			} else {
+				img.Set(x, y, color.White)
+			}
+		}
+	}
+	// One stray pixel lowers only the second line's confidence.
+	img.Set(2*9, 16, color.Black)
+	reading, err := readScreenGrid(context.Background(), img, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(reading.lines[:2], "\n") != strings.Join(lines, "\n") {
+		t.Fatalf("local palette: %q", reading.lines)
+	}
+	if reading.lineConfidence[0] != 1 || reading.lineConfidence[1] >= 1 || reading.lineConfidence[1] < .85 {
+		t.Fatalf("per-line confidence: %v", reading.lineConfidence[:2])
+	}
+	_, out := recoveredScreen(t, img)
+	if !strings.Contains(out, "screen_text_line_confidence: 1:1.000 2:0.") {
+		t.Fatal(out)
+	}
+}
+
+func TestInspectScreenLiteralQuestionMarks(t *testing.T) {
+	got, _ := recoveredScreen(t, renderScreen(t, screenGrid{9, 16, 1, 80, 25}, []string{"???"}, color.White, color.Black))
+	if got != "???" {
+		t.Fatal(got)
+	}
+}
+
+func TestInspectScreenComparesEmbeddedFaces(t *testing.T) {
+	for _, height := range []int{14, 16} {
+		font := screenFontsForHeight(height)
+		if len(font) != len(screenFont14)+len(screenFont16) {
+			t.Fatal("missing embedded face")
+		}
+		// Use a glyph from the alternate face inside the same physical grid.
+		glyph := font[len(font)-len(screenFont16)+int('T'-' ')]
+		var cell [16]uint16
+		for y := 0; y < height; y++ {
+			cell[y] = screenGlyphRow(glyph, 9, y)
+		}
+		match := matchScreenCell(cell, screenGrid{width: 9, height: height}, font)
+		if match.char != 'T' || match.confidence != 1 {
+			t.Fatalf("height %d alternate face: %+v", height, match)
+		}
+	}
+	// Two renderings of one character are not distinct alternatives.
+	glyph := screenFont16['A'-' ']
+	var cell [16]uint16
+	for y := range cell {
+		cell[y] = screenGlyphRow(glyph, 9, y) >> 1
+	}
+	match := matchScreenCell(cell, screenGrid{width: 9, height: 16}, []screenGlyph{glyph, glyph})
+	if match.char != 'A' || match.ambiguous {
+		t.Fatalf("duplicate face: %+v", match)
 	}
 }

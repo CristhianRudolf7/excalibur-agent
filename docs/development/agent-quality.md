@@ -5444,12 +5444,32 @@ The reader supports 8- or 9-pixel cells, 14- or 16-pixel heights, and integer
 use the same detector. Cells must have few colors and match printable ASCII
 or CP437 border/shading/block glyphs. The ninth column repeats the eighth
 for CP437 codes 0xC0–0xDF and is blank otherwise. Both foreground polarities
-are tried. Hamming confidence is normalized by foreground size; cells below
-0.80 become `?`, and detection requires at least three distinctive glyphs,
-80% recognized nonuniform cells, 98% low-color cells and mean confidence 0.85.
-The reported mean covers nonuniform cells so blank margins cannot inflate it.
-Uniform cells have no glyph evidence; a solid non-background cell is rendered
-as a full block. Other fonts and graphical text may require optional OCR.
+are tried per glyph. Matching weights central columns twice as much as edge
+columns and tolerates one-pixel horizontal contour changes at a reduced cost.
+Both embedded faces are compared, centering or trimming blank edge rows to
+fit the physical cell height. Small alignment shifts and a middle-column
+expansion accommodate independently drawn VGA fonts; borders retain their grid alignment. Exact rasters take a fast
+path. Both foreground and background size normalize the score, preventing a
+sparse inverse glyph from scoring highly as a full block. No BIOS font data is
+embedded or extracted.
+
+An imperfect match needs a score of at least 0.65 and a lead over the next
+distinct character of at least the larger of 0.01 and 20% of its remaining
+score error. Otherwise the cell becomes `?`. A literal question-mark glyph is
+still recognized. Detection requires at least three distinctive glyphs, 80%
+recognized nonuniform cells, 98% low-color cells and mean confidence 0.85.
+Repeated cell rasters reuse their matches, and impossible palette/recognition
+fractions reject graphics early. The reported mean and per-line scores cover
+nonuniform cells only, so blank margins cannot inflate them. Scores describe
+raster similarity, not calibrated probabilities. `screen_text_line_confidence`
+labels nonempty lines by their original one-based screen row; a solid-only
+line has score zero because it has no glyph evidence.
+
+Uniform cells use neighboring cells' two dominant colors and winning polarity
+to distinguish reverse-video spaces from foreground blocks. Same-row neighbors
+have more weight than vertical neighbors, and the screen-wide background stays
+blank. With no local glyph evidence, other solid colors retain the full-block
+fallback. Other fonts and graphical text may require optional OCR.
 
 Text preserves leading/interior spacing and empty interior rows, trims trailing
 spaces and empty edge rows, and is capped at 4,096 UTF-8 bytes including its
@@ -5536,3 +5556,17 @@ boundary, one-time delivery, explicit versus estimated budgets, empty outputs,
 live/dead/unrelated sessions, direct and script-linked producers, successful and
 failed stops, and switch/profile isolation. Tool definitions and profile pins do
 not change because this adds task context and result advice only.
+
+### Real emulator screen reading (Sections 13.2–13.4)
+
+`EXCALIBUR_INSPECT_IMAGE` remains the default-on switch for the reader and all
+of its matching improvements, for assistant delegates as well as exec/eval.
+The tool schema and profile pins are unchanged. Offline fixtures under
+`internal/tools/testdata/screen` capture real QEMU VGA output: a complete BIOS
+boot message screen and a mixed-attribute screen containing every printable
+ASCII character in both normal and inverse video. An explicit Docker generator
+pins Ubuntu and QEMU dependencies and produces compressed PPMs, expected text,
+version metadata and checksums. Ordinary tests only read these small captures.
+The fixtures independently check glyph variations, colors, spacing and inverse
+video; generated tests retain coverage of alternate grids, blocks, borders,
+noise, uncertainty, graphical rejection, cancellation, the switch and bounds.
