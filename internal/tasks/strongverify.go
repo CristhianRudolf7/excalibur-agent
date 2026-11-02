@@ -418,6 +418,9 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 	}
 	b.WriteString("Judge ONLY the instruction text below against the produced artifacts and their evidence.\n\n")
 	b.WriteString("HARD RULES:\n")
+	if envBool("EXCALIBUR_INSPECT_IMAGE", true) {
+		b.WriteString(visualInspectionReview)
+	}
 	if envBool("EXCALIBUR_LITERAL_CONTRACT_REVIEW", true) {
 		b.WriteString(literalContractReview)
 	}
@@ -440,7 +443,7 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 	for i := len(history) - 1; i >= 0 && shown < 10; i-- {
 		h := history[i]
 		name := strings.ToLower(strings.TrimSpace(h.Name))
-		if name != "exec" && name != "call_tool" {
+		if name != "exec" && name != "call_tool" && !isImageInspection(h) {
 			continue
 		}
 		if h.IsError || HistoryRunning(h) {
@@ -456,8 +459,13 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 				label = "history[" + strconv.Itoa(i) + "] " + name
 			}
 			b.WriteString("- " + label + ": " + trimLen(oneLine(args), limit) + "\n")
-			if cfg.EnableGeneralizeChecks {
-				b.WriteString("  result: " + trimLen(oneLine(h.Output), 1200) + "\n")
+			if cfg.EnableGeneralizeChecks || isImageInspection(h) {
+				resultLimit := 1200
+				if isImageInspection(h) {
+					// Retain the default image and difference thumbnails.
+					resultLimit = 4000
+				}
+				b.WriteString("  result: " + trimLen(oneLine(h.Output), resultLimit) + "\n")
 			}
 			shown++
 		}
@@ -973,3 +981,11 @@ func EntryVerifiesChanges(h HistoryTool) bool {
 }
 
 const literalContractReview = "- Compare literal request names, fields, paths, ports, formats and required objectives/thresholds against BOTH implementation and executor tests. Flag clients/tests derived from the same wrong implementation; agreement alone is not independent evidence.\n"
+
+// Visual claims are judged semantically by the verifier, not a keyword gate.
+const visualInspectionReview = "- For visual/interactive claims require captured-image inspect_image evidence showing the requested result; blank/unchanged screens and process/port checks do not prove it. For input-driven changes require before/after compare_to evidence.\n"
+
+// Include direct inspection calls in the verifier's read-only evidence packet.
+func isImageInspection(h HistoryTool) bool {
+	return envBool("EXCALIBUR_INSPECT_IMAGE", true) && strings.EqualFold(strings.TrimSpace(h.Name), "inspect_image")
+}

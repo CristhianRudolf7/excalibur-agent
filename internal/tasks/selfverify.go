@@ -693,7 +693,7 @@ func BuildVerifierContext(request string, drafts []DraftCriterion, history []His
 		if len(ctx.Evidence) >= maxLines {
 			break
 		}
-		if !isVerification(h) || h.IsError {
+		if (!isVerification(h) && !isImageInspection(h)) || h.IsError {
 			continue
 		}
 		line := toolName(h) + ": " + trimLen(oneLine(h.Output), 160)

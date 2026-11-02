@@ -5408,3 +5408,21 @@ cap. Missing installations, errors, empty output and timeouts produce a
 single-line hint alongside the pixel report. Nothing is installed and no
 OCR runs without this opt-in. Fake-runner tests verify invocation, opt-in,
 availability, deadlines, failure handling and bounded output.
+
+The working method adds two sentences asking workers to capture visual
+or interactive results and inspect them, correct blank/unchanged screens
+instead of relying on process checks, and use before/after `compare_to`
+for input-driven changes. The independent verifier requires this evidence
+for visual claims. Successful direct inspection calls and their recorded
+results are included in its evidence packet, with a 4,000-character result
+limit to retain default thumbnails. Comparison metrics precede thumbnails
+so they remain visible in shorter excerpts. This adds no deterministic
+classifier or new completion policy.
+
+With other default switches unchanged, the method grows from 2,998 to
+3,294 bytes (+296), and the verifier instruction grows by 240 bytes. The
+method's size tests now allow 3,300 bytes to retain all previous guidance.
+Switch tests check both prompt deltas, visual and interactive evidence
+requirements, direct-call evidence inclusion and default-thumbnail retention.
+As with the other recent method additions, the method text follows
+`EXCALIBUR_METHOD_V2`; disabling that block preserves its legacy text.

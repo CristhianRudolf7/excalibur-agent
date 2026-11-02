@@ -332,7 +332,7 @@ func inspectPixels(ctx context.Context, img, prior image.Image, format string, c
 	for _, c := range top {
 		fmt.Fprintf(&b, "\n#%06x %.6f", c.rgb, float64(c.count)/n)
 	}
-	fmt.Fprintf(&b, "\nASCII (dark to light: space .:-=+*#%%@):\n%s", imageThumbnail(ctx, w, h, cols, rows, func(x, y int) float64 { return imageBrightness(imageRGB(img, x, y)) }))
+	b.WriteByte('\n')
 	if prior != nil {
 		fmt.Fprintf(&b, "changed_pixels: %d / %d (%.4f%%; per-channel tolerance %d)\n", changed, w*h, float64(changed)*100/n, inspectImageTolerance)
 		if changed == 0 {
@@ -340,6 +340,9 @@ func inspectPixels(ctx context.Context, img, prior image.Image, format string, c
 		} else {
 			fmt.Fprintf(&b, "changed_bbox: x=%d y=%d width=%d height=%d (zero-based)\n", box.Min.X, box.Min.Y, box.Dx(), box.Dy())
 		}
+	}
+	fmt.Fprintf(&b, "ASCII (dark to light: space .:-=+*#%%@):\n%s", imageThumbnail(ctx, w, h, cols, rows, func(x, y int) float64 { return imageBrightness(imageRGB(img, x, y)) }))
+	if prior != nil {
 		b.WriteString("difference_mask:\n")
 		b.WriteString(imageThumbnail(ctx, w, h, cols, rows, func(x, y int) float64 {
 			if imageChanged(imageRGB(img, x, y), imageRGB(prior, x, y)) {
