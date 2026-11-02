@@ -5717,3 +5717,20 @@ rewrite note +107 including newlines. The method size assertions move from
 Tests cover prompt switches, direct-rule recovery, refusal guidance, rewrites,
 unchanged deliverables, unrelated files and revised instructions. All use local
 files and simulated model replies.
+
+## Unreproducible examples (O2)
+
+`EXCALIBUR_EXAMPLE_FORMAT` defaults on. When example values cannot be reproduced
+from the supplied input, the working method and independent review treat them
+as format only. They forbid inventing offsets, scaling or renaming to force a
+match. Programs intended for other inputs need an executed test on a second,
+different input created by the executor (Sections 7.3, 8.7, 18.1–18.2).
+
+The rule survives compact verifier recovery and applies with generalisation
+checks enabled or disabled. It also applies to assistant workers; it does not
+change their completion policy. Switching it off removes only this guidance.
+Measured UTF-8 prompt deltas: working method 3,477 → 3,701 (+224); full and compact
+verifier +262 each. The method size assertions move from 3,500 to 3,750 to cover
+the sentence. Tool definitions and profile pins are unchanged. Tests cover all
+three prompt builders, recovery and the independent switch boundaries using
+simulated replies, without external model calls.

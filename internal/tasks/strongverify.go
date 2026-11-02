@@ -427,6 +427,7 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 	b.WriteString("- Do NOT look for, name, run, or assume any hidden test suite, grading script, or reference solution. They do not exist for you.\n")
 	b.WriteString("- Prior evidence lines are claims, not proof. A draft passes only when the evidence shows the deliverable was EXERCISED as the instruction describes: the program/CLI run with representative inputs, the module imported and called, the service queried, the output file parsed with its stated format/constraints checked, with fresh evidence after the last change.\n")
 	b.WriteString(DisagreementReviewGuidance())
+	b.WriteString(ExampleFormatReviewGuidance())
 	b.WriteString("- Mere existence checks (ls, test -e, cat without validation) never pass a draft.\n\n")
 	if cfg.EnableGeneralizeChecks {
 		b.WriteString(generalizationInstructions())

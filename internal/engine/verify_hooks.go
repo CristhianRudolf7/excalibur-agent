@@ -224,7 +224,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 				shortRules += "FRESH_INPUTS must cite generated inputs and an independent oracle; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
 			}
 		}
-		smaller = shortRules + tasks.DisagreementReviewGuidance() + smaller[at:]
+		smaller = shortRules + tasks.DisagreementReviewGuidance() + tasks.ExampleFormatReviewGuidance() + smaller[at:]
 	}
 	if switchOn(timeAwareRefusalCapSwitch) && e.explicitFinishRequired(run) {
 		prompt += "\n" + unmetPropertyReview
