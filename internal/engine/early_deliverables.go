@@ -296,11 +296,17 @@ func earlyProducer(command, workdir, request string, missing []deliverable) bool
 					}
 				}
 			}
-			script, err := os.Open(resolveFinishPath(workdir, word))
+			path := resolveFinishPath(workdir, word)
+			info, err := os.Stat(path)
+			// Never open a FIFO or device while producing advisory text.
+			if err != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			script, err := os.Open(path)
 			if err != nil {
 				continue
 			}
-			info, err := script.Stat()
+			info, err = script.Stat()
 			var content []byte
 			if err == nil && info.Mode().IsRegular() {
 				content, _ = io.ReadAll(io.LimitReader(script, 256*1024))
