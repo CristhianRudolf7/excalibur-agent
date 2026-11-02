@@ -71,7 +71,27 @@ func TestInspectScreenEmulatorFixtures(t *testing.T) {
 			_, got, _ := strings.Cut(out, "screen_text:\n")
 			got = strings.TrimSuffix(got, "\n")
 			errors := screenTextDistance([]rune(want), []rune(got))
-			t.Logf("%d errors / %d characters (%.2f%% accuracy); output:\n%s", errors, len([]rune(want)), 100*(1-float64(errors)/float64(len([]rune(want)))), got)
+			t.Logf("%d errors / %d characters (%.2f%% accuracy)", errors, len([]rune(want)), 100*(1-float64(errors)/float64(len([]rune(want)))))
+			// Exact recovery is stronger than the allowed one-error-per-200 bound.
+			// Check layout as well as letters, including leading inverse spaces.
+			if got != want {
+				t.Fatalf("fixture text differs:\ngot:  %q\nwant: %q", got, want)
+			}
+			if !strings.Contains(out, "screen_text_grid: 80x25\n") || !strings.Contains(out, "screen_text_line_confidence:") {
+				t.Fatal(out)
+			}
+
+			// Exercise automatic reading through the public tool path. All decoding,
+			// matching and report ordering stays local, without OCR or a provider.
+			root := t.TempDir()
+			imageFixture(t, root, "screen.png", img)
+			tool := &InspectImageTool{Deps: &FileDeps{Workdir: root}}
+			t.Setenv("EXCALIBUR_INSPECT_IMAGE", "1")
+			result := fileCall(t, tool, map[string]any{"path": "screen.png"})
+			requireImageOutput(t, result, out)
+			if strings.Index(result.Output, "screen_text:") > strings.Index(result.Output, "ASCII (") {
+				t.Fatal("screen text lost report priority")
+			}
 		})
 	}
 }

@@ -5450,8 +5450,8 @@ Both embedded faces are compared, centering or trimming blank edge rows to
 fit the physical cell height. Small alignment shifts and a middle-column
 expansion accommodate independently drawn VGA fonts; borders retain their grid alignment. Exact rasters take a fast
 path. Both foreground and background size normalize the score, preventing a
-sparse inverse glyph from scoring highly as a full block. No BIOS font data is
-embedded or extracted.
+sparse inverse glyph from scoring highly as a full block. No BIOS font tables are
+embedded in the reader or extracted.
 
 An imperfect match needs a score of at least 0.65 and a lead over the next
 distinct character of at least the larger of 0.01 and 20% of its remaining
@@ -5570,3 +5570,16 @@ version metadata and checksums. Ordinary tests only read these small captures.
 The fixtures independently check glyph variations, colors, spacing and inverse
 video; generated tests retain coverage of alternate grids, blocks, borders,
 noise, uncertainty, graphical rejection, cancellation, the switch and bounds.
+
+The committed captures recover exactly through both the reader and the image
+tool path. Accuracy counts character positions including spaces and interior
+row separators; the fixture test requires zero differences in text or layout.
+
+| Capture | Previous reader errors | Current reader errors |
+| --- | ---: | ---: |
+| Mixed attributes and printable ASCII | 60 / 343 (82.51% accuracy) | 0 / 343 (100%) |
+| BIOS boot messages | 8 / 195 (95.90% accuracy) | 0 / 195 (100%) |
+
+Regenerating with the pinned tooling produces identical compressed captures
+and checksums. Running the strict fixture tests with the previous reader
+reproduces the recorded errors, confirming that the captures exercise the fix.
