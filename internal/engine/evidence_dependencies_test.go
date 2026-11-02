@@ -36,6 +36,7 @@ func TestEvidenceReceiptSurvivesDiagnosticWrite(t *testing.T) {
 		{Seq: 3, Role: providers.RoleTool, Dependencies: receipt, ToolResult: &providers.ToolResult{CallID: "check", Name: "exec", Output: "1\nexit: 0"}},
 	}...)
 	write(filepath.Join(r.Workdir, "diagnostics.log"), "a later diagnostic")
+	write(filepath.Join(r.Workdir, "unrelated.py"), "a source file the script does not import")
 	history := historyTools(r.History)
 	if p := tasks.CheckStrongExercise(history, []tasks.DraftCriterion{{ID: "D1", Method: "command", Key: path}}, 1); len(p) > 0 {
 		t.Fatal(p)

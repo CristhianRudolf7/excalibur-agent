@@ -5089,6 +5089,9 @@ It stops before hashing the receipt. Concurrent checks can conservatively share
 read dependencies; files outside the workspace still use literal references
 and deliverable tracking. Monitor unavailability retains static discovery.
 
+Explicit source operands and inline scripts retain narrow read/import
+dependencies; project-wide source manifests apply to implicit project runners.
+
 Artifact edit tracking uses write destinations, excluding names mentioned only
 inside diagnostic contents. Content-version receipts take precedence over
 ambiguous historical filename matches; service-client evidence follows the

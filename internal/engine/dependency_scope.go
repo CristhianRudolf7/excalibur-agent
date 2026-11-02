@@ -48,17 +48,45 @@ func projectSourceScope(h tasks.HistoryTool, dir string) string {
 			}
 			continue
 		}
+		// Explicit source operands define a narrower check than a project-wide
+		// runner. Its actual reads/imports supply the remaining dependencies.
+		explicitSource := false
+		for _, word := range words[1:] {
+			switch strings.ToLower(filepath.Ext(word)) {
+			case ".py", ".go", ".rs", ".c", ".cc", ".cpp", ".js", ".mjs", ".ts", ".tsx", ".jsx":
+				explicitSource = true
+			}
+		}
+		if explicitSource {
+			continue
+		}
 		kind := ""
 		switch filepath.Base(words[0]) {
 		case "go":
 			kind = "go"
-		case "cargo", "rustc":
+		case "cargo":
 			kind = "rust"
-		case "npm", "npx", "node", "yarn", "pnpm", "bun", "deno":
+		case "npm", "npx", "yarn", "pnpm":
 			kind = "javascript"
-		case "pytest", "py.test", "python", "python3":
+		case "bun", "deno":
+			if len(words) < 2 || words[1] != "test" {
+				continue
+			}
+			kind = "javascript"
+		case "pytest", "py.test":
 			kind = "python"
-		case "make", "cmake", "ninja", "gcc", "g++", "clang", "cc":
+		case "python", "python3":
+			projectTest := false
+			for i := 1; i+1 < len(words); i++ {
+				if words[i] == "-m" && (words[i+1] == "pytest" || words[i+1] == "unittest") {
+					projectTest = true
+				}
+			}
+			if !projectTest {
+				continue
+			}
+			kind = "python"
+		case "make", "cmake", "ninja":
 			kind = "native"
 		}
 		if kind != "" {
