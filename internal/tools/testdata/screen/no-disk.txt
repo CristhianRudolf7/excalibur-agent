@@ -1,0 +1,8 @@
+SeaBIOS (version 1.16.3-debian-1.16.3-2)
+Booting from Hard Disk...
+Boot failed: could not read the boot disk
+
+Booting from Floppy...
+Boot failed: could not read the boot disk
+
+No bootable device.

@@ -1,0 +1,7 @@
+VGA text display: normal, inverse, and colored cells
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+`abcdefghijklmnopqrstuvwxyz{|}~
+ !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+`abcdefghijklmnopqrstuvwxyz{|}~
+Mixed colors: Text WIDTH Matrix xylophone 0123456789!
+Spaces inside inverse video remain spaces.

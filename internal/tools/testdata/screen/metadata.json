@@ -1,0 +1,8 @@
+{
+  "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+  "packages": "qemu-system-x86\t1:8.2.2+ds-0ubuntu1.18\nseabios\t1.16.3-2\n",
+  "ppm_sha256": {
+    "mixed": "6d90fc88bacb92085963900a4d0e8347696938c1dfe63a6d5071a7539b04c71a",
+    "no-disk": "68e010d20946f574faf4c7560f1f5fd4af03abb572726c4fee5fd5e21a42a216"
+  }
+}
