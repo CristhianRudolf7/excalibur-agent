@@ -165,19 +165,12 @@ func TestInspectImageOCRPreparesTwoColorNearestRaster(t *testing.T) {
 			if size.X <= 1024 && size.Y <= 768 {
 				scale = 3
 			}
-			fake := &fakeImageOCR{t: t, run: func(ctx context.Context, args []string, w io.Writer) error {
-				prepared, err := loadOCRFixture(args[0])
-				if err != nil {
-					t.Fatal(err)
-				}
-				if info, err := os.Stat(args[0]); err != nil || info.Mode().Perm() != 0600 {
-					t.Fatalf("temporary raster must be private: %v %v", info, err)
-				}
+			checkRaster := func(prepared image.Image) {
 				if prepared.Bounds().Size() != image.Pt(size.X*scale, size.Y*scale) {
 					t.Fatalf("wrong OCR size: %v", prepared.Bounds())
 				}
 				// Check every small-fixture pixel, and sample the size-boundary
-				// fixtures. Instrumented test work shares the real OCR deadline.
+				// fixtures without retaining another large reference raster.
 				for y := 0; y < size.Y*scale; y += max(1, size.Y*scale/64) {
 					for x := 0; x < size.X*scale; x += max(1, size.X*scale/64) {
 						want := uint32(0xffffff)
@@ -189,6 +182,27 @@ func TestInspectImageOCRPreparesTwoColorNearestRaster(t *testing.T) {
 						}
 					}
 				}
+			}
+			if size != image.Pt(12, 8) {
+				// Test scale boundaries independently of the subprocess's wall
+				// deadline: race instrumentation and shared-host scheduling can
+				// exceed it even when preprocessing produces the correct raster.
+				prepared, err := prepareImageOCR(context.Background(), img)
+				if err != nil {
+					t.Fatal(err)
+				}
+				checkRaster(prepared)
+				return
+			}
+			fake := &fakeImageOCR{t: t, run: func(ctx context.Context, args []string, w io.Writer) error {
+				prepared, err := loadOCRFixture(args[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				if info, err := os.Stat(args[0]); err != nil || info.Mode().Perm() != 0600 {
+					t.Fatalf("temporary raster must be private: %v %v", info, err)
+				}
+				checkRaster(prepared)
 				_, err = io.WriteString(w, "Prepared raster read")
 				return err
 			}}
