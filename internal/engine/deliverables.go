@@ -270,8 +270,18 @@ func lastEditOf(history []tasks.HistoryTool, f deliverable) int {
 	last := -1
 	for i, h := range history {
 		name := strings.ToLower(h.Name)
-		if deliverableWriteTools[name] && mentionsFile(h.Args, f.Base) {
-			last = i
+		if deliverableWriteTools[name] {
+			matches := mentionsFile(h.Args, f.Base)
+			if tasks.DependencyFreshnessEnabled() {
+				target := writtenPath(h.Args)
+				matches = target != "" && filepath.Clean(target) == filepath.Clean(f.Path)
+				if target != "" && !filepath.IsAbs(target) {
+					matches = strings.HasSuffix(filepath.ToSlash(f.Path), "/"+filepath.ToSlash(filepath.Clean(target)))
+				}
+			}
+			if matches {
+				last = i
+			}
 			continue
 		}
 		if name == "exec" && mentionsFile(execCommand(h.Args), f.Base) &&
@@ -459,8 +469,12 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 		if last < 0 && f.Preexisting {
 			continue
 		}
-		ran := tasks.ServiceExercised(history[last+1:], f.Base)
-		for i := last + 1; i < len(history) && !ran; i++ {
+		start := last + 1
+		if tasks.DependencyFreshnessEnabled() {
+			start = 0
+		}
+		ran := tasks.ServiceExercised(history[start:], f.Base)
+		for i := start; i < len(history) && !ran; i++ {
 			h := history[i]
 			if tasks.DependencyFreshnessEnabled() && !tasks.EvidenceFresh(history, i, []string{f.Path}) {
 				continue

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -86,7 +87,10 @@ func TestExecSignalRecords(t *testing.T) {
 		t.Run(sig.String(), func(t *testing.T) {
 			dir := t.TempDir()
 			cmd := exec.Command(os.Args[0], "-test.run=^TestExecSignalRecords$")
-			cmd.Env = append(os.Environ(), "EXCALIBUR_PROVIDER=stub", "EXCALIBUR_SIGNAL_HELPER=1", "EXCALIBUR_SIGNAL_DIR="+dir)
+			// Measure harness shutdown, excluding the race runtime's artificial
+			// one-second exit sleep. Race detection remains enabled.
+			raceOptions := strings.TrimSpace(os.Getenv("GORACE") + " atexit_sleep_ms=0")
+			cmd.Env = append(os.Environ(), "EXCALIBUR_PROVIDER=stub", "EXCALIBUR_SIGNAL_HELPER=1", "EXCALIBUR_SIGNAL_DIR="+dir, "GORACE="+raceOptions)
 			if err := cmd.Start(); err != nil {
 				t.Fatal(err)
 			}

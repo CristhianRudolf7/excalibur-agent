@@ -44,7 +44,10 @@ func serviceExercised(history []HistoryTool, key, sessionID string) bool {
 			continue
 		}
 		ports := servicePortRe.FindAllStringSubmatch(command+" "+h.Output, -1)
-		for _, client := range history[i+1:] {
+		for offset, client := range history[i+1:] {
+			if DependencyFreshnessEnabled() && !EvidenceFresh(history, i+1+offset, []string{key}) {
+				continue
+			}
 			if client.Name != "exec" || client.IsError || HistoryRunning(client) {
 				continue
 			}

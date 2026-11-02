@@ -5089,6 +5089,11 @@ It stops before hashing the receipt. Concurrent checks can conservatively share
 read dependencies; files outside the workspace still use literal references
 and deliverable tracking. Monitor unavailability retains static discovery.
 
+Artifact edit tracking uses write destinations, excluding names mentioned only
+inside diagnostic contents. Content-version receipts take precedence over
+ambiguous historical filename matches; service-client evidence follows the
+same dependency freshness rule as finite program checks.
+
 ### Round 2: explicit failure markers (engine, C5)
 
 `EXCALIBUR_PRECISE_FAILURE_MARKERS` defaults on. Nonzero exits and explicit

@@ -109,3 +109,37 @@ func TestCheckOutputLogIsNotAnInputDependency(t *testing.T) {
 		t.Fatal("log rewrite invalidated check")
 	}
 }
+
+func TestDiagnosticContentsDoNotEditNamedProgram(t *testing.T) {
+	f := deliverable{Path: "/work/main.py", Base: "main.py", Program: true}
+	history := []tasks.HistoryTool{
+		{Name: "write_file", Args: `{"path":"/work/main.py","content":"print(1)"}`, Output: "written"},
+		{Name: "exec", Args: `{"command":"python3 /work/main.py"}`, Output: "exit: 0\n1"},
+		{Name: "write_file", Args: `{"path":"/work/diagnostics.log","content":"main.py passed"}`, Output: "written"},
+		{Name: "write_file", Args: `{"path":"/work/other/main.py","content":"unrelated"}`, Output: "written"},
+	}
+	if last := lastEditOf(history, f); last != 0 {
+		t.Fatalf("unrelated write became deliverable edit at %d", last)
+	}
+	if reasons := unexecutedProgramReasons("Create /work/main.py", history, []deliverable{f}); len(reasons) > 0 {
+		t.Fatal(reasons)
+	}
+	t.Setenv("EXCALIBUR_EVIDENCE_DEPENDENCIES", "0")
+	if last := lastEditOf(history, f); last != 3 {
+		t.Fatal("legacy inference switch ignored", last)
+	}
+}
+
+func TestReceiptOverridesAmbiguousRelativeWriteInference(t *testing.T) {
+	f := deliverable{Path: "/work/pkg/main.py", Base: "main.py", Program: true}
+	history := []tasks.HistoryTool{
+		{Name: "write_file", Args: `{"path":"/work/pkg/main.py"}`, Output: "written"},
+		{Name: "exec", Args: `{"command":"python3 pkg/main.py"}`, Output: "exit: 0\n1", Dependencies: map[string]string{f.Path: "same version"}},
+		{Name: "write_file", Args: `{"path":"main.py","content":"different workspace file"}`, Output: "written"},
+	}
+	// The engine's receipt says the inspected /work/pkg/main.py is unchanged;
+	// a basename-only inference cannot supersede that filesystem fact.
+	if reasons := unexecutedProgramReasons("Create /work/pkg/main.py", history, []deliverable{f}); len(reasons) > 0 {
+		t.Fatal(reasons)
+	}
+}
