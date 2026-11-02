@@ -19,6 +19,7 @@ import (
 
 const earlyDeliverablesSwitch = "EXCALIBUR_EARLY_DELIVERABLES"
 const earlyDeliverablesGuidance = "For required outputs from long computation, first write valid outputs with a fast configuration, then replace them with better results. Never stop the only running producer of a missing deliverable unless a valid output already exists."
+const runtimeSizingGuidance = "Before long computation, time a small sample; extrapolate the full run against remaining time and CPUs. Choose a configuration that finishes with margin and keeps a valid output."
 const earlyDeliverablesNote = "required outputs are still missing: write valid outputs now from the best available result, then improve them"
 
 // Delivery pacing belongs to autonomous exec/eval runs. Interactive assistant

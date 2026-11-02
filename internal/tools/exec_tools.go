@@ -290,6 +290,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		next := len(s.SnapshotFull())
 		fmt.Fprintf(&b, "exit: running  duration: %.1fs  session: %s  alive: true  next_offset: %d\n", dur.Seconds(), s.ID, next)
 		b.WriteString(s.runningProgress())
+		b.WriteString(t.sessions().runtimeProjection(ctx, s))
 		b.WriteString(runningSessionLine(s, next))
 		if s.Detached {
 			fmt.Fprintf(&b, "detached service: pid %d survives run end; log %s\n", s.Pid, s.LogPath)
@@ -450,6 +451,21 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (result Result,
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
 	m := t.sessions()
+	// Result advice is shared by read, successful wait and timed-out wait;
+	// it never changes the exit header, output offsets or process lifetime.
+	defer func() {
+		if a.Action != "read" && a.Action != "wait_for" || result.Status == StatusInputError {
+			return
+		}
+		if s, ok := m.Get(SessionID(a.Session)); ok {
+			if line := m.runtimeProjection(ctx, s); line != "" {
+				if !strings.HasSuffix(result.Output, "\n") {
+					result.Output += "\n"
+				}
+				result.Output += line
+			}
+		}
+	}()
 	receiptOwner := a.Owner
 	defer func() {
 		if !switchDefaultOn("EXCALIBUR_TYPED_SESSION_EVIDENCE") || result.Status == StatusInputError {

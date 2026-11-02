@@ -5653,3 +5653,41 @@ many ordinary checks, repeated paths, deferred calls, blank and failed captures,
 change percentages, UTF-8 and byte bounds, explicit omission, switch ablation,
 and full/retry verifier calls without extracted criteria. No tool definitions,
 shared contracts or profile pins changed.
+
+### Runtime projection for long commands (Sections 13.5, 23.2)
+
+`EXCALIBUR_RUNTIME_PROJECTION` defaults on for autonomous exec/eval tool calls.
+A command that remains alive for more than three minutes, or 10% of an explicit
+run budget if larger, adds one compact runtime line to its initial yield, reads
+and waits (including timed-out waits). It reports command elapsed time, remaining
+run budget and effective CPU/memory facts from the existing resource reader.
+Estimated budgets are reported as unknown, independently of pacing switches;
+a tool's polling timeout is never treated as the run's time limit. Interactive
+assistant tool calls retain their existing results.
+
+The last 8 KiB of command output is scanned deterministically for percentages,
+completed/total counts, epoch/iteration counts and bounded ASCII or block progress
+bars. The latest recognized signal wins, including zero or invalid progress that
+resets an earlier phase. Positive progress produces a linear estimate of time
+until completion, explicitly flagged as “projected to finish after the time limit”
+when it exceeds the remaining explicit budget. This is advisory extrapolation,
+not a measured guarantee: nested phases and changing work rates can affect it.
+Without a usable progress fraction, the line suggests timing a small sample and
+makes no completion estimate. Durations above one year use a bounded label.
+Setting the switch to `0`, `off`, `false` or `no` removes projection advice.
+
+Fake-clock and fake-output tests cover threshold boundaries, explicit/unknown
+budgets, container limits, parser formats and bounds, phase resets, no-progress
+advice, estimates within and beyond budget, completed jobs, initial yields,
+read offsets, successful/timed-out waits and assistant/switch isolation. An engine
+context test verifies run-budget propagation and estimated-budget classification.
+Tool schemas and profile pins are unchanged: only result advice is added.
+
+The same switch extends the existing early-output instruction: before long
+computation, time a small sample, extrapolate the full run against remaining time
+and CPUs, then choose a configuration that finishes with margin and keeps a valid
+output. This stays inside the autonomous early-deliverables scope and is removed
+when either switch is disabled. The existing instruction grows from 235 to 414
+UTF-8 bytes (+179); compiled task-context tests verify the same byte delta, the
+sampling/extrapolation/margin requirements and both switch/profile boundaries.
+The instruction remains one task-context entry, so tool/profile pins do not move.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // SnapshotFunc loads the compiler snapshot for a run.
@@ -89,7 +90,11 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	}
 	promoteSnapshotDirectives(run, &snap)
 	if run.earlyDeliverablesEnabled() {
-		snap.Task.FixedInstructions = append(append([]string(nil), snap.Task.FixedInstructions...), earlyDeliverablesGuidance)
+		guidance := earlyDeliverablesGuidance
+		if switchOn(tools.RuntimeProjectionSwitch) {
+			guidance += " " + runtimeSizingGuidance
+		}
+		snap.Task.FixedInstructions = append(append([]string(nil), snap.Task.FixedInstructions...), guidance)
 	}
 	snapshotLen := len(snap.Activity)
 	hist := run.historyCopy()

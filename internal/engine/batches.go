@@ -236,6 +236,17 @@ func (e *Engine) runOne(ctx context.Context, run *Run, tc providers.ToolCall) to
 func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolCall, key string) tools.Result {
 	ctx = tools.WithRunInstruction(ctx, run.Request)
 	ctx = tools.WithGitHistoryRunID(ctx, string(run.ID))
+	// Runtime advice belongs to autonomous exec/eval. Estimated limits must
+	// remain unknown, regardless of independent deadline/pacing switches.
+	run.mu.Lock()
+	if run.Profile.ExplicitFinish {
+		total := time.Duration(0)
+		if run.Profile.WallSource != "default" {
+			total = time.Duration(run.Tracker.Limit.MaxSeconds) * time.Second
+		}
+		ctx = tools.WithRuntimeBudget(ctx, run.StartedAt, total)
+	}
+	run.mu.Unlock()
 	if key == "" {
 		key = e.deps.NewKey()
 	}
