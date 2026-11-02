@@ -240,6 +240,12 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 		return true, nil
 	}
+	verdictForNote := tasks.ParseStrongVerdict(resp.Message.Content, drafts)
+	failedForNote := verdictForNote.Explicit && !verdictForNote.Pass
+	if cfg.EnableGeneralizeChecks && len(tasks.GeneralizationPendings(resp.Message.Content)) > 0 {
+		failedForNote = true
+	}
+	run.recordFinishVerifierReport(history, verdictForNote.Explicit, failedForNote)
 	if e.softVerifier(run) && !tasks.ParseStrongVerdict(resp.Message.Content, drafts).Explicit {
 		e.noteAdvisory(run, "verifier verdict was empty or truncated; not counted")
 		return true, nil

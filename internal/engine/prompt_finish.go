@@ -12,7 +12,54 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 )
 
-const PromptFinishNote = "All checks pass: call finish now unless something is unverified."
+const PromptFinishNote = "Deterministic artifact checks pass; finishing still requires evidence that the requested end state is reached."
+
+const endStateFinishNoteSwitch = "EXCALIBUR_END_STATE_FINISH_NOTE"
+
+// A deterministic artifact check cannot interpret screen contents. Defer the
+// positive note until an independent PASS covers the current visual evidence.
+// This conservative rule avoids request-specific visual keyword heuristics.
+func visualEvidenceVersion(history []tasks.HistoryTool) ([32]byte, bool) {
+	h := sha256.New()
+	found := false
+	for _, item := range history {
+		if item.IsError {
+			continue
+		}
+		if item.Name == "inspect_image" || strings.Contains(item.Output, "screen_text:") ||
+			(item.Name == "call_tool" && strings.Contains(item.Args, `"inspect_image"`)) {
+			raw, _ := json.Marshal(item)
+			_, _ = h.Write(raw)
+			found = true
+		}
+	}
+	var version [32]byte
+	copy(version[:], h.Sum(nil))
+	return version, found
+}
+
+type finishVerifierReport struct {
+	request          string
+	explicit, failed bool
+	visualVersion    [32]byte
+}
+
+func (r *Run) recordFinishVerifierReport(history []tasks.HistoryTool, explicit, failed bool) {
+	version, _ := visualEvidenceVersion(history)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.finishVerifierReport = finishVerifierReport{r.Request, explicit, failed, version}
+}
+
+// Callers hold run.mu. Retiring a stale note also preserves its journal trail.
+func (r *Run) retirePromptFinishNoteLocked() {
+	for _, note := range r.Volatile {
+		if strings.HasPrefix(note, PromptFinishNote) {
+			r.controlNoteLocked(controlNoteKey(note), "")
+			return
+		}
+	}
+}
 
 // PromptFinishEnabled gates advisory stopping guidance; it never bypasses finish.
 func PromptFinishEnabled() bool {
@@ -39,6 +86,16 @@ func (e *Engine) promptFinishCheck(run *Run) {
 	run.mu.Lock()
 	defer run.mu.Unlock()
 	history := historyTools(run.History)
+	guarded := switchOn(endStateFinishNoteSwitch)
+	if guarded {
+		visualVersion, visual := visualEvidenceVersion(history)
+		report := run.finishVerifierReport
+		reviewed := report.request == run.Request && report.explicit
+		if (reviewed && report.failed) || (visual && (!reviewed || report.failed || report.visualVersion != visualVersion)) {
+			run.retirePromptFinishNoteLocked()
+			return
+		}
+	}
 	if len(history) == run.promptFinishSeen {
 		return
 	}
@@ -63,6 +120,9 @@ func (e *Engine) promptFinishCheck(run *Run) {
 	rep = e.applyArtifacts(run, rep, history, request, "", workdir)
 	run.mu.Lock()
 	if !rep.OK {
+		if guarded {
+			run.retirePromptFinishNoteLocked()
+		}
 		return
 	}
 	// Require successful evidence for each criterion, not just a global exit=0.
@@ -121,8 +181,18 @@ func (e *Engine) promptFinishCheck(run *Run) {
 		note += " Repeated verification returned unchanged evidence; avoid re-running the same check unless artifacts changed."
 	}
 	run.promptFinishSignatures[signature] = true
-	run.controlNoteLocked(controlNoteKey(note), note)
 	run.writePromptFinishRecordLocked()
+	if guarded {
+		state := fmt.Sprintf("%s:%s:%v", run.Request, version, drafts)
+		if run.promptFinishStates[state] {
+			return
+		}
+		if run.promptFinishStates == nil {
+			run.promptFinishStates = map[string]bool{}
+		}
+		run.promptFinishStates[state] = true
+	}
+	run.controlNoteLocked(controlNoteKey(note), note)
 }
 
 func (r *Run) writePromptFinishRecordLocked() {

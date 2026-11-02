@@ -319,6 +319,8 @@ type Run struct {
 	refined                     bool
 	firstAllChecksPassAt        time.Time
 	promptFinishSeen            int
+	promptFinishStates          map[string]bool
+	finishVerifierReport        finishVerifierReport
 	promptFinishSignatures      map[[32]byte]bool
 	promptFinishArtifactVersion string
 	repeatedVerification        int

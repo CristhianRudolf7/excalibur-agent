@@ -150,7 +150,7 @@ func (e *Engine) reviewIdentity(run *Run, cfg tasks.SelfVerifyConfig, drafts []t
 	var evidence []tasks.HistoryTool
 	seen := map[string]bool{}
 	for _, h := range history {
-		if h.Name != "exec" && h.Name != "read_file" && h.Name != "call_tool" && h.Name != "exec_io" {
+		if h.Name != "exec" && h.Name != "read_file" && h.Name != "call_tool" && h.Name != "exec_io" && h.Name != "inspect_image" {
 			continue
 		}
 		if len(h.Dependencies) > 0 {

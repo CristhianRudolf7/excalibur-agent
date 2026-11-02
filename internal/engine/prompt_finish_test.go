@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 )
@@ -98,5 +100,98 @@ func TestPromptFinishWithActionableArtifactGate(t *testing.T) {
 	e.promptFinishCheck(r)
 	if r.firstAllChecksPassAt.IsZero() {
 		t.Fatal("passing artifact gate did not produce finish guidance")
+	}
+}
+
+func TestPromptFinishOncePerPassingStateAndJournal(t *testing.T) {
+	t.Setenv(endStateFinishNoteSwitch, "1")
+	e, store := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.Artifacts = artifactOffCfg()
+	r := explicitRun()
+	r.Workdir = t.TempDir()
+	r.Request = "Create result.txt"
+	r.noteJournal = &journal.Recorder{RunID: r.ID, Store: store}
+	for i := 0; i < 4; i++ {
+		addFinishCheck(r, string(rune('a'+i)), "grep ok result.txt", false)
+		e.promptFinishCheck(r)
+	}
+	count := func() int {
+		rows, err := store.List(context.Background(), r.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, row := range rows {
+			if row.Type == "control_note" && strings.Contains(string(row.Payload), PromptFinishNote) {
+				n++
+			}
+		}
+		return n
+	}
+	if n := count(); n != 1 {
+		t.Fatalf("unchanged passing state emitted %d notes", n)
+	}
+	if err := os.WriteFile(filepath.Join(r.Workdir, "result.txt"), []byte("updated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	addFinishCheck(r, "changed", "grep updated result.txt", false)
+	e.promptFinishCheck(r)
+	if n := count(); n != 2 {
+		t.Fatalf("changed passing state emitted %d notes", n)
+	}
+	t.Setenv(endStateFinishNoteSwitch, "0")
+	addFinishCheck(r, "legacy", "grep updated result.txt", false)
+	e.promptFinishCheck(r)
+	if n := count(); n != 3 {
+		t.Fatalf("disabled guard emitted %d notes", n)
+	}
+}
+
+func TestPromptFinishDefersVisualJudgmentAndRetiresFailedReport(t *testing.T) {
+	for _, name := range []string{"inspect_image", "call_tool", "exec"} {
+		t.Run(name, func(t *testing.T) {
+			e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+			e.deps.Artifacts = artifactOffCfg()
+			r := explicitRun()
+			r.Workdir = t.TempDir()
+			r.Request = "Create result.txt and display the requested result"
+			addFinishCheck(r, "check", "grep ok result.txt", false)
+			r.History = append(r.History,
+				ctxcompiler.ActivityEvent{ToolCalls: []providers.ToolCall{{ID: "image", Name: name, Arguments: json.RawMessage(`{"name":"inspect_image","arguments":{"path":"screen.png"}}`)}}},
+				ctxcompiler.ActivityEvent{ToolResult: &providers.ToolResult{CallID: "image", Name: name, Output: "blank/uniform: false\nscreen_text:\nInitialization incomplete; user input required"}})
+			e.promptFinishCheck(r)
+			if strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+				t.Fatal("unreviewed visual state got positive note")
+			}
+			history := historyTools(r.History)
+			r.recordFinishVerifierReport(history, true, false)
+			e.promptFinishCheck(r)
+			if !strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+				t.Fatal("reviewed passing visual state lost note")
+			}
+			r.recordFinishVerifierReport(history, true, true)
+			e.promptFinishCheck(r)
+			if strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+				t.Fatal("failing verifier left stale positive note")
+			}
+			r.recordFinishVerifierReport(history, true, false)
+			r.History = append(r.History, ctxcompiler.ActivityEvent{ToolResult: &providers.ToolResult{Name: "inspect_image", Output: "blank/uniform: true"}})
+			e.promptFinishCheck(r)
+			if strings.Contains(strings.Join(r.VolatileNotes(), " "), PromptFinishNote) {
+				t.Fatal("new visual state reused prior PASS")
+			}
+		})
+	}
+}
+
+func TestReviewIdentityIncludesImageEvidence(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	r := explicitRun()
+	history := []tasks.HistoryTool{{Name: "inspect_image", Args: `{"path":"screen.png"}`, Output: "blank/uniform: true"}}
+	a, _ := e.reviewIdentity(r, *verifyConfig(), nil, history)
+	history[0].Output = "blank/uniform: false"
+	b, _ := e.reviewIdentity(r, *verifyConfig(), nil, history)
+	if a == b {
+		t.Fatal("changed screen reused verifier identity")
 	}
 }

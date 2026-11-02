@@ -5583,3 +5583,22 @@ row separators; the fixture test requires zero differences in text or layout.
 Regenerating with the pinned tooling produces identical compressed captures
 and checksums. Running the strict fixture tests with the previous reader
 reproduces the recorded errors, confirming that the captures exercise the fix.
+
+### End-state-aware completion guidance (Sections 7.5 and 18)
+
+`EXCALIBUR_END_STATE_FINISH_NOTE` defaults on for autonomous exec/eval runs
+using the existing explicit-finish profile flag. Passing deterministic artifact
+checks produces one control note per distinct passing artifact state: finishing
+still requires evidence that the requested end state is reached. Repeated checks
+retain the existing audit counters without reinserting the note. The control-note
+journal and `prompt_finish.json` audit remain available.
+
+A failed independent verifier report suppresses and retires the positive note.
+Screen evidence is interpreted conservatively: any successful `inspect_image`
+result or `screen_text` needs an independent PASS covering that visual history
+before the note can appear. This avoids interpreting arbitrary screen text with
+request-specific keywords. New captures invalidate that approval. Image evidence
+also contributes to the verifier cache identity so a changed screen gets a fresh
+review. Assistant profiles retain their existing completion behavior. Setting the
+switch off restores repeated advisory notes; `EXCALIBUR_PROMPT_FINISH` still
+controls the producer as a whole. Tool schemas and profile pins are unchanged.
