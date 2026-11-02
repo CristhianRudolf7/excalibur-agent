@@ -502,7 +502,14 @@ func runningWorkReasons(history []tasks.HistoryTool, files []deliverable, now ti
 			out = append(out, "session "+id+" is still running a package manager or build (`"+truncOneLine(cmd, 120)+"`): wait for it to finish (exec_io read or wait_for) before calling finish")
 			continue
 		}
-		if serviceCommandRe.MatchString(cmd) {
+		verifiedService := false
+		for _, f := range files {
+			if mentionsFile(cmd, f.Base) && tasks.ServiceExercised(history[lastEditOf(history, f)+1:], f.Base) {
+				verifiedService = true
+				break
+			}
+		}
+		if verifiedService || serviceCommandRe.MatchString(cmd) {
 			continue
 		}
 		for _, f := range files {
@@ -614,16 +621,24 @@ func (e *Engine) deliverableHardReasons(run *Run, request string, history []task
 		return nil
 	}
 	_, _, workdir := run.finishRunView()
+	var sessions []tools.SessionInfo
+	if e.deps.ActiveSessions != nil {
+		sessions = e.deps.ActiveSessions()
+		// Refresh stopped sessions before treating historical client evidence as
+		// proof that a service is still alive. Keep the actual history immutable.
+		history = append([]tasks.HistoryTool(nil), history...)
+		for _, s := range sessions {
+			if !s.Alive {
+				history = append(history, tasks.HistoryTool{Name: "exec_io", Output: "session: " + string(s.ID) + " alive: false"})
+			}
+		}
+	}
 	files := e.deliverables(run, request, history)
 	var out []string
 	if reason := verificationFailureReason(history, files); reason != "" {
 		out = append(out, reason)
 	}
 	out = append(out, unexecutedProgramReasons(request, history, files)...)
-	var sessions []tools.SessionInfo
-	if e.deps.ActiveSessions != nil {
-		sessions = e.deps.ActiveSessions()
-	}
 	out = append(out, runningWorkReasons(history, files, e.deps.Clock(), sessions)...)
 	out = append(out, proofEscapeReasons(files)...)
 	out = append(out, declaredServiceReasons(request, workdir, e.artifactConfig().MaxArtifacts)...)

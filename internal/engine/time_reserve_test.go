@@ -70,3 +70,16 @@ func TestTimeReservePendingConfirmationAndSwitch(t *testing.T) {
 		})
 	}
 }
+
+func TestTimeReservePreservesBlockedFinishStatus(t *testing.T) {
+	e, js := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	run := explicitRun()
+	run.Tracker.Limit = tasks.Limit{MaxSeconds: 100}
+	startRun(t, e, run, js)
+	e.deps.Clock = func() time.Time { return run.StartedAt.Add(85 * time.Second) }
+	done, err := e.execFinishBatch(finishTestContext(t), run, toolCall("finish", "finish", finishBlockedArgs("cannot proceed", "attempt recorded", "an external dependency is unavailable")), "")
+	if err != nil || !done {
+		t.Fatalf("done=%v err=%v", done, err)
+	}
+	mustState(t, run, types.RunBlocked)
+}

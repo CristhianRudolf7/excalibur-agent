@@ -1,9 +1,13 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -100,5 +104,48 @@ func TestBareProseArtifactIsAdvisoryThroughAllGateLayers(t *testing.T) {
 	}
 	if text := e.confirmationText(run); !strings.Contains(text, "advisory") {
 		t.Fatalf("missing advisory: %s", text)
+	}
+}
+
+func TestRefusalCapSurvivesJournalRecovery(t *testing.T) {
+	e, js := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	run := explicitRun()
+	startRun(t, e, run, js)
+	reason := []string{"changes since the last check are unverified; run checks"}
+	e.refuseCall(finishTestContext(t), run, toolCall("first", "finish", finishArgs("done", "checked")), reason)
+	e.noChangeRefusal(finishTestContext(t), run, toolCall("second", "finish", finishArgs("done", "checked")), reason)
+	recovered := explicitRun()
+	recovered.ID = run.ID
+	recovered.Request = run.Request
+	e.restoreRefusals(finishTestContext(t), recovered)
+	if hard := e.hardFinishReasons(recovered, reason); len(hard) != 0 {
+		t.Fatalf("recovery reset the refusal allowance: %v", hard)
+	}
+}
+
+func TestExercisedServicePassesAllHardChecksWhileAlive(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	run := explicitRun()
+	run.Workdir = t.TempDir()
+	run.StartedAt = time.Now().Add(-time.Minute)
+	path := filepath.Join(run.Workdir, "application.py")
+	if err := os.WriteFile(path, []byte("print('ready')\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	run.Request = "Create " + path + "."
+	write, _ := json.Marshal(map[string]string{"path": path})
+	launch, _ := json.Marshal(map[string]string{"command": "python3 " + path})
+	history := []tasks.HistoryTool{
+		{Name: "write_file", Args: string(write), Output: "written"},
+		{Name: "exec", Args: string(launch), Output: "exit: running\nsession: sess-1 alive: true"},
+		{Name: "exec", Args: `{"command":"curl http://localhost:8765/status"}`, Output: "exit: 0\nready"},
+	}
+	e.deps.ActiveSessions = func() []tools.SessionInfo { return []tools.SessionInfo{{ID: "sess-1", Alive: true}} }
+	if reasons := e.deliverableHardReasons(run, run.Request, history); len(reasons) != 0 {
+		t.Fatalf("verified live service rejected: %v", reasons)
+	}
+	e.deps.ActiveSessions = func() []tools.SessionInfo { return []tools.SessionInfo{{ID: "sess-1", Alive: false}} }
+	if reasons := e.deliverableHardReasons(run, run.Request, history); len(reasons) == 0 {
+		t.Fatal("stopped service accepted from stale history")
 	}
 }

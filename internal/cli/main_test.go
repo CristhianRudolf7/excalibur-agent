@@ -13,5 +13,8 @@ import (
 func TestMain(m *testing.M) {
 	_ = os.Setenv("EXCALIBUR_PROVIDER", "stub")
 	_ = os.Setenv("EXCALIBUR_CREDENTIALS_FILE", "/nonexistent-operator-credentials.json")
+	// Embedded tests must not discover a live daemon or another test worker's
+	// rendezvous file. Routing tests replace this address with their fake.
+	_ = os.Setenv("EXCALIBUR_DAEMON_ADDR", "127.0.0.1:1")
 	os.Exit(m.Run())
 }
