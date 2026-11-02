@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/eval"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // legacyCoreTools is the eval core table before the item-41 trim,
@@ -50,12 +51,15 @@ func TestEvalSurfaceTrimsNonActingTools(t *testing.T) {
 	}
 }
 
-// Assistant and delegate surfaces keep the legacy core set exactly,
-// so their ToolsHash values do not change with the eval trim.
+// Assistant and delegate surfaces retain the legacy core set and the
+// optional image inspector alongside their profile-specific tools.
 func TestNonEvalSurfacesKeepLegacyCore(t *testing.T) {
 	for _, profile := range []ProfileName{ProfileDelegate, ProfileDefault} {
 		core, _ := EffectiveTools(profile)
 		want := append([]string(nil), legacyCoreTools...)
+		if tools.InspectImageEnabled() {
+			want = append(want, "inspect_image")
+		}
 		if profile == ProfileDefault {
 			want = append(want, "send_message", "question_answer")
 		}

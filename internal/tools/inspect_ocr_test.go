@@ -112,3 +112,19 @@ func TestInspectImageOCRBoundFailureAndTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestInspectImageMaximumReportBound(t *testing.T) {
+	root := t.TempDir()
+	imageFixture(t, root, "before.png", uniformImage(color.Black))
+	imageFixture(t, root, "after.png", uniformImage(color.White))
+	fake := &fakeImageOCR{t: t, run: func(ctx context.Context, args []string, w io.Writer) error {
+		_, err := io.WriteString(w, strings.Repeat("text ", 1000))
+		return err
+	}}
+	tool := &InspectImageTool{Deps: &FileDeps{Workdir: root}, ocrRunner: fake}
+	r := fileCall(t, tool, map[string]any{"path": "after.png", "compare_to": "before.png", "width": 96, "height": 32, "ocr": true})
+	requireImageOutput(t, r, "changed_pixels: 4800 / 4800 (100.0000%", "difference_mask:", "OCR (optional text hint, truncated at 2048 bytes)")
+	if int64(len(r.Output)) > tool.Definition().OutputBudget {
+		t.Fatalf("report exceeds budget: %d", len(r.Output))
+	}
+}

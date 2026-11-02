@@ -172,6 +172,15 @@ func imageDimensionsOK(w, h int) bool {
 // Headers are checked before allocation. GIF inspection deliberately uses the
 // first frame; multi-frame animations cannot establish an interactive response.
 func loadInspectImage(ctx context.Context, path string) (image.Image, string, error) {
+	// Refuse special files before opening: opening a FIFO could otherwise block
+	// before the context-aware reader or file-size checks can run.
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, "", err
+	}
+	if !info.Mode().IsRegular() || info.Size() > inspectImageMaxBytes {
+		return nil, "", fmt.Errorf("image must be a regular file of at most 512 MiB")
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, "", err

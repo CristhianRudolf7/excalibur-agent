@@ -31,7 +31,11 @@ func TestExecSurfaceEveryToolWorks(t *testing.T) {
 	if err := os.WriteFile(probe, []byte("alpha\nbeta\ngamma\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{RunID: "run_surface_enum"})
+	screen := filepath.Join(dir, "screen.ppm")
+	if err := os.WriteFile(screen, []byte("P3\n2 1\n255\n0 0 0 255 255 255\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{RunID: "run_surface_enum", Workdir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,6 +43,7 @@ func TestExecSurfaceEveryToolWorks(t *testing.T) {
 	blob := emb.Exec.Outputs.Put(strings.Repeat("b", 100))
 
 	calls := map[string]any{
+		"inspect_image":           map[string]any{"path": screen},
 		"read_file":               map[string]any{"path": probe},
 		"write_file":              map[string]any{"path": filepath.Join(dir, "new.txt"), "content": "hello\n"},
 		"edit_file":               map[string]any{"path": probe, "old_text": "beta\n", "new_text": "BETA\n", "expected_fp": "*"},
