@@ -5487,3 +5487,20 @@ as exec/eval. The paragraph is 301 bytes, up from 296 (+5), and the default
 method is 3,299 bytes, up from 3,294 (+5), within its existing 3,300-byte
 budget. No new paragraph or verifier instruction is added. The switch test
 asserts the added guidance, single-paragraph form and byte bound.
+
+### Runner time limits in the installed adapter
+
+The installed adapter passes the runner's agent timeout as `--timeout`, using
+90% for execution and reserving the rest for closure (Section 23.2). Explicit
+`HARBOR_AGENT_TIMEOUT_SEC`, then `EXCALIBUR_TIMEOUT_SEC`, take precedence. Without
+an operator value, it uses a resolved timeout exposed by agent kwargs, the trial
+or the environment; otherwise it reads the trial config and the materialized
+`task.toml`. Runner overrides replace the task value, the maximum caps that
+value, and the agent multiplier (or general multiplier) applies last. Missing
+or invalid limits leave the flag unset. The chosen outer seconds, source and
+execution flag appear in the agent's `setup.log`; credentials are never included.
+
+`EXCALIBUR_RUNNER_TIMEOUT` defaults on. Setting it to `0`, `off`, `false` or `no`
+disables automatic runner discovery while preserving explicit operator values.
+Python tests use fake runner objects and temporary task/trial directories; the
+Go adapter test runs these timeout tests without importing Harbor or using models.

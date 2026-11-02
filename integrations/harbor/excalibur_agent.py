@@ -19,6 +19,8 @@ See docs/decisions/ for the four resolved Section 23.2 items
 
 import hashlib
 import json
+import math
+import tomllib
 import os
 import shlex
 import shutil
@@ -92,6 +94,119 @@ if not _HARBOR:  # fallback definitions below
 
         def run(self, instruction, env=None):
             raise NotImplementedError
+
+
+def _field(obj, name, default=None):
+    return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
+
+
+def _positive_seconds(raw):
+    if isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+        return value if math.isfinite(value) and value > 0 else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _task_timeout(task_dir):
+    try:
+        with (Path(task_dir) / "task.toml").open("rb") as stream:
+            return _positive_seconds(tomllib.load(stream).get("agent", {}).get("timeout_sec"))
+    except (OSError, TypeError, ValueError):
+        return None
+
+
+def _configured_timeout(config, task_dir=None, task=None):
+    """Match Harbor's override -> cap -> multiplier order (Section 23.2)."""
+    agent = _field(config, "agent", {})
+    base = _positive_seconds(_field(agent, "override_timeout_sec"))
+    if base is None:
+        base = _positive_seconds(_field(_field(_field(task, "config", {}), "agent", {}), "timeout_sec"))
+    if base is None and task_dir is not None:
+        base = _task_timeout(task_dir)
+    if base is None:
+        return None
+    cap = _field(agent, "max_timeout_sec")
+    if cap is not None:
+        cap = _positive_seconds(cap)
+        if cap is None:
+            return None
+        base = min(base, cap)
+    multiplier = _field(config, "agent_timeout_multiplier")
+    if multiplier is None:
+        multiplier = _field(config, "timeout_multiplier", 1)
+    multiplier = _positive_seconds(multiplier)
+    return _positive_seconds(base * multiplier) if multiplier is not None else None
+
+
+def resolve_agent_timeout(agent, environment=None, extra=None):
+    """Return (outer seconds, source), without inventing a runner deadline.
+
+    Old Harbor releases expose only environment_dir and trial_paths. Their
+    saved config contains runner overrides; environment_dir points into the
+    materialized task. Newer integrations may supply the resolved value.
+    """
+    extra = extra or {}
+    for key in ("HARBOR_AGENT_TIMEOUT_SEC", "EXCALIBUR_TIMEOUT_SEC"):
+        for raw in (extra.get(key), os.environ.get(key)):
+            value = _positive_seconds(raw)
+            if value is not None:
+                return value, "operator:" + key
+    switch = extra.get("EXCALIBUR_RUNNER_TIMEOUT", os.environ.get("EXCALIBUR_RUNNER_TIMEOUT", "1"))
+    if str(switch).strip().lower() in ("0", "off", "false", "no"):
+        return None, "none (runner timeout discovery disabled)"
+    hints = getattr(agent, "_ex_timeout_hints", {})
+    trial = hints.get("trial") or _field(environment, "trial")
+    for obj, label in ((hints, "agent kwargs"), (trial, "trial"), (environment, "environment")):
+        for key in ("agent_timeout_sec", "_agent_timeout_sec"):
+            value = _positive_seconds(_field(obj, key))
+            if value is not None:
+                return value, label + ":" + key
+    task = _field(trial, "task") or _field(environment, "task")
+    task_dir = hints.get("task_dir") or _field(task, "task_dir") or _field(environment, "task_dir")
+    if task_dir is None and _field(environment, "environment_dir") is not None:
+        task_dir = Path(environment.environment_dir).parent
+    config = hints.get("trial_config") or _field(trial, "config") or _field(environment, "trial_config")
+    if config is not None:
+        value = _configured_timeout(config, task_dir, task)
+        return value, "trial config" if value is not None else "none (unresolved trial config)"
+    paths = hints.get("trial_paths") or _field(environment, "trial_paths")
+    config_path = _field(paths, "config_path")
+    if config_path is None and _field(paths, "trial_dir") is not None:
+        config_path = Path(paths.trial_dir) / "config.json"
+    if config_path is None and _field(agent, "logs_dir") is not None:
+        config_path = Path(agent.logs_dir).parent / "config.json"
+    if config_path is not None:
+        try:
+            config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+            configured_task_dir = _field(config.get("task", {}), "path")
+            value = _configured_timeout(config, task_dir or configured_task_dir, task)
+            if value is not None:
+                return value, "trial config.json + task.toml"
+        except (OSError, TypeError, ValueError):
+            pass
+        # An unreadable runner config must not silently discard its possible
+        # overrides. A standalone task config is safe only without that file.
+        if Path(config_path).exists():
+            return None, "none (unresolved trial config)"
+    value = _configured_timeout({}, task_dir, task)
+    return (value, "task.toml" if value is not None else "none")
+
+
+def agent_timeout_argument(agent, environment=None, extra=None):
+    value, source = resolve_agent_timeout(agent, environment, extra)
+    closing = value * 0.9 if value is not None else None
+    # Seconds are accepted as integers by exec. Never turn a subsecond budget
+    # into --timeout 0, which would mean no explicit limit.
+    argument = f" --timeout {max(1, int(closing))}" if closing is not None else ""
+    logs_dir = _field(agent, "logs_dir")
+    if logs_dir is not None:
+        Path(logs_dir).mkdir(parents=True, exist_ok=True)
+        with (Path(logs_dir) / "setup.log").open("a", encoding="utf-8") as stream:
+            stream.write(f"excalibur timeout: outer_seconds={value} source={source}; exec{argument or ' timeout=unset'}\n")
+    return argument
 
 
 def sha256_of(path):
@@ -269,6 +384,9 @@ if _HARBOR:
             self._ex_binary = kwargs.pop("binary", None) or os.environ.get("EXCALIBUR_BINARY")
             self._ex_sha256 = kwargs.pop("expected_sha256", None) or os.environ.get("EXCALIBUR_SHA256")
             self._ex_prefix = kwargs.pop("install_prefix", None) or "/opt/excalibur"
+            self._ex_timeout_hints = {key: kwargs.pop(key) for key in
+                                      ("agent_timeout_sec", "trial", "trial_config", "task_dir", "trial_paths")
+                                      if key in kwargs}
             super().__init__(*args, **kwargs)
 
         @staticmethod
@@ -285,6 +403,7 @@ if _HARBOR:
             return "/opt/excalibur/bin/excalibur --help"
 
         async def install(self, environment) -> None:
+            agent_timeout_argument(self, environment, getattr(self, "_extra_env", {}))
             prefix = self._ex_prefix
             source = self._ex_binary or os.environ.get("EXCALIBUR_BINARY", "")
             expected = self._ex_sha256 or os.environ.get("EXCALIBUR_SHA256", "")
@@ -341,27 +460,14 @@ if _HARBOR:
             except Exception:
                 effort = ""
             effort = effort or extra.get("EXCALIBUR_REASONING_EFFORT") or os.environ.get("EXCALIBUR_REASONING_EFFORT", "")
-            # Timeout is NOT communicated by Harbor 0.25.0 (the trial
-            # kills the agent via asyncio.wait_for with no env/var
-            # forwarding). Honor an explicit operator override when set
-            # and apply the Section 23.2 90% closing budget.
-            timeout_sec = None
-            for key in ("HARBOR_AGENT_TIMEOUT_SEC", "EXCALIBUR_TIMEOUT_SEC"):
-                raw = extra.get(key) or os.environ.get(key)
-                if raw:
-                    try:
-                        timeout_sec = float(raw) * 0.9
-                        break
-                    except ValueError:
-                        continue
+            timeout_argument = agent_timeout_argument(self, environment, extra)
             try:
                 logs_posix = self.environment_logs_dir.as_posix()
             except Exception:
                 logs_posix = "/logs/agent"
             # /logs/agent inside the container.
             cmd = f"{shlex.quote(binary)} exec --profile eval --json --logs-dir {shlex.quote(logs_posix)}"
-            if timeout_sec:
-                cmd += f" --timeout {int(timeout_sec)}"
+            cmd += timeout_argument
             # Quote the instruction as a single argv element.
             cmd += f" {shlex.quote(instruction)}"
             run_env = {
