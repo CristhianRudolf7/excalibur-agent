@@ -131,8 +131,17 @@ func checklistItems(request string, max int) []string {
 // next finish call.
 func (e *Engine) confirmationText(run *Run) string {
 	const tail = " Call finish again to end the run, or keep working."
+	run.mu.Lock()
+	auditRequest := run.verificationRequestLocked()
+	run.mu.Unlock()
+	var editNotes strings.Builder
+	for _, item := range e.editScopeAudit(run, auditRequest) {
+		if item.note != "" {
+			editNotes.WriteString("\n" + item.note)
+		}
+	}
 	if !FinishChecklistEnabled() {
-		return "finish checks passed." + tail
+		return "finish checks passed." + editNotes.String() + tail
 	}
 	run.mu.Lock()
 	request := run.Request
@@ -171,6 +180,7 @@ func (e *Engine) confirmationText(run *Run) string {
 	for _, note := range finishAdvisory {
 		b.WriteString(" Advisory: " + note + ".")
 	}
+	b.WriteString(editNotes.String())
 	b.WriteString(tail)
 	return b.String()
 }

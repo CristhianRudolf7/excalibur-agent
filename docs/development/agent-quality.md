@@ -5848,3 +5848,55 @@ The method grows from 3,710 to 3,938 bytes (+228). Its existing size assertion
 moves from 3,750 to 4,000 bytes to accommodate the sentence. The new Go test
 checks the wording, byte delta and both switch boundaries. Tool definitions and
 profile pins are unchanged.
+
+### Minimal value edits: scope audit (Sections 7.5, 13.6 and 13.7)
+
+`EXCALIBUR_EDIT_SCOPE_AUDIT` defaults on for autonomous exec/eval runs. Before
+independent review or finish confirmation, it compares existing text files with
+their preserved input originals for replacement, renaming, substitution and
+redaction requests. Literal before/after values in the request identify allowed
+spans. Without literal pairs, structural checks identify changed quoting,
+escaping, whitespace, line layout and configuration keys/order. This is a
+conservative advisory, not a semantic proof that all replacements are correct.
+
+Changed hunk summaries enter both the full and recovery verifier evidence.
+A change outside the value spans adds one line per affected file:
+`edit changed text beyond the replaced values in <file>: <example>`.
+The same advisory enters finish confirmation even if its optional checklist is
+disabled. The audit never refuses a finish or changes the completion policy.
+The summaries participate in verifier cache identity so a changed audit cannot
+reuse a verdict from before the change.
+
+Only changed hunk locations and structural descriptions are included: raw input
+and replacement values are omitted to avoid exposing values during sanitization.
+Each file summary has at most 20 lines with no unchanged context. The detector
+still examines later hunks after reaching the summary limit. Reads are bounded
+to 256 KiB and fewer than 8,192 newlines per file, 4 MiB total and 32 changed
+files per audit. It uses the existing snapshot manifest and private copies;
+missing originals, unreadable files, symlinks, binary files and files outside
+these bounds are skipped. New files are excluded. The existing
+`EXCALIBUR_INPUT_SNAPSHOT` and `EXCALIBUR_INPUT_COPIES` controls continue to govern
+original availability. Assistant workers keep their existing policy. Setting
+the audit switch to `0`, `off`, `false` or `no` disables this evidence.
+
+Go tests cover pure replacements, preserved and added quotes, escaping,
+whitespace and line reflow, key order, literal multiword/quoted values, renames,
+Unicode/CRLF, profile/switch isolation, original availability, all bounds,
+unchanged/new files, full/recovery evidence, advisory completion and cache
+invalidation. Restoring the prior finish/review wiring makes the evidence-flow
+test fail. No existing tests or tool/profile pins changed for the audit. It adds
+no fixed prompt bytes; evidence size depends on the bounded changes found.
+
+### Minimal value edits: independent review (Sections 7.5 and 18)
+
+`EXCALIBUR_MINIMAL_VALUE_EDITS` also controls a compact verifier rule: for
+replacement or renaming requests, check that only the requested values changed.
+It applies to assistant and autonomous reviews, remains in compact recovery,
+and works with generalization checks enabled or disabled. Switching it off
+removes exactly this rule from both review paths.
+
+The rule adds 77 bytes to each full/recovery prompt. In the recovery test the
+full prompt grows from 5,091 to 5,168 bytes and recovery from 2,233 to 2,310.
+The task-layer prompt test measures the same delta with generalization on and
+off. Restoring the earlier method or verifier wiring makes the respective new
+regression tests fail. Tool definitions and profile pins remain unchanged.

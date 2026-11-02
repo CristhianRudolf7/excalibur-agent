@@ -194,6 +194,8 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		return true, nil
 	}
 	small := tasks.BuildVerifierContext(request, drafts, history, 20)
+	editAudit := e.editScopeAudit(run, request)
+	appendEditScopeEvidence(&small, editAudit)
 	prompt := tasks.StrongVerifierPromptWithConfig(cfg, small, history, finalText)
 	maxTokens := 512
 	if cfg.EnableGeneralizeChecks {
@@ -211,6 +213,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 	}
 	smallerContext := tasks.BuildVerifierContext(request, drafts, compactHistory, 3)
+	appendEditScopeEvidence(&smallerContext, editAudit)
 	// Keep the bounded visual summary from full observations; arbitrary output
 	// truncation can otherwise remove readable text and the comparison metrics.
 	smallerContext.VisualEvidence = small.VisualEvidence
@@ -224,7 +227,7 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 				shortRules += "FRESH_INPUTS must cite generated inputs and an independent oracle; PROPERTY must cover every explicit property; OUTPUT_CONTRACT must assess all output constraints.\n"
 			}
 		}
-		smaller = shortRules + tasks.DisagreementReviewGuidance() + tasks.ExampleFormatReviewGuidance() + smaller[at:]
+		smaller = shortRules + tasks.DisagreementReviewGuidance() + tasks.ExampleFormatReviewGuidance() + tasks.MinimalValueEditsReviewGuidance() + smaller[at:]
 	}
 	if switchOn(timeAwareRefusalCapSwitch) && e.explicitFinishRequired(run) {
 		prompt += "\n" + unmetPropertyReview
@@ -239,6 +242,10 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 	// A changed review instruction cannot reuse a verdict from before the disagreement.
 	if key != "" && rewriteNote != "" {
 		key = fmt.Sprintf("%x", sha256.Sum256([]byte(key+"\n"+rewriteNote)))
+		reuseAudit.Key = key
+	}
+	if key != "" && len(editAudit) > 0 {
+		key = fmt.Sprintf("%x", sha256.Sum256([]byte(key+"\n"+small.Diff)))
 		reuseAudit.Key = key
 	}
 	var resp providers.ChatResponse
