@@ -120,6 +120,8 @@ type Result struct {
 	// a signal ended the process). Nil for tools without an exit status
 	// and for sessions still running.
 	ExitCode *int `json:"exit_code,omitempty"`
+	// Artifacts lists visual files produced for the user (see ArtifactRef).
+	Artifacts []ArtifactRef `json:"artifacts,omitempty"`
 }
 
 // Tool is the interface every tool implements: built-ins, MCP servers,
