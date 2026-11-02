@@ -3,6 +3,7 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -63,13 +64,13 @@ func TestForegroundServiceSurvivesHarnessExit(t *testing.T) {
 	case "launcher":
 		restore := SetExecScope(ExecScope{Active: true})
 		defer restore()
-		m := NewSessionManager(TerminalDeps{Group: platform.LinuxProcessGroup{}})
+		m := NewSessionManager(TerminalDeps{Group: platform.LinuxProcessGroup{}, PTY: platform.LinuxPTY{}})
 		command := strconv.Quote(os.Args[0]) + " -test.run=^TestForegroundServiceSurvivesHarnessExit$"
 		// Keep a package/build wrapper alive around the service: the listener
 		// belongs to a descendant and must override finite-helper cleanup.
 		dir := os.Getenv("EXCALIBUR_SURVIVAL_TEST_DIR")
 		command = strconv.Quote(filepath.Join(dir, "make")) + " " + command
-		s, _, alive := m.Start("launcher", command, "", false, 250, []string{"EXCALIBUR_SURVIVAL_TEST_ROLE=server"})
+		s, _, alive := m.Start("launcher", command, "", os.Getenv("EXCALIBUR_SURVIVAL_TEST_TTY") == "1", 250, []string{"EXCALIBUR_SURVIVAL_TEST_ROLE=server"})
 		if !alive {
 			os.Exit(3)
 		}
@@ -86,41 +87,67 @@ func TestForegroundServiceSurvivesHarnessExit(t *testing.T) {
 		}
 		os.Exit(0)
 	}
-	t.Setenv("EXCALIBUR_SURVIVE_SESSIONS", "1")
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+	for _, tty := range []string{"0", "1"} {
+		t.Run("tty="+tty, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_SURVIVAL_TEST_TTY", tty)
+			t.Setenv("EXCALIBUR_SURVIVE_SESSIONS", "1")
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			addr := listener.Addr().String()
+			listener.Close()
+			dir := t.TempDir()
+			writeScript(t, dir, "make", `"$@" & wait`)
+			cmd := exec.Command(os.Args[0], "-test.run=^TestForegroundServiceSurvivesHarnessExit$")
+			cmd.Env = append(os.Environ(), "EXCALIBUR_SURVIVAL_TEST_ROLE=launcher", "EXCALIBUR_SURVIVAL_TEST_ADDR="+addr, "EXCALIBUR_SURVIVAL_TEST_DIR="+dir)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("launcher: %v %s", err, out)
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, "sessions.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sessions []SurvivingProcess
+			if err := json.Unmarshal(raw, &sessions); err != nil || len(sessions) != 1 {
+				t.Fatalf("sessions: %s %v", raw, err)
+			}
+			defer syscall.Kill(-sessions[0].Pid, syscall.SIGKILL)
+			defer os.Remove(sessions[0].LogPath)
+			client := &http.Client{Timeout: time.Second}
+			for i := 0; i < 2; i++ {
+				response, err := client.Get("http://" + addr)
+				if err != nil {
+					t.Fatal(err)
+				}
+				response.Body.Close()
+			}
+			log, err := os.ReadFile(sessions[0].LogPath)
+			if err != nil || strings.Count(string(log), "served after harness exit") != 2 {
+				t.Fatalf("output after harness exit: %s %v", log, err)
+			}
+		})
+	}
+}
+
+func TestSurvivingPTYRetainsInteractiveInput(t *testing.T) {
+	restore := SetExecScope(ExecScope{Active: true})
+	defer restore()
+	m := NewSessionManager(TerminalDeps{Group: platform.LinuxProcessGroup{}, PTY: platform.LinuxPTY{}})
+	s, _, alive := m.Start("test", `printf 'ready\n'; read response; printf 'received:%s\n' "$response"`, "", true, 250, nil)
+	defer m.Close(s.ID)
+	defer os.Remove(s.LogPath)
+	if !alive || !s.Survivable || s.LogPath == "" {
+		t.Fatal("PTY did not survive")
+	}
+	if err := m.Write(s.ID, "hello\n"); err != nil {
 		t.Fatal(err)
 	}
-	addr := listener.Addr().String()
-	listener.Close()
-	dir := t.TempDir()
-	writeScript(t, dir, "make", `"$@" & wait`)
-	cmd := exec.Command(os.Args[0], "-test.run=^TestForegroundServiceSurvivesHarnessExit$")
-	cmd.Env = append(os.Environ(), "EXCALIBUR_SURVIVAL_TEST_ROLE=launcher", "EXCALIBUR_SURVIVAL_TEST_ADDR="+addr, "EXCALIBUR_SURVIVAL_TEST_DIR="+dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("launcher: %v %s", err, out)
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "sessions.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sessions []SurvivingProcess
-	if err := json.Unmarshal(raw, &sessions); err != nil || len(sessions) != 1 {
-		t.Fatalf("sessions: %s %v", raw, err)
-	}
-	defer syscall.Kill(-sessions[0].Pid, syscall.SIGKILL)
-	defer os.Remove(sessions[0].LogPath)
-	client := &http.Client{Timeout: time.Second}
-	for i := 0; i < 2; i++ {
-		response, err := client.Get("http://" + addr)
-		if err != nil {
-			t.Fatal(err)
-		}
-		response.Body.Close()
-	}
-	log, err := os.ReadFile(sessions[0].LogPath)
-	if err != nil || strings.Count(string(log), "served after harness exit") != 2 {
-		t.Fatalf("output after harness exit: %s %v", log, err)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	out, _, _, err := m.WaitFor(ctx, s.ID, "received:hello", 2*time.Second, 0)
+	if err != nil || !strings.Contains(out, "received:hello") {
+		t.Fatalf("PTY input/output: %s %v", out, err)
 	}
 }

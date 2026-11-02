@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -154,6 +155,11 @@ func TestHideInstructionArgvSwitch(t *testing.T) {
 
 // handoffMarker is unique to this test binary run, so no ancestor's command
 // line can carry it.
+// The hand-off option now precedes --; the test binary must accept it too.
+func init() {
+	_ = flag.String("instruction-file", "", "private instruction hand-off for the re-exec test")
+}
+
 var handoffMarker = fmt.Sprintf("handoff-task-text-%d", os.Getpid())
 
 // TestInstructionArgvHandoffReexec drives the production hand-off through a

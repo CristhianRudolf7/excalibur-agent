@@ -4984,7 +4984,10 @@ problems retain their own allowance. Assistant verification is unchanged.
 
 `EXCALIBUR_VERIFICATION_FRESHNESS` (default on) examines shell command syntax
 when identifying mutations. Words inside verification script arguments no
-longer invalidate edits that already have a later passing check.
+longer invalidate edits that already have a later passing check. Checks may
+write their own logs or follow a mutation in the same command; a later edit
+still invalidates that evidence. Polling an exercised live service keeps its
+verification fresh.
 
 `EXCALIBUR_SERVICE_EXERCISE` (default on) counts a live program session plus
 a later successful localhost client command, or a client check against its
@@ -5023,5 +5026,7 @@ session from cleanup. Turning survival off restores the earlier cleanup policy.
 In exec scope, ordinary non-PTY commands use independent Linux process sessions
 and write stdout/stderr directly to persistent log files. Polling tails those
 files during the run, so services keep producing output after the harness
-exits. Surviving foreground sessions are included in the service audit record.
+exits. PTY sessions retain a real terminal and interactive input; an independent
+output pump holds their terminal open and records output after harness exit.
+Surviving foreground sessions are included in the service audit record.
 Interactive assistant terminal behavior retains its existing contract.

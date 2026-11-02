@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -51,4 +52,35 @@ func TestVerificationAfterEditDoesNotBecomeMutation(t *testing.T) {
 	if lastChangeIndex(history) != 1 {
 		t.Fatal("disabled policy no longer demonstrates old substring mutation")
 	}
+}
+
+func TestServicePollAfterClientKeepsVerificationFresh(t *testing.T) {
+	history := []HistoryTool{
+		{Name: "write_file", Args: "service.py", Output: "written"},
+		{Name: "exec", Args: `{"command":"python3 service.py"}`, Output: "session: sess-1 alive: true"},
+		{Name: "exec", Args: `{"command":"curl http://localhost:8765/status"}`, Output: "exit: 0\nready"},
+		{Name: "exec_io", Args: `{"action":"read","session":"sess-1"}`, Output: "session: sess-1 alive: true"},
+	}
+	if p := CheckFreshVerification(history, 1); len(p) != 0 {
+		t.Fatal(p)
+	}
+}
+
+func TestCheckWritingLogDoesNotInvalidateEarlierEdits(t *testing.T) {
+	drafts := []DraftCriterion{{Key: "/app/program.py", Method: types.CriterionCommand, Check: "python3 /app/program.py"}}
+	for _, command := range []string{"python3 /app/program.py > /tmp/check.log", "cp input.dat current.dat && python3 /app/program.py", "python3 /app/program.py > /tmp/check.log && echo done"} {
+		history := []HistoryTool{{Name: "write_file", Args: "/app/program.py", Output: "written"}, {Name: "exec", Args: commandArgs(command), Output: "exit: 0\nchecked"}}
+		if p := CheckStrongExercise(history, drafts, 1); len(p) != 0 {
+			t.Fatalf("%s: %v", command, p)
+		}
+	}
+	h := HistoryTool{Name: "exec", Args: commandArgs("python3 /app/program.py && cp replacement.py /app/program.py"), Output: "exit: 0\nchecked then modified"}
+	if EntryVerifiesChanges(h) {
+		t.Fatal("edit after verification counted as fresh")
+	}
+}
+
+func commandArgs(command string) string {
+	raw, _ := json.Marshal(map[string]string{"command": command})
+	return string(raw)
 }

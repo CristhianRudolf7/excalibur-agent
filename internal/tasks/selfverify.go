@@ -519,7 +519,7 @@ func CheckFreshVerification(history []HistoryTool, minChecks int) []string {
 	if last.IsError {
 		return []string{"last " + toolName(last) + " failed; fix the cause, re-run the check, and only then finish"}
 	}
-	if isStillRunning(last.Output) {
+	if isStillRunning(last.Output) && !verifiedServicePoll(history, last) {
 		return []string{toolName(last) + " is still running; wait for it (status/get_tool_output), confirm success, and only then finish"}
 	}
 	lastWrite := -1

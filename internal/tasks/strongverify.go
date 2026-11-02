@@ -296,7 +296,9 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 	}
 	window := history
 	if last := lastChangeIndex(history); last >= 0 {
-		if last+1 >= len(history) {
+		if EntryVerifiesChanges(history[last]) {
+			window = history[last:]
+		} else if last+1 >= len(history) {
 			window = nil
 		} else {
 			window = history[last+1:]
@@ -917,4 +919,40 @@ func commandMutatesArtifacts(command string) bool {
 		return true
 	})
 	return mutates
+}
+
+// EntryVerifiesChanges accepts a successful check that follows mutations in
+// the same shell invocation, including a check redirecting its own output.
+// A later explicit mutation still invalidates that check.
+func EntryVerifiesChanges(h HistoryTool) bool {
+	if !envBool("EXCALIBUR_VERIFICATION_FRESHNESS", true) || !IsExercisingCall(h) {
+		return false
+	}
+	command, ok := historyCommand(h.Args)
+	if !ok {
+		return false
+	}
+	checked := false
+	for _, segment := range SplitShellSegments(command) {
+		if commandMutatesArtifacts(segment) {
+			checked = false
+		}
+		words := ShellWords(segment)
+		if len(words) == 0 {
+			continue
+		}
+		program := filepath.Base(words[0])
+		switch program {
+		case "tee", "mv", "cp", "install", "touch", "mkdir", "rm", "unzip", "tar", "patch", "apt-get", "apt", "dpkg", "git", "pip", "pip3", "npm":
+			continue
+		case "make", "cmake":
+			if len(words) < 2 || (words[1] != "test" && words[1] != "check") {
+				continue
+			}
+		}
+		if ExercisesDeliverable(segment) {
+			checked = true
+		}
+	}
+	return checked
 }

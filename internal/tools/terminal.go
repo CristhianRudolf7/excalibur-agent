@@ -399,6 +399,9 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 }
 
 func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
+	if m.trySurvivablePTY(s, cmd, dir, env) {
+		return
+	}
 	if err := m.preflight(s, cmd); err != nil {
 		s.markDone(err)
 		return
@@ -554,6 +557,10 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 	// quick command can finish before its output reaches waitYield.
 	waited := make(chan error, 1)
 	safego.Go("tools/terminal-detached-wait", nil, func() { waited <- c.Wait() })
+	m.tailSessionLog(s, logPath, waited)
+}
+
+func (m *SessionManager) tailSessionLog(s *Session, logPath string, waited <-chan error) {
 	safego.Go("tools/terminal-detached-tail", nil, func() {
 		f, err := os.Open(logPath)
 		if err != nil {

@@ -50,6 +50,10 @@ func TestExecLeadingDashInstruction(t *testing.T) {
 			if code := run(args); code != ExitOK {
 				t.Fatalf("exit = %d", code)
 			}
+			trajectory, err := os.ReadFile(filepath.Join(logs, "trajectory.json"))
+			if err != nil || !strings.Contains(string(trajectory), "- Follow the user") || strings.Contains(string(trajectory), "ignored earlier positional") {
+				t.Fatalf("last positional instruction not preserved: %v", err)
+			}
 		})
 	}
 }

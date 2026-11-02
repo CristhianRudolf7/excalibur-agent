@@ -37,6 +37,9 @@ func (e *Engine) announceTimeReserve(run *Run, now time.Time) {
 func (e *Engine) completeReservedFinish(ctx context.Context, run *Run, args FinishArgs) error {
 	run.storeFinish(args, "")
 	run.clearRefusal()
+	if args.Status == "blocked" {
+		return e.completeBlocked(ctx, run, args)
+	}
 	run.mu.Lock()
 	from := run.state
 	err := run.transition(types.RunVerifying)

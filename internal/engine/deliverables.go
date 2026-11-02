@@ -275,7 +275,7 @@ func lastEditOf(history []tasks.HistoryTool, f deliverable) int {
 			continue
 		}
 		if name == "exec" && mentionsFile(execCommand(h.Args), f.Base) &&
-			tasks.LastArtifactChange([]tasks.HistoryTool{h}) == 0 {
+			tasks.LastArtifactChange([]tasks.HistoryTool{h}) == 0 && !tasks.EntryVerifiesChanges(h) {
 			last = i
 		}
 	}

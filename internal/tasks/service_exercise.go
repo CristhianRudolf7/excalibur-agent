@@ -17,7 +17,14 @@ var serviceExitRe = regexp.MustCompile(`(?m)^exit:\s*([0-9]+)\b`)
 // session running the named program plus a successful later local client is
 // a behavioural check; requiring that server to exit would destroy delivery.
 func ServiceExercised(history []HistoryTool, key string) bool {
-	if !ServiceExerciseEnabled() || key == "" {
+	if key == "" {
+		return false
+	}
+	return serviceExercised(history, key, "")
+}
+
+func serviceExercised(history []HistoryTool, key, sessionID string) bool {
+	if !ServiceExerciseEnabled() {
 		return false
 	}
 	live := map[string]bool{}
@@ -29,11 +36,11 @@ func ServiceExercised(history []HistoryTool, key string) bool {
 			continue
 		}
 		command, ok := historyCommand(h.Args)
-		if !ok || !strings.Contains(command, filepath.Base(key)) {
+		if !ok || (key != "" && !strings.Contains(command, filepath.Base(key))) {
 			continue
 		}
 		session := sessRe.FindStringSubmatch(h.Output)
-		if len(session) != 2 || !live[session[1]] {
+		if len(session) != 2 || !live[session[1]] || (sessionID != "" && session[1] != sessionID) {
 			continue
 		}
 		ports := servicePortRe.FindAllStringSubmatch(command+" "+h.Output, -1)
@@ -58,6 +65,18 @@ func ServiceExercised(history []HistoryTool, key string) bool {
 					return true
 				}
 			}
+		}
+	}
+	return false
+}
+
+// verifiedServicePoll lets freshness checks observe an already exercised live
+// service without requiring a server process to exit.
+func verifiedServicePoll(history []HistoryTool, last HistoryTool) bool {
+	ids := sessIDRe.FindAllString(last.Args+" "+last.Output, -1)
+	for _, id := range ids {
+		if serviceExercised(history, "", id) {
+			return true
 		}
 	}
 	return false
