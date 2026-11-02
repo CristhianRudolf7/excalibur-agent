@@ -270,7 +270,7 @@ func (e *Engine) selfVerify(ctx context.Context, run *Run, gate tasks.GateReport
 	}
 	filtered := make([]tasks.DraftCriterion, 0, len(drafts))
 	for _, d := range drafts {
-		if !run.requirementDropped(d.ID) {
+		if !run.requirementDropped(d.ID) && e.hardArtifactDraft(run, request, d) {
 			filtered = append(filtered, d)
 		}
 	}

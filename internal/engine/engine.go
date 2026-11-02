@@ -870,6 +870,7 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		return true, e.completeWithPending(ctx, run, []string{reason})
 	}
 
+	e.announceTimeReserve(run, e.deps.Clock())
 	if done, err := e.completePendingConfirmation(ctx, run, e.deps.Clock()); done || err != nil {
 		return done, err
 	}

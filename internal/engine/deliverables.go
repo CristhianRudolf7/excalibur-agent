@@ -146,6 +146,11 @@ func instructionRunsPath(request, path string) bool {
 // isProgramPath reports a script or program: a known script extension,
 // or a shebang on the first line.
 func isProgramPath(path string) bool {
+	if tasks.TypedArtifactsEnabled() {
+		if info, err := os.Stat(path); err == nil && !info.Mode().IsRegular() {
+			return false
+		}
+	}
 	if _, ok := programRunners[strings.ToLower(filepath.Ext(path))]; ok {
 		return true
 	}
@@ -210,6 +215,9 @@ func (e *Engine) deliverables(run *Run, request string, history []tasks.HistoryT
 		})
 	}
 	for _, r := range tasks.ExtractArtifactRequirementsIn(request, cfg.MaxArtifacts, workdir) {
+		if !tasks.HardArtifactRequirement(r) {
+			continue
+		}
 		switch r.Kind {
 		case tasks.ArtifactOutput, tasks.ArtifactPath, tasks.ArtifactExecutable:
 		default:
@@ -218,6 +226,11 @@ func (e *Engine) deliverables(run *Run, request string, history []tasks.HistoryT
 		resolved := resolveFinishPath(workdir, r.Path)
 		if preexistingPath(resolved, snap, started) && !asksToModify(request, r.Path) {
 			continue
+		}
+		if tasks.TypedArtifactsEnabled() {
+			if info, err := os.Stat(resolved); err == nil && !info.Mode().IsRegular() {
+				continue
+			}
 		}
 		add(resolved)
 	}
@@ -846,6 +859,10 @@ func (e *Engine) finishRequirements(run *Run, request string) []tasks.ArtifactRe
 	reqs := tasks.ExtractArtifactRequirementsIn(request, e.artifactConfig().MaxArtifacts, workdir)
 	kept := make([]tasks.ArtifactRequirement, 0, len(reqs))
 	for _, a := range reqs {
+		if !tasks.HardArtifactRequirement(a) {
+			e.noteAdvisory(run, "artifact mention (advisory): "+a.Path)
+			continue
+		}
 		if run.requirementDropped(a.ID) {
 			continue
 		}

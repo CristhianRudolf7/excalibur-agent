@@ -84,3 +84,21 @@ func TestServiceProgramDoesNotNeedToExit(t *testing.T) {
 		t.Fatal("legacy policy accepted a live program")
 	}
 }
+
+func TestBareProseArtifactIsAdvisoryThroughAllGateLayers(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	cfg := tasks.DefaultSelfVerifyConfig()
+	cfg.EnableRefine = false
+	cfg.EnableStrongVerifier = false
+	e.deps.SelfVerify = &cfg
+	run := explicitRun()
+	run.Workdir = t.TempDir()
+	run.Request = "Create a report. The narrative refers to reference.txt."
+	args := FinishArgs{Status: "completed", Summary: "Report delivered", Evidence: "Reviewed report"}
+	if reason := e.validateFinish(finishTestContext(t), run, args, args.Evidence); reason != "" {
+		t.Fatalf("prose name hard-blocked: %s", reason)
+	}
+	if text := e.confirmationText(run); !strings.Contains(text, "advisory") {
+		t.Fatalf("missing advisory: %s", text)
+	}
+}

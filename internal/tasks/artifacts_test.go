@@ -288,6 +288,8 @@ func TestGateURLNeedsHistoryEvidence(t *testing.T) {
 }
 
 func TestGateResolvesRelativeUnderWorkdir(t *testing.T) {
+	// Relative resolution remains available under the legacy gate switch.
+	t.Setenv("EXCALIBUR_STRICT_ARTIFACT_GATE", "0")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "out.txt"), []byte("data"), 0o644); err != nil {
 		t.Fatal(err)

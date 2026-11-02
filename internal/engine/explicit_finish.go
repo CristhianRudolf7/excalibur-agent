@@ -212,6 +212,7 @@ const FinishAcceptedText = "finish accepted: the run ends now."
 // snapshot taken before the first model action (D4). Guarded by the
 // run mutex.
 type finishState struct {
+	reserveNoted     bool
 	blockingCounts   map[string]int
 	finishAdvisory   []string
 	refused          bool
@@ -693,6 +694,11 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 		run.fin.refused = false
 		run.mu.Unlock()
 		return false, nil
+	}
+	e.announceTimeReserve(run, e.deps.Clock())
+	if e.inTimeReserve(run, e.deps.Clock(), 85) {
+		e.setFinishVerdict(run, tc.ID, FinishAcceptedText, false)
+		return true, e.completeReservedFinish(ctx, run, args)
 	}
 	if reasons, ok := run.unchangedRefusal(); ok && (e.timeRemains(run) || !allSoftReasons(reasons)) {
 		if hard := e.hardFinishReasons(run, reasons); len(hard) > 0 {

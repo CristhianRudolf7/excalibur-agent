@@ -36,7 +36,9 @@ func (e *Engine) countBlockingReasons(run *Run, reasons []string) {
 }
 
 func (e *Engine) hardFinishReasons(run *Run, reasons []string) []string {
-	if !e.boundedRefusals(run) {
+	reserve := e.inTimeReserve(run, e.deps.Clock(), 70)
+	e.announceTimeReserve(run, e.deps.Clock())
+	if !e.boundedRefusals(run) && !reserve {
 		return reasons
 	}
 	var hard []string
@@ -45,7 +47,7 @@ func (e *Engine) hardFinishReasons(run *Run, reasons []string) []string {
 		blocks := false
 		run.mu.Lock()
 		for _, item := range items {
-			if run.fin.blockingCounts[boundedRefusalKey(item)] < 2 {
+			if !reserve && run.fin.blockingCounts[boundedRefusalKey(item)] < 2 {
 				blocks = true
 			}
 		}

@@ -39,6 +39,7 @@ func TestConfirmationProgressFooterAndReminder(t *testing.T) {
 }
 
 func TestPendingConfirmationDeadline(t *testing.T) {
+	t.Setenv("EXCALIBUR_FINISH_TIME_RESERVE", "0")
 	for _, change := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unchanged", true: "changed"}[change], func(t *testing.T) {
 			e, js := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
@@ -82,6 +83,7 @@ func TestPendingConfirmationDeadline(t *testing.T) {
 }
 
 func TestConfirmationDeadlineFallbackAndToolResults(t *testing.T) {
+	t.Setenv("EXCALIBUR_FINISH_TIME_RESERVE", "0")
 	runner := scriptedRunner()
 	runner.add("read_file", types.EffectReadOnly, types.IdemPure, tools.Result{Status: tools.StatusOK, Output: "contents"})
 	e, js := testEngine(&fakeEndpoint{}, runner, passingGate())

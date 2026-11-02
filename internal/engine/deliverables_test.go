@@ -160,7 +160,7 @@ func TestPreexistingInputIsNotADeliverable(t *testing.T) {
 	if got := e.deliverables(run, run.Request, nil); len(got) != 0 {
 		t.Fatalf("provided input named as output must not be a deliverable: %+v", got)
 	}
-	run.Request = "Update " + input + " with the summary table."
+	run.Request = "Write an update to " + input + " with the summary table."
 	if got := e.deliverables(run, run.Request, nil); len(got) != 1 {
 		t.Fatalf("an instruction to modify the input makes it a deliverable: %+v", got)
 	}

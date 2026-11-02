@@ -50,7 +50,7 @@ func TestInstalledDeliverableHardChecks(t *testing.T) {
 		{"Install /usr/local/bin/mytool.", ArtifactFS{}, "missing"},
 		{"Install /usr/local/bin/mytool.", ArtifactFS{Exists: true}, "not executable"},
 		{"Install /usr/local/bin/mytool.", ArtifactFS{Exists: true, Executable: true}, ""},
-		{"Install /usr/local/bin/mytool.", ArtifactFS{Exists: true, IsDir: true}, "not executable"},
+		{"Install /usr/local/bin/mytool.", ArtifactFS{Exists: true, IsDir: true}, ""},
 		{"Install /usr/local/lib/myplugin.so.", ArtifactFS{}, "missing"},
 		{"Install /usr/local/lib/myplugin.so.", ArtifactFS{Exists: true}, ""},
 		{"Place /usr/local/share/myapp/data.", ArtifactFS{Exists: true}, ""},

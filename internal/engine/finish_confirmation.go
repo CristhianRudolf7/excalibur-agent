@@ -47,6 +47,18 @@ func (r *Run) observeConfirmation(unchanged bool) {
 // Only explicit exec/eval finish rounds qualify. Incomplete snapshots never
 // authorize automatic completion, nor does a file edit after the passed check.
 func (e *Engine) completePendingConfirmation(ctx context.Context, r *Run, now time.Time) (bool, error) {
+	if r.confirmArmed() && e.inTimeReserve(r, now, 85) {
+		r.mu.Lock()
+		var args *FinishArgs
+		if r.Finish != nil && r.state == types.RunRunning {
+			cp := *r.Finish
+			args = &cp
+		}
+		r.mu.Unlock()
+		if args != nil {
+			return true, e.completeReservedFinish(ctx, r, *args)
+		}
+	}
 	if !switchOn("EXCALIBUR_FINISH_CONFIRM_PROGRESS") || !e.explicitFinishRequired(r) || !r.confirmArmed() {
 		return false, nil
 	}

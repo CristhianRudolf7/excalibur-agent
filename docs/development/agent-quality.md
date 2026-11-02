@@ -4990,3 +4990,25 @@ longer invalidate edits that already have a later passing check.
 a later successful localhost client command, or a client check against its
 reported port, as exercising a service. A failed client or a stopped session
 does not satisfy this check. A service does not have to exit to pass.
+
+### Artifact gate precision
+
+`EXCALIBUR_STRICT_ARTIFACT_GATE` (default on) limits hard filesystem checks
+to absolute paths paired with an explicit creation, installation or writing
+instruction. Relative paths and prose file names remain advisory. Existing
+absolute-path root and example exclusions still apply.
+
+`EXCALIBUR_TYPED_ARTIFACTS` (default on) checks artifacts according to their
+filesystem type. Output directories pass when they contain entries. Sockets
+and FIFOs pass by existence, without content reads or execute-bit checks.
+File-based program and content heuristics skip these special objects.
+
+### Delivery time reserve
+
+`EXCALIBUR_FINISH_TIME_RESERVE` (default on) reserves the end of an autonomous
+exec/eval wall budget for delivery. From 70%, finish gate refusals appear as
+advisory confirmation items, and the run receives one message: "time reserve:
+finish now with what works; refusals are advisory from here". From 85%, a
+valid finish call or an already pending confirmation completes immediately,
+without another verification pass. This uses elapsed wall time and works with
+time-only budgets. Interactive assistant verification retains its policy.

@@ -602,6 +602,7 @@ func hasAny(lower string, words []string) bool {
 
 // ArtifactFS is the filesystem view of one required path.
 type ArtifactFS struct {
+	Mode       os.FileMode
 	Exists     bool
 	IsDir      bool
 	Size       int64
@@ -623,7 +624,7 @@ func DefaultStat(path string) (ArtifactFS, error) {
 	if err != nil {
 		return ArtifactFS{}, err
 	}
-	fs := ArtifactFS{Exists: true, Size: fi.Size()}
+	fs := ArtifactFS{Exists: true, Size: fi.Size(), Mode: fi.Mode()}
 	if fi.IsDir() {
 		fs.IsDir = true
 		f, err := os.Open(path)
@@ -681,6 +682,9 @@ func CheckArtifactFiles(reqs []ArtifactRequirement, history []HistoryTool, workd
 	for _, r := range reqs {
 		switch r.Kind {
 		case ArtifactPath, ArtifactExecutable, ArtifactOutput:
+			if !HardArtifactRequirement(r) {
+				continue
+			}
 			resolved := resolveArtifact(workdir, r.Path)
 			fs, err := stat(resolved)
 			if err != nil || !fs.Exists {
@@ -688,7 +692,11 @@ func CheckArtifactFiles(reqs []ArtifactRequirement, history []HistoryTool, workd
 					"required artifact missing: "+r.Path+" — create it as stated ("+shortSource(r.Source)+")")
 				continue
 			}
-			installedDirectory := installedDeliverablesEnabled() && installedDeliverablePath(r.Path) && fs.IsDir
+			if TypedArtifactsEnabled() && fs.Mode&(os.ModeSocket|os.ModeNamedPipe) != 0 {
+				// IPC endpoints are exercised through clients; reading them here can block.
+				continue
+			}
+			installedDirectory := !TypedArtifactsEnabled() && installedDeliverablesEnabled() && installedDeliverablePath(r.Path) && fs.IsDir
 			if r.Kind == ArtifactExecutable && (installedDirectory || (!fs.IsDir && !fs.Executable)) {
 				pendings = append(pendings,
 					"required artifact not executable: "+r.Path+" — install it so it runs ("+shortSource(r.Source)+")")
@@ -978,4 +986,18 @@ func ApplyArtifactGate(cfg ArtifactConfig, req ArtifactRequest) []string {
 		pendings = append(pendings[:5], "…and "+strconv.Itoa(len(pendings)-5)+" more required artifacts need attention")
 	}
 	return pendings
+}
+
+// StrictArtifactGateEnabled limits filesystem obligations to explicit absolute
+// output paths. Prose names remain available for advisory checklists.
+func StrictArtifactGateEnabled() bool { return envBool("EXCALIBUR_STRICT_ARTIFACT_GATE", true) }
+
+func TypedArtifactsEnabled() bool { return envBool("EXCALIBUR_TYPED_ARTIFACTS", true) }
+
+// HardArtifactRequirement distinguishes requested outputs from prose mentions.
+func HardArtifactRequirement(r ArtifactRequirement) bool {
+	if !StrictArtifactGateEnabled() || r.Path == "" {
+		return true
+	}
+	return filepath.IsAbs(r.Path) && installedCreateRe.MatchString(r.Source) && !installedNegationRe.MatchString(r.Source) && !isExampleUse(r.Source, r.Path)
 }
