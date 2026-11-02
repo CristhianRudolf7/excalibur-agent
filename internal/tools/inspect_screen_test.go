@@ -77,11 +77,13 @@ func TestInspectScreenPrintableASCIIAndBorders(t *testing.T) {
 		ascii.WriteByte(c)
 	}
 	const borders = "░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀"
-	for _, width := range []int{8, 9} {
-		lines := []string{ascii.String()[:60], ascii.String()[60:], borders}
-		got, _ := recoveredScreen(t, renderScreen(t, screenGrid{width, 16, 1, 80, 25}, lines, color.White, color.Black))
-		if got != strings.Join(lines, "\n") {
-			t.Fatalf("%d-column glyphs: %q", width, got)
+	for _, height := range []int{14, 16} {
+		for _, width := range []int{8, 9} {
+			lines := []string{ascii.String()[:60], ascii.String()[60:], borders}
+			got, _ := recoveredScreen(t, renderScreen(t, screenGrid{width, height, 1, 80, 25}, lines, color.White, color.Black))
+			if got != strings.Join(lines, "\n") {
+				t.Fatalf("%dx%d glyphs: %q", width, height, got)
+			}
 		}
 	}
 	// Independent reference for the embedded VGA capital A, including the

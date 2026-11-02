@@ -5432,10 +5432,10 @@ As with the other recent method additions, the method text follows
 The existing default-on `EXCALIBUR_INSPECT_IMAGE` switch also gates built-in
 screen reading. `inspect_image` automatically emits `screen_text` for detected
 character grids; `text: true` requests an explicit unavailable hint when no
-supported grid is found. Reading uses embedded UniVGA 8×16 glyphs under its
-permissive X11 license and public-domain console-setup VGA 8×14 glyphs. Missing
-8×14 mixed borders and vertical half blocks use UniVGA with its edge rows removed.
-The source comment retains the license, source URLs and source checksums.
+supported grid is found. Reading uses embedded public-domain console-setup
+VGA 8×16 and 8×14 glyphs. Missing mixed borders and vertical half blocks use
+Modern DOS 8×16 glyphs under CC0, with edge rows removed for 8×14. The source
+comment records the fonts, public-domain licenses, source URLs and checksums.
 No external program or model is needed.
 
 The reader supports 8- or 9-pixel cells, 14- or 16-pixel heights, and integer
