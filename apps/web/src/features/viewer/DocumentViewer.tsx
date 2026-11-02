@@ -1,3 +1,4 @@
+import { WorkspaceImage } from './WorkspaceImage'
 import { PanelSkeleton } from './PanelSkeleton'
 import { useLoadingState } from '@/features/work/loading'
 import { openWorkspaceFile } from '../files/open'
@@ -223,24 +224,5 @@ function DocumentContent({ target, onClose }: { target: ViewerTarget; onClose: (
         !error && <p>{t('noPages')}</p>
       )}
     </section>
-  )
-}
-
-function WorkspaceImage({ url, path }: { url: string; path: string }) {
-  const { t } = useTranslation('viewer')
-  const [failed, setFailed] = useState(false)
-  return failed ? (
-    <div className="viewer-empty" role="alert">
-      <h2>{t('openError')}</h2>
-    </div>
-  ) : (
-    <div className="viewer-body">
-      <img
-        className="workspace-image"
-        src={url}
-        alt={path.split('/').at(-1)}
-        onError={() => setFailed(true)}
-      />
-    </div>
   )
 }

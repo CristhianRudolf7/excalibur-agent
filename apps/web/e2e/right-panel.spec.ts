@@ -67,13 +67,13 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.right-panel')).toHaveCount(0)
     await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
     await expect(page.getByRole('heading', { name: '¿Qué quieres ver?' })).toBeVisible()
-    await expect(page.locator('.panel-launcher')).toHaveCount(4)
+    await expect(page.locator('.panel-launcher')).toHaveCount(5)
     await expect(page.locator('.panel-tabs')).toHaveCount(0)
     await expect(page.locator('.panel-launcher').filter({ hasText: 'Actividad' })).toContainText(
       '2 en curso',
     )
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-a-home-${width}.png`,
+      path: test.info().outputPath(`fe-a-home-${width}.png`),
       animations: 'disabled',
     })
     const launch = (name: string) =>
@@ -96,7 +96,7 @@ for (const width of [1440, 390]) {
     await expect(page.getByRole('heading', { name: 'Recientes', exact: true })).toBeVisible()
     await expect(page.locator('.activity-completed')).toContainText('Panel ready')
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-a-activity-${width}.png`,
+      path: test.info().outputPath(`fe-a-activity-${width}.png`),
       animations: 'disabled',
     })
     await back()
@@ -110,7 +110,7 @@ for (const width of [1440, 390]) {
     )
     await expect(binary.locator('.change-diff')).toHaveCount(0)
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-a-changes-${width}.png`,
+      path: test.info().outputPath(`fe-a-changes-${width}.png`),
       animations: 'disabled',
     })
     await page.locator('.panel-changes .change-path').filter({ hasText: 'app.ts' }).click()
@@ -126,7 +126,7 @@ for (const width of [1440, 390]) {
     await toggle.click()
     await expect(page.locator('.tree-row.selected')).toContainText('app.ts')
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-a-files-${width}.png`,
+      path: test.info().outputPath(`fe-a-files-${width}.png`),
       animations: 'disabled',
     })
     await back()
@@ -150,7 +150,7 @@ for (const width of [1440, 390]) {
       }),
     ).toBe(true)
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-a-dark-${width}.png`,
+      path: test.info().outputPath(`fe-a-dark-${width}.png`),
       animations: 'disabled',
     })
     await page.emulateMedia({ reducedMotion: 'reduce' })

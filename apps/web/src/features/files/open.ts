@@ -7,7 +7,7 @@ import { useWorkbook } from '../spreadsheet/store'
 
 /** Right-panel views (owned by the shell; see tasks/rp/common.md). */
 export type PanelView =
-  'home' | 'activity' | 'changes' | 'files' | 'document' | 'sheet' | 'whiteboard'
+  'home' | 'activity' | 'changes' | 'files' | 'document' | 'sheet' | 'whiteboard' | 'diagrams'
 
 /** Which viewer a workspace file opens in. */
 export type FileViewKind = 'code' | 'sheet' | 'document' | 'image' | 'other'

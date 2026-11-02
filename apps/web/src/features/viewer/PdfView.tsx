@@ -9,13 +9,15 @@ import { seedPDF } from './seeds'
 
 export function PdfView({
   digest,
+  sourceURL,
   page,
   chunk,
   demo,
   focusKey,
   onPageCount,
 }: {
-  digest: string
+  digest?: string
+  sourceURL?: string
   page: Page
   chunk?: ChunkDetail
   demo: boolean
@@ -29,7 +31,7 @@ export function PdfView({
   const [zoom, setZoom] = useState(1)
   const [failedRender, setFailedRender] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
-  const renderKey = `${digest}:${page.number}:${available}:${zoom}:${demo}:${attempt}`
+  const renderKey = `${sourceURL ?? digest}:${page.number}:${available}:${zoom}:${demo}:${attempt}`
   const [result, setResult] = useState<{
     key: string
     width: number
@@ -57,7 +59,7 @@ export function PdfView({
         const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url')
         if (disposed) return
         pdfjs.GlobalWorkerOptions.workerSrc = worker.default
-        const url = blobURL(digest)
+        const url = sourceURL?.startsWith('blob:') ? sourceURL : blobURL(digest ?? '')
         if (!demo && !url) throw new Error('Invalid blob digest')
         loading = pdfjs.getDocument({
           ...(demo ? { data: seedPDF() } : { url: url! }),
@@ -110,7 +112,7 @@ export function PdfView({
       rendering?.cancel()
       void loading?.destroy()
     }
-  }, [digest, page.number, width, demo, renderKey, onPageCount])
+  }, [digest, sourceURL, page.number, width, demo, renderKey, onPageCount])
   useEffect(() => {
     if (rendered)
       container.current?.querySelector('[data-highlight]')?.scrollIntoView?.({ block: 'center' })

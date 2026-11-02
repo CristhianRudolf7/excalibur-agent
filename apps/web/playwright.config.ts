@@ -14,7 +14,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${port}`, channel: 'chrome' },
   webServer: {
     timeout: 180_000,
-    command: `pnpm build && pnpm preview --host 127.0.0.1 --port ${port}`,
+    command: `pnpm build && pnpm preview --host 127.0.0.1 --strictPort --port ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
   },

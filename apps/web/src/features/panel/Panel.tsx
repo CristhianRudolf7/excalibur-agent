@@ -1,3 +1,4 @@
+import { emptyArtifacts, useArtifacts } from '@/features/artifacts/store'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -8,6 +9,7 @@ import {
   FileDiff,
   FolderOpen,
   Layers,
+  Images,
   Workflow,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -105,13 +107,19 @@ export function usePanelData(agent: string) {
 type PanelData = ReturnType<typeof usePanelData>
 export function PanelHome({
   data,
+  session,
   onView,
 }: {
   data: PanelData
+  session: string
   onView: (view: PanelView) => void
 }) {
   const { t } = useTranslation()
   const board = useWhiteboard((s) => s.board)
+  const artifacts = useArtifacts((state) => state.conversations[session]) ?? emptyArtifacts
+  const pendingArtifacts = artifacts.items.filter((item) =>
+    artifacts.pendingTurns.includes(item.turn_id),
+  ).length
   const cards = [
     {
       view: 'activity',
@@ -126,6 +134,13 @@ export function PanelHome({
       title: 'panelChangesTitle',
       hint: 'panelChangesHint',
       badge: `${data.changes.length} · +${data.changes.reduce((n, c) => n + c.added, 0)} −${data.changes.reduce((n, c) => n + c.removed, 0)}`,
+    },
+    {
+      view: 'diagrams',
+      icon: Images,
+      title: 'diagrams',
+      hint: 'artifactCardHint',
+      badge: t('artifactCount', { count: pendingArtifacts || artifacts.items.length }),
     },
     { view: 'files', icon: FolderOpen, title: 'files', hint: 'panelFilesHint', badge: 'Excalibur' },
     {
@@ -146,7 +161,10 @@ export function PanelHome({
           <button
             className="panel-launcher"
             key={card.view}
-            onClick={() => onView(card.view)}
+            onClick={() => {
+              if (card.view === 'diagrams') useArtifacts.getState().showAll(session)
+              onView(card.view)
+            }}
             style={{ animationDelay: `${index * 35}ms` }}
           >
             <span className="launcher-icon">
@@ -155,12 +173,22 @@ export function PanelHome({
             <span className="launcher-copy">
               <strong>{t(card.title)}</strong>
               <span>{t(card.hint)}</span>
-              <small>
+              <small role={card.view === 'diagrams' ? 'status' : undefined}>
+                {card.view === 'diagrams' && pendingArtifacts > 0 && <i className="activity-dot" />}
                 {card.view === 'activity' && data.items.some((item) => !finished(item)) && (
                   <i className="activity-dot" />
                 )}
                 {card.badge}
               </small>
+              {card.view === 'diagrams' && artifacts.items.length > 0 && (
+                <span className="artifact-card-items" role="list" aria-label={t('artifactHistory')}>
+                  {artifacts.items.slice(0, 3).map((item) => (
+                    <span role="listitem" key={item.id}>
+                      {item.title}
+                    </span>
+                  ))}
+                </span>
+              )}
             </span>
             <ArrowUpRight className="launcher-arrow" size={18} />
           </button>

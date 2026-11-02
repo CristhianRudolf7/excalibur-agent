@@ -229,3 +229,16 @@
   color: var(--muted-foreground);
   background: var(--accent-tint);
 }
+
+.viewer-image-viewport {
+  max-height: 65vh;
+  overflow: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.viewer-image-viewport:active {
+  cursor: grabbing;
+}
+.viewer-image-viewport .workspace-image {
+  pointer-events: none;
+}

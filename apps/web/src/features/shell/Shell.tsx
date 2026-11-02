@@ -1,3 +1,5 @@
+import { Artifacts } from '@/features/artifacts/Artifacts'
+import { useArtifactEvents } from '@/features/artifacts/store'
 import { PanelHome, PanelChanges, PanelActivity, usePanelData } from '@/features/panel/Panel'
 import { registerPanelOpener } from '@/features/files/open'
 import '@/styles/redesign/panel-home.css'
@@ -208,6 +210,7 @@ export function Shell() {
     registerPanelOpener(setPanel)
     return () => registerPanelOpener(null)
   }, [setPanel])
+  useArtifactEvents(location.pathname.startsWith('/agents/') ? conversationId(agent.id) : undefined)
   const panelData = usePanelData(agent.id)
   const go = (path: string) => {
     shell.setDrawer(false)
@@ -710,11 +713,17 @@ export function Shell() {
                       aria-label={t(panel === 'changes' ? 'panelChangesTitle' : panel)}
                     >
                       {panel === 'home' ? (
-                        <PanelHome data={panelData} onView={setPanel} />
+                        <PanelHome
+                          data={panelData}
+                          session={conversationId(agent.id)}
+                          onView={setPanel}
+                        />
                       ) : panel === 'activity' ? (
                         <PanelActivity data={panelData} />
                       ) : panel === 'changes' ? (
                         <PanelChanges changes={panelData.changes} />
+                      ) : panel === 'diagrams' ? (
+                        <Artifacts session={conversationId(agent.id)} />
                       ) : panel === 'whiteboard' ? (
                         <Whiteboard conversationId={conversationId(agent.id)} />
                       ) : panel === 'files' ? (

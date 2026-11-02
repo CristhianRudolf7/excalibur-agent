@@ -1,3 +1,4 @@
+import { useArtifacts } from '@/features/artifacts/store'
 import { loadingLazy as lazy, LoadingFallback } from '@/features/shell/loading'
 import { useLoading } from '@/components/shared'
 import { UsageSkeleton } from './Skeletons'
@@ -18,6 +19,8 @@ const sections = [
 ] as const
 function General() {
   const { t, i18n } = useTranslation()
+  const autoOpen = useArtifacts((state) => state.autoOpen)
+  const setAutoOpen = useArtifacts((state) => state.setAutoOpen)
   const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'))
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark)
@@ -40,6 +43,14 @@ function General() {
         ]}
         onChange={(value) => void i18n.changeLanguage(value)}
       />
+      <label>
+        <input
+          type="checkbox"
+          checked={autoOpen}
+          onChange={(event) => setAutoOpen(event.target.checked)}
+        />
+        {t('artifactAutoOpen')}
+      </label>
       <label>{t('settingsTheme')}</label>
       <Segmented
         label={t('settingsTheme')}

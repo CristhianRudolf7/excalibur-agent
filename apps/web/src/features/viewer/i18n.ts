@@ -30,6 +30,7 @@ const entries = {
   previous: ['Previous', 'Anterior'],
   next: ['Next', 'Siguiente'],
   notes: ['Notes', 'Notas'],
+  pan: ['Pan image with dragging or arrow keys', 'Desplazar imagen arrastrando o con las flechas'],
   zoomIn: ['Zoom in', 'Ampliar'],
   zoomOut: ['Zoom out', 'Reducir'],
   fit: ['Fit width', 'Ajustar al ancho'],

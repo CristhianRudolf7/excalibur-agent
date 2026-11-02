@@ -1,0 +1,105 @@
+.artifacts-view {
+  padding: 20px;
+  color: var(--foreground);
+}
+.artifact-group {
+  margin-block: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.artifact-preview h3 {
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+.artifact-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.artifact-details button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.artifact-details button[aria-pressed='true'] {
+  color: var(--primary);
+  background: var(--muted);
+}
+.artifact-preview .workspace-image {
+  max-width: 100%;
+}
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+}
+.artifact-actions button,
+.artifact-actions a,
+.artifact-preview .viewer-toolbar button {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.artifact-actions :disabled,
+.artifact-preview .viewer-toolbar :disabled {
+  opacity: 0.5;
+}
+.artifact-source {
+  padding: 12px;
+  background: var(--muted);
+}
+.artifact-source pre {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre;
+}
+.artifact-preview .viewer-pdf {
+  max-height: 65vh;
+  overflow: auto;
+}
+.artifact-history {
+  overflow: auto;
+  margin-block: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.artifact-history-row {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  text-align: left;
+}
+.artifact-history-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-history-row small {
+  color: var(--muted-foreground);
+}
+.artifact-history-row[aria-selected='true'] {
+  background: var(--muted);
+  color: var(--primary);
+}
+.artifact-show-all {
+  padding-block: 8px;
+  color: var(--primary);
+}
+
+.artifact-preview .viewer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}

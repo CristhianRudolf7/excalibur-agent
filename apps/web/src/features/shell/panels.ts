@@ -7,6 +7,7 @@ export const panels = [
   'document',
   'sheet',
   'whiteboard',
+  'diagrams',
 ] as const
 export type Panel = PanelView
 export function validatePanel(search: Record<string, unknown>): {

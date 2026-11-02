@@ -1,3 +1,4 @@
+import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
 import type { WhiteboardMethods } from '@/features/whiteboard/types'
 /** Wire types mirror internal/api and packages/contracts; only connected methods belong here. */
 export interface Principal {
@@ -157,6 +158,10 @@ export interface ConversationEvent {
   task_id?: string
   payload:
     | {
+        session_id?: string
+        turn_id?: string
+        artifact?: Artifact
+        artifacts?: Artifact[]
         item?: ActivityItem
         automation?: Automation
         run?: AutomationRun
@@ -197,6 +202,7 @@ export interface ActivityItem {
   error?: string
 }
 export interface RpcMethods extends WhiteboardMethods {
+  'artifacts.get': { params: { id: string }; result: ArtifactContent }
   'activity.list': { params: { conversation_id: string }; result: { items: ActivityItem[] } }
 
   'question.answer': { params: { question_id: string; answer: string }; result: unknown }
