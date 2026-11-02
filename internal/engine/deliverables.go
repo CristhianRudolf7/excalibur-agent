@@ -406,7 +406,7 @@ func unexecutedProgramReasons(request string, history []tasks.HistoryTool, files
 		if last < 0 && f.Preexisting {
 			continue
 		}
-		ran := false
+		ran := tasks.ServiceExercised(history[last+1:], f.Base)
 		for i := last + 1; i < len(history) && !ran; i++ {
 			h := history[i]
 			if strings.ToLower(h.Name) != "exec" {

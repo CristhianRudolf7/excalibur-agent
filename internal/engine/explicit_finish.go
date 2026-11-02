@@ -212,6 +212,8 @@ const FinishAcceptedText = "finish accepted: the run ends now."
 // snapshot taken before the first model action (D4). Guarded by the
 // run mutex.
 type finishState struct {
+	blockingCounts   map[string]int
+	finishAdvisory   []string
 	refused          bool
 	refusalMark      int
 	refusalReasons   []string
@@ -452,18 +454,19 @@ func (e *Engine) decideFinish(ctx context.Context, run *Run, args FinishArgs, ev
 		}
 		reasons = append(reasons, reason)
 		if !ActionableRefusalsEnabled() {
-			return finishDecision{reasons: reasons}
+			return finishDecision{reasons: e.hardFinishReasons(run, reasons)}
 		}
 	}
 	if args.Status == "blocked" {
 		reasons = append(reasons, e.blockedReasons(run, args)...)
-		return finishDecision{reasons: reasons}
+		return finishDecision{reasons: e.hardFinishReasons(run, reasons)}
 	}
 	gate := e.gateCheck(run)
 	merged := e.selfVerify(ctx, run, gate, evidenceText)
 	if !merged.OK {
 		reasons = append(reasons, merged.Pendings...)
 	}
+	reasons = e.hardFinishReasons(run, reasons)
 	dec := finishDecision{reasons: reasons}
 	dec.soft = len(reasons) > 0 && allSoftReasons(reasons) && !e.timeRemains(run)
 	return dec
@@ -641,6 +644,7 @@ func (r *Run) rememberRefusal(reasons []string) {
 // refuseCall refuses one finish call: the numbered refusal is the
 // finish tool result (D1) and a duplicate volatile note.
 func (e *Engine) refuseCall(ctx context.Context, run *Run, tc providers.ToolCall, reasons []string) {
+	e.countBlockingReasons(run, reasons)
 	text := e.refuseFinish(ctx, run, reasons)
 	run.recordFinishRefusal(text)
 	run.rememberRefusal(reasons)
@@ -651,6 +655,10 @@ func (e *Engine) refuseCall(ctx context.Context, run *Run, tc providers.ToolCall
 // noChangeRefusal answers a finish that follows a refusal with no tool
 // work in between (D2): the same reasons, without the verifier.
 func (e *Engine) noChangeRefusal(ctx context.Context, run *Run, tc providers.ToolCall, reasons []string) {
+	e.countBlockingReasons(run, reasons)
+	if e.boundedRefusals(run) && ActionableRefusalsEnabled() {
+		_ = e.refuseFinish(ctx, run, reasons) // Persist repeated blocks for recovery.
+	}
 	text := "finish refused: nothing changed since the previous refusal (same reasons): " + strings.Join(reasons, "; ")
 	run.recordFinishRefusal(text)
 	e.setFinishVerdict(run, tc.ID, text, true)
@@ -687,8 +695,10 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 		return false, nil
 	}
 	if reasons, ok := run.unchangedRefusal(); ok && (e.timeRemains(run) || !allSoftReasons(reasons)) {
-		e.noChangeRefusal(ctx, run, tc, reasons)
-		return false, nil
+		if hard := e.hardFinishReasons(run, reasons); len(hard) > 0 {
+			e.noChangeRefusal(ctx, run, tc, hard)
+			return false, nil
+		}
 	}
 	dec := e.decideFinish(ctx, run, args, finishEvidenceText(args, assistantText))
 	if len(dec.reasons) > 0 && !dec.soft {
@@ -762,7 +772,8 @@ func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) 
 	run.mu.Lock()
 	run.LastGate = rep
 	run.mu.Unlock()
-	if !rep.OK {
+	rep.Pendings = e.hardFinishReasons(run, rep.Pendings)
+	if !rep.OK && len(rep.Pendings) > 0 {
 		// The world moved between validation and completion (a
 		// background session settled, a file changed): return to
 		// work with the fresh pendings instead of completing.

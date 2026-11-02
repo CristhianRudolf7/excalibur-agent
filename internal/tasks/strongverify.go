@@ -43,6 +43,8 @@ package tasks
 
 import (
 	"encoding/json"
+	"mvdan.cc/sh/v3/syntax"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -169,6 +171,14 @@ func lastChangeIndex(history []HistoryTool) int {
 		}
 		if strings.ToLower(strings.TrimSpace(h.Name)) != "exec" {
 			continue
+		}
+		if envBool("EXCALIBUR_VERIFICATION_FRESHNESS", true) {
+			if command, ok := historyCommand(h.Args); ok {
+				if commandMutatesArtifacts(command) {
+					last = i
+				}
+				continue
+			}
 		}
 		args := sinkRe.ReplaceAllString(strings.ToLower(h.Args), "")
 		if redirectRe.MatchString(args) {
@@ -299,7 +309,11 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 		}
 	}
 	var pendings []string
-	if len(exercising) < minChecks {
+	serviceChecked := false
+	for _, d := range cmd {
+		serviceChecked = serviceChecked || ServiceExercised(window, d.Key)
+	}
+	if len(exercising) < minChecks && !serviceChecked {
 		pendings = append(pendings, "changes since the last check are unverified; "+strongHint(cmd, fmt, history)+", confirm they pass on the current artifacts, and only then finish")
 	}
 	var corpus strings.Builder
@@ -311,7 +325,7 @@ func CheckStrongExercise(history []HistoryTool, drafts []DraftCriterion, minChec
 	}
 	text := corpus.String()
 	for _, d := range cmd {
-		if draftMentioned(d, text) {
+		if draftMentioned(d, text) || ServiceExercised(window, d.Key) {
 			continue
 		}
 		pendings = append(pendings, "deliverable not exercised: no passing run, import, query or parse of "+strconv.Quote(d.Key)+" after the last change; run "+d.Check+" with representative inputs and check the output, and only then finish")
@@ -850,4 +864,57 @@ func historyCommand(args string) (string, bool) {
 		return a.Command, true
 	}
 	return "", false
+}
+
+// commandMutatesArtifacts examines shell syntax rather than JSON text or
+// substrings inside script arguments. Verification output mentioning a build
+// tool must not invalidate earlier edits that already have passing checks.
+func commandMutatesArtifacts(command string) bool {
+	file, err := syntax.NewParser().Parse(strings.NewReader(command), "")
+	if err != nil {
+		return redirectRe.MatchString(sinkRe.ReplaceAllString(command, ""))
+	}
+	mutates := false
+	syntax.Walk(file, func(node syntax.Node) bool {
+		switch n := node.(type) {
+		case *syntax.Redirect:
+			if n.Word == nil {
+				return true
+			}
+			target := n.Word.Lit()
+			if target != "/dev/null" && (n.Op == syntax.RdrOut || n.Op == syntax.AppOut || n.Op == syntax.RdrAll || n.Op == syntax.AppAll || n.Op == syntax.ClbOut) {
+				mutates = true
+			}
+		case *syntax.CallExpr:
+			if len(n.Args) == 0 {
+				return true
+			}
+			program := filepath.Base(n.Args[0].Lit())
+			second := ""
+			if len(n.Args) > 1 {
+				second = n.Args[1].Lit()
+			}
+			switch program {
+			case "tee", "mv", "cp", "install", "touch", "mkdir", "rm", "make", "cmake", "unzip", "tar", "patch", "apt-get", "apt", "dpkg":
+				mutates = true
+			case "go", "cargo":
+				mutates = mutates || second == "build" || second == "install"
+			case "pip", "pip3", "npm":
+				mutates = mutates || second == "install" || (second == "run" && len(n.Args) > 2 && n.Args[2].Lit() == "build")
+			case "git":
+				mutates = mutates || second == "apply"
+			case "apk":
+				mutates = mutates || second == "add"
+			case "curl", "wget":
+				for _, arg := range n.Args[1:] {
+					word := arg.Lit()
+					if word == "-o" || word == "-O" || word == "--output" || word == "--output-document" || strings.HasPrefix(word, "--output=") {
+						mutates = true
+					}
+				}
+			}
+		}
+		return true
+	})
+	return mutates
 }

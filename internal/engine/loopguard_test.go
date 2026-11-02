@@ -239,6 +239,8 @@ func TestPureCommandsCountByOutput(t *testing.T) {
 // Finish repeats count toward the loop key: an unchanged refusal of
 // finish notes at its third occurrence, and the run ends at its step cap.
 func TestFinishRepeatsCountTowardLoopKey(t *testing.T) {
+	// Exercise the legacy repeat-loop policy independently of the refusal cap.
+	t.Setenv("EXCALIBUR_FINISH_REFUSAL_CAP", "0")
 	ctx := context.Background()
 	finish := func(id string) providers.ChatResponse {
 		return toolResp(toolCall(id, "finish", `{"status":"completed","summary":"done","evidence":"ran it"}`))

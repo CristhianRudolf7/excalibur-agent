@@ -393,7 +393,16 @@ func (e *Engine) restoreRefusals(ctx context.Context, run *Run) {
 			continue
 		}
 		s.previous = map[string]RefusalItem{}
+		if run.fin.blockingCounts == nil {
+			run.fin.blockingCounts = map[string]int{}
+		}
+		seenKeys := map[string]bool{}
 		for _, item := range audit.Items {
+			key := boundedRefusalKey(item)
+			if !seenKeys[key] {
+				run.fin.blockingCounts[key]++
+				seenKeys[key] = true
+			}
 			s.counts[item.ID]++
 			s.previous[item.ID] = item
 			s.records = append(s.records, RefusalRecord{Attempt: audit.Attempt, Item: item})

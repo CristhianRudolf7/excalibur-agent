@@ -166,9 +166,8 @@ func TestActionableFinishReturnsChecklistInHistory(t *testing.T) {
 			recorded++
 		}
 	}
-	// The first refusal is audited; the no-change answer to the repeat is
-	// not a new refusal and writes no audit record.
-	if recorded != 1 {
+	// Both blocks are audited so the run-wide allowance survives recovery.
+	if recorded != 2 {
 		t.Fatalf("durable refusal records=%d", recorded)
 	}
 }

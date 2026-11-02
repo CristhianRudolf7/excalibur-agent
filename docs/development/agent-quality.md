@@ -4973,3 +4973,20 @@ accept dash-prefixed positional instructions, including bullet lists. Known
 options retain their normal parsing rules, `--` ends option parsing, and the
 last positional argument is the instruction. The private instruction-file
 handoff places its option before `--` so re-execution preserves these rules.
+
+### Bounded autonomous completion checks
+
+For explicit exec/eval finishes, `EXCALIBUR_FINISH_REFUSAL_CAP` (default on)
+lets each refusal item block at most twice per run. Later occurrences appear
+as advisory items in the confirmation checklist. The freshness warning shares
+one run-wide allowance even when its suggested check changes. Unrelated new
+problems retain their own allowance. Assistant verification is unchanged.
+
+`EXCALIBUR_VERIFICATION_FRESHNESS` (default on) examines shell command syntax
+when identifying mutations. Words inside verification script arguments no
+longer invalidate edits that already have a later passing check.
+
+`EXCALIBUR_SERVICE_EXERCISE` (default on) counts a live program session plus
+a later successful localhost client command, or a client check against its
+reported port, as exercising a service. A failed client or a stopped session
+does not satisfy this check. A service does not have to exit to pass.

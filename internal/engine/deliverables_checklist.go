@@ -137,6 +137,7 @@ func (e *Engine) confirmationText(run *Run) string {
 	run.mu.Lock()
 	request := run.Request
 	advisory := append([]string(nil), run.fin.advisory...)
+	finishAdvisory := append([]string(nil), run.fin.finishAdvisory...)
 	run.mu.Unlock()
 	var b strings.Builder
 	b.WriteString("finish checks passed.")
@@ -166,6 +167,9 @@ func (e *Engine) confirmationText(run *Run) string {
 	}
 	if len(advisory) > 0 {
 		b.WriteString(" Verifier note (advisory): " + truncOneLine(advisory[0], 200) + ".")
+	}
+	for _, note := range finishAdvisory {
+		b.WriteString(" Advisory: " + note + ".")
 	}
 	b.WriteString(tail)
 	return b.String()
