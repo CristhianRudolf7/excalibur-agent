@@ -183,30 +183,28 @@ func TestEvalTimeOnlySurvivesPast25Steps(t *testing.T) {
 	t.Setenv(engine.TimeBudgetOnlySwitch, "on")
 	t.Setenv("HARBOR_AGENT_TIMEOUT_SEC", "")
 	t.Setenv("EXCALIBUR_TIMEOUT_SEC", "")
-	// 30 alternating turns then finish: legacy 25-step cap would pause
-	// at step 25, time-only safety (2000) lets it complete. Commands
-	// cycle through materially different shapes so the near-repeat
-	// and no-information loop rules stay silent.
-	cmds := []string{
-		"pwd; ls -la",
-		"cat /etc/hosts",
-		"uname -a; date -u",
-		"echo alpha-$(date +%s%N)",
-		"ls /tmp; df -h . | head",
-	}
+	// Thirty alternating core-tool turns test the step limit without shell
+	// startup variance. Unique file contents supply real progress; interleaved
+	// clocks keep repetition detection independent of the limit under test.
+	dir := t.TempDir()
 	fake := providerfake.New("past-25")
 	for i := 0; i < 30; i++ {
 		if i%2 == 0 {
-			fake.Responses = append(fake.Responses, execCallResponse("cx"+strings.Repeat("x", i+1), cmds[(i/2)%len(cmds)]))
+			path := filepath.Join(dir, fmt.Sprintf("input-%02d.txt", i))
+			if err := os.WriteFile(path, []byte(fmt.Sprintf("observation %d", i)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			args, _ := json.Marshal(map[string]string{"path": path})
+			fake.Responses = append(fake.Responses, providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: fmt.Sprintf("read-%d", i), Name: "read_file", Arguments: args}}}})
 		} else {
-			fake.Responses = append(fake.Responses, clockCallResponse("ck"+strings.Repeat("k", i+1)))
+			fake.Responses = append(fake.Responses, clockCallResponse(fmt.Sprintf("clock-%d", i)))
 		}
 	}
 	fake.Responses = append(fake.Responses, doneImmediately()...)
 	logs := t.TempDir()
 	out, err := RunExec(ctx, ExecOptions{
 		Request: "run many checks then finish", LogsDir: logs,
-		Profile: ProfileEval, ProjectDir: t.TempDir(), Provider: fake, TimeoutSecs: 60,
+		Profile: ProfileEval, ProjectDir: dir, Provider: fake, TimeoutSecs: 60,
 	})
 	if err != nil {
 		t.Fatal(err)

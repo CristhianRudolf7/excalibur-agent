@@ -5114,3 +5114,6 @@ tool-result entries and a full-request fingerprint. This exposes argument,
 result and masking changes without storing another payload copy. Cache-read
 and cache-write token counters remain separate. `0` keeps content-only message
 accounting. No provider or gateway protocol changes are involved.
+
+Payload sizes are overlapping diagnostic views (request, messages and tool
+components). Token and cost totals continue to use provider usage counters.
