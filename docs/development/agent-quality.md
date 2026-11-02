@@ -5040,6 +5040,11 @@ facts. Compaction refreshes L3 at the Section 11.4 boundary. The volatile
 control tail remains outside the stable prefix; observation masking retains
 its existing batched policy. Setting the switch to `0` restores re-rendering.
 
+The 20-turn offline fake-endpoint regression retains 100% of each previous
+stable prefix. In its scripted fixture, 95.70% of complete serialized request
+bytes match the preceding request prefix (96.69% excluding volatile state).
+These are byte measurements, not estimates of billed cache tokens.
+
 ### Round 2: bounded control guidance (engine, C2)
 
 `EXCALIBUR_CONTROL_TAIL` defaults on. Control guidance replaces the prior
@@ -5047,6 +5052,10 @@ note with the same issue category, evicts oldest categories as needed, and
 caps the complete volatile layer to `EXCALIBUR_CONTROL_TAIL_BYTES` (default
 2048 bytes). Full notes, including retired versions, remain in `control_note`
 audit journal entries. `0` restores cumulative guidance.
+
+Literal user directives are promoted to append-only activity before applying
+the control cap. Their complete instruction text is retained even when longer
+than the control allowance, and unchanged snapshot directives are not repeated.
 
 ### Round 2: versioned verifier verdicts (engine, C3)
 
@@ -5057,14 +5066,6 @@ Identical repeated checks share an evidence version. Delivery prose does not
 force another review. Missing replies and provider errors are never cached.
 Setting `0` requests a new review on each attempt.
 
-### Round 2: explicit failure markers (engine, C5)
-
-`EXCALIBUR_PRECISE_FAILURE_MARKERS` defaults on. Nonzero exits and explicit
-assertion, traceback, FAIL and nonzero failed-count markers indicate failed
-checks. Line-leading `error:` diagnostics require a known compiler/build/test
-tool origin and a nonnumeric diagnostic. Numeric error measurements on exit
-zero remain valid observations. `0` restores the older textual classifier.
-
 ### Round 2: dependency freshness (engine/tasks, C4)
 
 `EXCALIBUR_EVIDENCE_DEPENDENCIES` defaults on. Successful checks retain
@@ -5074,6 +5075,27 @@ compares these versions with the filesystem, so unrelated diagnostic writes
 do not expire a passing check. Older histories without receipts use command
 mutation targets and dependency path overlap conservatively. Unknown mutation
 targets expire old evidence. `0` restores the global mutation frontier.
+
+Dependency receipts also cover implicit project source/config inputs and source
+manifests for standard language runners. Adding source files expires the old
+check; creating unrelated diagnostic files does not. Literal local data and
+import dependencies are followed without executing discovery code. Discovery
+is bounded; incomplete or unreadable receipts use conservative history checks.
+Receipt capture runs when each tool finishes, before waiting for batch peers.
+
+On Linux, call-scoped workspace access monitoring adds actual read paths,
+including dynamically constructed data filenames, to the dependency receipt.
+It stops before hashing the receipt. Concurrent checks can conservatively share
+read dependencies; files outside the workspace still use literal references
+and deliverable tracking. Monitor unavailability retains static discovery.
+
+### Round 2: explicit failure markers (engine, C5)
+
+`EXCALIBUR_PRECISE_FAILURE_MARKERS` defaults on. Nonzero exits and explicit
+assertion, traceback, FAIL and nonzero failed-count markers indicate failed
+checks. Line-leading `error:` diagnostics require a known compiler/build/test
+tool origin and a nonnumeric diagnostic. Numeric error measurements on exit
+zero remain valid observations. `0` restores the older textual classifier.
 
 ### Round 2: authoritative terminal state (engine/tasks/tools, C6)
 
@@ -5092,20 +5114,3 @@ tool-result entries and a full-request fingerprint. This exposes argument,
 result and masking changes without storing another payload copy. Cache-read
 and cache-write token counters remain separate. `0` keeps content-only message
 accounting. No provider or gateway protocol changes are involved.
-
-Dependency receipts also cover implicit project source/config inputs and source
-manifests for standard language runners. Adding source files expires the old
-check; creating unrelated diagnostic files does not. Literal local data and
-import dependencies are followed without executing discovery code. Discovery
-is bounded; incomplete or unreadable receipts use conservative history checks.
-Receipt capture runs when each tool finishes, before waiting for batch peers.
-
-On Linux, call-scoped workspace access monitoring adds actual read paths,
-including dynamically constructed data filenames, to the dependency receipt.
-It stops before hashing the receipt. Concurrent checks can conservatively share
-read dependencies; files outside the workspace still use literal references
-and deliverable tracking. Monitor unavailability retains static discovery.
-
-Literal user directives are promoted to append-only activity before applying
-the control cap. Their complete instruction text is retained even when longer
-than the control allowance, and unchanged snapshot directives are not repeated.

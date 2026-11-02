@@ -135,13 +135,13 @@ func TestExplicitFinishRefusedAfterFailedCheck(t *testing.T) {
 		t.Fatalf("finish calls = %d, want 3 (one refused, two confirmation)", run.FinishCalls)
 	}
 	found := false
-	for _, n := range run.VolatileNotes() {
+	for _, n := range historyContents(run) {
 		if strings.Contains(n, "finish refused") && strings.Contains(n, "last command errored") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("refusal must name the failed last command: %v", run.VolatileNotes())
+		t.Fatalf("refusal must name the failed last command: %v", historyContents(run))
 	}
 	if run.Summary != "fixed foo" {
 		t.Fatalf("summary = %q, want the accepted finish.summary", run.Summary)
@@ -212,13 +212,13 @@ func TestExplicitFinishMustBeAlone(t *testing.T) {
 		}
 	}
 	found := false
-	for _, n := range run.VolatileNotes() {
+	for _, n := range historyContents(run) {
 		if strings.Contains(n, "must be called alone") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("alone-note missing: %v", run.VolatileNotes())
+		t.Fatalf("alone-note missing: %v", historyContents(run))
 	}
 }
 
@@ -282,13 +282,13 @@ func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
 		t.Fatalf("refusals = %d, want 1 (existing path)", run.FinishRefusals)
 	}
 	found := false
-	for _, n := range run.VolatileNotes() {
+	for _, n := range historyContents(run) {
 		if strings.Contains(n, "finish refused") && strings.Contains(n, "exists") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("existing-path refusal missing: %v", run.VolatileNotes())
+		t.Fatalf("existing-path refusal missing: %v", historyContents(run))
 	}
 }
 
