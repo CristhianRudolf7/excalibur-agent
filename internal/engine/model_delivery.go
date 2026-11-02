@@ -40,9 +40,11 @@ func (e *Engine) modelDeliveryContext(ctx context.Context, run *Run, final bool)
 	if final {
 		allowance = remaining
 	}
-	cap := 60 * time.Second
+	// Provider latency (including retry waits on reduced-priority tiers) can
+	// exceed a minute, so the caps only bite when the remaining horizon is short.
+	cap := 180 * time.Second
 	if final {
-		cap = 30 * time.Second
+		cap = 90 * time.Second
 	}
 	if allowance > cap {
 		allowance = cap

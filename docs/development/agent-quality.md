@@ -5272,8 +5272,8 @@ liveness policy. Set the switch to `0` for the earlier text inference.
 
 `EXCALIBUR_MODEL_DELIVERY_RESERVE` defaults on for autonomous exec/eval profiles.
 Optional verification calls share a child deadline of half the remaining wall
-horizon, capped at 60 seconds. Confirmation/finalization model calls use the
-remaining horizon, capped at 30 seconds. An earlier parent deadline also applies.
+horizon, capped at 180 seconds. Confirmation/finalization model calls use the
+remaining horizon, capped at 90 seconds. An earlier parent deadline also applies.
 Assumed budgets use the extended safety horizon from the explicit-time policy;
 passing an assumed estimate does not authorize automatic completion. Calls
 without a usable wall estimate or parent deadline keep their existing behavior.
