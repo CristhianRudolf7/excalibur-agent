@@ -76,7 +76,7 @@ type ConvertBackend interface {
 	Convert(ctx context.Context, input, output, from, to string) error
 }
 
-// DiagramBackend renders diagrams to SVG (diagram_render).
+// DiagramBackend renders diagrams to SVG, PNG or PDF (diagram_render).
 type DiagramBackend interface {
 	Render(ctx context.Context, source, dialect, outputFormat string) (string, error)
 }
@@ -550,28 +550,18 @@ func csvToJSON(csv string) string {
 	return string(raw) + "\n"
 }
 
-// SVGDiagramBackend renders every supported dialect to SVG with
-// concrete syntax errors (diagram_render).
-type SVGDiagramBackend struct{}
+// PlaceholderDiagramBackend is an explicit dry-run/test backend. Production
+// always uses SVGDiagramBackend and never falls back to a source-text box.
+type PlaceholderDiagramBackend struct{}
 
-// Render implements DiagramBackend.
-func (b *SVGDiagramBackend) Render(_ context.Context, source, dialect, outputFormat string) (string, error) {
-	dialect = strings.ToLower(strings.TrimSpace(dialect))
-	if outputFormat == "" {
-		outputFormat = "svg"
-	}
-	outputFormat = strings.ToLower(outputFormat)
-	switch outputFormat {
-	case "svg":
-	default:
-		return "", fmt.Errorf("output format %q needs an external rasterizer; harness renders svg (convert svg via file_convert when a backend exists)", outputFormat)
+func (*PlaceholderDiagramBackend) Render(_ context.Context, source, dialect, format string) (string, error) {
+	if format != "" && format != "svg" {
+		return "", fmt.Errorf("dry-run backend only supports svg")
 	}
 	if err := checkDiagramSyntax(source, dialect); err != nil {
 		return "", err
 	}
-	escaped := xmlEscape(strings.TrimSpace(source))
-	title := xmlEscape(dialect + " diagram")
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="200" role="img" aria-label="%s">`+"\n"+`<rect width="800" height="200" fill="white" stroke="black"/>`+"\n"+`<text x="20" y="40" font-family="monospace" font-size="13">%s</text>`+"\n"+`<text x="20" y="70" font-family="monospace" font-size="11">%s</text>`+"\n</svg>\n", title, title, escaped), nil
+	return `<svg xmlns="http://www.w3.org/2000/svg"><text>` + xmlEscape(source) + `</text></svg>`, nil
 }
 
 func checkDiagramSyntax(source, dialect string) error {
@@ -589,6 +579,9 @@ func checkDiagramSyntax(source, dialect string) error {
 			}
 		}
 		return fmt.Errorf("mermaid: want a diagram type (graph, flowchart, sequenceDiagram, classDiagram, stateDiagram, gantt, pie, erDiagram), got %q", firstLine(s))
+	case "d2":
+		// D2 accepts a single node as well as connections; its parser validates the grammar.
+		return nil
 	case "plantuml":
 		if !strings.Contains(s, "@startuml") || !strings.Contains(s, "@enduml") {
 			return fmt.Errorf("plantuml: want @startuml … @enduml, got %q", firstLine(s))
@@ -610,7 +603,7 @@ func checkDiagramSyntax(source, dialect string) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown dialect %q (want mermaid, plantuml, graphviz, svg or drawio)", dialect)
+		return fmt.Errorf("unknown dialect %q (want mermaid, d2, plantuml, graphviz, svg or drawio)", dialect)
 	}
 }
 
@@ -773,8 +766,9 @@ var fileConvertSchema = schemaFor(map[string]any{
 var diagramRenderSchema = schemaFor(map[string]any{
 	"type": "object",
 	"properties": map[string]any{
+		"title":         map[string]any{"type": "string"},
 		"source":        map[string]any{"type": "string", "minLength": 1},
-		"dialect":       map[string]any{"type": "string", "enum": []string{"mermaid", "plantuml", "graphviz", "svg", "drawio"}},
+		"dialect":       map[string]any{"type": "string", "enum": []string{"mermaid", "d2", "plantuml", "graphviz", "svg", "drawio"}},
 		"output_format": map[string]any{"type": "string", "enum": []string{"svg", "png", "pdf"}},
 		"output":        map[string]any{"type": "string"},
 	},
@@ -1044,48 +1038,59 @@ func (t *DiagramRenderTool) backend() DiagramBackend {
 
 func (t *DiagramRenderTool) Definition() Definition {
 	return Definition{
-		Name: "diagram_render", Description: "Render a diagram from Mermaid, PlantUML, Graphviz, SVG or draw.io to SVG, PNG or PDF with concrete syntax errors",
+		Name: "diagram_render", Description: "Render a diagram from Mermaid, D2, PlantUML, Graphviz, SVG or draw.io to SVG, PNG or PDF with concrete syntax errors",
 		InputSchema: diagramRenderSchema, Effect: "write_local", Idempotency: "idempotent",
 		Cancel: "after_completion", Timeout: 60_000_000_000, OutputBudget: DefaultOutputBudget,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
-		Group: "media", Tags: []string{"diagram"}, Keywords: []string{"diagram", "render", "mermaid", "plantuml", "graphviz", "svg", "drawio"},
+		Group: "media", Tags: []string{"diagram"}, Keywords: []string{"diagram", "render", "mermaid", "d2", "plantuml", "graphviz", "svg", "drawio"},
 	}
 }
 
 func (t *DiagramRenderTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
-	var a struct {
-		Source       string `json:"source"`
-		Dialect      string `json:"dialect"`
-		OutputFormat string `json:"output_format"`
-		Output       string `json:"output"`
-	}
+	var a diagramRenderArguments
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	svg, err := t.backend().Render(ctx, a.Source, a.Dialect, a.OutputFormat)
+	artifact, err := a.artifact(t.Deps)
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	if a.Output != "" {
-		if err := writeAtomic(a.Output, []byte(svg)); err != nil {
-			return Result{Status: StatusToolError, Output: err.Error()}, nil
+	backend := t.backend()
+	used := "configured diagram backend"
+	var data string
+	if reporter, ok := backend.(interface {
+		renderWithReport(context.Context, string, string, string) (string, string, error)
+	}); ok {
+		data, used, err = reporter.renderWithReport(ctx, a.Source, artifact.Dialect, artifact.Format)
+	} else {
+		data, err = backend.Render(ctx, a.Source, artifact.Dialect, artifact.Format)
+		if _, dryRun := backend.(*PlaceholderDiagramBackend); dryRun {
+			used = "explicit dry-run backend"
 		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("rendered %s diagram (%d bytes) into %s", a.Dialect, len(svg), a.Output)}, nil
 	}
-	return Result{Status: StatusOK, Output: svg}, nil
+	if err != nil {
+		return Result{Status: StatusInputError, Output: err.Error()}, nil
+	}
+	if err := saveVisualArtifact(artifact, data, a.Source); err != nil {
+		return Result{Status: StatusToolError, Output: err.Error()}, nil
+	}
+	output := fmt.Sprintf("rendered %s diagram (%d bytes) into %s using %s; source: %s", artifact.Dialect, len(data), artifact.Path, used, artifact.SourcePath)
+	if a.Output == "" && artifact.Format == "svg" {
+		output += "\n" + data
+	}
+	return Result{Status: StatusOK, Output: output, Artifacts: []ArtifactRef{artifact}}, nil
 }
 
 func (t *DiagramRenderTool) ResourceKeys(args json.RawMessage) ([]string, error) {
-	var a struct {
-		Output string `json:"output"`
-	}
+	var a diagramRenderArguments
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
 	}
-	if a.Output == "" {
-		return nil, nil
+	artifact, err := a.artifact(t.Deps)
+	if err != nil {
+		return nil, err
 	}
-	return []string{"file:" + filepath.Clean(a.Output)}, nil
+	return visualArtifactKeys(artifact), nil
 }
 
 // ChartRenderTool implements chart_render.
@@ -1108,42 +1113,67 @@ func (t *ChartRenderTool) Definition() Definition {
 	}
 }
 
-func (t *ChartRenderTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
-	var a struct {
-		Kind         string        `json:"kind"`
-		Title        string        `json:"title"`
-		X            []string      `json:"x"`
-		Series       []ChartSeries `json:"series"`
-		OutputFormat string        `json:"output_format"`
-		Output       string        `json:"output"`
+type chartRenderArguments struct {
+	Kind         string        `json:"kind"`
+	Title        string        `json:"title"`
+	X            []string      `json:"x"`
+	Series       []ChartSeries `json:"series"`
+	OutputFormat string        `json:"output_format"`
+	Output       string        `json:"output"`
+}
+
+func (a chartRenderArguments) spec() ChartSpec {
+	return ChartSpec{Kind: a.Kind, Title: a.Title, X: a.X, Series: a.Series}
+}
+func (a chartRenderArguments) artifact(deps *MediaDeps) (ArtifactRef, string, error) {
+	format, err := visualOutputFormat(a.OutputFormat, a.Output)
+	if err != nil {
+		return ArtifactRef{}, "", err
 	}
+	source, err := json.MarshalIndent(a.spec(), "", "  ")
+	if err != nil {
+		return ArtifactRef{}, "", err
+	}
+	title := a.Title
+	if title == "" {
+		title = a.Kind + " chart"
+	}
+	artifact, err := visualArtifactPaths(deps, a.Output, "chart", title, "", format, string(source))
+	return artifact, string(source), err
+}
+func (t *ChartRenderTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
+	var a chartRenderArguments
 	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	svg, err := t.backend().Render(ctx, ChartSpec{Kind: a.Kind, Title: a.Title, X: a.X, Series: a.Series}, a.OutputFormat)
+	artifact, source, err := a.artifact(t.Deps)
 	if err != nil {
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	if a.Output != "" {
-		if err := writeAtomic(a.Output, []byte(svg)); err != nil {
-			return Result{Status: StatusToolError, Output: err.Error()}, nil
-		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("rendered %s chart (%d bytes) into %s", a.Kind, len(svg), a.Output)}, nil
+	data, err := t.backend().Render(ctx, a.spec(), artifact.Format)
+	if err != nil {
+		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
-	return Result{Status: StatusOK, Output: svg}, nil
+	if err := saveVisualArtifact(artifact, data, source); err != nil {
+		return Result{Status: StatusToolError, Output: err.Error()}, nil
+	}
+	output := fmt.Sprintf("rendered %s chart (%d bytes) into %s; source: %s", a.Kind, len(data), artifact.Path, artifact.SourcePath)
+	if a.Output == "" && artifact.Format == "svg" {
+		output += "\n" + data
+	}
+	return Result{Status: StatusOK, Output: output, Artifacts: []ArtifactRef{artifact}}, nil
 }
 
 func (t *ChartRenderTool) ResourceKeys(args json.RawMessage) ([]string, error) {
-	var a struct {
-		Output string `json:"output"`
-	}
+	var a chartRenderArguments
 	if err := json.Unmarshal(args, &a); err != nil {
 		return nil, err
 	}
-	if a.Output == "" {
-		return nil, nil
+	artifact, _, err := a.artifact(t.Deps)
+	if err != nil {
+		return nil, err
 	}
-	return []string{"file:" + filepath.Clean(a.Output)}, nil
+	return visualArtifactKeys(artifact), nil
 }
 
 // VisionExtractTool implements the vision_extract contract (14.4).

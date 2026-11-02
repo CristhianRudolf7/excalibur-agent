@@ -36,3 +36,30 @@ func TestEvalPDFSkillRetainsBaseline(t *testing.T) {
 		t.Fatal("eval loaded assistant guidance")
 	}
 }
+
+func TestEvalDiagramSkillsRetainBaseline(t *testing.T) {
+	frozen, current := NewEvalBuiltinIndex(), NewBuiltinIndex()
+	if err := frozen.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	if err := current.Scan(); err != nil {
+		t.Fatal(err)
+	}
+	for name, hash := range map[string]string{
+		"diagram-rendering": "62d99255acb21ae540f911d6559cd6a8769e16fcc0c3229f2e30d293497eb036",
+		"data-charts":       "2be05a769f15f7d598a285d6c9c83e9f0d28008bb560854a5289d1e83dacb249",
+	} {
+		before, ok := frozen.Get(name)
+		if !ok || before.Hash != hash {
+			t.Fatalf("%s eval baseline moved: %+v", name, before)
+		}
+		after, ok := current.Get(name)
+		if !ok || before.Hash == after.Hash {
+			t.Fatalf("%s current and eval guidance were not separated", name)
+		}
+		loaded, err := frozen.Load(name)
+		if err != nil || strings.Contains(loaded.Body, "Result.Artifacts") {
+			t.Fatalf("%s eval loaded assistant guidance: %v", name, err)
+		}
+	}
+}

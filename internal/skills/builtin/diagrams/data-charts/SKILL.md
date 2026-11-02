@@ -1,10 +1,10 @@
 ---
 name: data-charts
-description: Statistical charts from data with chart_render.
+description: Render reproducible bar and line charts from tabular data with chart_render.
 metadata:
   excalibur:
     group: diagrams
-    version: 1.0.0
+    version: 1.1.0
     platforms:
     - linux
     tools:
@@ -12,33 +12,26 @@ metadata:
     - spreadsheet_ops
     display:
       name_en: Data charts
-      name_es: Gráficas de datos
-      desc_en: Statistical charts from data with chart_render.
-      desc_es: Gráficas estadísticas a partir de datos.
+      desc_en: Render reproducible bar and line charts from tabular data with chart_render.
 ---
 # Data charts
 
-Use this skill to chart data honestly. The right chart type, scaled axes, and labeled uncertainty let the data speak instead of the designer.
-
 ## When to use
 
-- A claim needs visual evidence.
-- Comparing series, distributions, or trends.
-- Reports need reproducible figures.
+Compare categories or show trends from tabular data.
 
 ## Procedure
 
-1. Pick the chart the data needs: trends, comparisons, distributions — not decoration.
-2. Scale axes honestly; annotate baselines and breaks explicitly.
-3. Label uncertainty: intervals, sample sizes, and sources on or beside the chart.
-4. Render and check readability at delivery size, including color-vision safety.
-5. Keep the data and spec with the chart for reproduction.
+1. Use bars for category comparisons or lines for trends. Keep axes honest and identify the data source and any uncertainty.
+2. Call `chart_render` with `kind`, `title`, labels in `x`, and named numeric `series`. The built-in chart renderer supports SVG.
+3. Inspect labels and readability at the delivery size.
+4. Deliver the chart artifact's `Path` and `SourcePath`; the tool saves the chart and its JSON specification, including the data. Omit `output` to save under `artifacts/`.
 
 ## Output
 
-Honest, readable charts with data and spec attached.
+A rendered chart and reproducible specification in `Result.Artifacts`.
 
 ## Pitfalls
 
-- Truncated axes manufacture drama; justify or avoid.
-- No chart without sample size and source.
+- The diagram tool's PNG/PDF support does not imply the chart backend supports those formats.
+- Explain truncated axes and identify sample sizes when they affect interpretation.

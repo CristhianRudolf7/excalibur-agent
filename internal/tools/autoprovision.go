@@ -272,6 +272,7 @@ var commandToApt = map[string]string{
 	"rsync": "rsync", "ssh": "openssh-client", "scp": "openssh-client",
 	"pdflatex": "texlive-latex-base", "xelatex": "texlive-xetex",
 	"convert": "imagemagick", "ffmpeg": "ffmpeg",
+	"dot": "graphviz", "plantuml": "plantuml",
 }
 
 // pythonToPip maps common imports to their pip distribution.

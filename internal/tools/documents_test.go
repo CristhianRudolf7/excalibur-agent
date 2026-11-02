@@ -15,7 +15,7 @@ func mediaTestSetup() *MediaDeps {
 		Vision:    &MemoryVisionBackend{},
 		PDF:       &FilePDFBackend{},
 		Convert:   &FileConvertBackend{},
-		Diagram:   &SVGDiagramBackend{},
+		Diagram:   &PlaceholderDiagramBackend{},
 		Chart:     &SVGChartBackend{},
 	}
 }
@@ -149,7 +149,9 @@ func TestFileConvertPairs(t *testing.T) {
 }
 
 func TestDiagramRenderSyntax(t *testing.T) {
-	tool := &DiagramRenderTool{Deps: mediaTestSetup()}
+	deps := mediaTestSetup()
+	deps.Workdir = t.TempDir()
+	tool := &DiagramRenderTool{Deps: deps}
 	raw, _ := json.Marshal(map[string]any{"source": "graph TD\nA-->B", "dialect": "mermaid", "output_format": "svg"})
 	res, _ := tool.Invoke(context.Background(), Invocation{Arguments: raw})
 	if res.Status != StatusOK || !strings.Contains(res.Output, "<svg") {
@@ -174,7 +176,9 @@ func TestDiagramRenderSyntax(t *testing.T) {
 }
 
 func TestChartRenderSVG(t *testing.T) {
-	tool := &ChartRenderTool{Deps: mediaTestSetup()}
+	deps := mediaTestSetup()
+	deps.Workdir = t.TempDir()
+	tool := &ChartRenderTool{Deps: deps}
 	raw, _ := json.Marshal(map[string]any{
 		"kind": "bar", "title": "T",
 		"series": []any{map[string]any{"name": "s", "values": []any{1, 2, 3}}},

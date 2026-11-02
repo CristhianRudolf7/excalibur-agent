@@ -26,12 +26,18 @@ func PDFOpsEnabled() bool {
 }
 
 func (t *PDFOpsTool) pdfPath(path string) (string, error) {
+	return mediaOutputPath(t.Deps, path)
+}
+
+// mediaOutputPath resolves existing ancestors and confines outputs when a run
+// workspace is configured. It also supports not-yet-created output directories.
+func mediaOutputPath(deps *MediaDeps, path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
 	root := ""
-	if t.Deps != nil {
-		root = t.Deps.Workdir
+	if deps != nil {
+		root = deps.Workdir
 	}
 	if root != "" && !filepath.IsAbs(path) {
 		path = filepath.Join(root, path)
@@ -74,7 +80,7 @@ func (t *PDFOpsTool) pdfPath(path string) (string, error) {
 		}
 		rel, e := filepath.Rel(root, path)
 		if e != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return "", errors.New("PDF path is outside the configured workdir")
+			return "", errors.New("media path is outside the configured workdir")
 		}
 	}
 	return path, nil
