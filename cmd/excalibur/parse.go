@@ -10,6 +10,10 @@ import (
 // come before or after positional arguments. A `--` separator makes
 // everything after it positional.
 func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
+	return parseCommand(fs, args, false)
+}
+
+func parseCommand(fs *flag.FlagSet, args []string, leadingDashInstruction bool) ([]string, error) {
 	var flagArgs, posArgs []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -20,6 +24,10 @@ func parseCmd(fs *flag.FlagSet, args []string) ([]string, error) {
 		name, _, isFlag := flagName(a)
 		f := fs.Lookup(name)
 		if !isFlag {
+			posArgs = append(posArgs, a)
+			continue
+		}
+		if f == nil && leadingDashInstruction {
 			posArgs = append(posArgs, a)
 			continue
 		}

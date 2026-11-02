@@ -57,7 +57,8 @@ func runExecCmd(args []string) error {
 	logsDir := fs.String("logs-dir", "", "trial log directory (default: /logs/agent when present)")
 	neverAsk := fs.Bool("never-ask", false, "assume instead of asking (exec always assumes)")
 	instructionFile := fs.String("instruction-file", "", "read the request text from this private file (written by the argv hand-off; see EXCALIBUR_HIDE_INSTRUCTION_ARGV)")
-	rest, err := parseCmd(fs, args)
+	// Exec accepts arbitrary instruction text, including leading bullet dashes.
+	rest, err := parseCommand(fs, args, os.Getenv("EXCALIBUR_EXEC_LEADING_DASH") != "0")
 	if err != nil {
 		return err
 	}
@@ -73,7 +74,7 @@ func runExecCmd(args []string) error {
 		}
 		request = text
 	} else {
-		request = rest[0]
+		request = rest[len(rest)-1]
 		if requestReexec && runtime.GOOS == "linux" && cli.HideInstructionArgvEnabled() {
 			// Item 22: the request leaves argv before any other work, so
 			// process listings inside the task never show the task text.

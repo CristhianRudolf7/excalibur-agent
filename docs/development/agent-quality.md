@@ -4965,3 +4965,11 @@ paths containing /bin/ must be executable files. Libraries and shared data
 need no execute bit. Basenames inside installed paths do not create duplicate
 workdir-relative requirements. Existing artifact-gate/profile controls remain
 in force; disabling the switch restores the previous root set.
+
+### Exec instruction arguments
+
+`EXCALIBUR_EXEC_LEADING_DASH` (default on; `0` disables) lets `exec`
+accept dash-prefixed positional instructions, including bullet lists. Known
+options retain their normal parsing rules, `--` ends option parsing, and the
+last positional argument is the instruction. The private instruction-file
+handoff places its option before `--` so re-execution preserves these rules.

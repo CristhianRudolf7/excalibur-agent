@@ -38,7 +38,7 @@ func HideInstructionArgvEnabled() bool {
 
 // PrepareInstructionArgv plans the hand-off of request out of argv. It writes
 // the request to a new private file (mode 0600), and returns the argument
-// vector with the first occurrence of request after the program name replaced
+// vector with the last occurrence of request after the program name replaced
 // by InstructionFileFlag and the file path, and the environment with
 // InstructionFileEnv set to that path. The inputs are not modified.
 //
@@ -58,7 +58,6 @@ func PrepareInstructionArgv(argv, env []string, request string) (newArgv, newEnv
 	for i := 1; i < len(argv); i++ {
 		if argv[i] == request {
 			idx = i
-			break
 		}
 	}
 	if idx < 0 {
@@ -84,8 +83,17 @@ func PrepareInstructionArgv(argv, env []string, request string) (newArgv, newEnv
 		return argv, env, "", fmt.Errorf("close instruction file: %w", err)
 	}
 	newArgv = make([]string, 0, len(argv)+1)
-	newArgv = append(newArgv, argv[:idx]...)
+	// Put the hand-off flag before any positional-only separator.
+	insert := idx
+	for i := 1; i < idx; i++ {
+		if argv[i] == "--" {
+			insert = i
+			break
+		}
+	}
+	newArgv = append(newArgv, argv[:insert]...)
 	newArgv = append(newArgv, InstructionFileFlag, path)
+	newArgv = append(newArgv, argv[insert:idx]...)
 	newArgv = append(newArgv, argv[idx+1:]...)
 	newEnv = make([]string, 0, len(env)+1)
 	newEnv = append(newEnv, env...)
