@@ -179,3 +179,44 @@ func TestRunningCommandGuardUsesProcessFactsAndReleasesExitedSessions(t *testing
 		t.Fatal(reason)
 	}
 }
+
+func TestRunningCommandGuardKeepsServiceLaunchers(t *testing.T) {
+	for _, command := range []string{"npm start", "npm run dev", "yarn serve", "cargo run", "python3 service.py", "echo 'pytest'"} {
+		if buildOrTestCommand(command) {
+			t.Errorf("service or display command classified as finite build/test: %q", command)
+		}
+	}
+	for _, command := range []string{"npm test", "npm run build", "cargo test", "go test ./...", "make", "mvn compile", "gradle test"} {
+		if !buildOrTestCommand(command) {
+			t.Errorf("build/test missed: %q", command)
+		}
+	}
+}
+
+func TestAssumedWallRetainsSoftRefusalCapPastEstimate(t *testing.T) {
+	e, js := testEngine(&fakeEndpoint{}, scriptedRunner(), GateFunc(func(*Run) tasks.GateReport {
+		return tasks.GateReport{Pendings: []string{"independent verifier: another check is needed"}}
+	}))
+	e.deps.SelfVerify = selfVerifyOffCfg()
+	e.deps.Artifacts = artifactOffCfg()
+	r := explicitRun()
+	r.Profile.WallSource = "default"
+	r.Tracker.Limit.MaxSeconds = 100
+	startRun(t, e, r, js)
+	e.deps.Clock = func() time.Time { return r.StartedAt.Add(101 * time.Second) }
+	r.HeartbeatAt = e.deps.Clock()
+	if !e.timeRemains(r) {
+		t.Fatal("estimate treated as binding deadline")
+	}
+	if e.safetyCapExhausted(r, 101*time.Second, false) {
+		t.Fatal("estimate treated as exhausted safety cap")
+	}
+	args := FinishArgs{Status: "completed", Summary: "done", Evidence: "checked"}
+	for i := 0; i < 3; i++ {
+		reason := e.validateFinish(finishTestContext(t), r, args, args.Evidence)
+		if (reason != "") != (i < 2) {
+			t.Fatalf("attempt %d: %s", i, reason)
+		}
+		e.countBlockingReasons(r, []string{"independent verifier: another check is needed"})
+	}
+}

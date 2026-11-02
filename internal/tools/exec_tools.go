@@ -231,6 +231,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 			yield = int(bound / time.Millisecond)
 		}
 	}
+	duplicateWarning := t.sessions().duplicateJobWarning(command, a.Workdir)
 	start := time.Now()
 	waitCtx := context.Background()
 	if ctx.Value(commandDeadlineKey{}) != nil {
@@ -261,6 +262,9 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		s, out, alive = startRun()
 		dur = time.Since(rerunStart)
 	}
+	s.mu.Lock()
+	s.submittedCmd = command
+	s.mu.Unlock()
 	code, signal, exited := sessionExit(s)
 	if !execErrorStatusEnabled() {
 		// Previous reporting: os/exec's -1 for signal exits, no names.
@@ -289,6 +293,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	case alive:
 		next := len(s.SnapshotFull())
 		fmt.Fprintf(&b, "exit: running  duration: %.1fs  session: %s  alive: true  next_offset: %d\n", dur.Seconds(), s.ID, next)
+		b.WriteString(s.runningProgress())
 		b.WriteString(runningSessionLine(s, next))
 		if s.Detached {
 			fmt.Fprintf(&b, "detached service: pid %d survives run end; log %s\n", s.Pid, s.LogPath)
@@ -297,6 +302,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		fmt.Fprintf(&b, "exit: unknown  duration: %.1fs  session: %s  alive: false\n", dur.Seconds(), s.ID)
 		nonZero = true
 	}
+	b.WriteString(duplicateWarning)
 	if nonZero && execErrorStatusEnabled() {
 		status = StatusToolError
 	}
@@ -355,6 +361,9 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		b.WriteString(testOnlyScriptNote(command, a.Workdir, out))
 	}
 	res := Result{Status: status, Output: b.String(), ExitCode: exitCode}
+	if switchDefaultOn("EXCALIBUR_TYPED_SESSION_EVIDENCE") {
+		res.Sessions = []SessionReceipt{sessionReceipt(s)}
+	}
 	if t.Outputs != nil {
 		res.BlobRef = blobRef
 	}
@@ -370,7 +379,7 @@ func runningSessionLine(s *Session, next int) string {
 		return fmt.Sprintf("to poll: exec_io {\"action\":\"read\",\"session\":%q,\"offset\":%d}\n", id, next)
 	}
 	if execIOVisible() {
-		return fmt.Sprintf("to poll: exec_io {\"op\":\"read\",\"session\":%q}\n", id)
+		return fmt.Sprintf("to poll: exec_io {\"action\":\"read\",\"session\":%q}\n", id)
 	}
 	return fmt.Sprintf("still running in session %s after %.1fs. exec takes no session argument; check it with status.\n", id, time.Since(s.Started).Seconds())
 }
@@ -429,7 +438,7 @@ func (t *ExecIOTool) Definition() Definition {
 	}
 }
 
-func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
+func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (result Result, invokeErr error) {
 	var a struct {
 		Action   string   `json:"action"`
 		Session  string   `json:"session"`
@@ -445,6 +454,24 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		return Result{Status: StatusInputError, Output: err.Error()}, nil
 	}
 	m := t.sessions()
+	receiptOwner := a.Owner
+	defer func() {
+		if !switchDefaultOn("EXCALIBUR_TYPED_SESSION_EVIDENCE") || result.Status == StatusInputError {
+			return
+		}
+		if a.Action == "list" {
+			result.Sessions = []SessionReceipt{}
+			for _, summary := range m.Summaries(receiptOwner) {
+				if session, ok := m.Get(summary.ID); ok {
+					result.Sessions = append(result.Sessions, sessionReceipt(session))
+				}
+			}
+		} else if a.Session != "" {
+			if session, ok := m.Get(SessionID(a.Session)); ok {
+				result.Sessions = []SessionReceipt{sessionReceipt(session)}
+			}
+		}
+	}()
 	// Read paths only name missing dependencies; installs run from exec.
 	report := func(cmd, out string) string {
 		prov := (&ExecTool{Provisioner: t.Provisioner}).provisioner()
@@ -470,6 +497,7 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 			note = fmt.Sprintf("owner ignored: no session has owner %q; listing all sessions\n", owner)
 			owner = ""
 		}
+		receiptOwner = owner
 		sums := m.Summaries(owner)
 		var b strings.Builder
 		fmt.Fprintf(&b, "%d session(s)\n", len(sums))
@@ -493,7 +521,8 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		if err != nil {
 			return Result{Status: StatusInputError, Output: err.Error()}, nil
 		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("exited: %v  elapsed: %.1fs  next_offset: %d\n%s%s", exited, sessionElapsed(m, a.Session), next, sessionReport(out), out)}, nil
+		res := Result{Status: StatusOK, Output: fmt.Sprintf("exited: %v  elapsed: %.1fs  next_offset: %d\n%s%s", exited, sessionElapsed(m, a.Session), next, sessionProgress(m, a.Session)+sessionReport(out), out)}
+		return sessionResultExit(m, a.Session, exited, res), nil
 	case "write":
 		if a.Session == "" {
 			return Result{Status: StatusInputError, Output: "session is required for write"}, nil
@@ -525,9 +554,10 @@ func (t *ExecIOTool) Invoke(ctx context.Context, inv Invocation) (Result, error)
 		defer cancel()
 		out, next, exited, err := m.WaitFor(wctx, SessionID(a.Session), a.Pattern, timeout, a.Offset)
 		if err != nil {
-			return Result{Status: StatusToolError, Output: fmt.Sprintf("wait_for: %v\noutput so far (next_offset %d):\n%s", err, next, out)}, nil
+			return Result{Status: StatusToolError, Output: fmt.Sprintf("wait_for: %v\noutput so far (next_offset %d):\n%s", err, next, sessionProgress(m, a.Session)+out)}, nil
 		}
-		return Result{Status: StatusOK, Output: fmt.Sprintf("matched; exited: %v  next_offset: %d\n%s%s", exited, next, sessionReport(out), out)}, nil
+		res := Result{Status: StatusOK, Output: fmt.Sprintf("matched; exited: %v  next_offset: %d\n%s%s", exited, next, sessionProgress(m, a.Session)+sessionReport(out), out)}
+		return sessionResultExit(m, a.Session, exited, res), nil
 	case "signal":
 		if a.Session == "" {
 			return Result{Status: StatusInputError, Output: "session is required for signal"}, nil
@@ -1187,4 +1217,28 @@ func splitEnv(entry string) (key, val string, hasEq bool) {
 func isSecretRef(s string) bool {
 	t := strings.TrimSpace(s)
 	return strings.HasPrefix(t, "secret://") || (strings.HasPrefix(t, "secret:") && len(t) > len("secret:"))
+}
+
+// Session completion exposes the actual process exit for source-bound build
+// receipts; it cannot be inferred from a progress message or a retained binary.
+func sessionResultExit(m *SessionManager, id string, exited bool, res Result) Result {
+	if !switchDefaultOn("EXCALIBUR_BUILD_EVIDENCE") || !exited {
+		return res
+	}
+	if s, ok := m.Get(SessionID(id)); ok {
+		if code, _, done := sessionExit(s); done {
+			res.ExitCode = &code
+			res.Output = fmt.Sprintf("exit: %d  session: %s\n", code, id) + res.Output
+		}
+	}
+	return res
+}
+
+func sessionReceipt(s *Session) SessionReceipt {
+	code, done := s.Exit()
+	receipt := SessionReceipt{ID: string(s.ID), Alive: !done}
+	if done {
+		receipt.ExitCode = &code
+	}
+	return receipt
 }

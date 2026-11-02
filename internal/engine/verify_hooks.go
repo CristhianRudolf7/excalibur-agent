@@ -92,7 +92,7 @@ func historyTools(history []ctxcompiler.ActivityEvent) []tasks.HistoryTool {
 			}
 		}
 		out = append(out, tasks.HistoryTool{
-			Dependencies: ev.Dependencies, DependenciesChanged: changed,
+			Dependencies: ev.Dependencies, DependenciesChanged: changed, Sessions: ev.Sessions,
 			Name:    tr.Name,
 			Args:    argsOf[tr.CallID],
 			Output:  tr.Output,
@@ -216,11 +216,13 @@ func (e *Engine) runStrongVerifier(ctx context.Context, run *Run, cfg tasks.Self
 		}
 		smaller = shortRules + smaller[at:]
 	}
-	key := e.reviewVersion(run, cfg, drafts, history)
+	key, reuseAudit := e.reviewIdentity(run, cfg, drafts, history)
 	var resp providers.ChatResponse
 	var err error
 	cached, reused := run.cachedReview(key)
-	if reused && switchOn("EXCALIBUR_VERDICT_REUSE") {
+	reused = reused && switchOn("EXCALIBUR_VERDICT_REUSE")
+	e.recordReviewReuse(ctx, run, reuseAudit, reused)
+	if reused {
 		resp.Message.Content = cached
 	} else {
 		resp, _, err = e.verifierChat(ctx, run, "verifier.strong", prompt, smaller, maxTokens, func(reply string) bool { return tasks.ParseStrongVerdict(reply, drafts).Explicit })

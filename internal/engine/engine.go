@@ -224,6 +224,7 @@ type Run struct {
 	literalDirectives []string
 	sessionFacts      func() []tools.SessionInfo
 	pendingEvidence   map[string]map[string]string
+	observationMasks  map[string]*ctxcompiler.ObservationMask
 	review            reviewVerdict
 	prefix            requestPrefix
 	Volatile          []string
@@ -375,7 +376,9 @@ type Run struct {
 	StrictBlockedRefusals int
 	// fin holds the finish-protocol state (refusal fingerprint,
 	// verifier budget, input snapshot). Guarded by mu.
-	fin finishState
+	fin                 finishState
+	finishAuditSink     func(FinishAuditVerdict) error
+	finishAuditSequence int
 	// timeOnlyClosingNoted marks the one-time wall-closing note in
 	// time-only mode so closing reminds once without spamming.
 	timeOnlyClosingNoted bool
@@ -891,9 +894,18 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	run.mu.Unlock()
 
 	if reason := e.finishSafetyReason(run); reason != "" {
+		run.auditFinish(e.deps.Clock(), "", "finish_safety_cap", "safety_cap", reason)
 		return true, e.completeWithPending(ctx, run, []string{reason})
 	}
 
+	if pending := run.deliveryPendingReason(); pending != "" && e.pendingCommandReason(run, e.deps.Clock()) == "" {
+		run.mu.Lock()
+		used := run.fin.deliveryFinalizationUsed
+		run.mu.Unlock()
+		if used {
+			return true, e.completeWithPending(ctx, run, []string{pending})
+		}
+	}
 	e.announceTimeReserve(run, e.deps.Clock())
 	if done, err := e.completePendingConfirmation(ctx, run, e.deps.Clock()); done || err != nil {
 		return done, err
@@ -993,7 +1005,22 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 		if run.scopeGuard != nil {
 			note = run.scopeGuard.Note()
 		}
-		req.Messages = append(req.Messages, providers.Message{Role: providers.RoleUser, Content: note})
+		message := providers.Message{Role: providers.RoleUser, Content: note}
+		if switchOn("EXCALIBUR_STABLE_PREFIX") {
+			// Startup guidance is append-only activity. Keep L5 last, and retain
+			// the exact message on later executor requests.
+			run.mu.Lock()
+			run.History = append(run.History, ctxcompiler.ActivityEvent{Seq: run.nextHistorySeqLocked(), Role: message.Role, Content: message.Content})
+			run.mu.Unlock()
+			if len(req.Messages) > 0 {
+				volatile := req.Messages[len(req.Messages)-1]
+				req.Messages = append(req.Messages[:len(req.Messages)-1], message, volatile)
+			} else {
+				req.Messages = append(req.Messages, message)
+			}
+		} else {
+			req.Messages = append(req.Messages, message)
+		}
 	}
 	// Long-horizon persistence: the milestone plan decision needs the
 	// stashed request, and the progress check injects the next
@@ -1005,8 +1032,27 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 	}
 
 	run.SetWaitingModel(true)
-	resp, meta, err := e.deps.Models.Chat(WithModelCallSite(ctx, "engine.step"), run.Profile.Role, req)
+	modelCtx, modelCancel := ctx, func() {}
+	finalizing := switchOn("EXCALIBUR_MODEL_DELIVERY_RESERVE") && e.explicitFinishRequired(run) && (run.confirmArmed() || run.deliveryPendingReason() != "")
+	if finalizing {
+		modelCtx, modelCancel = e.modelDeliveryContext(ctx, run, true)
+		if run.deliveryPendingReason() != "" {
+			run.mu.Lock()
+			run.fin.deliveryFinalizationUsed = true
+			run.mu.Unlock()
+		}
+	}
+	resp, meta, err := e.deps.Models.Chat(WithModelCallSite(modelCtx, "engine.step"), run.Profile.Role, req)
+	modelExpired := modelCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+	modelCancel()
 	run.SetWaitingModel(false)
+	if finalizing && modelExpired {
+		e.markDeliveryPending(ctx, run, "engine.confirmation")
+		if e.pendingCommandReason(run, e.deps.Clock()) != "" {
+			return true, e.RequestPause(ctx, run, types.PauseBudget, "confirmation deadline with running computation")
+		}
+		return true, e.completeWithPending(ctx, run, []string{run.deliveryPendingReason()})
+	}
 	if err != nil {
 		if ctx.Err() != nil && run.interruptedNow() {
 			full, toolOnly := run.consumeInterrupt()
@@ -1095,12 +1141,18 @@ func (e *Engine) step(ctx context.Context, run *Run) (bool, error) {
 				run.recordFinishAttempt(string(resp.Message.ToolCalls[0].Arguments), resp.Message.Content)
 				reason := e.refuseFinish(ctx, run, []string{"`finish` must be called alone, with no other tool calls in the same turn."})
 				run.recordFinishRefusal(reason)
+				for _, call := range resp.Message.ToolCalls {
+					if isFinishCall(call) {
+						run.auditFinish(e.deps.Clock(), call.ID, "finish_batch", "refusal", reason)
+					}
+				}
 				e.recordCallResults(run, resp.Message.ToolCalls, reason)
 				run.InjectNote(reason)
 				return false, nil
 			}
 			if e.quality().LoopGuardV2 {
 				if msg, refused := run.guardRefusal(resp.Message.ToolCalls[0]); refused {
+					run.auditFinish(e.deps.Clock(), resp.Message.ToolCalls[0].ID, "loop_guard", "refusal", msg)
 					e.recordBlockedCall(run, resp.Message.ToolCalls[0], tools.Result{Status: tools.StatusInputError, Output: msg})
 					return false, nil
 				}
@@ -1157,6 +1209,9 @@ func (e *Engine) checkBudgets(run *Run, elapsed time.Duration) tasks.Status {
 func (e *Engine) safetyCapExhausted(run *Run, elapsed time.Duration, spendOn bool) bool {
 	run.mu.Lock()
 	dup := run.Tracker
+	if run.assumedWallLocked() {
+		dup.Limit.MaxSeconds = HardWallSeconds(dup.Limit.MaxSeconds, "default")
+	}
 	run.mu.Unlock()
 	dup.Used.Elapsed = elapsed
 	if spendOn {
@@ -1261,6 +1316,7 @@ func (e *Engine) fail(ctx context.Context, run *Run, cause string) error {
 // reminder, so thin answers cannot slip through an unwired gate.
 func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bool, error) {
 	if cont, note := e.guardFinish(run); cont {
+		run.auditFinish(e.deps.Clock(), "", "finish_guard", "refusal", note)
 		run.InjectNote(note)
 		return false, nil
 	}
@@ -1293,6 +1349,7 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bo
 			_ = run.transition(types.RunRunning)
 			run.mu.Unlock()
 			e.recordState(ctx, run, back, types.RunRunning, "long-horizon continuation")
+			run.auditFinish(e.deps.Clock(), "", "long_horizon", "refusal", note)
 			run.InjectNote(note)
 			return false, nil
 		}
@@ -1302,11 +1359,13 @@ func (e *Engine) finishTurn(ctx context.Context, run *Run, finalText string) (bo
 	attempts := run.GateAttempts
 	run.mu.Unlock()
 	if rep.OK {
+		run.auditFinish(e.deps.Clock(), "", "completion_gate", "acceptance", finalText)
 		return true, e.complete(ctx, run, types.RunCompleted, "")
 	}
 	run.mu.Lock()
 	run.GateAttempts++
 	run.mu.Unlock()
+	run.auditFinish(e.deps.Clock(), "", "completion_gate", "refusal", tasks.CompactNote(rep))
 	if attempts+1 < tasks.GateAttempts {
 		run.mu.Lock()
 		back := run.state

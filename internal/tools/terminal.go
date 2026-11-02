@@ -93,17 +93,18 @@ type Session struct {
 	UsePTY  bool
 	Started time.Time
 
-	mu         sync.Mutex
-	buf        bytes.Buffer
-	full       bytes.Buffer
-	done       chan struct{}
-	exitErr    error
-	exited     bool
-	lastUse    time.Time
-	lastOutput time.Time
-	pty        platform.PTYSession
-	proc       *os.Process
-	Detached   bool
+	submittedCmd string
+	mu           sync.Mutex
+	buf          bytes.Buffer
+	full         bytes.Buffer
+	done         chan struct{}
+	exitErr      error
+	exited       bool
+	lastUse      time.Time
+	lastOutput   time.Time
+	pty          platform.PTYSession
+	proc         *os.Process
+	Detached     bool
 	// Survivable marks autonomous foreground sessions with persistent log output.
 	Survivable bool
 	LogPath    string

@@ -212,17 +212,19 @@ const FinishAcceptedText = "finish accepted: the run ends now."
 // snapshot taken before the first model action (D4). Guarded by the
 // run mutex.
 type finishState struct {
-	reserveNoted     bool
-	blockingCounts   map[string]int
-	finishAdvisory   []string
-	refused          bool
-	refusalMark      int
-	refusalReasons   []string
-	verifierRefusals int
-	advisory         []string
-	snapshot         *tasks.InputSnapshot
-	inputCopyDir     string
-	snapshotTaken    bool
+	deliveryPending          string
+	deliveryFinalizationUsed bool
+	reserveNoted             bool
+	blockingCounts           map[string]int
+	finishAdvisory           []string
+	refused                  bool
+	refusalMark              int
+	refusalReasons           []string
+	verifierRefusals         int
+	advisory                 []string
+	snapshot                 *tasks.InputSnapshot
+	inputCopyDir             string
+	snapshotTaken            bool
 }
 
 func isFinishCall(tc providers.ToolCall) bool {
@@ -406,7 +408,8 @@ func resolveFinishPath(workdir, path string) string {
 // execBatch so the trajectory stays complete.
 func historyEventForTool(seq int64, tc providers.ToolCall, res tools.Result) ctxcompiler.ActivityEvent {
 	return ctxcompiler.ActivityEvent{
-		Seq: seq, Role: providers.RoleTool,
+		Sessions: res.Sessions,
+		Seq:      seq, Role: providers.RoleTool,
 		Content:    res.Output,
 		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: res.Status != tools.StatusOK},
 	}
@@ -559,6 +562,11 @@ func isSoftReason(reason string) bool {
 // text (D1). The model sees the result in its next request; the
 // volatile note stays as a duplicate for models that ignore results.
 func (e *Engine) setFinishVerdict(run *Run, callID, text string, isError bool) {
+	run.auditFinish(e.deps.Clock(), callID, "explicit_finish", verdictOutcome(text, isError), text)
+	e.renderFinishVerdict(run, callID, text, isError)
+}
+
+func (e *Engine) renderFinishVerdict(run *Run, callID, text string, isError bool) {
 	if !FinishVerdictResultEnabled() {
 		return
 	}
@@ -697,8 +705,8 @@ func (e *Engine) execFinishBatch(ctx context.Context, run *Run, tc providers.Too
 	}
 	e.announceTimeReserve(run, e.deps.Clock())
 	if e.reserveMayAccept(run, e.deps.Clock(), 85) {
-		e.setFinishVerdict(run, tc.ID, FinishAcceptedText, false)
-		return true, e.completeReservedFinish(ctx, run, args)
+		e.renderFinishVerdict(run, tc.ID, FinishAcceptedText, false)
+		return true, e.completeReservedFinish(ctx, run, args, tc.ID)
 	}
 	if reason := e.pendingCommandReason(run, e.deps.Clock()); reason != "" {
 		run.recordFinishRefusal(reason)
@@ -797,6 +805,9 @@ func (e *Engine) completeFinish(ctx context.Context, run *Run, args FinishArgs) 
 		run.mu.Unlock()
 		e.recordState(ctx, run, back, types.RunRunning, "finish race: re-verify")
 		return rep.Pendings, nil
+	}
+	if pending := run.deliveryPendingReason(); pending != "" {
+		return nil, e.completeWithPending(ctx, run, []string{pending})
 	}
 	return nil, e.complete(ctx, run, types.RunCompleted, "explicit finish")
 }

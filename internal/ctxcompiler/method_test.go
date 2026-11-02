@@ -331,7 +331,7 @@ func TestWorkingMethodOffIsLegacyGolden(t *testing.T) {
 
 // With the default (on) the eight original steps stay verbatim and
 // the evidence rules follow them: nine numbered lines (9 to 17), the
-// whole block under about 2,600 characters because it is the L0
+// whole block under about 3,000 characters because it is the L0
 // prefix shared by every run.
 var evidenceLineRe = regexp.MustCompile(`(?m)^(9|1[0-7])\. `)
 
@@ -360,8 +360,8 @@ func TestWorkingMethodV2AddsEvidenceRules(t *testing.T) {
 	if n := len(evidenceLineRe.FindAllString(m, -1)); n != 9 {
 		t.Errorf("want 9 evidence lines (numbers 9 to 17), got %d", n)
 	}
-	if len(m) > 2600 {
-		t.Errorf("method block is %d chars; the L0 budget is about 2,600", len(m))
+	if len(m) > 3000 {
+		t.Errorf("method block is %d chars; the L0 budget is about 3,000", len(m))
 	}
 	if !strings.HasSuffix(m, "instead of re-reading large outputs.") {
 		t.Error("the Rules line must still close the block")
@@ -387,7 +387,7 @@ func TestWorkingMethodDataFormatCheck(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing data format instruction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 2600 {
+	if len(ctxcompiler.WorkingMethod()) > 3000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_METHOD_DATA_FORMAT", "off")
@@ -403,7 +403,7 @@ func TestWorkingMethodBroadReverification(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing broad verification instruction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 2600 {
+	if len(ctxcompiler.WorkingMethod()) > 3000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_BROAD_REVERIFICATION", "off")
@@ -419,11 +419,38 @@ func TestWorkingMethodNoOutsideCode(t *testing.T) {
 	if !strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("missing instruction restriction")
 	}
-	if len(ctxcompiler.WorkingMethod()) > 2600 {
+	if len(ctxcompiler.WorkingMethod()) > 3000 {
 		t.Fatalf("method size: %d", len(ctxcompiler.WorkingMethod()))
 	}
 	t.Setenv("EXCALIBUR_METHOD_NO_OUTSIDE_CODE", "off")
 	if strings.Contains(ctxcompiler.WorkingMethod(), want) {
 		t.Fatal("restriction switch off")
+	}
+}
+
+func TestPreservedInputGuidance(t *testing.T) {
+	t.Setenv("EXCALIBUR_METHOD_V2", "on")
+	t.Setenv("EXCALIBUR_INPUT_RESTORE", "on")
+	if !strings.Contains(ctxcompiler.WorkingMethod(), "Inspect disposable copies before opening or changing irreplaceable inputs") {
+		t.Fatal("missing preserved input guidance")
+	}
+	t.Setenv("EXCALIBUR_INPUT_RESTORE", "off")
+	if strings.Contains(ctxcompiler.WorkingMethod(), "Inspect disposable copies before opening or changing irreplaceable inputs") {
+		t.Fatal("disabled guidance present")
+	}
+}
+
+func TestDefaultPreflightGuidance(t *testing.T) {
+	t.Setenv("EXCALIBUR_METHOD_V2", "on")
+	t.Setenv("EXCALIBUR_DEFAULT_PREFLIGHT", "on")
+	prompt := ctxcompiler.WorkingMethod()
+	for _, want := range []string{"reuse fresh preflight evidence", "requested default command on small input through final output files", "Overrides, accepted API calls and progress", "final serialization"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatal("missing", want)
+		}
+	}
+	t.Setenv("EXCALIBUR_DEFAULT_PREFLIGHT", "off")
+	if strings.Contains(ctxcompiler.WorkingMethod(), "reuse fresh preflight evidence") {
+		t.Fatal("disabled guidance present")
 	}
 }

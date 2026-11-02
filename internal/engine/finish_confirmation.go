@@ -47,6 +47,11 @@ func (r *Run) observeConfirmation(unchanged bool) {
 // Only explicit exec/eval finish rounds qualify. Incomplete snapshots never
 // authorize automatic completion, nor does a file edit after the passed check.
 func (e *Engine) completePendingConfirmation(ctx context.Context, r *Run, now time.Time) (bool, error) {
+	// An incomplete optional review retains its one bounded delivery call even
+	// when it consumed the ordinary confirmation reserve.
+	if r.deliveryPendingReason() != "" {
+		return false, nil
+	}
 	if r.confirmArmed() && e.reserveMayAccept(r, now, 85) {
 		r.mu.Lock()
 		var args *FinishArgs
@@ -85,6 +90,7 @@ func (e *Engine) completePendingConfirmation(ctx context.Context, r *Run, now ti
 	}
 	r.storeFinish(args, "")
 	const reason = "confirmation pending at deadline"
+	r.auditFinish(now, "", "confirmation_deadline", "acceptance", reason)
 	e.recordState(ctx, r, from, types.RunVerifying, reason)
 	return true, e.complete(ctx, r, types.RunCompleted, reason)
 }

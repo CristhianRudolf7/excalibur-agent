@@ -337,6 +337,9 @@ func TestWalkthrough267PowerCut(t *testing.T) {
 // dir with a frozen hashed profile, writing nothing into the
 // evaluated tree.
 func TestWalkthrough268EvalProfile(t *testing.T) {
+	// An embedded run must not discover the operator's daemon or a concurrent
+	// worker's rendezvous file when checking that it needs no daemon.
+	t.Setenv("EXCALIBUR_DAEMON_ADDR", "127.0.0.1:1")
 	t.Setenv("EXCALIBUR_PROVIDER", "stub")
 	tree := t.TempDir()
 	runDir := t.TempDir()

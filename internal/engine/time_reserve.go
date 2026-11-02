@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
-
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -53,7 +52,7 @@ func (e *Engine) pendingCommandReason(run *Run, now time.Time) string {
 			if !live[string(s.ID)] || !s.Alive {
 				continue
 			}
-			if s.Build || s.PackageManager || buildOrTestCommand(s.Command) {
+			if s.Build || buildOrTestCommand(s.Command) {
 				return "finish refused: session " + string(s.ID) + " is still running a build or test; wait for it to exit with exec_io before calling finish"
 			}
 		}
@@ -67,16 +66,15 @@ func (e *Engine) pendingCommandReason(run *Run, now time.Time) string {
 }
 
 func buildOrTestCommand(command string) bool {
-	if packageOrBuildCommand(command) {
-		return true
-	}
 	for _, words := range commandWords(command) {
 		switch words[0] {
-		case "pytest", "pytest-3", "ctest", "bats", "jest", "vitest", "mocha":
+		case "apt-get", "apt", "dpkg", "pip", "pip3", "conda", "gem",
+			"make", "cmake", "ninja", "gcc", "g++", "clang", "clang++", "cc", "rustc", "javac",
+			"pytest", "pytest-3", "ctest", "bats", "jest", "vitest", "mocha":
 			return true
-		case "go", "dotnet", "bun", "deno":
+		case "go", "dotnet", "bun", "deno", "npm", "yarn", "pnpm", "cargo", "mvn", "gradle":
 			for _, word := range words[1:] {
-				if word == "test" {
+				if word == "test" || word == "build" || word == "install" || word == "check" || word == "compile" || word == "ci" {
 					return true
 				}
 			}
@@ -129,7 +127,12 @@ func (e *Engine) announceTimeReserve(run *Run, now time.Time) {
 	}
 }
 
-func (e *Engine) completeReservedFinish(ctx context.Context, run *Run, args FinishArgs) error {
+func (e *Engine) completeReservedFinish(ctx context.Context, run *Run, args FinishArgs, callIDs ...string) error {
+	callID := ""
+	if len(callIDs) > 0 {
+		callID = callIDs[0]
+	}
+	run.auditFinish(e.deps.Clock(), callID, "time_reserve", "reserve_acceptance", "accepted finish at wall reserve")
 	run.storeFinish(args, "")
 	run.clearRefusal()
 	if args.Status == "blocked" {
@@ -141,6 +144,9 @@ func (e *Engine) completeReservedFinish(ctx context.Context, run *Run, args Fini
 	run.mu.Unlock()
 	if err != nil {
 		return err
+	}
+	if pending := run.deliveryPendingReason(); pending != "" {
+		return e.completeWithPending(ctx, run, []string{pending})
 	}
 	const reason = "time reserve: accepted finish at 85% of wall budget"
 	e.recordState(ctx, run, from, types.RunVerifying, reason)

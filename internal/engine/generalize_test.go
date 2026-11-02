@@ -41,10 +41,16 @@ func TestGeneralizationVerifierReturnsMissingEvidenceToExecutor(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.enabled && (len(entries) != 1 || entries[0].Type != journal.EntryType("generalization_check")) {
+			coverage := 0
+			for _, entry := range entries {
+				if entry.Type == journal.EntryType("generalization_check") {
+					coverage++
+				}
+			}
+			if tc.enabled && coverage != 1 {
 				t.Fatalf("coverage not recorded: %v", entries)
 			}
-			if !tc.enabled && len(entries) != 0 {
+			if !tc.enabled && coverage != 0 {
 				t.Fatal("ablation recorded coverage")
 			}
 			if model.calls() != 1 {

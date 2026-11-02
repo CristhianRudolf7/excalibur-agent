@@ -166,3 +166,19 @@ func TestParallelBatchOverlaps(t *testing.T) {
 		t.Fatalf("starts = %v", starts)
 	}
 }
+
+func TestEngineBindsOriginalObservationCallForRetrieval(t *testing.T) {
+	reg := realRegistry(t)
+	executor := tools.NewExecutor(reg)
+	e := New(Deps{Tools: NewRegistryRunner(reg, executor), Gate: passingGate()})
+	run := testRun(Profile{})
+	result := e.runOneWithKey(context.Background(), run, toolCall("read-original", "read_a", `{}`), "read-key")
+	if result.Output != "a" {
+		t.Fatal(result)
+	}
+	reader := tools.GetToolOutputTool{Outputs: executor.Outputs}
+	restored, err := reader.Invoke(context.Background(), tools.Invocation{Arguments: []byte(`{"ref":"read-original"}`)})
+	if err != nil || restored.Status != tools.StatusOK || restored.Output != "bytes 0..1 of 1\na" {
+		t.Fatalf("original observation lookup failed: %+v %v", restored, err)
+	}
+}

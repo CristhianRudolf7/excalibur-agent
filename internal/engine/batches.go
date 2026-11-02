@@ -281,7 +281,7 @@ func (e *Engine) runOneWithKey(ctx context.Context, run *Run, tc providers.ToolC
 				ctx = tools.WithCommandDeadline(ctx, bound)
 				defer cancel()
 			}
-			res, err = e.deps.Tools.Execute(ctx, tc.Name, tc.Arguments, tools.ExecuteOptions{IdempotencyKey: key})
+			res, err = e.deps.Tools.Execute(ctx, tc.Name, tc.Arguments, tools.ExecuteOptions{IdempotencyKey: key, CallID: tc.ID})
 		}
 		if err != nil {
 			res = tools.Result{Status: tools.StatusToolError, Output: err.Error()}

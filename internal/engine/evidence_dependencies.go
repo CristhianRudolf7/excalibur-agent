@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,13 +20,23 @@ func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, re
 	}
 	run.mu.Lock()
 	request, dir := run.Request, run.Workdir
+	events := append([]ctxcompiler.ActivityEvent(nil), run.History...)
 	run.mu.Unlock()
 	h := tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output}
-	if !tasks.IsExercisingCall(h) && tc.Name != "read_file" {
+	if !tasks.IsExercisingCall(h) && tc.Name != "read_file" && (!buildEvidenceEnabled() || compilerFor(h, dir).scope == "") {
 		return nil
 	}
 	paths := append(historyFileOperands(h, dir), reads...)
 	scope := projectSourceScope(h, dir)
+	build := compilerInvocation{}
+	if buildEvidenceEnabled() {
+		build = compilerFor(h, dir)
+		if build.scope != "" {
+			scope = build.scope
+			paths = append(paths, build.outputs...)
+		}
+		paths = append(paths, executableOperands(h, dir)...)
+	}
 	if scope != "" {
 		paths = append(paths, sourceScopeOperands(scope)...)
 	}
@@ -80,6 +91,22 @@ func (e *Engine) captureEvidenceDependencies(run *Run, tc providers.ToolCall, re
 	// Incomplete discovery must fall back to conservative history checks.
 	if len(paths) > 0 || !validDependencyVersions(versions) {
 		return nil
+	}
+	if buildEvidenceEnabled() {
+		if build.scope != "" && !tasks.HistoryRunning(h) && !successfulCompiler(compilerResultHistory(tc.Name, string(tc.Arguments), res), build) {
+			versions[build.scope] = "compiler-exit-unverified"
+		}
+		if tasks.HistoryRunning(h) {
+			for _, output := range build.outputs {
+				delete(versions, output)
+			}
+		}
+		// A current compiler call supplies its own receipt. A rebuild-and-run
+		// success must supersede older failed attempts rather than inherit them.
+		if build.scope == "" {
+			snap, started, _ := run.finishRunView()
+			bindBuildEvidence(versions, h, dir, events, func(binary string) bool { return preexistingPath(binary, snap, started) })
+		}
 	}
 	return versions
 }

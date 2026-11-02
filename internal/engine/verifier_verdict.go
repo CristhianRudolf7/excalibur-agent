@@ -35,6 +35,11 @@ func ModelCallSite(ctx context.Context) string {
 // returned on failures is accounted as well; adapters may omit it
 // on provider errors.
 func (e *Engine) verifierChat(ctx context.Context, run *Run, site, prompt, smaller string, legacyBudget int, valid func(string) bool) (providers.ChatResponse, models.CallMeta, error) {
+	if run.deliveryPendingReason() != "" {
+		return providers.ChatResponse{}, models.CallMeta{}, tasks.ErrVerifierNoVerdict
+	}
+	reviewCtx, cancel := e.modelDeliveryContext(ctx, run, false)
+	defer cancel()
 	enabled := tasks.VerifierVerdictEnabled()
 	budget := legacyBudget
 	if enabled {
@@ -50,10 +55,14 @@ func (e *Engine) verifierChat(ctx context.Context, run *Run, site, prompt, small
 			prompt = smaller
 			budget = tasks.VerdictRetryBudget(budget)
 		}
-		resp, meta, err = e.deps.Models.Chat(WithModelCallSite(ctx, callSite), types.RoleVerifier, providers.ChatRequest{Messages: []providers.Message{{Role: providers.RoleUser, Content: prompt}}, MaxTokens: budget})
+		resp, meta, err = e.deps.Models.Chat(WithModelCallSite(reviewCtx, callSite), types.RoleVerifier, providers.ChatRequest{Messages: []providers.Message{{Role: providers.RoleUser, Content: prompt}}, MaxTokens: budget})
 		run.mu.Lock()
 		run.observeUsageLocked(tasks.Usage{InputTokens: int(resp.Usage.Input), OutputTokens: int(resp.Usage.Output), CostUSD: meta.CostUSD})
 		run.mu.Unlock()
+		if reviewCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+			e.markDeliveryPending(ctx, run, site)
+			return resp, meta, tasks.ErrVerifierNoVerdict
+		}
 		if !enabled {
 			return resp, meta, err
 		}

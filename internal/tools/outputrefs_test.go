@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,5 +361,33 @@ func TestRedactionWriteGuardSwitchOff(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"path": target, "content": guardMarker})
 	if res, _ := ex.Execute(context.Background(), "write_file", raw, ExecuteOptions{}); res.Status != StatusOK {
 		t.Fatalf("switch off restores the earlier write behaviour: %+v", res)
+	}
+}
+
+func TestObservationCallIDRetrievesOriginalOutput(t *testing.T) {
+	for _, size := range []int{80, 2000} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			def := echoDef()
+			def.OutputBudget = 1000
+			full := strings.Repeat("x", size)
+			reg := scriptedRegistry(def, func(context.Context, Invocation) (Result, error) { return Result{Status: StatusOK, Output: full}, nil })
+			ex := NewExecutor(reg)
+			id := "observation-alpha"
+			_, err := ex.Execute(context.Background(), "echo_test", json.RawMessage(`{"msg":"hello"}`), ExecuteOptions{CallID: id})
+			if err != nil {
+				t.Fatal(err)
+			}
+			g := &GetToolOutputTool{Outputs: ex.Outputs}
+			retrieved := getOutput(t, g, map[string]any{"ref": id, "limit": 4000})
+			if retrieved.Status != StatusOK || !strings.HasSuffix(retrieved.Output, full) {
+				t.Fatalf("original call output unavailable: %+v", retrieved)
+			}
+			store := ex.Outputs.(*MemoryOutputStore)
+			store.BindCall(id, store.Put("[observation omitted]"))
+			again := getOutput(t, g, map[string]any{"ref": id, "limit": 4000})
+			if again.Output != retrieved.Output {
+				t.Fatal("marker replaced immutable full output")
+			}
+		})
 	}
 }

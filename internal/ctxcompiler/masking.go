@@ -12,6 +12,8 @@ import (
 // flags. Full outputs stay in the content store; the context only
 // keeps markers (11.3).
 type Observation struct {
+	// Mask is set only after the full-to-marker transition.
+	Mask *ObservationMask
 	// CallID is the tool call identifier (get_tool_output key).
 	CallID string
 	// ToolName is the tool that produced the output.
@@ -27,6 +29,26 @@ type Observation struct {
 	IsError bool
 	// Tokens overrides the estimated cost; 0 means estimate.
 	Tokens int
+}
+
+// ObservationMask is immutable metadata for an omitted observation. Full output
+// remains in the tool output store, addressed by CallID.
+type ObservationMask struct {
+	CallID string `json:"call_id"`
+	Digest string `json:"digest"`
+	Lines  int    `json:"lines"`
+	Marker string `json:"marker"`
+}
+
+func MaskIdempotentEnabled() bool { return envFlagDefaultOn(nil, "EXCALIBUR_MASK_IDEMPOTENT") }
+
+func alreadyMasked(o Observation) bool {
+	if !MaskIdempotentEnabled() {
+		return false
+	}
+	// Old journal records may predate typed masking metadata. Match only this
+	// observation's complete marker, never an arbitrary mention in tool output.
+	return o.Mask != nil || (strings.HasPrefix(o.Output, "[observation "+o.CallID+" omitted: ") && strings.HasSuffix(o.Output, fmt.Sprintf("; retrieve with get_tool_output(%q)]", o.CallID)))
 }
 
 // linesOf counts newline-terminated lines, at least 1 for non-empty
@@ -51,6 +73,12 @@ func shortDigest(s string) string {
 // RenderMarker renders the L4 placeholder for a masked observation.
 // The format is fixed so tests and the model can rely on it.
 func RenderMarker(o Observation) string {
+	if alreadyMasked(o) {
+		if o.Mask != nil {
+			return o.Mask.Marker
+		}
+		return o.Output
+	}
 	label := o.Label
 	if label == "" {
 		label = o.ToolName
@@ -115,6 +143,9 @@ func NewMasker(cfg Config, counter Counter) *Masker {
 
 // cost returns the token cost of one observation.
 func (m *Masker) cost(o Observation) int {
+	if alreadyMasked(o) {
+		return 0
+	}
 	if o.Tokens > 0 {
 		return o.Tokens
 	}
@@ -171,7 +202,7 @@ func (m *Masker) Apply(obs []Observation, cacheExpired bool) MaskPlan {
 		if WithMargin(remaining, m.margin) <= m.target {
 			break
 		}
-		if protected(obs, i, m.keepLast) {
+		if alreadyMasked(obs[i]) || protected(obs, i, m.keepLast) {
 			continue
 		}
 		plan.Masked[i] = true
@@ -193,10 +224,12 @@ func (m *Masker) Apply(obs []Observation, cacheExpired bool) MaskPlan {
 // the masked call IDs.
 func (p MaskPlan) ApplyToActivity(obs []Observation, activity []ActivityEvent) []string {
 	byCall := make(map[string]string, len(obs))
+	identities := make(map[string]*ObservationMask, len(obs))
 	var masked []string
 	for i, o := range obs {
-		if p.Masked[i] {
+		if p.Masked[i] && !alreadyMasked(o) {
 			byCall[o.CallID] = p.Markers[i]
+			identities[o.CallID] = &ObservationMask{CallID: o.CallID, Digest: shortDigest(o.Output), Lines: linesOf(o.Output), Marker: p.Markers[i]}
 			masked = append(masked, o.CallID)
 		}
 	}
@@ -209,6 +242,12 @@ func (p MaskPlan) ApplyToActivity(obs []Observation, activity []ActivityEvent) [
 			continue
 		}
 		if marker, ok := byCall[r.CallID]; ok {
+			if MaskIdempotentEnabled() {
+				activity[i].Mask = identities[r.CallID]
+				// Replace the result rather than mutating pointers held by earlier requests.
+				copyResult := *r
+				r = &copyResult
+			}
 			r.Output = marker
 			activity[i].ToolResult = r
 		}

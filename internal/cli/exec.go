@@ -152,6 +152,7 @@ type ExecRun struct {
 	// (state "timeout") to events.jsonl. Only the watchdog and finalize touch
 	// it, both under finalMu.
 	stopEventWritten bool
+	finishAuditWired bool
 }
 
 // EmitStep records one ATIF step plus a matching JSONL event, and
@@ -977,7 +978,9 @@ func finishRun(runDir string, run *ExecRun, outcome *ExecOutcome, metrics *telem
 		}
 		_ = run.Recorder.RecordTransition(string(state)+":running", string(state), outcome.Reason)
 		_ = run.Recorder.RecordBudget(eval.BudgetPoint{TokensUsed: snap.Usage.Input + snap.Usage.Output, CostUSD: snap.CostUSD, WallSecs: snap.WallSeconds, WallSource: run.wallSource, Note: "final"})
-		_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: state == types.RunCompleted, Note: outcome.Summary})
+		if !run.finishAuditWired {
+			_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: state == types.RunCompleted, Note: outcome.Summary})
+		}
 		// Final resource sample: the metrics peak wins, but when the
 		// engine sampler never ran (stub path, early failure) the
 		// snapshot holds zeros, so take a live sample rather than

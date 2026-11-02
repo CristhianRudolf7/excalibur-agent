@@ -221,7 +221,8 @@ func toolCallOf(p journal.PendingIntent) providers.ToolCall {
 
 func historyEventOf(seq int64, tc providers.ToolCall, res tools.Result) ctxcompiler.ActivityEvent {
 	return ctxcompiler.ActivityEvent{
-		Seq: seq, Role: providers.RoleTool, Content: res.Output,
+		Sessions: res.Sessions,
+		Seq:      seq, Role: providers.RoleTool, Content: res.Output,
 		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: res.Status != tools.StatusOK},
 	}
 }

@@ -595,6 +595,12 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if gw == nil {
 		return "", providers.Usage{}, "", fmt.Errorf("cli: engine path needs a gateway")
 	}
+	var restoreRun *engine.Run
+	if tools.InputRestoreEnabled() {
+		if err := emb.Registry.Register(&tools.RestoreInputTool{Restore: func(path, destination string) error { return restoreRun.RestoreInput(path, destination) }}); err != nil {
+			return "", providers.Usage{}, "", err
+		}
+	}
 	baseRunner := engine.NewRegistryRunner(emb.Registry, emb.Exec)
 	var toolBase engine.ToolRunner = baseRunner
 	// Best-of-N attempts map their paths onto their own copy before the
@@ -605,6 +611,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		toolBase = &historyToolRunner{base: toolBase, log: emb.Surface.History}
 	}
 	runner := newProfileGatedRunner(profile, toolBase)
+	if tools.InputRestoreEnabled() {
+		runner.allowed["restore_input"] = true
+	}
 	if profile == ProfileEval {
 		pruneDeferredToProfile(emb.Catalog, runner.allowed)
 	}
@@ -769,6 +778,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			if err != nil {
 				continue
 			}
+			def := tool.Definition()
+			out = append(out, providers.ToolDefinition{Name: def.Name, Description: def.Description, Schema: def.InputSchema})
+		}
+		if tools.InputRestoreEnabled() {
+			tool, _ := emb.Registry.Get("restore_input")
 			def := tool.Definition()
 			out = append(out, providers.ToolDefinition{Name: def.Name, Description: def.Description, Schema: def.InputSchema})
 		}
@@ -983,7 +997,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		close(stopSampler)
 		return "", providers.Usage{}, "", err
 	}
+	wireFinishAudit(run, erun)
 	erun.SetPromptFinishRecordDir(filepath.Dir(run.ATIF.Path()))
+	restoreRun = erun
 	erun.SetInputCopyDir(filepath.Join(run.Dir, "input-originals"))
 	if err := eng.Start(ctx, erun); err != nil {
 		close(stopSampler)
@@ -1058,11 +1074,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	if run.Recorder != nil {
 		// Completion-gate attempts with criteria and evidence.
-		for i := 0; i < erun.GateAttempts; i++ {
-			_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: i + 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
-		}
-		if erun.GateAttempts == 0 {
-			_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
+		if !run.finishAuditWired {
+			for i := 0; i < erun.GateAttempts; i++ {
+				_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: i + 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
+			}
+			if erun.GateAttempts == 0 {
+				_ = run.Recorder.RecordGate(eval.GateAttempt{Attempt: 1, Passed: erun.State() == types.RunCompleted, Note: rep.Summary})
+			}
 		}
 		// Loop-detector signals.
 		if erun.Loop != nil {
@@ -1263,4 +1281,26 @@ func cachePayloadTelemetryEnabled() bool {
 	default:
 		return true
 	}
+}
+
+// wireFinishAudit writes each verdict immediately; finalization does not
+// manufacture duplicate passing rows from the final run state.
+func wireFinishAudit(run *ExecRun, erun *engine.Run) {
+	if !engine.FinishAuditEnabled() {
+		return
+	}
+	recorder := run.Recorder
+	if recorder == nil {
+		// Non-eval exec runs keep their single audit stream in the run directory.
+		// Keep the full evaluation recorder unwired so no other export changes.
+		var err error
+		recorder, err = eval.NewTrialRecorder(run.Dir)
+		if err != nil {
+			return
+		}
+	}
+	run.finishAuditWired = true
+	erun.SetFinishAudit(func(v engine.FinishAuditVerdict) error {
+		return recorder.RecordGate(eval.GateAttempt{At: v.At, Attempt: v.Sequence, AttemptID: v.AttemptID, Mechanism: v.Mechanism, Outcome: v.Outcome, Passed: v.Outcome == "acceptance" || v.Outcome == "reserve_acceptance", Note: v.Note})
+	})
 }

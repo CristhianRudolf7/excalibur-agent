@@ -99,14 +99,23 @@ const (
 	StatusDenied     ResultStatus = "denied"
 )
 
+// SessionReceipt identifies only processes owned or observed by this tool call.
+// It is durable evidence, separate from model-visible output text.
+type SessionReceipt struct {
+	ID       string `json:"id"`
+	Alive    bool   `json:"alive"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+}
+
 // Result is the normalized tool outcome. Large outputs are truncated to
 // the output budget with the remainder kept in BlobRef (Section 13.4).
 type Result struct {
-	Status    ResultStatus `json:"status"`
-	Output    string       `json:"output"`
-	Truncated bool         `json:"truncated"`
-	BlobRef   string       `json:"blob_ref,omitempty"`
-	Transient bool         `json:"transient"`
+	Sessions  []SessionReceipt `json:"sessions,omitempty"`
+	Status    ResultStatus     `json:"status"`
+	Output    string           `json:"output"`
+	Truncated bool             `json:"truncated"`
+	BlobRef   string           `json:"blob_ref,omitempty"`
+	Transient bool             `json:"transient"`
 	// ExitCode is the process exit status of an exec result (128+n when
 	// a signal ended the process). Nil for tools without an exit status
 	// and for sessions still running.

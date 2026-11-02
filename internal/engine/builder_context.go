@@ -46,6 +46,24 @@ func (b *DefaultBuilder) applyContextControl(ctx context.Context, run *Run, snap
 	if err := ctx.Err(); err != nil {
 		return
 	}
+	if ctxcompiler.MaskIdempotentEnabled() {
+		// Snapshot-owned history is freshly loaded each request. Retain its single
+		// masking transition in the run as well as on history-owned activity.
+		run.mu.Lock()
+		for i := range snap.Activity {
+			result := snap.Activity[i].ToolResult
+			if result == nil {
+				continue
+			}
+			if mask := run.observationMasks[result.CallID]; mask != nil {
+				copied := *result
+				copied.Output = mask.Marker
+				snap.Activity[i].ToolResult = &copied
+				snap.Activity[i].Mask = mask
+			}
+		}
+		run.mu.Unlock()
+	}
 	rev, batches, _, _ := run.compactionState()
 	ctrl := ctxcompiler.NewController(cfg, counter, model)
 	ctrl.Seed(rev, batches)
@@ -59,6 +77,18 @@ func (b *DefaultBuilder) applyContextControl(ctx context.Context, run *Run, snap
 	outcome := ctrl.ApplyMask(snap.Activity, pinned, false)
 	if !outcome.Applied {
 		return
+	}
+	if ctxcompiler.MaskIdempotentEnabled() {
+		run.mu.Lock()
+		if run.observationMasks == nil {
+			run.observationMasks = map[string]*ctxcompiler.ObservationMask{}
+		}
+		for _, ev := range snap.Activity {
+			if ev.Mask != nil {
+				run.observationMasks[ev.Mask.CallID] = ev.Mask
+			}
+		}
+		run.mu.Unlock()
 	}
 	b.persistMaskedHistory(run, snapshotLen, historyLen, snap.Activity)
 	run.recordMask()

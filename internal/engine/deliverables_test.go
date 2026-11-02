@@ -477,7 +477,7 @@ func TestInputCopiesInFinishChecklist(t *testing.T) {
 				}
 				return
 			}
-			want := "original copy: " + copy + " (restore with cp -a " + copy + " " + path + ")"
+			want := "restore with restore_input path=" + path
 			if copy == "" || !strings.Contains(checklist, want) {
 				t.Fatalf("missing restore hint %q: %s", want, checklist)
 			}

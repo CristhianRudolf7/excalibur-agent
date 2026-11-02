@@ -418,6 +418,9 @@ func StrongVerifierPromptWithConfig(cfg SelfVerifyConfig, small VerifierSmallCon
 	}
 	b.WriteString("Judge ONLY the instruction text below against the produced artifacts and their evidence.\n\n")
 	b.WriteString("HARD RULES:\n")
+	if envBool("EXCALIBUR_LITERAL_CONTRACT_REVIEW", true) {
+		b.WriteString(literalContractReview)
+	}
 	b.WriteString("- Do NOT look for, name, run, or assume any hidden test suite, grading script, or reference solution. They do not exist for you.\n")
 	b.WriteString("- Prior evidence lines are claims, not proof. A draft passes only when the evidence shows the deliverable was EXERCISED as the instruction describes: the program/CLI run with representative inputs, the module imported and called, the service queried, the output file parsed with its stated format/constraints checked, with fresh evidence after the last change.\n")
 	b.WriteString("- Mere existence checks (ls, test -e, cat without validation) never pass a draft.\n\n")
@@ -968,3 +971,5 @@ func EntryVerifiesChanges(h HistoryTool) bool {
 	}
 	return checked
 }
+
+const literalContractReview = "- Compare literal request names, fields, paths, ports, formats and required objectives/thresholds against BOTH implementation and executor tests. Flag clients/tests derived from the same wrong implementation; agreement alone is not independent evidence.\n"

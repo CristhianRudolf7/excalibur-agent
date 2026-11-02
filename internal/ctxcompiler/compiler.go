@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 )
 
 // Layer is one context layer of Section 11.1. L0-L2 are the stable
@@ -127,9 +128,12 @@ type TaskView struct {
 // ActivityEvent is one append-only L4 entry: a message, a tool call
 // or a tool result. Entries are rendered independently and never
 // extended in place, so appending history only appends bytes (11.1
-// rules 3-4). Masked observations arrive with their marker already
-// in Content; see masking.go.
+// rules 3-4). Masked observations retain original Content for auditing;
+// the model projection uses immutable Mask metadata (masking.go).
 type ActivityEvent struct {
+	Sessions []tools.SessionReceipt `json:"sessions,omitempty"`
+	// Mask preserves the original observation identity across masking and recovery.
+	Mask *ObservationMask `json:"mask,omitempty"`
 	// Dependencies is an engine evidence receipt, never projected to the wire.
 	Dependencies map[string]string `json:"dependencies,omitempty"`
 	// Seq orders the entry; it is history state, not a per-request
@@ -400,6 +404,7 @@ func renderEvents(input []ActivityEvent) string {
 	})
 	var b strings.Builder
 	for _, e := range events {
+		e = modelObservation(e)
 		fmt.Fprintf(&b, "[seq %d] %s: %s", e.Seq, string(e.Role), e.Content)
 		if !strings.HasSuffix(e.Content, "\n") {
 			b.WriteString("\n")
@@ -531,6 +536,7 @@ func (c Compiled) AppendActivityMessages(req *providers.ChatRequest, activity []
 		return events[i].Content < events[j].Content
 	})
 	for _, e := range events {
+		e = modelObservation(e)
 		m := providers.Message{Role: e.Role, Content: e.Content, ToolCalls: e.ToolCalls, ToolResult: e.ToolResult}
 		req.Messages = append(req.Messages, m)
 	}
@@ -585,4 +591,28 @@ func CatalogBudget(windowTokens int, cfg Config) int {
 		return frac
 	}
 	return cfg.SkillCatalogMax
+}
+
+// Project a copy so compaction, export and output retrieval keep full history.
+func modelObservation(e ActivityEvent) ActivityEvent {
+	if e.Role != providers.RoleTool {
+		return e
+	}
+	if e.Mask != nil {
+		// Keep the original activity text for auditing; only the marker is sent.
+		e.Content = e.Mask.Marker
+		if e.ToolResult != nil {
+			result := *e.ToolResult
+			result.Output = e.Mask.Marker
+			e.ToolResult = &result
+		}
+		return e
+	}
+	e.Content = CollapseRepetitiveOutput(e.Content)
+	if e.ToolResult != nil {
+		result := *e.ToolResult
+		result.Output = CollapseRepetitiveOutput(result.Output)
+		e.ToolResult = &result
+	}
+	return e
 }

@@ -409,3 +409,36 @@ func TestArtifactConfigEnvOverrides(t *testing.T) {
 		t.Fatal("env on must enable the gate")
 	}
 }
+
+func TestPathTemplatesNeverRequireRemnants(t *testing.T) {
+	t.Setenv("EXCALIBUR_PATH_TEMPLATES", "on")
+	for _, path := range []string{"/app/<name>/client.py", "/app/{name}/client.py", "/app/$PACKAGE/client.py", "/app/${PACKAGE}/client.py", "/app/*/client.py", "/app/.../client.py", "<name>_client.py", "{name}_client.py", "/app/<project name>/client.py"} {
+		request := "Create `" + path + "`. Create `/app/actual.txt`."
+		reqs := ExtractArtifactRequirementsIn(request, 20, "/app")
+		found := false
+		for _, req := range reqs {
+			if req.Path == "/app/actual.txt" {
+				found = true
+				continue
+			}
+			if req.Path == "actual.txt" {
+				continue
+			}
+			t.Errorf("%s left requirement %+v", path, req)
+		}
+		if !found {
+			t.Fatal("concrete path lost", path, reqs)
+		}
+		req := ArtifactRequirement{Path: path, Kind: ArtifactOutput, Source: request}
+		if HardArtifactRequirement(req) {
+			t.Fatal("hard template", path)
+		}
+		if reasons := CheckArtifactFiles([]ArtifactRequirement{req}, nil, "/app", nil, nil); len(reasons) > 0 {
+			t.Fatal(reasons)
+		}
+	}
+	t.Setenv("EXCALIBUR_PATH_TEMPLATES", "off")
+	if !HardArtifactRequirement(ArtifactRequirement{Path: "/app/{name}/out.txt", Source: "Create /app/{name}/out.txt"}) {
+		t.Fatal("off switch ignored")
+	}
+}

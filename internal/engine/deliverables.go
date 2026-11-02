@@ -519,10 +519,14 @@ var deliverableMTime = func(path string) (time.Time, bool) {
 // sessionStartCommand returns the command of the exec that started the
 // session id (the exec whose header names it).
 func sessionStartCommand(history []tasks.HistoryTool, id string) string {
-	needle := "session: " + id + " "
 	for _, h := range history {
-		if strings.ToLower(h.Name) == "exec" && strings.Contains(h.Output, needle) {
-			return execCommand(h.Args)
+		if strings.ToLower(h.Name) != "exec" {
+			continue
+		}
+		for _, owned := range tasks.HistorySessionIDs(h) {
+			if owned == id {
+				return execCommand(h.Args)
+			}
 		}
 	}
 	return ""
@@ -733,7 +737,11 @@ func (e *Engine) softFinishWarnings(run *Run, request string, history []tasks.Hi
 		for _, c := range snap.Changes(func(p string) bool { return asksToModify(request, p) }) {
 			warning := "provided file " + c.Path + " was " + c.Kind + " and the instruction does not ask to change it: restore it or confirm the change is intended"
 			if copy := snap.Entries[c.Path].OriginalCopy; copy != "" {
-				warning += "; original copy: " + copy + " (restore with cp -a " + shellRestorePath(copy) + " " + shellRestorePath(c.Path) + ")"
+				if switchOn("EXCALIBUR_INPUT_RESTORE") {
+					warning += "; restore with restore_input path=" + c.Path
+				} else {
+					warning += "; original copy: " + copy + " (restore with cp -a " + shellRestorePath(copy) + " " + shellRestorePath(c.Path) + ")"
+				}
 			}
 			out = append(out, warning)
 		}
@@ -976,4 +984,10 @@ func shellRestorePath(path string) string {
 		}
 	}
 	return path
+}
+
+// RestoreInput is the narrow manifest-bound recovery hook for non-interactive runs.
+func (r *Run) RestoreInput(path, destination string) error {
+	snap, _, _ := r.finishRunView()
+	return snap.Restore(path, destination)
 }

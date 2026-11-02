@@ -39,8 +39,15 @@ func serviceExercised(history []HistoryTool, key, sessionID string) bool {
 		if !ok || (key != "" && !strings.Contains(command, filepath.Base(key))) {
 			continue
 		}
-		session := sessRe.FindStringSubmatch(h.Output)
-		if len(session) != 2 || !live[session[1]] || (sessionID != "" && session[1] != sessionID) {
+		ids := HistorySessionIDs(h)
+		session := ""
+		for _, id := range ids {
+			if live[id] && (sessionID == "" || sessionID == id) {
+				session = id
+				break
+			}
+		}
+		if session == "" {
 			continue
 		}
 		ports := servicePortRe.FindAllStringSubmatch(command+" "+h.Output, -1)
@@ -76,7 +83,7 @@ func serviceExercised(history []HistoryTool, key, sessionID string) bool {
 // verifiedServicePoll lets freshness checks observe an already exercised live
 // service without requiring a server process to exit.
 func verifiedServicePoll(history []HistoryTool, last HistoryTool) bool {
-	ids := sessIDRe.FindAllString(last.Args+" "+last.Output, -1)
+	ids := HistorySessionIDs(last)
 	for _, id := range ids {
 		if serviceExercised(history, "", id) {
 			return true

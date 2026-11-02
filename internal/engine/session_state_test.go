@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"strings"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -43,5 +46,32 @@ func TestCurrentSessionStateOverridesHistoricalLivenessEveryGate(t *testing.T) {
 	t.Setenv("EXCALIBUR_SESSION_AUTHORITY", "0")
 	if ids := tasks.LiveSessions(e.currentSessionHistory(raw)); len(ids) != 1 {
 		t.Fatal("legacy switch ignored", ids)
+	}
+}
+
+func TestFinishNarrativeDoesNotInheritHealthyService(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	e.deps.ActiveSessions = func() []tools.SessionInfo { return []tools.SessionInfo{{ID: "sess-3", Alive: true}} }
+	h := e.currentSessionHistory([]tasks.HistoryTool{{Name: "finish", Args: `{"summary":"service sess-3 remains healthy"}`, Output: "finish received"}})
+	if tasks.HistoryRunning(h[0]) {
+		t.Fatal("finish acquired healthy service liveness")
+	}
+	for _, pending := range tasks.CheckFreshVerification(h, 1) {
+		if strings.Contains(pending, "finish is still running") {
+			t.Fatal(pending)
+		}
+	}
+}
+
+func TestTypedBuildReceiptStillBlocksFinish(t *testing.T) {
+	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
+	r := explicitRun()
+	r.Profile.WallSource = "default"
+	e.deps.ActiveSessions = func() []tools.SessionInfo {
+		return []tools.SessionInfo{{ID: "sess-4", Alive: true, Command: "make check", Build: true}}
+	}
+	r.History = []ctxcompiler.ActivityEvent{{ToolCalls: []providers.ToolCall{{ID: "build", Name: "exec", Arguments: []byte(`{"command":"make check"}`)}}}, {Sessions: []tools.SessionReceipt{{ID: "sess-4", Alive: true}}, ToolResult: &providers.ToolResult{CallID: "build", Name: "exec", Output: "excerpt omitted"}}}
+	if reason := e.pendingCommandReason(r, e.deps.Clock()); !strings.Contains(reason, "still running a build or test") {
+		t.Fatal(reason)
 	}
 }

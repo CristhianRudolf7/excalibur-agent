@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -155,4 +157,76 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+func TestSnapshotOwnedMaskedPrefixNeverReturnsToLiteral(t *testing.T) {
+	cfg := ctxcompiler.DefaultConfig()
+	cfg.MaskTriggerTokens, cfg.MaskTargetTokens, cfg.LiteralObservations = 900, 300, 1
+	run := testRun(Profile{})
+	var snapshot []ctxcompiler.ActivityEvent
+	appendResult := func(events []ctxcompiler.ActivityEvent, id string, seq int64) []ctxcompiler.ActivityEvent {
+		call := providers.ToolCall{ID: id, Name: "exec", Arguments: []byte(`{"command":"make check"}`)}
+		body := strings.Repeat("x", 400)
+		return append(events, ctxcompiler.ActivityEvent{Seq: seq, Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{call}}, ctxcompiler.ActivityEvent{Seq: seq + 1, Role: providers.RoleTool, Content: body, ToolResult: &providers.ToolResult{CallID: id, Name: "exec", Output: body}})
+	}
+	for i := 0; i < 3; i++ {
+		snapshot = appendResult(snapshot, "snapshot-"+itoa(i), int64(i*2))
+	}
+	for i := 0; i < 10; i++ {
+		run.History = appendResult(run.History, "history-"+itoa(i), int64(6+i*2))
+	}
+	no := false
+	b := &DefaultBuilder{Config: cfg, Counter: ctxcompiler.NewEstimator(4), EnableCompact: &no, Snapshot: func(context.Context, *Run) (ctxcompiler.Snapshot, error) {
+		return ctxcompiler.Snapshot{Activity: snapshot}, nil
+	}}
+	first, _, err := b.BuildRequest(context.Background(), run, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	batches := run.MaskBatches
+	if batches == 0 {
+		t.Fatal("masking not exercised")
+	}
+	for turn := 0; turn < 5; turn++ {
+		next, _, err := b.BuildRequest(context.Background(), run, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		old, _ := json.Marshal(first.Messages[:len(first.Messages)-1])
+		current, _ := json.Marshal(next.Messages[:len(next.Messages)-1])
+		if !bytes.Equal(old, current) {
+			t.Fatalf("request %d restored snapshot literals or rewrote marker", turn)
+		}
+		if run.MaskBatches != batches {
+			t.Fatal("unchanged snapshots re-entered the literal pool")
+		}
+	}
+	if snapshot[1].Mask != nil || snapshot[1].ToolResult.Output != strings.Repeat("x", 400) {
+		t.Fatal("snapshot source was mutated")
+	}
+}
+
+func TestMaskKeepsOriginalActivityForAuditOnly(t *testing.T) {
+	cfg := ctxcompiler.DefaultConfig()
+	cfg.MaskTriggerTokens = 100
+	cfg.MaskTargetTokens = 50
+	cfg.LiteralObservations = 1
+	full := strings.Repeat("compiler unit output\n", 80)
+	r := testRun(Profile{})
+	r.History = []ctxcompiler.ActivityEvent{{Seq: 1, Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: "original-output", Name: "exec", Arguments: []byte(`{}`)}}}, {Seq: 2, Role: providers.RoleTool, Content: full, ToolResult: &providers.ToolResult{CallID: "original-output", Name: "exec", Output: full}}}
+	r.History = append(r.History, ctxcompiler.ActivityEvent{Seq: 3, Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: "recent", Name: "exec", Arguments: []byte(`{}`)}}}, ctxcompiler.ActivityEvent{Seq: 4, Role: providers.RoleTool, Content: "recent", ToolResult: &providers.ToolResult{CallID: "recent", Name: "exec", Output: "recent"}})
+	no := false
+	b := &DefaultBuilder{Config: cfg, EnableCompact: &no, Snapshot: testSnapshotFunc()}
+	req, _, err := b.BuildRequest(context.Background(), r, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.History[1].Content != full {
+		t.Fatal("masking destroyed original audit text")
+	}
+	for _, message := range req.Messages {
+		if message.Role == providers.RoleTool && (message.Content == full || message.ToolResult.Output == full) {
+			t.Fatal("full observation leaked into model request")
+		}
+	}
 }

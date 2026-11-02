@@ -28,7 +28,13 @@ func TestControlTailRetainsLatestAndJournalsAll(t *testing.T) {
 		t.Fatal("tail exceeds cap")
 	}
 	rows, err := store.List(context.Background(), r.ID)
-	if err != nil || len(rows) != 60 {
+	noteCount := 0
+	for _, row := range rows {
+		if row.Type == journal.EntryType("control_note") {
+			noteCount++
+		}
+	}
+	if err != nil || noteCount != 60 {
 		t.Fatalf("audit rows=%d err=%v", len(rows), err)
 	}
 	b := &DefaultBuilder{Config: ctxcompiler.DefaultConfig(), Snapshot: testSnapshotFunc()}

@@ -35,11 +35,11 @@ func (r *Run) sessionRunning(tc providers.ToolCall, res tools.Result) bool {
 	facts := r.sessionFacts
 	r.mu.Unlock()
 	if !switchOn("EXCALIBUR_SESSION_AUTHORITY") || facts == nil {
-		return tasks.LiveSessionOutput(res.Output)
+		return tasks.HistoryRunning(tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output, Sessions: res.Sessions})
 	}
 	states := map[string]tasks.SessionState{}
 	for _, s := range facts() {
 		states[string(s.ID)] = tasks.SessionState{Alive: s.Alive, ExitCode: s.ExitCode}
 	}
-	return tasks.HistoryRunning(tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output, SessionStates: states})
+	return tasks.HistoryRunning(tasks.HistoryTool{Name: tc.Name, Args: string(tc.Arguments), Output: res.Output, Sessions: res.Sessions, SessionStates: states})
 }

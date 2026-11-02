@@ -11,18 +11,22 @@
 package tasks
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
-// InputSnapshotHashBudget bounds the bytes hashed at run start (50 MB).
-// Files beyond it are recorded by size and mtime only.
+// InputSnapshotHashBudget bounds metadata hashing at run start (50 MB).
+// Files beyond it use size and mtime unless preserved copies supply a hash
+// within the separate InputSnapshotCopyBudget.
 const InputSnapshotHashBudget int64 = 50 << 20
 
 // InputSnapshotCopyBudget bounds the whole eligible tree copied at run start.
@@ -42,10 +46,11 @@ var snapshotSkipDirs = map[string]bool{
 
 // InputEntry is one provided file at run start.
 type InputEntry struct {
+	Mode    fs.FileMode
 	Path    string
 	Size    int64
 	ModTime time.Time
-	// SHA256 is empty when the file was recorded beyond the hash budget.
+	// SHA256 is empty when both metadata hashing and byte copying were skipped.
 	SHA256 string
 	// OriginalCopy is a private byte copy, empty when copying was skipped.
 	OriginalCopy string
@@ -116,7 +121,7 @@ func TakeInputSnapshotWithCopies(root string, hashBudget int64, copyDir string) 
 		if err != nil {
 			continue
 		}
-		entry := InputEntry{Path: p, Size: fi.Size(), ModTime: fi.ModTime()}
+		entry := InputEntry{Mode: fi.Mode().Perm(), Path: p, Size: fi.Size(), ModTime: fi.ModTime()}
 		if hashed+fi.Size() <= hashBudget {
 			sum, err := fileSHA256(p)
 			if err == nil {
@@ -236,6 +241,12 @@ func (s *InputSnapshot) preserveCopies(dir string) {
 		n, err := copyInput(root, rel, dest, InputSnapshotCopyBudget-copied)
 		copied += n
 		if err == nil {
+			sum, hashErr := fileSHA256(dest)
+			if hashErr != nil || (entry.SHA256 != "" && entry.SHA256 != sum) {
+				_ = os.Remove(dest)
+				continue
+			}
+			entry.SHA256 = sum
 			entry.OriginalCopy = dest
 			s.Entries[path] = entry
 		}
@@ -283,4 +294,75 @@ func copyInput(root *os.Root, rel, dest string, remaining int64) (int64, error) 
 		_ = os.Remove(dest)
 	}
 	return n, copyErr
+}
+
+// Restore copies only a manifest entry into the task tree after checking its hash.
+// OpenRoot confines destination symlinks as well as lexical path traversal.
+func (s *InputSnapshot) Restore(path, destination string) error {
+	if s == nil {
+		return fmt.Errorf("no input snapshot available")
+	}
+	resolve := func(p string) (string, error) {
+		for _, part := range strings.Split(filepath.ToSlash(p), "/") {
+			if part == ".." {
+				return "", fmt.Errorf("path traversal refused")
+			}
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(s.Root, p)
+		}
+		rel, err := filepath.Rel(s.Root, p)
+		if err != nil || !filepath.IsLocal(rel) {
+			return "", fmt.Errorf("path must be inside the task tree")
+		}
+		return rel, nil
+	}
+	rel, err := resolve(path)
+	if err != nil {
+		return err
+	}
+	entry, ok := s.Entries[filepath.Join(s.Root, rel)]
+	if !ok || entry.OriginalCopy == "" || entry.SHA256 == "" {
+		return fmt.Errorf("path has no preserved manifest copy")
+	}
+	if destination == "" {
+		destination = path
+	}
+	dest, err := resolve(destination)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(entry.OriginalCopy)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+	if hex.EncodeToString(sum[:]) != entry.SHA256 {
+		return fmt.Errorf("preserved input hash mismatch")
+	}
+	root, err := os.OpenRoot(s.Root)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	// Create a verified sibling and rename: never truncate a linked input or a
+	// candidate until all preserved bytes have passed integrity checking.
+	if err := root.MkdirAll(filepath.Dir(dest), 0700); err != nil {
+		return err
+	}
+	name := dest + ".restore-" + hex.EncodeToString(sum[:8])
+	out, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, entry.Mode)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(name)
+	_, err = io.Copy(out, bytes.NewReader(data))
+	closeErr := out.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	return root.Rename(name, dest)
 }

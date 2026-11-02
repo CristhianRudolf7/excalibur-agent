@@ -202,6 +202,9 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		maxArtifacts = 8
 	}
 	text := strings.TrimSpace(request)
+	if PathTemplatesEnabled() {
+		text = omitPathTemplates(text)
+	}
 	if text == "" {
 		return nil
 	}
@@ -377,6 +380,9 @@ var dateShapeRe = regexp.MustCompile(`\d{4}/\d{2}/\d{2}`)
 // and must sit under a known root or under workdir. Trailing
 // punctuation is trimmed. Paths are returned in text order.
 func StrictAbsolutePaths(text, workdir string) []string {
+	if PathTemplatesEnabled() {
+		text = omitPathTemplates(text)
+	}
 	var out []string
 	for _, loc := range absPathRe.FindAllStringIndex(text, -1) {
 		p := strings.TrimRight(text[loc[0]:loc[1]], ".,;:")
@@ -680,6 +686,9 @@ func CheckArtifactFiles(reqs []ArtifactRequirement, history []HistoryTool, workd
 	var pendings []string
 	corpus := successCorpus(history)
 	for _, r := range reqs {
+		if PathTemplatesEnabled() && unresolvedPathTemplate(r.Path) {
+			continue
+		}
 		switch r.Kind {
 		case ArtifactPath, ArtifactExecutable, ArtifactOutput:
 			if !HardArtifactRequirement(r) {
@@ -803,7 +812,7 @@ func LiveSessions(history []HistoryTool) []string {
 			var live []string
 			seen := map[string]bool{}
 			for _, h := range history {
-				for _, id := range sessIDRe.FindAllString(h.Args+" "+h.Output, -1) {
+				for _, id := range HistorySessionIDs(h) {
 					if !seen[id] && states[id].Alive {
 						live = append(live, id)
 						seen[id] = true
@@ -814,11 +823,30 @@ func LiveSessions(history []HistoryTool) []string {
 		}
 	}
 
+	if TypedSessionEvidenceEnabled() {
+		states := map[string]bool{}
+		var order []string
+		for _, h := range history {
+			for _, r := range ownedSessions(h) {
+				if _, ok := states[r.ID]; !ok {
+					order = append(order, r.ID)
+				}
+				states[r.ID] = r.Alive
+			}
+		}
+		var live []string
+		for _, id := range order {
+			if states[id] {
+				live = append(live, id)
+			}
+		}
+		return live
+	}
 	alive := map[string]bool{}
 	seen := map[string]bool{}
 	var order []string
 	for _, h := range history {
-		ids := sessIDRe.FindAllString(h.Args+" "+h.Output, -1)
+		ids := HistorySessionIDs(h)
 		// Prefer the exec-style session header when present.
 		if m := sessRe.FindStringSubmatch(h.Output); len(m) == 2 {
 			ids = append([]string{m[1]}, ids...)
@@ -1018,8 +1046,29 @@ func TypedArtifactsEnabled() bool { return envBool("EXCALIBUR_TYPED_ARTIFACTS", 
 
 // HardArtifactRequirement distinguishes requested outputs from prose mentions.
 func HardArtifactRequirement(r ArtifactRequirement) bool {
+	if PathTemplatesEnabled() && unresolvedPathTemplate(r.Path) {
+		return false
+	}
 	if !StrictArtifactGateEnabled() || r.Path == "" {
 		return true
 	}
 	return filepath.IsAbs(r.Path) && installedCreateRe.MatchString(r.Source) && !installedNegationRe.MatchString(r.Source) && !isExampleUse(r.Source, r.Path)
+}
+
+// Reject the whole lexical token before any path/basename extraction. Removing
+// just a placeholder can create a fictitious concrete filename requirement.
+func PathTemplatesEnabled() bool { return envBool("EXCALIBUR_PATH_TEMPLATES", true) }
+
+var pathTemplateTokenRe = regexp.MustCompile("[^\\s`\"'(),;]+")
+
+func unresolvedPathTemplate(path string) bool {
+	return strings.ContainsAny(path, "<>{}$*") || strings.Contains(path, "...")
+}
+func omitPathTemplates(text string) string {
+	return pathTemplateTokenRe.ReplaceAllStringFunc(text, func(token string) string {
+		if unresolvedPathTemplate(token) {
+			return strings.Repeat(" ", len(token))
+		}
+		return token
+	})
 }

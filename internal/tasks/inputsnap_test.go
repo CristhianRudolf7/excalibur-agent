@@ -180,3 +180,49 @@ func TestInputSnapshotCopySkipsBuildCacheAndOutsideSymlinks(t *testing.T) {
 		t.Fatalf("unexpected entries: %+v %v", snap, err)
 	}
 }
+
+func TestManifestRestore(t *testing.T) {
+	root := t.TempDir()
+	original := filepath.Join(root, "input.dat")
+	if err := os.WriteFile(original, []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := TakeInputSnapshotWithCopies(root, 0, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(original, []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, dest := range []string{"", "scratch/copy.dat"} {
+		if err := snap.Restore("input.dat", dest); err != nil {
+			t.Fatal(err)
+		}
+		target := original
+		if dest != "" {
+			target = filepath.Join(root, dest)
+		}
+		data, err := os.ReadFile(target)
+		if err != nil || string(data) != "original" {
+			t.Fatalf("restore: %q %v", data, err)
+		}
+	}
+	for _, pair := range [][2]string{{"other.dat", ""}, {"../input.dat", ""}, {"input.dat", "../escape"}, {"input.dat", "a/../escape"}} {
+		if err := snap.Restore(pair[0], pair[1]); err == nil {
+			t.Fatal("accepted", pair)
+		}
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := snap.Restore("input.dat", "link/escape"); err == nil {
+		t.Fatal("symlink escape accepted")
+	}
+	if err := os.WriteFile(snap.Entries[original].OriginalCopy, []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := snap.Restore("input.dat", ""); err == nil {
+		t.Fatal("corrupt copy accepted")
+	}
+}

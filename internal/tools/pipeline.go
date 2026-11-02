@@ -43,6 +43,7 @@ type OutputStore interface {
 // MemoryOutputStore is an in-memory OutputStore for tests and the
 // embedded profile. Production wires the blob store behind it.
 type MemoryOutputStore struct {
+	calls   map[string]string
 	mu      sync.Mutex
 	data    map[string]string
 	records []OutputRecord
@@ -122,12 +123,50 @@ func (s *MemoryOutputStore) Records(limit int) []OutputRecord {
 func (s *MemoryOutputStore) ResolveCall(call string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if ref, ok := s.calls[call]; ok {
+		return ref, true
+	}
 	for _, r := range s.records {
 		if r.Call == call {
 			return r.Ref, true
 		}
 	}
 	return "", false
+}
+
+// BindCall associates the owning process/tool call with an existing immutable
+// blob. Repeated binding cannot replace original output with a masking marker.
+func (s *MemoryOutputStore) BindCall(call, ref string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if call == "" {
+		return
+	}
+	if _, ok := s.data[ref]; !ok {
+		return
+	}
+	if _, exists := s.calls[call]; exists {
+		return
+	}
+	if s.calls == nil {
+		s.calls = map[string]string{}
+	}
+	alreadyBound := false
+	for _, existing := range s.calls {
+		if existing == ref {
+			alreadyBound = true
+			break
+		}
+	}
+	s.calls[call] = ref
+	if !alreadyBound {
+		for i := range s.records {
+			if s.records[i].Ref == ref {
+				s.records[i].Call = call
+				break
+			}
+		}
+	}
 }
 
 // Get implements OutputStore.
@@ -152,6 +191,8 @@ type IntentHook interface {
 
 // ExecuteOptions tunes one Executor.Execute call.
 type ExecuteOptions struct {
+	// CallID binds full output retrieval to the model-visible observation identity.
+	CallID string
 	// Timeout overrides the definition timeout when positive.
 	Timeout time.Duration
 	// IdempotencyKey is sent with the invocation; keyed tools reuse it
@@ -301,6 +342,19 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 		res.Output = "argument normalization: " + strings.Join(repairs, "; ") + "\n" + res.Output
 	}
 	res = e.normalize(res, def, OutputTag{Tool: name, Summary: callSummary(name, normalized)})
+	if switchDefaultOn("EXCALIBUR_MASK_IDEMPOTENT") && opts.CallID != "" && e.Outputs != nil {
+		if binder, ok := e.Outputs.(interface{ BindCall(string, string) }); ok {
+			ref := res.BlobRef
+			if _, exists := e.Outputs.Get(ref); !exists {
+				if tagged, ok := e.Outputs.(TaggedOutputStore); ok {
+					ref = tagged.PutTagged(OutputTag{Tool: name, Summary: callSummary(name, normalized)}, res.Output)
+				} else {
+					ref = e.Outputs.Put(res.Output)
+				}
+			}
+			binder.BindCall(opts.CallID, ref)
+		}
+	}
 
 	if e.Journal != nil {
 		_ = e.Journal.RecordResult(ctx, inv, res)

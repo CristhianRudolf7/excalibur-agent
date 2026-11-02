@@ -459,7 +459,7 @@ func TestExecRunningSessionNamesThePollHandle(t *testing.T) {
 		want     string
 		notWant  string
 	}{
-		{"exec_io visible", "1", `to poll: exec_io {"op":"read","session":"sess-`, "still running"},
+		{"exec_io visible", "1", `to poll: exec_io {"action":"read","session":"sess-`, "still running"},
 		{"exec_io hidden", "0", "still running in session sess-", "to poll"},
 	}
 	for _, c := range cases {

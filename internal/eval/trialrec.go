@@ -324,12 +324,15 @@ func (r *TrialRecorder) RecordTransition(from, to, reason string) error {
 
 // GateAttempt is one completion-gate check with criteria and evidence.
 type GateAttempt struct {
-	At       time.Time `json:"at"`
-	Attempt  int       `json:"attempt"`
-	Passed   bool      `json:"passed"`
-	Criteria []string  `json:"criteria,omitempty"`
-	Evidence []string  `json:"evidence,omitempty"`
-	Note     string    `json:"note,omitempty"`
+	AttemptID string    `json:"attempt_id,omitempty"`
+	Mechanism string    `json:"mechanism,omitempty"`
+	Outcome   string    `json:"outcome,omitempty"`
+	At        time.Time `json:"at"`
+	Attempt   int       `json:"attempt"`
+	Passed    bool      `json:"passed"`
+	Criteria  []string  `json:"criteria,omitempty"`
+	Evidence  []string  `json:"evidence,omitempty"`
+	Note      string    `json:"note,omitempty"`
 	// FanoutAttempt tags the best-of-N attempt index that produced
 	// this gate check when merged into the outer record (Section
 	// 18.2). Zero means the single-run path or a legacy row.

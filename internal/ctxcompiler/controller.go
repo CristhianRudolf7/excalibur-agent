@@ -119,6 +119,7 @@ func observationsOf(activity []ActivityEvent, pinned []string) []Observation {
 			body = e.Content
 		}
 		obs := Observation{
+			Mask:     e.Mask,
 			CallID:   e.ToolResult.CallID,
 			ToolName: e.ToolResult.Name,
 			Label:    e.ToolResult.Name,

@@ -42,6 +42,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -489,6 +490,7 @@ func ParseRefinedCriteria(text string, maxDrafts int) []DraftCriterion {
 // verification phase needs: what ran, with what output, and whether
 // it failed. The engine maps its history into this shape.
 type HistoryTool struct {
+	Sessions      []tools.SessionReceipt `json:"sessions,omitempty"`
 	SessionStates map[string]SessionState
 	// Dependencies records the inspected versions; the engine refreshes Changed
 	// from the current filesystem before each gate evaluation.

@@ -77,10 +77,12 @@ func TestCheckDeliverablesEmptyOutputFails(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "out", "report.txt"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m := WorkdirMap{Real: "/nonexistent-real", Attempt: dir}
-	reqs := DeliverableRequirements("Write the final report to `out/report.txt`.")
+	m := WorkdirMap{Real: t.TempDir(), Attempt: dir}
+	// Strict artifact policy requires a literal absolute output. The mapping
+	// still checks the attempt copy, where the named file is intentionally empty.
+	reqs := DeliverableRequirements("Write the final report to `" + filepath.Join(m.Real, "out", "report.txt") + "`.")
 	if len(reqs) == 0 {
-		t.Skip("extraction did not yield a relative output for this sentence")
+		t.Fatal("explicit absolute output was not extracted")
 	}
 	if pend := CheckDeliverables(reqs, m, dir); len(pend) == 0 {
 		t.Fatal("an empty named output must fail (non-empty is part of the check)")

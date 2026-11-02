@@ -50,6 +50,9 @@ func containsAnyLower(hay string, marks []string) string {
 func (e *Engine) timeRemains(run *Run) bool {
 	run.mu.Lock()
 	limit := run.Tracker.Limit
+	if run.assumedWallLocked() {
+		limit.MaxSeconds = HardWallSeconds(limit.MaxSeconds, "default")
+	}
 	used := run.Tracker.Used
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	if elapsed < 0 {
@@ -84,6 +87,9 @@ func (e *Engine) timeRemains(run *Run) bool {
 func (e *Engine) wallRemaining(run *Run) (float64, bool) {
 	run.mu.Lock()
 	limit := run.Tracker.Limit
+	if run.assumedWallLocked() {
+		limit.MaxSeconds = HardWallSeconds(limit.MaxSeconds, "default")
+	}
 	elapsed := run.HeartbeatAt.Sub(run.StartedAt)
 	run.mu.Unlock()
 	if limit.MaxSeconds <= 0 {

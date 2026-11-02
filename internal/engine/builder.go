@@ -198,7 +198,7 @@ func (b *DefaultBuilder) BuildRequest(ctx context.Context, run *Run, closing boo
 	if err := b.stabilizePrefix(run, &snap, &compiled, &defs, cfg, counter); err != nil {
 		return providers.ChatRequest{}, ctxcompiler.Compiled{}, err
 	}
-	boundControlLayer(&compiled, counter)
+	boundControlLayer(&compiled, counter, run, snap.Volatile)
 	req := compiled.ToChatRequest("", defs, b.MaxTokens, b.ReasoningEffort, toolChoice)
 	compiled.AppendActivityMessages(&req, snap.Activity)
 	// Pairing invariant before every model request: strict wires

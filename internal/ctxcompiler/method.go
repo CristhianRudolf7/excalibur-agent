@@ -154,7 +154,15 @@ func WorkingMethod() string {
 	if envFlagDefaultOn(nil, "EXCALIBUR_BROAD_REVERIFICATION") {
 		broadCheck = "After removing or replacing every occurrence, run a broad pattern search over all files.\n"
 	}
-	return workingMethodSteps + workingMethodEvidence + dataCheck + broadCheck + restriction +
+	inputCare := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_INPUT_RESTORE") {
+		inputCare = preservedInputGuidance
+	}
+	preflight := ""
+	if envFlagDefaultOn(nil, "EXCALIBUR_DEFAULT_PREFLIGHT") {
+		preflight = defaultPreflightGuidance
+	}
+	return workingMethodSteps + workingMethodEvidence + inputCare + preflight + dataCheck + broadCheck + restriction +
 		"Rules: do not stop early; use tools. Use pinned working notes instead of re-reading large outputs."
 }
 
@@ -219,3 +227,7 @@ func MethodBlock(f PromptFamily, adapt bool) string {
 	}
 	return b.String()
 }
+
+const preservedInputGuidance = "Inspect disposable copies before opening or changing irreplaceable inputs. Validate against preserved originals, never a source rewritten from candidate output.\n"
+
+const defaultPreflightGuidance = "Before expensive work, reuse fresh preflight evidence or exercise the requested default command on small input through final output files. Overrides, accepted API calls and progress prove neither the default path nor final serialization.\n"

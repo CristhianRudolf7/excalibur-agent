@@ -320,3 +320,18 @@ func TestExercisesDeliverable(t *testing.T) {
 		t.Error("switch off must differ from the strict predicate here")
 	}
 }
+
+func TestLiteralContractReviewPrompt(t *testing.T) {
+	t.Setenv("EXCALIBUR_LITERAL_CONTRACT_REVIEW", "on")
+	small := VerifierSmallContext{Request: "Create a service on port 8123 returning field total."}
+	prompt := StrongVerifierPrompt(small, nil, "")
+	for _, want := range []string{literalContractReview, small.Request} {
+		if !strings.Contains(prompt, want) {
+			t.Fatal("missing", want)
+		}
+	}
+	t.Setenv("EXCALIBUR_LITERAL_CONTRACT_REVIEW", "off")
+	if strings.Contains(StrongVerifierPrompt(small, nil, ""), literalContractReview) {
+		t.Fatal("disabled review present")
+	}
+}

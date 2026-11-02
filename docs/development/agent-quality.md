@@ -5152,3 +5152,165 @@ permits the reserve override. Session history and live process facts cover
 foreground and background commands; service completion keeps its existing
 policy. Interactive assistant runs keep their configured limits. Set the
 switch to `0` to restore the original reserve and fallback hard-stop behavior.
+
+### Original input restoration
+
+`EXCALIBUR_INPUT_RESTORE` defaults on. Non-interactive runs expose
+`restore_input` for preserved manifest files only, optionally to a disposable
+path inside the task tree. Restoration verifies SHA-256 before writing and
+confines destination symlinks. Private logs remain inaccessible. Disabling
+this switch removes the tool; snapshot and copy switches remain independent.
+
+### Default command preflight
+
+`EXCALIBUR_DEFAULT_PREFLIGHT` defaults on. The working method asks for a small
+input check of the requested default command through final file creation before
+expensive work, reusing fresh preflight evidence. Overrides, accepted API calls
+and progress messages do not establish the default path or final serialization.
+This guidance introduces no mandatory extra execution or completion refusal.
+
+### Literal interface review
+
+`EXCALIBUR_LITERAL_CONTRACT_REVIEW` defaults on. The independent reviewer compares
+the request's literal interface and objectives against both implementation and
+executor tests, flagging correlated mistakes in clients or tests. This prompt
+addition preserves existing refusal caps and does not add review rounds.
+
+### Path templates
+
+`EXCALIBUR_PATH_TEMPLATES` defaults on. Artifact extraction excludes entire
+path tokens containing unresolved angle/braced placeholders, variables, wildcards
+or ellipses before matching paths or basenames. Direct artifact checks also skip
+templates; removing placeholders cannot introduce a leftover file obligation.
+
+### Live job observations
+
+`EXCALIBUR_LIVE_JOB_PROGRESS` defaults on: yielded exec calls and session reads
+or waits report STILL RUNNING, session identity, elapsed time, last-output age
+and bytes produced. `EXCALIBUR_LIVE_JOB_DUPLICATES` defaults on: each new launch
+warns once when a live session has the same command in the same directory or
+a shared literal output destination (redirections and output flags). Warnings
+never block services or intentional parallel work; dynamic paths are unknown.
+
+### Compiled program evidence
+
+`EXCALIBUR_BUILD_EVIDENCE` defaults on and extends dependency freshness receipts.
+Successful compiler calls capture the source manifest and executable versions.
+Loaded ELF libraries inherit build provenance too. New local compiled outputs
+in source projects without a successful build receipt remain unverified.
+Later local ELF executions inherit the matching build's original versions;
+changed sources or a failed subsequent compiler exit cannot certify a retained
+executable. Shell lists that can mask compiler failure do not certify builds.
+Yielded compilers retain their launch source receipt and require a successful
+terminal session exit before later executions can inherit it. Existing supplied
+executables without a recorded build keep ordinary receipts.
+The parent `EXCALIBUR_EVIDENCE_DEPENDENCIES` switch still governs receipt capture.
+
+### Repetitive output in active context
+
+`EXCALIBUR_COLLAPSE_PROGRESS` defaults on. Model observation projection collapses
+runs of eight or more lines differing only in counters or progress bars, retaining
+two head and tail lines, every error/warning line and exact omitted counts.
+Scanning is bounded to 2 MiB and 20,000 lines; excess output remains unchanged.
+Durable history, tool logs and blobs retain full bytes. No tool call is removed.
+
+### Durable finish verdict audit
+
+`EXCALIBUR_FINISH_AUDIT` defaults on. Every finish verdict writes synchronously
+through the per-run sink into `gate_attempts.jsonl`, including refusals,
+confirmation requests, acceptance, wall reserve acceptance and safety caps.
+Rows include sequence, originating attempt identity, mechanism, outcome and note.
+Automatic decisions receive distinct identities. Finalization stops manufacturing
+passing rows for engine runs; the deterministic stub retains its summary row.
+This stream is observability only and does not change gates or refusal limits.
+
+The finish audit stream also covers non-eval exec runs in their run directory;
+evaluation runs retain their existing `excalibur/` record directory. This does
+not enable the other evaluation exports for assistant or delegate profiles.
+
+### Context observation identity (E1)
+
+`EXCALIBUR_MASK_IDEMPOTENT` defaults on. Observation masking records the original
+call identity, digest, line count and rendered marker. An omitted observation
+never re-enters the literal token pool or hashes its own marker. Recent protected
+observations retain their exact bytes. Full outputs remain retrievable through
+`get_tool_output`; masking changes only the context excerpt. Older journal
+markers are recognized by their complete call-specific envelope. Setting the
+switch to `0` restores the earlier masking algorithm.
+
+Masking also preserves original activity text for auditing and binds actual
+observation call IDs to immutable output blobs, including initially inline
+results. Only the marker is projected into model messages. Rebinding an omitted
+observation cannot replace its original blob. This uses
+`EXCALIBUR_MASK_IDEMPOTENT`; existing blob and session references remain available.
+
+### Serialized prefix audit (E2)
+
+The offline executor audit covers 65 turns with paired tool calls/results in
+both append-only and batched-masking modes, with compaction disabled. It compares
+complete serialized messages, including nested tool payloads. Every earlier
+message is byte-identical except at a full-to-masked observation transition;
+each such result may change once. The final volatile message is excluded.
+The audit also drives five actual executor steps through a fake model, including
+startup hooks. Startup guidance stays in append-only activity and precedes the
+final volatile message, so subsequent requests retain its exact bytes. The
+behavior uses the existing default-on `EXCALIBUR_STABLE_PREFIX` switch; masking
+identity uses `EXCALIBUR_MASK_IDEMPOTENT`.
+
+### Process-owned session evidence (E3)
+
+`EXCALIBUR_TYPED_SESSION_EVIDENCE` defaults on. Execution and session-control
+results carry typed process receipts into durable activity and verification
+history. Running and successful evidence uses those receipts, refreshed from
+current session authority and tombstones. A narrative mentioning a session does
+not own that process. Compatibility decoding for older records is restricted to
+execution headers and session-control arguments/list entries. Live finite builds
+and tests still block autonomous finish; exercised healthy services retain their
+liveness policy. Set the switch to `0` for the earlier text inference.
+
+### Model delivery reserve (E4)
+
+`EXCALIBUR_MODEL_DELIVERY_RESERVE` defaults on for autonomous exec/eval profiles.
+Optional verification calls share a child deadline of half the remaining wall
+horizon, capped at 60 seconds. Confirmation/finalization model calls use the
+remaining horizon, capped at 30 seconds. An earlier parent deadline also applies.
+Assumed budgets use the extended safety horizon from the explicit-time policy;
+passing an assumed estimate does not authorize automatic completion. Calls
+without a usable wall estimate or parent deadline keep their existing behavior.
+Computation-tool deadlines are unchanged.
+
+A review that reaches its child deadline remains unverified and pending, with no
+further optional review retries. One bounded finalization opportunity remains;
+subsequent completion preserves the pending outcome. Current live build/test
+checks still apply. `model_delivery_reserve` journals the timeout outcome. The
+caller recorder retains per-call `latency_secs`, `retry_wait_count` and
+`retry_wait_seconds`, including unsuccessful calls; retry waits are only those
+reported by the existing gateway metadata. Set the switch to `0` for the earlier
+unreserved model waits. Interactive assistant profiles retain their deadlines.
+
+### Review reuse audit (E5)
+
+`EXCALIBUR_REVIEW_REUSE_AUDIT` defaults on. Every independent verdict-cache
+lookup journals a `review_reuse` event with its key and effective hit/miss,
+literal-request revision digest, context revision, dependency identities and
+current versions, dependency-receipt count, literal-discovery fallback flag,
+version validity and session-authority version digest. This is observational:
+it does not change cache keys, verdicts or model calls. Records contain no
+request text, tool output, file contents or credentials. Setting the switch to
+`0` disables these audit events while preserving review reuse.
+
+### Control issue priority (E6)
+
+`EXCALIBUR_CONTROL_ISSUE_PRIORITY` defaults on. Command-lifecycle guidance shares
+one issue identity across commands. Current finish, gate, refusal and budget
+issues take priority over older tips in the existing bounded control layer.
+Critical issues share reserved space so one long refusal cannot erase another
+current state. User directives continue through the complete append-only
+instruction path.
+
+`control_layer_loss` journals the issue IDs clipped or evicted at both note
+selection and final volatile rendering. These loss records contain identities
+and actions only. The original `control_note` records remain available for
+producer guidance. The byte cap is unchanged, including custom
+`EXCALIBUR_CONTROL_TAIL_BYTES` values. Set the priority switch to `0` to restore
+insertion-based selection and prefix clipping.
