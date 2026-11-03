@@ -15,6 +15,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -32,6 +33,7 @@ import (
 // tests never need the full stack.
 type BackendServices struct {
 	Robot     *robot.Service
+	RobotLab  *robotlab.Service
 	FileBlobs gateway.BlobStore
 	// WorkspaceRoots supplies trusted conversation-specific roots.
 	WorkspaceRoots func(context.Context) []string
@@ -173,6 +175,12 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 			return (*classroom.Service)(nil).Op(ctx, method, params)
 		}
 		return b.Services.Classroom.Op(ctx, method, params)
+	}
+	if strings.HasPrefix(method, "robotlab.") {
+		if b.Services == nil {
+			return (*robotlab.Service)(nil).Op(ctx, method, params)
+		}
+		return b.Services.RobotLab.Op(ctx, method, params)
 	}
 	if strings.HasPrefix(method, "whiteboard.") {
 		if b.Services == nil {

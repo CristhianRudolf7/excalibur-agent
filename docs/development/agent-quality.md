@@ -6359,3 +6359,242 @@ motion limits and explicit approval, and provides unconditional STOP.
 Rollback is disabling the switch and restarting. Configuration, transport,
 model image support, limits and backend evidence are documented in
 [robot-ur.md](robot-ur.md).
+## Robot Lab model tool and vision
+
+`EXCALIBUR_ROBOTLAB` defaults ON; `0`, `off`, `false` and `no` disable Robot Lab
+(case insensitive). The deferred `robot_lab` tool remains discoverable for
+`default` and `delegate` when disabled or uninstalled, and returns an
+`unavailable` result with explicit-user installation guidance. It is absent
+from eval. The builtin `ml/robot-lab` skill is also excluded from the frozen
+eval skill catalog. Roll back runtime behavior by setting the switch OFF.
+
+The tool executes scenario sessions, experiment scripts and training controls;
+it is conservatively declared `exec`, non-idempotent and cooperatively
+cancellable. Mutating actions publish `robotlab.focus`. Snapshot results expose
+only mark IDs and boxes; image bytes stay in the UI. Metrics summarize the
+requested window per run (steps, last/best return, first-to-last trend).
+
+Vision uses `EXCALIBUR_VISION_MODEL` through the existing bounded image-capable
+models gateway. With no supported backend, the vision loop emits an error event
+and returns “vision unavailable”. `EXCALIBUR_VISION_OCR` controls document OCR
+only. A vision step defaults to a 90-second total budget, at most one JSON repair
+per model phase, 16 KB per model response, 128 marks and one pick_place. Cancellation
+is checked before each phase. A second image verifies the move; false verification
+is returned explicitly. The daemon's service client hook and model tool share
+one loop through `robotlab.NewTool`. Daemon assembly binds the runtime and media
+vision backend. Embedded CLI runs own a lazy runtime against the existing
+installation, close it on exit, and configure Robot Lab vision independently of
+the document OCR switch. Eval creates no Robot Lab runtime. Absent collaborators
+return honest unavailable results.
+## Robot Lab classic scenarios (`internal/robotlab/runtime/robotlab/scenarios`)
+
+`EXCALIBUR_ROBOTLAB_CLASSIC` defaults ON. Values `0`, `false`, `off` and `no`
+(case-insensitive, surrounding whitespace ignored) disable creation of cart-pole
+and ball-on-plate environments with an explicit error. Other values enable them.
+Scenario metadata remains discoverable so clients can explain availability. This
+switch applies to manual sessions and training environments through `make_env`;
+it does not change any tool catalog or eval profile. Roll back by disabling it
+before starting the Python sidecar. The service-wide `EXCALIBUR_ROBOTLAB` switch
+remains the outer gate. Tests cover both paths and reward-weight overrides.
+## Robot Lab browser capture
+
+`EXCALIBUR_WEB_ROBOTLAB_TELEOP` and `EXCALIBUR_WEB_ROBOTLAB_VISION` are
+build-time web switches, default `1`; `0` disables the corresponding panel and
+its camera/event work. They affect the web UI only, with no eval profile changes.
+Rebuild with `0` to roll back the panels. `EXCALIBUR_ROBOTLAB_MODEL_BASE` overrides
+the official MediaPipe model storage base URL at build time; it must serve the
+same pinned model paths. WASM assets come from the pinned npm package and are
+bundled by Vite. Models download only after camera start and are cached in Cache
+Storage when available. Camera frames remain in the browser. Hold release,
+tracking loss, stop, hidden document and unmount stop pose control; stop and
+unmount request session `idle`.
+The mapping editor reads the active source with `robotlab.teleop.get` on open and
+after save/reset. It shares the lab RPC transport and event subscription.
+
+`EXCALIBUR_WEB_ROBOTLAB_TEST_TRACKER` defaults OFF. Only `1` replaces the
+MediaPipe module with a deterministic browser-test fixture at build time.
+`pnpm test:e2e` sets it for the shared daemon-mocked suite; it is never needed
+for ordinary builds. The fixture tests tracking, calibration and hold control
+without downloading models or accessing a webcam. Build without this variable
+to restore the pinned MediaPipe implementation. Existing panel switches still
+control camera and vision availability.
+
+## Robot Lab service (`internal/robotlab`)
+
+`EXCALIBUR_ROBOTLAB` defaults ON. Values `0`, `false`, `off` and `no`
+(case-insensitive, surrounding whitespace ignored) disable client operations
+and sidecar startup; other values enable them. The read-only `robotlab.status`
+method remains available and reports the disabled state. The switch controls
+Robot Lab in the daemon and the service used by default/delegate tool callers;
+the frozen eval profile is unaffected. Set the switch before startup and restart
+the daemon when changing it. Roll back the feature by setting it to `off`.
+
+`EXCALIBUR_ROBOTLAB_PYTHON` optionally selects an existing development Python
+interpreter instead of `<data>/robotlab/venv/bin/python`. It does not trigger
+installation. Unset it and restart to return to the managed venv. Installation
+requires an explicit `robotlab.install` request and never changes the override
+interpreter. The runtime runs only on Linux; other platforms report unsupported.
+
+The service caps code at 256 KiB and pose JSON at 64 KiB, validates parameters,
+limits readiness to 30 seconds and calls to 60 seconds, and restarts crashed
+runtimes at most three times in five minutes. Frames require an explicit
+subscription and use a live-only bus path without persistence or outboxes.
+Verification uses fake processes/commands and scoped race tests; the real-runtime
+session-opening check is opt-in through the Python override. Details and limits
+are in [robot-lab.md](robot-lab.md) and decision 0094.
+## Robot Lab Python runtime
+
+`EXCALIBUR_ROBOTLAB` defaults on. Values `0`, `off`, `false`, and `no`
+(case insensitive) disable sidecar methods other than `ping`. This applies
+wherever the sidecar is launched; restarting with the variable unset restores
+access. The runtime adds no tools or skills to the eval profile.
+
+`EXCALIBUR_ROBOTLAB_SCENARIO_MODULES` defaults empty. It is a comma-separated
+list of extra Python module names within the runtime source tree, loaded
+alongside built-in scenarios in both the sidecar and experiment workers.
+Workers receive only that source tree on `PYTHONPATH`; arbitrary daemon
+import paths are not inherited. This supports bundled scenario extensions
+and isolated integration fixtures without changing the registry seam. Unset it to return to installed scenarios only.
+
+Experiments execute one `experiment.py` for every run, using `ctx.algorithm`
+and `ctx.hyperparams`. Workers use two CPU threads, a 4 GiB address-space
+limit and a default two-hour CPU limit (`hyperparams.cpu_seconds` overrides
+it, between 1 and 86400). Bubblewrap hides home directories, user runtime files and temporary files,
+then exposes only the Python installation, runtime source (including bundled
+policies) read-only and the experiment directory writable. Private PID, IPC,
+UTS and network namespaces hide host processes and deny network access.
+When its startup probe fails, `sandbox: "rlimits"` and a `warning` explicitly
+record that filesystem and network isolation are unavailable. Child
+environments contain only runtime settings and runner-owned context; daemon
+credentials are never inherited. At most two workers run concurrently.
+
+Custom algorithms can call `sdk.log`, `sdk.preview`, and `sdk.save_policy`.
+The last helper saves callables as `policy.pkl` with cloudpickle and tensor
+states as `policy.pt` with torch. Saved callables replay directly. Tensor-state playback requires an accompanying
+`policy.py` in the run or experiment directory exposing `act(obs)`. That
+function loads the saved state and returns a normalized action. A run-local
+adapter can locate its checkpoint relative to its own `__file__`. SB3 policies use the usual `best.zip` / `last.zip`
+checkpoints and need no adapter. Preview frames include `preview: true`
+and the run id as `session`; their first frame also includes the scene.
+
+`teleop.get_mapping` returns the current custom script or the scenario's
+editable default from `Scenario.pose_mapping_source()`. Scenarios without
+source receive a commented `map_pose` template returning empty targets.
+Saving a script activates a sandboxed mapping worker; setting it to null
+restores the in-process scenario default.
+## Robot Lab web interface
+
+`EXCALIBUR_WEB_ROBOTLAB` is a Vite build-time switch, default `1` (on).
+Set it to `0` to disable Robot Lab RPC queries and event subscriptions and
+show an unavailable tool-store card. It affects the web interface only;
+execution profiles and the frozen eval tool table are unchanged. Rebuild the
+web app after changing the switch. Restore `1` and rebuild to enable it again.
+The daemon's separate `EXCALIBUR_ROBOTLAB` switch controls runtime availability.
+Installation runs only after the user presses Install in the tool store.
+
+The `/lab` view supports primitive scenes, manual input, experiment comparisons,
+policy playback, and integration slots for the Vision and Teleop panels. The web
+uses normalized actuator values, bounds control and pose calls to 30 Hz, keeps
+only two frames per viewer, and bounds retained metrics and logs. Agent focus
+notifications outside the lab offer a link without navigating automatically.
+
+Robot Lab runtime and installer children always use an environment allowlist
+when enabled. Basic OS settings and `EXCALIBUR_ROBOTLAB*` switches pass through;
+OSMesa, Python buffering/bytecode and thread limits are fixed. Only installation
+also receives pip, proxy and CA certificate configuration. Other daemon secrets
+and inherited Python/loader injection settings are excluded. There is no bypass
+switch; `EXCALIBUR_ROBOTLAB=off` remains the rollback for the whole service.
+## Robot Lab quadruped (`robotlab.scenarios.quadruped`)
+
+`EXCALIBUR_ROBOTLAB_QUADRUPED` defaults ON. Values `0`, `false`, `off` and
+`no` (case insensitive) refuse construction of quadruped environments (metadata remains available);
+other values enable it. This applies to sidecar sessions and experiment
+factories, independent of execution profile. Roll back by setting it to
+`off` and restarting the sidecar. The enclosing `EXCALIBUR_ROBOTLAB` switch
+controls the service. No tool catalog or eval profile changes are needed.
+## Robot Lab arm (`robotlab.scenarios.arm`)
+
+`EXCALIBUR_ROBOTLAB_ARM` defaults to **on**. Values `0`, `off`, `false` and
+`no` (case insensitive, surrounding whitespace ignored) disable arm environment
+creation with an explicit error. Other values enable it. This switch applies to
+interactive sessions and experiment environments in the Python runtime; it does
+not change the eval tool table or any execution profile. Roll back by setting it
+to `off`; scenario metadata remains discoverable so clients can explain the
+unavailable environment. The overall `EXCALIBUR_ROBOTLAB` service switch still
+controls service availability.
+
+The arm uses primitive-only MuJoCo geometry, bounded Jacobian IK and physical
+finger contacts. The scenario tests exercise parameter combinations, random-step
+stability, target tracking, placement, overhead mark visibility, reward signs,
+pose smoothing, seeded resets, malformed inputs and the disabled path. Learning
+and the larger layout reliability check are separate from ordinary tests; their
+measured results and limitations live in the arm scenario README.
+## Robot Lab flight scenarios (`robotlab.scenarios.drone`, `robotlab.scenarios.rocket`)
+
+`EXCALIBUR_ROBOTLAB_FLIGHT` defaults ON. Values `0`, `false`, `off` and `no`
+(case insensitive, surrounding whitespace ignored) reject creation of drone and
+rocket environments. Other values enable them. The scenario catalog remains
+available for inspection. This Python scenario switch applies to interactive
+sessions and local training; the enclosing service also honors
+`EXCALIBUR_ROBOTLAB`. Roll back by setting the flight switch to `off` and
+restarting the sidecar; already created environments are not interrupted.
+There are no catalog, connector, eval profile or shared contract changes.
+
+Drone learning and policy playback use `action_mode="mixed"` by default
+(collective, roll, pitch and yaw allocation); `action_mode="raw"` retains
+independent motors. Manual assisted/raw controls work with either convention.
+The bundled PPO hover checkpoint is available only for the mixed hover task.
+The flight switch also gates creation of environments used for pretrained
+playback. No separate switch is needed for the action convention; select raw
+explicitly to reproduce older independent-motor experiments.
+The training SDK honors the optional `training_randomize` scenario flag
+(default false); drone opts in so its default PPO experiment uses the measured
+seeded reset distribution. Interactive creation retains fixed starts.
+### Robot Lab vision verification
+
+`EXCALIBUR_ROBOTLAB_VISION_GROUND_TRUTH` defaults to ON. Set `0`, `off`,
+`false`, or `no` to compare with model-only verification. For default and delegate
+Robot Lab calls, a skill's `in_target` boolean and matching `bin` determine
+`verified`; `model_verified` preserves the model's independent opinion.
+`verify_note` is `simulation` or `model`, identifying the source of `verified`.
+Without simulator evidence, verification uses the model (including real robots).
+The arm exposes close bin cameras for after-images. Eval remains unchanged.
+
+`EXCALIBUR_ROBOTLAB_VISION_CAMERA` selects the inspection camera; its default
+is `work`. Set it to `top` to restore the overview or to a real robot's camera
+name. Vision snapshots are 1024×768. The arm's work camera frames loose parts;
+verification uses a close target-bin camera when simulation evidence exists.
+`EXCALIBUR_ROBOTLAB_ARM` and `EXCALIBUR_ROBOTLAB` retain their existing OFF paths.
+Marks use stable scenario IDs and badges avoid all visible part bounding boxes.
+The reach goal marker is hidden during sorting to avoid resembling a loose part.
+
+Robot Lab presentation uses the existing `EXCALIBUR_WEB_ROBOTLAB` switch
+(default ON, `0` disables the UI). The tool store displays labeled responsive
+scenario tiles; the viewer uses a light neutral floor and closer scenario
+framing. Controls dismiss buttons appear inside the floating controls panel. These
+presentation changes do not change physics, camera exports, or model inputs.
+
+### Robot Lab layout and shared conversation
+
+The existing `EXCALIBUR_WEB_ROBOTLAB` build-time switch (default ON; `0`
+disables the lab) also gates the responsive lab layout. The lab header reuses
+Shell's sidebar toggle. Its chat uses the active agent's existing conversation
+(`cnv_web_excalibur` for Excalibur), Shell's resize handle and persisted split
+ratio. Below Shell's minimum split width or on mobile, chat opens over the lab
+with a Back to Robot Lab action. Controls float within the scene while chat is
+open; the non-modal panel has no backdrop or focus trap. Rebuild with the switch
+set to `0` to disable the lab; execution profiles remain unchanged.
+
+### Robot Lab run state (`apps/web/src/features/robotlab`)
+
+The shared status pills and run controls use the existing build-time
+`EXCALIBUR_WEB_ROBOTLAB` switch (default `1`; `0` disables the lab). Camera
+and vision controls also respect `EXCALIBUR_WEB_ROBOTLAB_TELEOP` and
+`EXCALIBUR_WEB_ROBOTLAB_VISION` (default `1`; `0` disables the respective panel).
+These switches affect the browser only and do not change engine profiles.
+Rebuild with `0` for rollback. Scene pause restores the previous controller;
+frame modes override local intent, and two seconds without frames shows No signal
+unless paused. P toggles pause when it is not an actuator binding or text input;
+Space remains available for driving and teleoperation. All run indicators use
+text and icons and honor reduced motion. Unit and mocked browser tests cover
+pause/resume, training, playback, camera transitions and vision busy state.

@@ -1,0 +1,1654 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "robotlab.json",
+  "description": "Robot Lab JSON-RPC parameters, results and live events. Code and pose byte caps are also enforced in Go.",
+  "methods": {
+    "robotlab.status": {
+      "params": {
+        "$ref": "#/$defs/RobotLabEmptyParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Status"
+      }
+    },
+    "robotlab.install": {
+      "params": {
+        "$ref": "#/$defs/RobotLabEmptyParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "const": true
+          }
+        },
+        "required": [
+          "started"
+        ]
+      }
+    },
+    "robotlab.scenarios": {
+      "params": {
+        "$ref": "#/$defs/RobotLabEmptyParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "scenarios": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ScenarioInfo"
+            }
+          }
+        },
+        "required": [
+          "scenarios"
+        ]
+      }
+    },
+    "robotlab.session.open": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionOpenParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "scene": {
+            "$ref": "#/$defs/Scene"
+          }
+        },
+        "required": [
+          "session",
+          "scene"
+        ]
+      }
+    },
+    "robotlab.session.close": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    "robotlab.session.reset": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionResetParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "scene": {
+            "$ref": "#/$defs/Scene"
+          }
+        },
+        "required": [
+          "scene"
+        ]
+      }
+    },
+    "robotlab.session.params": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionSetParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "scene": {
+            "$ref": "#/$defs/Scene"
+          }
+        },
+        "required": [
+          "scene"
+        ]
+      }
+    },
+    "robotlab.session.control": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionControlParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "enum": [
+              "idle",
+              "manual",
+              "policy",
+              "pose",
+              "paused"
+            ]
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      }
+    },
+    "robotlab.session.policy": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionPolicyParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "policy"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      }
+    },
+    "robotlab.session.snapshot": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionSnapshotParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "image_png_b64": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "marks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/Mark"
+            }
+          }
+        },
+        "required": [
+          "image_png_b64",
+          "width",
+          "height",
+          "marks"
+        ]
+      }
+    },
+    "robotlab.experiment.list": {
+      "params": {
+        "$ref": "#/$defs/RobotLabEmptyParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "experiments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ExperimentSummary"
+            }
+          }
+        },
+        "required": [
+          "experiments"
+        ]
+      }
+    },
+    "robotlab.experiment.get": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Experiment"
+      }
+    },
+    "robotlab.experiment.create": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Experiment"
+      }
+    },
+    "robotlab.experiment.code": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentCodeParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    "robotlab.experiment.start": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Experiment"
+      }
+    },
+    "robotlab.experiment.stop": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Experiment"
+      }
+    },
+    "robotlab.experiment.metrics": {
+      "params": {
+        "$ref": "#/$defs/RobotLabExperimentMetricsParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/MetricPoint"
+            }
+          },
+          "next": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "points",
+          "next"
+        ]
+      }
+    },
+    "robotlab.teleop.get": {
+      "params": {
+        "$ref": "#/$defs/RobotLabSessionParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "default",
+              "custom"
+            ]
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "code"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "robotlab.teleop.mapping": {
+      "params": {
+        "$ref": "#/$defs/RobotLabTeleopMappingParams"
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      }
+    },
+    "robotlab.vision.step": {
+      "params": {
+        "$ref": "#/$defs/RobotLabVisionStepParams"
+      },
+      "result": {
+        "$ref": "#/$defs/VisionDecision"
+      }
+    }
+  },
+  "$defs": {
+    "Actuator": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "label": {
+          "type": "object",
+          "properties": {
+            "en": {
+              "type": "string"
+            },
+            "es": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "en",
+            "es"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "torque",
+            "position",
+            "velocity"
+          ]
+        },
+        "range": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "key_neg": {
+          "type": "string"
+        },
+        "key_pos": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "kind",
+        "range"
+      ]
+    },
+    "RewardTerm": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        },
+        "description": {
+          "type": "object",
+          "properties": {
+            "en": {
+              "type": "string"
+            },
+            "es": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "en",
+            "es"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "weight",
+        "description"
+      ]
+    },
+    "Geom": {
+      "type": "object",
+      "properties": {
+        "body": {
+          "type": "integer"
+        },
+        "type": {
+          "enum": [
+            "plane",
+            "box",
+            "sphere",
+            "capsule",
+            "cylinder",
+            "ellipsoid"
+          ]
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "pos": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "quat": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "rgba": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body",
+        "type",
+        "size",
+        "pos",
+        "quat",
+        "rgba"
+      ]
+    },
+    "Scene": {
+      "type": "object",
+      "properties": {
+        "scenario": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "timestep": {
+          "type": "number"
+        },
+        "bodies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "parent": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "name",
+              "parent"
+            ]
+          }
+        },
+        "geoms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Geom"
+          }
+        },
+        "cameras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "pos": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "quat": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "fovy": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "name",
+              "pos",
+              "quat",
+              "fovy"
+            ]
+          }
+        },
+        "actuators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Actuator"
+          }
+        },
+        "camera_default": {
+          "type": "object",
+          "properties": {
+            "pos": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "target": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            }
+          },
+          "required": [
+            "pos",
+            "target"
+          ]
+        }
+      },
+      "required": [
+        "scenario",
+        "params",
+        "timestep",
+        "bodies",
+        "geoms",
+        "cameras",
+        "actuators",
+        "camera_default"
+      ]
+    },
+    "ScenarioInfo": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "object",
+          "properties": {
+            "en": {
+              "type": "string"
+            },
+            "es": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "en",
+            "es"
+          ]
+        },
+        "description": {
+          "type": "object",
+          "properties": {
+            "en": {
+              "type": "string"
+            },
+            "es": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "en",
+            "es"
+          ]
+        },
+        "category": {
+          "enum": [
+            "classic",
+            "manipulation",
+            "locomotion",
+            "flight"
+          ]
+        },
+        "params_schema": {
+          "type": "object"
+        },
+        "default_params": {
+          "type": "object"
+        },
+        "actuators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Actuator"
+          }
+        },
+        "reward_terms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RewardTerm"
+          }
+        },
+        "algorithms": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "default_total_steps": {
+          "type": "integer"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "sliders",
+              "keyboard",
+              "gamepad",
+              "pose"
+            ]
+          }
+        },
+        "has_pretrained": {
+          "type": "boolean"
+        },
+        "has_vision": {
+          "type": "boolean"
+        },
+        "thumbnail_color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "description",
+        "category",
+        "params_schema",
+        "default_params",
+        "actuators",
+        "reward_terms",
+        "algorithms",
+        "default_total_steps",
+        "inputs",
+        "has_pretrained",
+        "has_vision",
+        "thumbnail_color"
+      ]
+    },
+    "Run": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        },
+        "hyperparams": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "integer"
+        },
+        "best_return": {
+          "type": "number"
+        },
+        "last_return": {
+          "type": "number"
+        },
+        "wall_s": {
+          "type": "number"
+        },
+        "checkpoints": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "best",
+              "last"
+            ]
+          }
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "algorithm",
+        "hyperparams",
+        "status",
+        "steps",
+        "wall_s",
+        "checkpoints"
+      ]
+    },
+    "Experiment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "running",
+            "done",
+            "stopped",
+            "failed"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "total_steps": {
+          "type": "integer"
+        },
+        "reward_weights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 262144
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "scenario",
+        "params",
+        "status",
+        "created_at",
+        "total_steps",
+        "reward_weights",
+        "runs",
+        "code"
+      ]
+    },
+    "ExperimentSummary": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "scenario",
+        "status",
+        "created_at"
+      ]
+    },
+    "MetricPoint": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "wall_s": {
+          "type": "number"
+        },
+        "episode_return": {
+          "type": "number"
+        },
+        "episode_length": {
+          "type": "integer"
+        },
+        "loss": {
+          "type": "number"
+        },
+        "extra": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "run",
+        "step",
+        "wall_s"
+      ]
+    },
+    "Mark": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "bbox": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "world": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "label",
+        "bbox",
+        "world"
+      ]
+    },
+    "Pose": {
+      "type": "object",
+      "properties": {
+        "landmarks": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "minItems": 33,
+          "maxItems": 33
+        },
+        "world": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "minItems": 33,
+          "maxItems": 33
+        },
+        "hands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "handedness": {
+                "enum": [
+                  "Left",
+                  "Right"
+                ]
+              },
+              "landmarks": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 3,
+                  "maxItems": 3
+                },
+                "minItems": 21,
+                "maxItems": 21
+              }
+            },
+            "required": [
+              "handedness",
+              "landmarks"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "t": {
+          "type": "number"
+        },
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ]
+        },
+        "calibration": {
+          "type": "object",
+          "properties": {
+            "landmarks": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              },
+              "minItems": 33,
+              "maxItems": 33
+            },
+            "world": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "minItems": 33,
+              "maxItems": 33
+            }
+          },
+          "required": [
+            "landmarks"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "landmarks",
+        "t"
+      ],
+      "additionalProperties": false
+    },
+    "RunSpec": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "algorithm": {
+          "type": "string"
+        },
+        "hyperparams": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "label",
+        "algorithm"
+      ],
+      "additionalProperties": false
+    },
+    "Status": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "python": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "object",
+          "properties": {
+            "python": {
+              "const": ">=3.10"
+            },
+            "osmesa": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "python",
+            "osmesa"
+          ]
+        }
+      },
+      "required": [
+        "enabled",
+        "installed",
+        "python",
+        "running",
+        "requirements"
+      ]
+    },
+    "VisionDecision": {
+      "type": "object",
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "mark": {
+                "type": "integer"
+              },
+              "class": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "mark",
+              "class",
+              "reason"
+            ]
+          }
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "mark": {
+                  "type": "integer"
+                },
+                "target": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mark",
+                "target"
+              ]
+            }
+          ]
+        },
+        "explanation": {
+          "type": "string"
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "objects",
+        "action",
+        "explanation"
+      ]
+    },
+    "Frame": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "boolean"
+        },
+        "t": {
+          "type": "number"
+        },
+        "step": {
+          "type": "integer"
+        },
+        "episode": {
+          "type": "integer"
+        },
+        "bodies": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 7,
+            "maxItems": 7
+          }
+        },
+        "reward": {
+          "type": "number"
+        },
+        "episode_return": {
+          "type": "number"
+        },
+        "terminated": {
+          "type": "boolean"
+        },
+        "info": {
+          "type": "object"
+        },
+        "mode": {
+          "enum": [
+            "idle",
+            "manual",
+            "policy",
+            "pose",
+            "paused"
+          ]
+        }
+      },
+      "required": [
+        "session",
+        "t",
+        "step",
+        "episode",
+        "bodies",
+        "reward",
+        "episode_return",
+        "terminated",
+        "info",
+        "mode"
+      ]
+    },
+    "MetricsEvent": {
+      "type": "object",
+      "properties": {
+        "experiment": {
+          "type": "string"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/MetricPoint"
+          }
+        }
+      },
+      "required": [
+        "experiment",
+        "points"
+      ]
+    },
+    "LogEvent": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "line": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "line"
+      ]
+    },
+    "InstallEvent": {
+      "type": "object",
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "percent": {
+          "type": "number"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase",
+        "message"
+      ]
+    },
+    "VisionEvent": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "step_id": {
+          "type": "string"
+        },
+        "phase": {
+          "enum": [
+            "see",
+            "think",
+            "act",
+            "verify",
+            "done",
+            "error"
+          ]
+        },
+        "image_png_b64": {
+          "type": "string"
+        },
+        "marks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "integer"
+              },
+              "bbox": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 4,
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "id",
+              "bbox"
+            ]
+          }
+        },
+        "decision": {
+          "$ref": "#/$defs/VisionDecision"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "latency_ms": {
+          "type": "number"
+        },
+        "model": {
+          "type": "string"
+        },
+        "cost_usd": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "session",
+        "step_id",
+        "phase"
+      ]
+    },
+    "FocusEvent": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "experiment": {
+          "type": "string"
+        },
+        "view": {
+          "enum": [
+            "scene",
+            "experiment",
+            "vision",
+            "teleop"
+          ]
+        }
+      },
+      "required": [
+        "view"
+      ]
+    },
+    "TeleopEvent": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session"
+      ]
+    },
+    "RobotLabEmptyParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "RobotLabSessionOpenParams": {
+      "type": "object",
+      "properties": {
+        "scenario": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scenario"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionResetParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "seed": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionSetParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "session",
+        "params"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionControlParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "idle",
+            "manual",
+            "policy",
+            "pose",
+            "paused"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "pose": {
+          "$ref": "#/$defs/Pose"
+        }
+      },
+      "required": [
+        "session",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionPolicyParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "experiment": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "checkpoint": {
+          "enum": [
+            "best",
+            "last"
+          ]
+        },
+        "pretrained": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabSessionSnapshotParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "camera": {
+          "type": "string"
+        },
+        "width": {
+          "type": "integer"
+        },
+        "height": {
+          "type": "integer"
+        },
+        "marks": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabExperimentParams": {
+      "type": "object",
+      "properties": {
+        "experiment": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "experiment"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabExperimentCreateParams": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "params": {
+          "type": "object"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RunSpec"
+          }
+        },
+        "total_steps": {
+          "type": "integer"
+        },
+        "reward_weights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 262144
+        }
+      },
+      "required": [
+        "name",
+        "scenario",
+        "runs"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabExperimentCodeParams": {
+      "type": "object",
+      "properties": {
+        "experiment": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      },
+      "required": [
+        "experiment",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabExperimentMetricsParams": {
+      "type": "object",
+      "properties": {
+        "experiment": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "since": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "experiment"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabTeleopMappingParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 262144
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "additionalProperties": false
+    },
+    "RobotLabVisionStepParams": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "type": "string"
+        },
+        "instruction": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "instruction"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -87,6 +87,7 @@ test('live tools, notices, inline questions and plan approvals use typed RPC met
   })
   await page.goto('/agents/excalibur?view=chat')
   await expect(page.locator('.chat-connection')).toHaveCount(0)
+  await expect.poll(chat.connected).toBe(true)
   chat.emit('run.progress', { state: 'running' })
   chat.emit('tool.called', { tool: 'web_search', status: 'started' })
   await expect(page.getByText('Buscando en la web…', { exact: true })).toBeVisible()

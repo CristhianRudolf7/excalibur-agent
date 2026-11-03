@@ -308,6 +308,8 @@ func EffectiveTools(profile ProfileName) (core, deferred []string) {
 	// autonomous run; assistant and delegate runs keep them.
 	if profile != ProfileEval {
 		core = append(core, eval.TrimmedFromEvalTools()...)
+		// Remains discoverable even while the runtime is disabled or absent.
+		deferred = append(deferred, "robot_lab")
 		if whiteboard.Enabled() {
 			deferred = append(deferred, "whiteboard")
 		}

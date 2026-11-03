@@ -34,6 +34,7 @@ var knownTools = map[string]bool{
 	"lsp": true, "code_graph": true, "code_diagram": true, "file_history": true, "revert_edit": true,
 	"workspace_snapshot": true, "worktree": true, "integration_queue": true, "github": true,
 	// Browser (contract 14.2).
+	"robot_lab":            true,
 	"whiteboard":           true,
 	"browser_open_session": true, "browser_close_session": true, "browser_suspend_session": true,
 	"browser_tabs": true, "browser_navigate": true, "browser_wait_ready": true,

@@ -76,3 +76,25 @@ it('subscribes to a feature-specific event filter without changing the default c
   ])
   stop()
 })
+
+it('delivers every live-only frame even though they carry no sequence or identity', () => {
+  const event = vi.fn()
+  const stop = subscribeEvents({ event, ready: vi.fn(), offline: vi.fn() })
+  const peer = FakeSocket.peers[0]!
+  peer.onopen?.()
+  peer.ack([{ id: 'e1', seq: 5, payload: {}, type: 'message.created' }])
+  const frame = { id: '', seq: 0, type: 'robotlab.frame', payload: { session: 's', step: 1 } }
+  peer.frame({ jsonrpc: '2.0', method: 'event', params: frame })
+  peer.frame({
+    jsonrpc: '2.0',
+    method: 'event',
+    params: { ...frame, payload: { session: 's', step: 2 } },
+  })
+  peer.frame({
+    jsonrpc: '2.0',
+    method: 'event',
+    params: { ...frame, payload: { session: 's', step: 3 } },
+  })
+  expect(event.mock.calls.filter(([e]) => e.type === 'robotlab.frame')).toHaveLength(3)
+  stop()
+})

@@ -18,6 +18,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -377,6 +378,8 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
+	RobotLab       *robotlab.Service
+	RobotLabTool   *robotlab.Tool
 	ClassroomAgent classroom.AgentService
 	engineOptions  engineWiring
 	delegations    *chatDelegations
@@ -424,6 +427,10 @@ type Services struct {
 // AssembleOptions overrides pieces of the assembled stack. Nil pieces
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
+	// DataDir owns the lazy Robot Lab runtime and its explicitly installed venv.
+	DataDir        string
+	RobotLab       *robotlab.Service
+	RobotLabTool   *robotlab.Tool
 	ClassroomAgent classroom.AgentService
 	Whiteboard     *whiteboard.Service
 	Classroom      *classroom.Service
@@ -476,6 +483,28 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	s.ClassroomAgent = opts.ClassroomAgent
 	if s.ClassroomAgent == nil {
 		s.ClassroomAgent = classroom.AgentAdapter{Service: s.Classroom}
+	}
+	s.RobotLabTool = opts.RobotLabTool
+	s.RobotLab = opts.RobotLab
+	if s.RobotLab == nil {
+		if opts.DataDir != "" {
+			s.RobotLab = robotlab.NewRuntimeService(opts.DataDir, opts.Bus)
+		} else {
+			s.RobotLab = robotlab.NewService(nil, opts.Bus)
+		}
+	}
+	assembled := false
+	defer func() {
+		if !assembled && opts.RobotLab == nil {
+			_ = s.RobotLab.Close()
+		}
+	}()
+	if s.RobotLabTool == nil {
+		var asker robotlab.VisionAsker
+		if opts.Media != nil {
+			asker, _ = opts.Media.Vision.(robotlab.VisionAsker)
+		}
+		s.RobotLabTool = robotlab.NewTool(s.RobotLab.Sidecar, s.RobotLab, asker, &s.RobotLab.VisionStep)
 	}
 	s.Whiteboard = opts.Whiteboard
 	if s.Whiteboard == nil {
@@ -532,7 +561,8 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Skills = wireengine.DefaultSkillsIndex()
 	}
 	wiring := engineWiring{
-		Classroom: s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
+		RobotLabTool: s.RobotLabTool,
+		Classroom:    s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
 		Robot: s.Robot,
 		Vault: opts.Vault, Memory: opts.Memory, Skills: s.Skills,
 		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
@@ -559,6 +589,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Memory = opts.Memory
 	}
 	s.ReviewScopes = opts.ReviewScopes
+	assembled = true
 	return s, nil
 }
 

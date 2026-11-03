@@ -61,7 +61,14 @@ export function subscribeEvents(options: {
         )
       }
       const deliver = (event: ConversationEvent) => {
-        if (!event || !Number.isSafeInteger(event.seq) || event.seq <= seq || !event.payload) return
+        if (!event || !event.payload) return
+        // Live-only events (Robot Lab frames) carry no sequence or identity and
+        // never enter replay, so they bypass the resume cursor.
+        if (event.seq === 0 && !event.id) {
+          options.event(event)
+          return
+        }
+        if (!Number.isSafeInteger(event.seq) || event.seq <= seq) return
         seq = event.seq
         if (event.id && seen.has(event.id)) return
         options.event(event)

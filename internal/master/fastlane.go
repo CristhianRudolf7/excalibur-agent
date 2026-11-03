@@ -175,7 +175,9 @@ func (f *FastLane) control(intent, target string, in IntakeResult, raw string) O
 			if intent == "status" && looksLikeStatusQuery(raw) {
 				rows := f.Controls.ListRuns()
 				if len(rows) == 0 {
-					return Outcome{Handled: true, Reply: "Nothing is running."}
+					// No orchestrator runs: let the conversational model answer, since
+					// the question may be about work tracked elsewhere (tasks, tools).
+					return Outcome{}
 				}
 				var b strings.Builder
 				fmt.Fprintf(&b, "%d active runs:", len(rows))

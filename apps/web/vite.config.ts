@@ -14,6 +14,16 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
+      'import.meta.env.EXCALIBUR_WEB_ROBOTLAB_TELEOP': JSON.stringify(
+        env.EXCALIBUR_WEB_ROBOTLAB_TELEOP ?? '1',
+      ),
+      'import.meta.env.EXCALIBUR_WEB_ROBOTLAB_VISION': JSON.stringify(
+        env.EXCALIBUR_WEB_ROBOTLAB_VISION ?? '1',
+      ),
+      'import.meta.env.EXCALIBUR_ROBOTLAB_MODEL_BASE': JSON.stringify(
+        env.EXCALIBUR_ROBOTLAB_MODEL_BASE ?? 'https://storage.googleapis.com/mediapipe-models',
+      ),
+      'import.meta.env.EXCALIBUR_WEB_ROBOTLAB': JSON.stringify(env.EXCALIBUR_WEB_ROBOTLAB ?? '1'),
       'import.meta.env.EXCALIBUR_WEB_WORK_EVENTS': JSON.stringify(
         env.EXCALIBUR_WEB_WORK_EVENTS ?? '1',
       ),
@@ -28,7 +38,19 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react(), tailwindcss()],
     resolve: {
-      alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+      alias: {
+        ...(env.EXCALIBUR_WEB_ROBOTLAB_TEST_TRACKER === '1'
+          ? {
+              '@mediapipe/tasks-vision': fileURLToPath(
+                new URL('./src/features/robotlab/teleop/tracker.fixture.ts', import.meta.url),
+              ),
+            }
+          : {}),
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        '@robotlab-mediapipe-wasm': fileURLToPath(
+          new URL('./node_modules/@mediapipe/tasks-vision/wasm', import.meta.url),
+        ),
+      },
     },
     server: {
       port: 5173,

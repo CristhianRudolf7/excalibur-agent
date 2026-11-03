@@ -15,8 +15,8 @@ for (const viewport of [
     await page.setViewportSize(viewport)
     await page.emulateMedia({ colorScheme: 'light' })
     await page.goto('/coming-soon/stores')
-    await expect(page.locator('.page-header h1')).toHaveText('Tiendas')
-    await expect(page.locator('.empty-state-icon')).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
+    await expect(page.getByRole('heading', { name: 'Laboratorio robótico' })).toBeVisible()
     await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
     const mobile = viewport.width < 1024
     const toggle = page.locator('.page-sidebar-toggle button')
@@ -35,7 +35,7 @@ for (const viewport of [
       .toBeLessThan(1)
     await page.screenshot({ path: testInfo.outputPath('shell-light.png') })
     await sidebar.getByRole('button', { name: 'Herramientas', exact: true }).click()
-    await expect(page.locator('.page-header h1')).toHaveText('Herramientas')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
     if (mobile) await toggle.click()
     await sidebar.getByRole('button', { name: 'Automatizaciones', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Automatizaciones', exact: true })).toBeVisible()
@@ -65,8 +65,8 @@ test('shell respects reduced motion and dark surface tokens', async ({ page }, t
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/coming-soon/tools')
   await page.evaluate(() => document.documentElement.classList.add('dark'))
-  await expect(page.locator('.page-header h1')).toHaveText('Herramientas')
-  await expect(page.locator('.empty-state')).toHaveCSS('animation-name', 'none')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
+  await expect(page.locator('.lab-store')).toHaveCSS('animation-name', 'none')
   await expect(page.locator('.sidebar-active-bar')).toHaveCSS('transition-duration', '0s')
   expect(
     await page.locator('.main-panel').evaluate((node) => {

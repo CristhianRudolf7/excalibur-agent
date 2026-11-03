@@ -25,6 +25,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/repoexplore"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -578,7 +579,7 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		}
 	}
 	var media *tools.MediaDeps
-	if profile != ProfileEval && settings.Provider == "openai" && tools.VisionOCREnabled() {
+	if profile != ProfileEval && settings.Provider == "openai" && (tools.VisionOCREnabled() || robotlab.Enabled()) {
 		visionProvider, visionErr := BuildProvider(ctx, settings, VaultSecretResolver(opts.Vault, string(run.RunID)))
 		if visionErr == nil {
 			defer visionProvider.Close()
@@ -602,7 +603,13 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		return "", providers.Usage{}, "", fmt.Errorf("cli: open reminders: %w", err)
 	}
 	defer closeReminders()
+	lab, closeLab, err := embeddedRobotLab(profile, media)
+	if err != nil {
+		return "", providers.Usage{}, "", fmt.Errorf("cli: open Robot Lab: %w", err)
+	}
+	defer closeLab()
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
+		RobotLab:  lab,
 		Reminders: reminders,
 		Profile:   string(profile),
 		Media:     media,

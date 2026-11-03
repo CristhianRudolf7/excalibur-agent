@@ -21,6 +21,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -48,14 +49,15 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
-	Classroom  classroom.AgentService
-	Robot      *robot.Service
-	Workdir    string
-	History    *wireengine.SharedHistory
-	Leases     *workspace.LeaseManager
-	Whiteboard *whiteboard.Service
-	Media      *tools.MediaDeps
-	BrowserWeb *wireengine.BrowserWeb
+	RobotLabTool *robotlab.Tool
+	Classroom    classroom.AgentService
+	Robot        *robot.Service
+	Workdir      string
+	History      *wireengine.SharedHistory
+	Leases       *workspace.LeaseManager
+	Whiteboard   *whiteboard.Service
+	Media        *tools.MediaDeps
+	BrowserWeb   *wireengine.BrowserWeb
 	// Caps are the native capabilities whose tools join the registry.
 	Caps *capabilities.Registry
 	// Models is the configured model endpoint; nil means unconfigured.
@@ -117,7 +119,8 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 		web.Sources = &tools.MemorySourceRecorder{}
 	}
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
-		Workdir: w.Workdir, History: w.History, Leases: w.Leases,
+		RobotLab: w.RobotLabTool,
+		Workdir:  w.Workdir, History: w.History, Leases: w.Leases,
 		Whiteboard: w.Whiteboard, Classroom: w.Classroom,
 		Web:     web,
 		Vault:   w.Vault,

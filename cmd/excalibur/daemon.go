@@ -243,6 +243,7 @@ func runDaemonStart(args []string) error {
 	}
 	svc, err := daemon.Assemble(daemon.AssembleOptions{
 		Robot:      robotService,
+		DataDir:    data,
 		Whiteboard: whiteboard.NewService(whiteboard.NewStore(db), bus),
 		Classroom:  classroom.NewService(classroom.NewStore(db), bus),
 		BrowserWeb: webOpts,
@@ -260,6 +261,7 @@ func runDaemonStart(args []string) error {
 		}
 	}
 	defer func() { _ = svc.BrowserWeb.Close() }()
+	defer func() { _ = svc.RobotLab.Close() }()
 
 	// Agenda over SQLite when available, memory stores otherwise.
 	var agendaStore agenda.AgendaStore = agenda.NewMemoryAgendaStore()
@@ -346,6 +348,7 @@ func runDaemonStart(args []string) error {
 		TaskQueries: taskQueries, Reminders: reminderService, Automations: automationService,
 		Whiteboard: svc.Whiteboard,
 		Classroom:  svc.Classroom,
+		RobotLab:   svc.RobotLab,
 		Library:    daemon.LibraryRoutesFor(memSvc, svc.Library, []string{"general"}),
 		Principal:  principal,
 		Tasks:      tasks,

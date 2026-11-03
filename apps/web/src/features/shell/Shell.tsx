@@ -1,3 +1,5 @@
+import { ToolStore } from '@/features/robotlab/ToolStore'
+import { FocusConnection } from '@/features/robotlab/FocusConnection'
 import { Classroom } from '@/features/classroom/Classroom'
 import { Robot } from '@/features/robot/Robot'
 import { Artifacts } from '@/features/artifacts/Artifacts'
@@ -55,6 +57,7 @@ import { Spreadsheet } from '@/features/spreadsheet/Spreadsheet'
 import { Projects } from '@/features/projects/Projects'
 import { DocumentViewer } from '@/features/viewer/DocumentViewer'
 import { useViewerStore } from '@/features/viewer/store'
+const RobotLab = lazy(() => import('@/features/robotlab/RobotLab'))
 const SettingsPage = lazy(() => import('@/features/settings/Settings'))
 const World = lazy(() => import('@/features/world/World'))
 function useMobile() {
@@ -106,6 +109,7 @@ export function Shell() {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [])
+  const isLab = location.pathname === '/lab'
   const isRobot = location.pathname === '/robot'
   const isSettings = location.pathname === '/settings'
   const settingsItem = 'settings'
@@ -164,7 +168,13 @@ export function Shell() {
   const worldDebug = search.worldDebug,
     worldSpeed = search.worldSpeed
   const isWorld =
-    !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage && search.view === 'world'
+    !isLab &&
+    !isRobot &&
+    !isSettings &&
+    !isProjects &&
+    !isSoon &&
+    !isWorkPage &&
+    search.view === 'world'
   const dimensions = splitWidths(splitWidth, shell.ratio)
   const overlayPanel = mobile || dimensions.overlay
   const changeMode = useCallback(
@@ -203,13 +213,13 @@ export function Shell() {
     [navigate, agent.id, panel, worldDebug, worldSpeed, worldClock],
   )
   useEffect(() => {
-    if (search.view || isRobot || isSettings || isProjects || isSoon || isWorkPage) return
+    if (search.view || isLab || isRobot || isSettings || isProjects || isSoon || isWorkPage) return
     try {
       if (localStorage.getItem('world-last-mode') === 'world') changeMode(true)
     } catch {
       /* Preferences are optional. */
     }
-  }, [search.view, isRobot, isSettings, isProjects, isSoon, isWorkPage, changeMode])
+  }, [search.view, isLab, isRobot, isSettings, isProjects, isSoon, isWorkPage, changeMode])
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
@@ -248,6 +258,7 @@ export function Shell() {
     else if (path === 'myTasks' || path === '/tasks') void navigate({ to: '/tasks' })
     else if (path === 'reminders' || path === '/reminders') void navigate({ to: '/reminders' })
     else if (path === 'classroom') void navigate({ to: '/classroom' })
+    else if (path === 'lab' || path === 'lab_title') void navigate({ to: '/lab' })
     else if (path === 'robot') void navigate({ to: '/robot' })
     else if (path === 'automations') void navigate({ to: '/automations' })
     else if (path === '/projects') void navigate({ to: '/projects' })
@@ -382,30 +393,32 @@ export function Shell() {
           <SidebarRail
             agents={getAgents()}
             selectedAgentId={
-              !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage
+              !isLab && !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage
                 ? agent.id
                 : undefined
             }
             activeItem={
-              isRobot
-                ? 'robot'
-                : isSettings
-                  ? settingsItem
-                  : isWorld
-                    ? 'world'
-                    : isProjects
-                      ? 'projects'
-                      : isWorkPage
-                        ? isClassroom
-                          ? 'classroom'
-                          : isAutomations
-                            ? 'automations'
-                            : isTasks
-                              ? 'myTasks'
-                              : 'reminders'
-                        : isSoon
-                          ? location.pathname.split('/')[2]
-                          : undefined
+              isLab
+                ? 'lab_title'
+                : isRobot
+                  ? 'robot'
+                  : isSettings
+                    ? settingsItem
+                    : isWorld
+                      ? 'world'
+                      : isProjects
+                        ? 'projects'
+                        : isWorkPage
+                          ? isClassroom
+                            ? 'classroom'
+                            : isAutomations
+                              ? 'automations'
+                              : isTasks
+                                ? 'myTasks'
+                                : 'reminders'
+                          : isSoon
+                            ? location.pathname.split('/')[2]
+                            : undefined
             }
             onNavigate={(key) =>
               key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
@@ -449,6 +462,7 @@ export function Shell() {
               <button
                 key={a.id}
                 className={
+                  !isLab &&
                   !isRobot &&
                   !isSettings &&
                   !isProjects &&
@@ -459,6 +473,7 @@ export function Shell() {
                     : ''
                 }
                 aria-current={
+                  !isLab &&
                   !isRobot &&
                   !isSettings &&
                   !isProjects &&
@@ -552,6 +567,16 @@ export function Shell() {
               </button>
             ))}
           </nav>
+          <nav className="secondary-nav lab-nav">
+            <button
+              className={isLab ? 'selected' : ''}
+              aria-current={isLab ? 'page' : undefined}
+              onClick={() => go('lab')}
+            >
+              <Bot />
+              <span className="sidebar-label">{t('lab_title')}</span>
+            </button>
+          </nav>
           <div className="sidebar-bottom">
             <nav>
               {[{ key: 'settings', icon: Settings }].map(({ key, icon: Icon }) => (
@@ -590,6 +615,7 @@ export function Shell() {
         )}
       </div>
       <main className="main-panel" ref={main}>
+        <FocusConnection />
         <ErrorBoundary resetKey={location.pathname + location.searchStr}>
           {isWorld && mobile && (
             <div className="world-sidebar-toggle">
@@ -618,7 +644,11 @@ export function Shell() {
               />
             </div>
           )}
-          {isRobot ? (
+          {isLab ? (
+            <Suspense fallback={<WorldSkeleton />}>
+              <RobotLab agentId={agent.id} mobile={mobile} />
+            </Suspense>
+          ) : isRobot ? (
             <Robot />
           ) : isSettings ? (
             <Suspense
@@ -671,6 +701,8 @@ export function Shell() {
             <Reminders />
           ) : isProjects ? (
             <Projects onNotice={setNotice} />
+          ) : isSoon && (soonPage === 'tools' || soonPage === 'stores') ? (
+            <ToolStore />
           ) : isSoon ? (
             <div className="coming-soon-page">
               <PageHeader eyebrow="workspace" title={soonTitle} subtitle="soonDetail" />

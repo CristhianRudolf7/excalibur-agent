@@ -40,7 +40,7 @@ func TestBuiltinCatalogValid(t *testing.T) {
 		"science": 20, "marketing": 7, "compliance": 5, "finance": 5,
 		"terminal": 9, "packaging": 7, "build": 6, "languages": 12,
 		"networking": 5, "containers": 2, "databases": 3, "data": 4,
-		"ml": 4, "media": 2,
+		"ml": 5, "media": 2,
 	}
 	counts := map[string]int{}
 	for _, e := range ix.All() {

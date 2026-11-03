@@ -46,5 +46,5 @@ func (f evalBuiltinFS) Open(name string) (fs.File, error) {
 // content here when assistant-only guidance changes, so recorded trials and
 // profile hashes retain the same meaning.
 func NewEvalBuiltinIndex() *Index {
-	return NewIndex(Roots{}, evalBuiltinFS{BuiltinFS()}, WithToolCheck(KnownTool), WithExcludedNames("whiteboard-teaching"))
+	return NewIndex(Roots{}, evalBuiltinFS{BuiltinFS()}, WithToolCheck(KnownTool), WithExcludedNames("whiteboard-teaching", "robot-lab"))
 }

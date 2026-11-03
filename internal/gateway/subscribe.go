@@ -21,6 +21,7 @@ type subscription struct {
 	mu     sync.Mutex
 	id     string
 	cursor types.Cursor
+	cancel context.CancelFunc
 	types  []string
 	ch     chan types.Event
 }
@@ -40,6 +41,13 @@ func (s *Server) newSub(filter []string) *subscription {
 func (s *Server) dropSub(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if sub := s.subs[id]; sub != nil {
+		sub.mu.Lock()
+		if sub.cancel != nil {
+			sub.cancel()
+		}
+		sub.mu.Unlock()
+	}
 	delete(s.subs, id)
 }
 
@@ -47,6 +55,13 @@ func (s *Server) closeAllSubs() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id := range s.subs {
+		if sub := s.subs[id]; sub != nil {
+			sub.mu.Lock()
+			if sub.cancel != nil {
+				sub.cancel()
+			}
+			sub.mu.Unlock()
+		}
 		delete(s.subs, id)
 	}
 }
@@ -85,8 +100,32 @@ func (sub *subscription) attach(ctx context.Context, s *Server, peer *wsPeer) {
 	if s.bus == nil {
 		return
 	}
-	live := s.bus.Subscribe(128)
+	sub.mu.Lock()
+	if sub.cancel != nil {
+		sub.cancel()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	sub.cancel = cancel
+	sub.mu.Unlock()
+	live, unsubscribeLive := s.bus.SubscribeLive(128)
+	unsubscribe := s.bus.SubscribeEphemeral(func(ev types.Event) {
+		if ctx.Err() != nil {
+			return
+		}
+		sub.mu.Lock()
+		filter := sub.types
+		sub.mu.Unlock()
+		if len(filter) == 0 || !matchTypes(ev, filter) {
+			return
+		}
+		notif, err := json.Marshal(map[string]any{"jsonrpc": api.JSONRPCVersion, "method": "event", "params": ev})
+		if err == nil {
+			peer.tryWriteEphemeral(ctx, notif)
+		}
+	})
 	safego.Go("gateway-live", nil, func() {
+		defer unsubscribe()
+		defer unsubscribeLive()
 		for {
 			select {
 			case <-ctx.Done():

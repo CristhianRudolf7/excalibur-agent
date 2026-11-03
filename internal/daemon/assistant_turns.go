@@ -20,6 +20,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -110,6 +111,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	}
 	if whiteboard.Enabled() {
 		allow["whiteboard"] = true
+	}
+	if robotlab.Enabled() {
+		allow["robot_lab"] = true
 	}
 	activation := a.services.chatToolActivation(msg.Text, a.modelID, msg.Context)
 	for _, def := range activation.Definitions {

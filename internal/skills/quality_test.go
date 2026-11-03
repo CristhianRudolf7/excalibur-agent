@@ -152,8 +152,13 @@ func TestNewSkillsFollowTemplate(t *testing.T) {
 		if e.Description == "" || len(e.Description) > MaxShortDescription+40 {
 			t.Errorf("skill %q description should stay catalog-compact, got %d chars", e.Name, len(e.Description))
 		}
-		if len(e.Tools) == 0 || !hasTool(e.Tools, "exec") {
-			t.Errorf("skill %q should declare exec, got %v", e.Name, e.Tools)
+		requiredTool := "exec"
+		// Robot Lab executes sandboxed scripts through its domain tool.
+		if e.Name == "robot-lab" {
+			requiredTool = "robot_lab"
+		}
+		if len(e.Tools) == 0 || !hasTool(e.Tools, requiredTool) {
+			t.Errorf("skill %q should declare %s, got %v", e.Name, requiredTool, e.Tools)
 		}
 		for _, tool := range e.Tools {
 			if !KnownTool(tool) {
@@ -161,8 +166,8 @@ func TestNewSkillsFollowTemplate(t *testing.T) {
 			}
 		}
 	}
-	if count != 54 {
-		t.Errorf("want 54 skills in the new groups, got %d", count)
+	if count != 55 {
+		t.Errorf("want 55 skills in the new groups, got %d", count)
 	}
 }
 

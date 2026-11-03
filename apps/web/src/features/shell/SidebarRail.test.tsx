@@ -75,3 +75,12 @@ it('highlights Robot without selecting the agent', () => {
   expect(screen.getByRole('button', { name: 'Robot' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByRole('button', { name: 'Excalibur' })).toHaveAttribute('aria-pressed', 'false')
 })
+it('routes the selected Robot Lab rail item with current-page semantics', () => {
+  const options = { ...props(), activeItem: 'lab_title' }
+  render(<SidebarRail {...options} />)
+  const lab = screen.getByRole('button', { name: 'Laboratorio robótico' })
+  expect(lab).toHaveAttribute('aria-current', 'page')
+  expect(lab.previousElementSibling).toHaveClass('sidebar-rail-divider')
+  fireEvent.click(lab)
+  expect(options.onNavigate).toHaveBeenCalledWith('lab_title')
+})

@@ -8,6 +8,7 @@ import * as monaco from 'monaco-editor/editor/editor.api'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import 'monaco-editor/languages/definitions/typescript/register'
 import 'monaco-editor/languages/definitions/markdown/register'
+import 'monaco-editor/languages/definitions/python/register'
 monaco.languages.register({ id: 'json' })
 import { useTranslation } from 'react-i18next'
 import { useFiles } from './store'
@@ -240,6 +241,38 @@ export function MarkdownEditor({
           minimap: { enabled: false },
           wordWrap: 'on',
           scrollBeyondLastLine: false,
+        }}
+      />
+    </EditorFrame>
+  )
+}
+
+/** Controlled Python editor for tool-owned experiment scripts. */
+export function PythonEditor({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [ready, setReady] = useState(false)
+  return (
+    <EditorFrame ready={ready}>
+      <Editor
+        language="python"
+        value={value}
+        onChange={(next) => onChange(next ?? '')}
+        loading={null}
+        beforeMount={applyPanelTheme}
+        theme="linear"
+        onMount={() => setReady(true)}
+        options={{
+          ariaLabel: 'Python',
+          automaticLayout: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          fontSize: 13,
+          tabSize: 4,
         }}
       />
     </EditorFrame>

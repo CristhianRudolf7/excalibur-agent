@@ -15,11 +15,13 @@ import (
 // duplicates, and every event is also appended to the telemetry sink
 // so a cut trial keeps partial data.
 type Bus struct {
-	mu     sync.Mutex
-	events []types.Event
-	seq    uint64
-	subs   []chan types.Event
-	sink   *Sink
+	ephemeral     map[uint64]func(types.Event)
+	ephemeralNext uint64
+	mu            sync.Mutex
+	events        []types.Event
+	seq           uint64
+	subs          []chan types.Event
+	sink          *Sink
 }
 
 // NewBus returns an empty bus. Sink may be nil (memory only).

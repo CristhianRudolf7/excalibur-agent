@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools==78.1.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "excalibur-robotlab"
+version = "0.1.0"
+description = "Robot Lab physics sidecar and experiment SDK"
+requires-python = ">=3.10"
+dependencies = [
+  "mujoco==3.17.0", "gymnasium==1.4.0", "stable-baselines3==2.9.2",
+  "torch==2.15.0+cpu", "numpy==2.5.4", "pillow==13.0.0", "cloudpickle==3.1.2",
+]
+
+[tool.setuptools.packages.find]
+include = ["robotlab*"]
+
+[tool.setuptools.package-data]
+robotlab = ["scenarios/**/*.xml", "scenarios/**/*.zip", "scenarios/**/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

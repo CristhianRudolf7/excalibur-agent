@@ -505,3 +505,17 @@ func (p *wsPeer) writeRaw(ctx context.Context, buf []byte) error {
 	defer cancel()
 	return p.conn.Write(ctx, websocket.MessageText, buf)
 }
+
+// tryWriteEphemeral reserves a free socket writer or discards the frame. There
+// is no send queue, outbox or cursor update for live-only visualization data.
+func (p *wsPeer) tryWriteEphemeral(ctx context.Context, buf []byte) {
+	if !p.mu.TryLock() {
+		return
+	}
+	safego.Go("gateway-ephemeral", nil, func() {
+		defer p.mu.Unlock()
+		writeCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		defer cancel()
+		_ = p.conn.Write(writeCtx, websocket.MessageText, buf)
+	})
+}

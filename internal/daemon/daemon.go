@@ -13,6 +13,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 )
 
@@ -261,6 +262,11 @@ func (d *Daemon) startServices(ctx context.Context) []<-chan struct{} {
 		svc.Robot.Start(ctx)
 		done = append(done, svc.Robot.Done())
 	}
+	if svc.RobotLab != nil && svc.RobotLab.Sidecar != nil {
+		stopped := make(chan struct{})
+		safego.Go("robotlab-lifecycle", nil, func() { defer close(stopped); <-ctx.Done(); _ = svc.RobotLab.Close() })
+		done = append(done, stopped)
+	}
 	if svc.Library != nil {
 		done = append(done, svc.Library.Done())
 	}
@@ -310,6 +316,7 @@ func waitDone(chans []<-chan struct{}, timeout time.Duration) bool {
 func (d *Daemon) Stop(ctx context.Context) error {
 	if d.dep.Services != nil {
 		defer func() { _ = d.dep.Services.BrowserWeb.Close() }()
+		defer func() { _ = d.dep.Services.RobotLab.Close() }()
 	}
 	var first error
 	if d.dep.Services != nil && d.dep.Services.Robot != nil {

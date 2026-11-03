@@ -11,6 +11,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract/pdf"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract/visionocr"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/codeintel"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
@@ -30,6 +31,7 @@ type EmbeddedOptions struct {
 	Reminders   *agenda.ReminderService
 	Automations automations.Service
 
+	RobotLab       *robotlab.Tool
 	Whiteboard     *whiteboard.Service
 	ConversationID string
 	Profile        string
@@ -179,8 +181,24 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	}
 	tools.WireSearchCall(reg, cat, exec)
 	tools.WireWebTools(reg, cat, opts.Web)
+	// Always discoverable outside eval, even when disabled or not installed.
 	if opts.Profile != "eval" {
 		if err := cat.RegisterDeferred(&classroom.Tool{Service: opts.Classroom}); err != nil {
+			return nil, err
+		}
+		lab := &robotlab.Tool{}
+		if opts.RobotLab != nil {
+			copied := *opts.RobotLab
+			lab = &copied
+		}
+		if lab.Vision == nil {
+			loop := &robotlab.VisionLoop{Sidecar: lab.Sidecar, Publisher: lab.Publisher}
+			if opts.Media != nil {
+				loop.Asker, _ = opts.Media.Vision.(robotlab.VisionAsker)
+			}
+			lab.Vision = loop
+		}
+		if err := cat.RegisterDeferred(lab); err != nil {
 			return nil, err
 		}
 	}

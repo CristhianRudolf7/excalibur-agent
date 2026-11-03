@@ -13,7 +13,7 @@ import {
   LoaderCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
 import { IconButton, PixelAvatar } from '@/components/shared'
 import { ProfileButton } from '@/features/profile/Profile'
 import type { Agent, AgentId } from './mock-data'
@@ -91,6 +91,7 @@ export function SidebarRail({
                 label={key}
                 title={undefined}
                 aria-pressed={activeItem === key}
+                aria-current={activeItem === key ? 'page' : undefined}
                 onClick={() => onNavigate(key)}
               >
                 <Icon />
@@ -103,18 +104,23 @@ export function SidebarRail({
             { key: 'stores', icon: Store },
             { key: 'tools', icon: Wrench },
             { key: 'automations', icon: Workflow },
+            { key: 'lab_title', icon: Bot },
             { key: 'settings', icon: Settings },
           ].map(({ key, icon: Icon }) => (
-            <RailTooltip key={key} label={t(key)}>
-              <IconButton
-                label={key}
-                title={undefined}
-                aria-pressed={activeItem === key}
-                onClick={() => onNavigate(key)}
-              >
-                <Icon />
-              </IconButton>
-            </RailTooltip>
+            <Fragment key={key}>
+              {key === 'lab_title' && <div className="sidebar-rail-divider" />}
+              <RailTooltip label={t(key)}>
+                <IconButton
+                  label={key}
+                  title={undefined}
+                  aria-pressed={activeItem === key}
+                  aria-current={activeItem === key ? 'page' : undefined}
+                  onClick={() => onNavigate(key)}
+                >
+                  <Icon />
+                </IconButton>
+              </RailTooltip>
+            </Fragment>
           ))}
           <RailTooltip label={t('profileTitle')}>
             <ProfileButton avatarOnly onClick={onProfile} />

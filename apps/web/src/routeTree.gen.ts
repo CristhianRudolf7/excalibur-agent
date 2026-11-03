@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as ClassroomRouteImport } from './routes/classroom'
+import { Route as LabRouteImport } from './routes/lab'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as RemindersRouteImport } from './routes/reminders'
 import { Route as RobotRouteImport } from './routes/robot'
@@ -34,6 +35,11 @@ const AutomationsRoute = AutomationsRouteImport.update({
 const ClassroomRoute = ClassroomRouteImport.update({
   id: '/classroom',
   path: '/classroom',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LabRoute = LabRouteImport.update({
+  id: '/lab',
+  path: '/lab',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsRoute = ProjectsRouteImport.update({
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
   '/classroom': typeof ClassroomRoute
+  '/lab': typeof LabRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/robot': typeof RobotRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
   '/classroom': typeof ClassroomRoute
+  '/lab': typeof LabRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/robot': typeof RobotRoute
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
   '/classroom': typeof ClassroomRoute
+  '/lab': typeof LabRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/robot': typeof RobotRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/classroom'
+    | '/lab'
     | '/projects'
     | '/reminders'
     | '/robot'
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/classroom'
+    | '/lab'
     | '/projects'
     | '/reminders'
     | '/robot'
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/classroom'
+    | '/lab'
     | '/projects'
     | '/reminders'
     | '/robot'
@@ -163,6 +175,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AutomationsRoute: typeof AutomationsRouteWithChildren
   ClassroomRoute: typeof ClassroomRoute
+  LabRoute: typeof LabRoute
   ProjectsRoute: typeof ProjectsRoute
   RemindersRoute: typeof RemindersRoute
   RobotRoute: typeof RobotRoute
@@ -193,6 +206,13 @@ declare module '@tanstack/react-router' {
       path: '/classroom'
       fullPath: '/classroom'
       preLoaderRoute: typeof ClassroomRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lab': {
+      id: '/lab'
+      path: '/lab'
+      fullPath: '/lab'
+      preLoaderRoute: typeof LabRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects': {
@@ -270,6 +290,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AutomationsRoute: AutomationsRouteWithChildren,
   ClassroomRoute: ClassroomRoute,
+  LabRoute: LabRoute,
   ProjectsRoute: ProjectsRoute,
   RemindersRoute: RemindersRoute,
   RobotRoute: RobotRoute,

@@ -6,6 +6,14 @@
 
     {"type": "artifact.created", "payload": "ArtifactCreatedEvent", "summary": "A visual artifact was persisted."},
     {"type": "artifact.ready", "payload": "ArtifactReadyEvent", "summary": "A turn finished with visual artifacts."},
+    {"type": "robotlab.frame", "payload": "RobotLabFrame", "summary": "Robot Lab frame."},
+    {"type": "robotlab.metrics", "payload": "RobotLabMetricsEvent", "summary": "Robot Lab metrics."},
+    {"type": "robotlab.experiment", "payload": "RobotLabExperiment", "summary": "Robot Lab experiment."},
+    {"type": "robotlab.log", "payload": "RobotLabLogEvent", "summary": "Robot Lab log."},
+    {"type": "robotlab.install", "payload": "RobotLabInstallEvent", "summary": "Robot Lab install."},
+    {"type": "robotlab.vision", "payload": "RobotLabVisionEvent", "summary": "Robot Lab vision."},
+    {"type": "robotlab.focus", "payload": "RobotLabFocusEvent", "summary": "Robot Lab focus."},
+    {"type": "robotlab.teleop", "payload": "RobotLabTeleopEvent", "summary": "Robot Lab teleop."},
     {"type": "activity.updated", "payload": "ActivityUpdatedEvent", "summary": "Conversation activity changed."},
 
     { "type": "task.updated", "payload": "TaskUpdatedEvent", "summary": "A task changed." },
@@ -156,6 +164,14 @@
         }
       }
     },
+    "RobotLabFrame": {"$ref": "robotlab.json#/$defs/Frame"},
+    "RobotLabMetricsEvent": {"$ref": "robotlab.json#/$defs/MetricsEvent"},
+    "RobotLabExperiment": {"$ref": "robotlab.json#/$defs/Experiment"},
+    "RobotLabLogEvent": {"$ref": "robotlab.json#/$defs/LogEvent"},
+    "RobotLabInstallEvent": {"$ref": "robotlab.json#/$defs/InstallEvent"},
+    "RobotLabVisionEvent": {"$ref": "robotlab.json#/$defs/VisionEvent"},
+    "RobotLabFocusEvent": {"$ref": "robotlab.json#/$defs/FocusEvent"},
+    "RobotLabTeleopEvent": {"$ref": "robotlab.json#/$defs/TeleopEvent"},
     "ActivityItem": {"type": "object", "required": ["id", "kind", "name", "state", "started_at", "updated_at"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "goal": {"type": "string", "maxLength": 300}, "profile": {"type": "string"}, "step": {"type": "string"}, "parent_id": {"type": "string"}, "error": {"type": "string"}, "kind": {"enum": ["subagent", "task", "automation"]}, "state": {"enum": ["queued", "running", "waiting", "paused", "completed", "failed", "cancelled"]}, "started_at": {"type": "string", "format": "date-time"}, "updated_at": {"type": "string", "format": "date-time"}, "finished_at": {"type": "string", "format": "date-time"}, "progress": {"$ref": "#/$defs/ActivityProgress"}}},
     "ActivityProgress": {"type": "object", "required": ["done", "total"], "properties": {"done": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 0}}},
     "ActivityUpdatedEvent": {"type": "object", "required": ["item"], "properties": {"item": {"$ref": "#/$defs/ActivityItem"}}},
