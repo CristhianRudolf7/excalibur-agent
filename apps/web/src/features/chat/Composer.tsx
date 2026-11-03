@@ -9,6 +9,8 @@ import { composerHeight, shouldSend } from './composer-logic'
 import { useTranslation } from 'react-i18next'
 import { Plus, Mic, ArrowUp, Square } from 'lucide-react'
 import { IconButton } from '@/components/shared'
+import { CallControls, useCallElapsed } from './voice/CallOverlay'
+import { callActive, useCall } from './voice/callStore'
 export function Composer({
   agent,
   typing,
@@ -23,6 +25,9 @@ export function Composer({
   onSendDocuments?: (text: string, documentIds: string[]) => void
 }) {
   const { t, i18n } = useTranslation()
+  const onCall = useCall((state) => callActive(state.snapshot) || state.connecting)
+  const showCall = useCall((state) => state.open)
+  const elapsed = useCallElapsed()
   const context = useAutomationContext()
   const area = useRef<HTMLDivElement>(null)
   // The composer floats over the conversation: reserve exactly its height below
@@ -143,17 +148,35 @@ export function Composer({
             }}
           />
           <span className="toolbar-spacer" />
-          <IconButton label="microphone" onClick={() => setNotice(t('unavailable'))}>
-            <Mic />
-          </IconButton>
-          <IconButton
-            label={typing ? 'stop' : 'send'}
-            className="send-button"
-            disabled={!typing && (waiting || (!text.trim() && !ready.length))}
-            onClick={typing ? onStop : send}
-          >
-            {typing ? <Square size={15} fill="currentColor" /> : <ArrowUp />}
-          </IconButton>
+          {onCall ? (
+            <>
+              <button
+                type="button"
+                className="composer-call-live"
+                aria-label={t('callShow')}
+                title={t('callShow')}
+                onClick={showCall}
+              >
+                <span className="composer-call-dot" aria-hidden="true" />
+                {t('callLive')} · {elapsed}
+              </button>
+              <CallControls compact />
+            </>
+          ) : (
+            <>
+              <IconButton label="microphone" onClick={() => setNotice(t('unavailable'))}>
+                <Mic />
+              </IconButton>
+              <IconButton
+                label={typing ? 'stop' : 'send'}
+                className="send-button"
+                disabled={!typing && (waiting || (!text.trim() && !ready.length))}
+                onClick={typing ? onStop : send}
+              >
+                {typing ? <Square size={15} fill="currentColor" /> : <ArrowUp />}
+              </IconButton>
+            </>
+          )}
         </div>
       </div>
     </div>

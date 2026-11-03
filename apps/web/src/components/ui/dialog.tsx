@@ -7,8 +7,11 @@ export function Dialog({
   onClose,
   children,
   className,
+  footer = true,
 }: {
   title: string
+  /** Show the bottom "Close" button (the header X is always there). */
+  footer?: boolean
   onClose: () => void
   children: ReactNode
   className?: string
@@ -72,7 +75,7 @@ export function Dialog({
         </Button>
       </div>
       {children}
-      <Button onClick={onClose}>{t('close')}</Button>
+      {footer && <Button onClick={onClose}>{t('close')}</Button>}
     </dialog>
   )
 }

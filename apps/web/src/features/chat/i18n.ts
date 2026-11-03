@@ -70,10 +70,6 @@ export const chatMessages = {
   chatOpenSource: ['Abrir documento en otra pestaña', 'Open document in new tab'],
   callTitle: ['Llamada con Excalibur', 'Call with Excalibur'],
   callStart: ['Iniciar llamada', 'Start call'],
-  callBrowserMode: [
-    'Usando la voz del navegador. Habla con normalidad; envío tu mensaje tras 3 segundos de pausa.',
-    'Using the browser voice. Speak normally; your message is sent after a 3-second pause.',
-  ],
   callFallback: [
     'La voz del servidor falló; cambié a la del navegador. Repite tu último mensaje, por favor.',
     'The server voice failed; switched to the browser voice. Please repeat your last message.',
@@ -92,6 +88,9 @@ export const chatMessages = {
   callHangup: ['Colgar', 'Hang up'],
   callTranscript: ['Transcripción de la llamada', 'Call transcript'],
   callReady: ['Listo para llamar', 'Ready to call'],
+  callConnecting: ['Conectando…', 'Connecting…'],
+  callLive: ['En llamada', 'On a call'],
+  callShow: ['Mostrar llamada', 'Show call'],
   callListening: ['Escuchando', 'Listening'],
   callTranscribing: ['Transcribiendo', 'Transcribing'],
   callThinking: ['Pensando', 'Thinking'],

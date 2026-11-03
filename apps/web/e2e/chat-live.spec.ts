@@ -199,7 +199,7 @@ for (const width of [1440, 390]) {
       .getByRole(width === 390 ? 'menuitem' : 'button', { name: 'Llamar', exact: true })
       .click()
     await expect(page.getByRole('dialog')).toBeVisible()
-    await expect(page.locator('.call-avatar .pixel-avatar')).toHaveCSS('width', '120px')
+    await expect(page.locator('.call-orb-core .pixel-avatar')).toHaveCSS('width', '132px')
     await page.screenshot({ path: testInfo.outputPath(`chat-call-${width}.png`) })
     await page.keyboard.press('Escape')
     await page.evaluate(() => document.documentElement.classList.add('dark'))

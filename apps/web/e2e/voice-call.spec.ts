@@ -94,7 +94,6 @@ test('phone call segments speech, transcribes, sends, speaks sentences in order 
   await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
-  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
   await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
   await energy(page, 0.1)
   await page.waitForTimeout(350)
@@ -113,6 +112,14 @@ test('phone call segments speech, transcribes, sends, speaks sentences in order 
   await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
   await expect(dialog.getByRole('log')).toContainText('Hello from the microphone')
   await expect(dialog.getByRole('log')).toContainText('Hello there. Second sentence!')
+  // Closing the sheet keeps the call alive; its controls move into the composer.
+  await dialog.getByRole('button', { name: 'Cerrar' }).click()
+  await expect(dialog).toHaveCount(0)
+  const composer = page.locator('.composer')
+  await expect(composer.getByRole('button', { name: 'Colgar' })).toBeVisible()
+  await expect(composer.getByRole('button', { name: 'Enviar mensaje' })).toHaveCount(0)
+  await composer.getByRole('button', { name: 'Mostrar llamada' }).click()
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
   await dialog.getByRole('button', { name: 'Silenciar micrófono' }).click()
   await expect(dialog.getByRole('button', { name: 'Silenciar micrófono' })).toHaveAttribute(
     'aria-pressed',
@@ -153,7 +160,6 @@ test('barge-in stops playback and starts the next utterance', async ({ page }) =
   await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
-  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
   await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
   await energy(page, 0.1)
   await page.waitForTimeout(350)
@@ -209,12 +215,11 @@ test('unavailable voice and denied microphone permission have clear states', asy
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
   let dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
   await expect(dialog).toContainText('Las llamadas de voz no están disponibles.')
-  await expect(dialog.getByRole('button', { name: 'Iniciar llamada' })).toBeDisabled()
-  await page.keyboard.press('Escape')
+  await dialog.getByRole('button', { name: 'Colgar' }).click()
+  await expect(dialog).toHaveCount(0)
   available = true
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
   dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
-  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
   await expect(dialog.getByRole('alert')).toContainText('Permite el acceso al micrófono')
 })
 
@@ -301,8 +306,7 @@ test('without voice credentials the call uses browser speech, waits for a 3 s pa
   await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
-  await expect(dialog).toContainText('Usando la voz del navegador')
-  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
+  await expect(dialog).not.toContainText('navegador')
   await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
 
   // A peak opens the turn; recognized words appear live.

@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import { CallOverlay } from '@/features/chat/voice/CallOverlay'
+import { useCall } from '@/features/chat/voice/callStore'
 import { DropdownMenu } from 'radix-ui'
 import { MoreHorizontal, Phone } from 'lucide-react'
 import { PanelToggle } from '@/components/ui/panel-toggle'
@@ -18,18 +18,14 @@ export function ChatHeaderActions({
   onPanel: () => void
   panelOpen?: boolean
 }) {
-  const [calling, setCalling] = useState(false)
+  const openCall = useCall((state) => state.open)
   const { t } = useTranslation()
   return (
     <div className="header-actions">
-      {calling && <CallOverlay onClose={() => setCalling(false)} />}
+      <CallOverlay />
       <ModeSwitch variant="compact" mode="chat" onChange={onMode} />
       <span className="header-action-divider" aria-hidden="true" />
-      <IconButton
-        className="icon-button header-secondary-action"
-        label="phone"
-        onClick={() => setCalling(true)}
-      >
+      <IconButton className="icon-button header-secondary-action" label="phone" onClick={openCall}>
         <Phone />
       </IconButton>
       <DropdownMenu.Root>
@@ -40,7 +36,7 @@ export function ChatHeaderActions({
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content className="header-overflow-menu" align="end" sideOffset={6}>
-            <DropdownMenu.Item onSelect={() => setCalling(true)}>
+            <DropdownMenu.Item onSelect={openCall}>
               <Phone size={16} />
               {t('phone')}
             </DropdownMenu.Item>
