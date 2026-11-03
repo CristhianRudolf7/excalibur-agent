@@ -65,10 +65,10 @@ func normalizeSyllabus(units []Unit, previous []Unit) ([]Unit, error) {
 	count := 0
 	for i := range units {
 		u := &units[i]
-		if u.ID == "" {
+		// Ids that do not belong to the current syllabus (for example ids an
+		// agent invented while drafting) denote new units.
+		if u.ID == "" || !oldUnits[u.ID] {
 			u.ID = newID()
-		} else if !oldUnits[u.ID] {
-			return nil, invalid("unknown unit id")
 		}
 		if seenUnits[u.ID] {
 			return nil, invalid("duplicate unit id")
@@ -83,14 +83,11 @@ func normalizeSyllabus(units []Unit, previous []Unit) ([]Unit, error) {
 			if title == "" {
 				return nil, invalid("topic title required")
 			}
-			if t.ID == "" {
-				*t = Topic{ID: newID(), Status: "not_started"}
-			} else {
-				prev, ok := oldTopics[t.ID]
-				if !ok {
-					return nil, invalid("unknown topic id")
-				}
+			if prev, ok := oldTopics[t.ID]; ok && t.ID != "" {
 				*t = prev
+			} else {
+				// Unknown or empty ids denote new topics.
+				*t = Topic{ID: newID(), Status: "not_started"}
 			}
 			if seenTopics[t.ID] {
 				return nil, invalid("duplicate topic id")

@@ -275,7 +275,7 @@ func TestSyllabusAndClassValidation(t *testing.T) {
 		requireCode(t, err, api.CodeInvalidParams)
 	}
 	for _, change := range []func([]Unit) []Unit{
-		func(u []Unit) []Unit { return nil }, func(u []Unit) []Unit { u[0].ID = "foreign"; return u }, func(u []Unit) []Unit { u[0].Topics[0].ID = "foreign"; return u },
+		func(u []Unit) []Unit { return nil },
 		func(u []Unit) []Unit { u[0].Topics[0].Title = ""; return u }, func(u []Unit) []Unit { u[0].Topics[1].ID = id; return u }, func(u []Unit) []Unit { return append(u, u[0]) },
 	} {
 		_, err := s.UpdateSyllabus(testContext, c.ID, change(owned(c.Units)))
@@ -336,5 +336,26 @@ func TestMalformedAnswersDoNotConsumeQuiz(t *testing.T) {
 	}
 	if result, err := s.Submit(testContext, q.ID, nil); err != nil || result.Passed || result.Results[0].Correct {
 		t.Fatal(result, err)
+	}
+}
+
+func TestUnknownSyllabusIDsBecomeNewEntries(t *testing.T) {
+	s := NewService(nil, nil)
+	created, err := s.CreateCourse(testContext, Course{Title: "Course", Units: []Unit{{ID: "u-draft", Title: "Unit", Topics: []Topic{{ID: "t-draft-1", Title: "One"}, {ID: "t-draft-2", Title: "Two"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Units[0].ID == "u-draft" || created.Units[0].Topics[0].ID == "t-draft-1" || created.Units[0].Topics[0].Status != "not_started" {
+		t.Fatalf("drafted ids kept: %+v", created.Units)
+	}
+	units := owned(created.Units)
+	units[0].Topics = append(units[0].Topics, Topic{ID: "foreign", Title: "Three"})
+	updated, err := s.UpdateSyllabus(testContext, created.ID, units)
+	if err != nil {
+		t.Fatal(err)
+	}
+	topics := updated.Units[0].Topics
+	if len(topics) != 3 || topics[2].ID == "foreign" || topics[0].ID != created.Units[0].Topics[0].ID {
+		t.Fatalf("unknown topic id not treated as new: %+v", topics)
 	}
 }
