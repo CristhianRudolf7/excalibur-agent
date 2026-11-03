@@ -1,5 +1,9 @@
 export const robotMessages = {
   robot: ['Robot', 'Robot'],
+  robotOpenChat: ['Abrir chat', 'Open chat'],
+  robotCloseChat: ['Cerrar chat', 'Close chat'],
+  robotResizeChat: ['Redimensionar paneles', 'Resize panels'],
+  robotChat: ['Chat de Excalibur', 'Excalibur chat'],
   robotEyebrow: ['EXCALIBUR', 'EXCALIBUR'],
   robotSubtitle: [
     'Conecta el brazo y comparte la cámara para que Excalibur pueda verlo y moverlo.',

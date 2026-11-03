@@ -9,8 +9,10 @@
 .robot-page {
   width: 100%;
   height: 100%;
-  overflow: auto;
-  padding: 42px 40px 160px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   background: var(--background);
   color: var(--foreground);
   font-size: 13px;
@@ -621,7 +623,7 @@
 
 /* Compact chat-style header, like the Robot Lab: sidebar toggle + title. */
 .robot-page {
-  padding: 0 0 160px;
+  padding: 0;
 }
 .robot-page > .robot-header.chat-header {
   position: sticky;
@@ -631,7 +633,8 @@
   align-items: center;
   gap: 14px;
   max-width: none;
-  margin: 0 0 28px;
+  margin: 0;
+  flex-shrink: 0;
   height: 72px;
   padding: 12px 20px;
   border-bottom: 1px solid var(--border);
@@ -655,8 +658,46 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.robot-page > .robot-grid {
-  padding-inline: 40px;
+.robot-layout {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.robot-workspace {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 40px 160px;
+  container-type: inline-size;
+}
+.robot-chat.chat-column {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+}
+.robot-chat-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: var(--background);
+  /* Keep the composer above the always-available STOP dock. */
+  padding-bottom: max(132px, calc(114px + env(safe-area-inset-bottom)));
+}
+.robot-chat .panel-navigation {
+  justify-content: space-between;
+}
+@container (max-width: 760px) {
+  .robot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .robot-camera-controls {
+    flex-wrap: wrap;
+  }
+  .robot-camera-controls > button {
+    width: 100%;
+  }
 }
 @media (max-width: 700px) {
   .robot-page,
@@ -667,7 +708,7 @@
     height: 64px;
     padding: 10px 12px;
   }
-  .robot-page > .robot-grid {
+  .robot-workspace {
     padding-inline: 16px;
   }
 }

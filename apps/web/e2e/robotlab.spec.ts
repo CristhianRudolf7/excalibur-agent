@@ -180,14 +180,13 @@ for (const mobile of [false, true]) {
   }) => {
     await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
     const { bus, calls } = await mockLab(page, false)
-    await page.goto('/coming-soon/tools')
+    await page.goto('/lab')
     await bus.ready('robotlab.install')
     await page.getByRole('button', { name: /^Install$|^Instalar$/ }).click()
     await expect.poll(() => calls.some((call) => call.method === 'robotlab.install')).toBe(true)
     bus.emit('robotlab.install', { phase: 'packages', message: 'Installing packages', percent: 50 })
     await expect(page.getByRole('progressbar')).toHaveAttribute('value', '50')
     bus.emit('robotlab.install', { phase: 'done', message: 'Ready', percent: 100, done: true })
-    await page.getByRole('link', { name: /Open Robot Lab|Abrir laboratorio/ }).click()
     await expect(page).toHaveURL(/\/lab$/)
     await expect(page.getByRole('tab', { name: /Scene|Escena/ })).toBeVisible()
     if (mobile)
@@ -485,8 +484,8 @@ test('lab vision shows streamed phases, selected marks and verification', async 
 })
 
 test('scenario thumbnails have inspection scale and labels', async ({ page }) => {
-  await mockLab(page)
-  await page.goto('/coming-soon/tools')
+  await mockLab(page, false)
+  await page.goto('/lab')
   const thumbnails = page.locator('.lab-thumbnails svg')
   await expect(thumbnails).toHaveCount(6)
   for (const thumbnail of await thumbnails.all()) {
@@ -576,9 +575,16 @@ for (const viewport of [
         animations: 'disabled',
         path: `/home/cristhian/excalibur-sim/scratch/lab-layout/390-drawer.png`,
       })
-      await page.locator('.lab-nav button').click()
+      await page
+        .locator('.sidebar')
+        .getByRole('button', { name: /Robot Lab|Laboratorio robótico/, includeHidden: true })
+        .click()
     }
-    await expect(page.locator('.lab-nav button')).toHaveAttribute('aria-current', 'page')
+    await expect(
+      page
+        .locator('.sidebar')
+        .getByRole('button', { name: /Robot Lab|Laboratorio robótico/, includeHidden: true }),
+    ).toHaveAttribute('aria-current', 'page')
     const switcher = page.getByRole('combobox', { name: /Scenario|Escenario/ })
     const box = await switcher.boundingBox()
     expect(box!.width).toBeGreaterThan(120)
@@ -701,7 +707,7 @@ test('lab split preference persists and collapsed rail routes back to the lab', 
     animations: 'disabled',
     path: '/home/cristhian/excalibur-sim/scratch/lab-layout/1440-rail.png',
   })
-  await rail.getByRole('button', { name: /Tools|Herramientas/, exact: true }).click()
+  await rail.getByRole('button', { name: /Projects|Proyectos/, exact: true }).click()
   await rail.getByRole('button', { name: /Robot Lab|Laboratorio robótico/ }).click()
   await expect(page).toHaveURL(/\/lab$/)
 })

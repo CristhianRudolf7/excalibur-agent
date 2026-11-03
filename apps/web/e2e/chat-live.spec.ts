@@ -101,9 +101,17 @@ test('live tools, notices, inline questions and plan approvals use typed RPC met
   await page.getByRole('textbox', { name: 'Responder', exact: true }).fill('Staging')
   await page.getByRole('button', { name: 'Responder', exact: true }).click()
   chat.emit('plan.approval_requested', { plan_id: 'p1', summary: 'Deploy to staging' })
-  await page.getByRole('button', { name: 'Aprobar', exact: true }).click()
+  await page
+    .locator('.message')
+    .filter({ hasText: 'Deploy to staging' })
+    .getByRole('button', { name: 'Aprobar', exact: true })
+    .click()
   chat.emit('plan.approval_requested', { plan_id: 'p2', summary: 'Deploy to production' })
-  await page.getByRole('button', { name: 'Rechazar', exact: true }).click()
+  await page
+    .locator('.message')
+    .filter({ hasText: 'Deploy to production' })
+    .getByRole('button', { name: 'Rechazar', exact: true })
+    .click()
   await expect
     .poll(() => decisions.map(({ method, params }) => ({ method, params })))
     .toEqual([

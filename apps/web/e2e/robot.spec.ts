@@ -100,11 +100,14 @@ test('Robot navigation, remembered IP, connect, live readouts and disconnect in 
   const robot = await mockRobot(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/projects')
-  await page.locator('.primary-nav').getByRole('button', { name: 'Robot', exact: true }).click()
+  await page
+    .locator('.sidebar')
+    .getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ })
+    .click()
   await expect(page).toHaveURL(/\/robot$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Robot', exact: true })).toBeVisible()
   await expect(
-    page.locator('.primary-nav').getByRole('button', { name: 'Robot', exact: true }),
+    page.locator('.sidebar').getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ }),
   ).toHaveAttribute('aria-current', 'page')
   await expect(page.locator('.agent-nav button')).not.toHaveAttribute('aria-current', 'page')
   await expect(page.locator('.robot-status')).toHaveText('Desconectado')
@@ -130,12 +133,11 @@ test('Robot navigation, remembered IP, connect, live readouts and disconnect in 
   await expect(page.locator('.robot-status')).toHaveText('Desconectado')
   await page.keyboard.press('Control+b')
   const rail = page.locator('.sidebar-rail')
-  await expect(rail.getByRole('button', { name: 'Robot', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  await expect(
+    rail.getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
   await rail.getByRole('button', { name: 'Proyectos', exact: true }).click()
-  await rail.getByRole('button', { name: 'Robot', exact: true }).click()
+  await rail.getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ }).click()
   await expect(page).toHaveURL(/\/robot$/)
   expect(
     robot.calls.some(
@@ -259,9 +261,14 @@ for (const variant of ['desktop', 'mobile', 'dark', 'english'] as const) {
     if (mobile) {
       await page.getByRole('button', { name: 'Alternar barra lateral', exact: true }).click()
       await expect(
-        page.locator('.primary-nav').getByRole('button', { name: 'Robot', exact: true }),
+        page
+          .locator('.sidebar')
+          .getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ }),
       ).toBeVisible()
-      await page.locator('.primary-nav').getByRole('button', { name: 'Robot', exact: true }).click()
+      await page
+        .locator('.sidebar')
+        .getByRole('button', { name: /^(Robot|Brazo robótico|Robot arm)$/ })
+        .click()
       await expect(page.locator('.sidebar')).toBeHidden()
     }
     await page
@@ -296,5 +303,110 @@ for (const variant of ['desktop', 'mobile', 'dark', 'english'] as const) {
       await expect(page.getByRole('button', { name: 'STOP', exact: true })).toBeInViewport()
       await page.screenshot({ path: `${shots}/rb2-mobile-camera.png` })
     }
+  })
+}
+
+for (const width of [1440, 390]) {
+  test(`Robot shares the Excalibur chat with accessible STOP at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+    const robot = await mockRobot(page)
+    const requests: { method: string; params: Record<string, unknown> }[] = []
+    page.on('request', (request) => {
+      if (request.url().endsWith('/rpc')) requests.push(request.postDataJSON())
+    })
+    await page.goto('/robot')
+    const connection = page.getByRole('region', { name: 'Conexión del brazo' })
+    await expect(connection).toBeVisible()
+    await page.getByRole('textbox', { name: 'Dirección IP del brazo' }).fill('192.168.1.10')
+    const toggle = page.locator('.robot-header button[aria-controls="robot-conversation"]')
+    await expect(toggle).toHaveAccessibleName('Abrir chat')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    const chat = page.getByRole('region', { name: 'Chat de Excalibur' })
+    const composer = chat.locator('.composer textarea')
+    await expect(composer).toBeInViewport()
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === 'conversation.history' &&
+            request.params.conversation_id === 'cnv_web_excalibur',
+        ),
+      )
+      .toBe(true)
+    const stop = page.getByRole('button', { name: 'STOP', exact: true })
+    await expect(stop).toBeInViewport()
+    await stop.click()
+    await expect
+      .poll(() => robot.calls.filter((call) => call.method === 'robot.stop').length)
+      .toBe(1)
+    if (width === 1440) {
+      await expect(connection).toBeInViewport()
+      const chatBox = await chat.boundingBox()
+      const workspaceBox = await page.locator('.robot-workspace').boundingBox()
+      expect(chatBox!.x + chatBox!.width).toBeLessThanOrEqual(workspaceBox!.x)
+      expect(chatBox!.y).toBe(workspaceBox!.y)
+      expect(Math.abs(chatBox!.width - workspaceBox!.width)).toBeLessThan(2)
+      const separator = page.getByRole('separator', { name: 'Redimensionar paneles' })
+      const handle = await separator.boundingBox()
+      await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(handle!.x + 70, handle!.y + handle!.height / 2)
+      await page.mouse.up()
+      await expect
+        .poll(async () => (await chat.boundingBox())!.width)
+        .toBeGreaterThan(chatBox!.width + 40)
+      await separator.dblclick()
+      await expect
+        .poll(async () => (await chat.boundingBox())!.width)
+        .toBeCloseTo(chatBox!.width, 0)
+      await page.getByRole('button', { name: 'Conectar', exact: true }).click()
+      await expect(page.locator('.robot-readouts')).toContainText('RUNNING')
+    } else {
+      await expect(chat).toHaveClass(/robot-chat-overlay/)
+      await expect(page.locator('.robot-workspace')).toHaveAttribute('inert')
+      await expect(page.getByRole('separator')).toHaveCount(0)
+      const composerBox = await composer.boundingBox()
+      const dockBox = await page.locator('.robot-stop-dock').boundingBox()
+      expect(composerBox!.y + composerBox!.height).toBeLessThanOrEqual(dockBox!.y)
+    }
+    await composer.fill('Help me with the robot')
+    await composer.press('Enter')
+    await expect(chat.locator('.message-user')).toContainText('Help me with the robot')
+    await expect
+      .poll(() =>
+        requests.some(
+          (request) =>
+            request.method === 'conversation.send' &&
+            request.params.conversation_id === 'cnv_web_excalibur' &&
+            request.params.text === 'Help me with the robot',
+        ),
+      )
+      .toBe(true)
+    // Text input must not trigger the robot's Space shortcut.
+    expect(robot.calls.filter((call) => call.method === 'robot.stop')).toHaveLength(1)
+    if (width === 390) await chat.getByRole('button', { name: 'Cerrar chat' }).click()
+    else await toggle.click()
+    await expect(chat).toHaveCount(0)
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.locator('.robot-workspace')).not.toHaveAttribute('inert')
+    await expect(connection).toBeInViewport()
+    await expect(page.getByRole('textbox', { name: 'Dirección IP del brazo' })).toHaveValue(
+      '192.168.1.10',
+    )
+    await expect(stop).toBeInViewport()
+    if (width === 1440) {
+      await page.goto('/agents/excalibur?view=chat')
+      await expect(page.locator('.message-user')).toContainText('Help me with the robot')
+      await page.locator('.composer textarea').fill('Reply from the agent page')
+      await page.locator('.composer textarea').press('Enter')
+      await expect(page.locator('.chat-body')).toContainText('Reply from the agent page')
+      await page.goto('/robot')
+      await page.getByRole('button', { name: 'Abrir chat', exact: true }).click()
+      await expect(chat).toContainText('Reply from the agent page')
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   })
 }
