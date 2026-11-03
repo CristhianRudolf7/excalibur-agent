@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -235,3 +236,28 @@ func TestIntakeTimeoutDisabled(t *testing.T) {
 		t.Fatalf("disabled deadline: %+v, calls=%d", in, dec.Calls)
 	}
 }
+
+func TestActiveWorkDeciderSkipsStatusWithoutRuns(t *testing.T) {
+	idle := activeWorkDecider{controls: &fakeRunList{}}
+	if !idle.SkipClassify(Preanalysis{ControlIntent: "status"}) {
+		t.Fatal("status phrase with no runs must skip classification")
+	}
+	if idle.SkipClassify(Preanalysis{ControlIntent: "pause"}) {
+		t.Fatal("other control intents must still be classified")
+	}
+	if idle.SkipClassify(Preanalysis{ControlIntent: "status", RunRefs: []string{"3"}}) {
+		t.Fatal("run references must still be classified")
+	}
+	busy := activeWorkDecider{controls: &fakeRunList{runs: []api.RunStatusResult{{RunID: "run_1", State: types.RunRunning}}}}
+	if busy.SkipClassify(Preanalysis{ControlIntent: "status"}) {
+		t.Fatal("status phrase with an active run must be classified")
+	}
+}
+
+type fakeRunList struct{ runs []api.RunStatusResult }
+
+func (f *fakeRunList) Snapshot(string) (api.RunStatusResult, error) {
+	return api.RunStatusResult{}, nil
+}
+func (f *fakeRunList) ListRuns() []api.RunStatusResult                  { return f.runs }
+func (f *fakeRunList) FindRunsByAgentName(string) []api.RunStatusResult { return nil }

@@ -168,6 +168,9 @@ func New(cfg Config, store ConversationStore, lex *Lexicon, dec Decider, control
 		}
 	}
 	m := &Master{cfg: cfg, store: store, lex: lex, decider: dec, loc: loc, notifier: notifier}
+	if dec != nil && controls != nil && intakeSwitch("EXCALIBUR_INTAKE_REQUIRE_ACTIVE_WORK") {
+		m.decider = activeWorkDecider{Decider: dec, controls: controls}
+	}
 	m.lane = &FastLane{Controls: controls, HasDecider: dec != nil}
 	m.turns = NewTurnManager(cfg.Turns, model, time.Now, func(e TurnEvent) {
 		m.mu.Lock()
@@ -346,4 +349,30 @@ func (m *Master) SetTurnCaller(caller TurnCaller) {
 // TurnHistory exposes bounded normalized context, including attachment ids.
 func (m *Master) TurnHistory(conv string, limit int) []Normalized {
 	return m.store.History(conv, limit)
+}
+
+// activeWorkDecider skips classifying status-style questions while no run is
+// active: with nothing running, the fast lane has no status to serve, so the
+// master answers them directly ("what is MuJoCo?" contains a status phrase).
+// Messages naming a task or run, or carrying another control intent, are
+// still classified. EXCALIBUR_INTAKE_REQUIRE_ACTIVE_WORK=0 disables it.
+type activeWorkDecider struct {
+	Decider
+	controls StatusResolver
+}
+
+// SkipClassify implements classifySkipper.
+func (d activeWorkDecider) SkipClassify(pre Preanalysis) bool {
+	if pre.ControlIntent != "" && pre.ControlIntent != "status" {
+		return false
+	}
+	if len(pre.TaskRefs) > 0 || len(pre.RunRefs) > 0 {
+		return false
+	}
+	for _, run := range d.controls.ListRuns() {
+		if !run.State.IsTerminal() {
+			return false
+		}
+	}
+	return true
 }

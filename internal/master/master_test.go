@@ -17,19 +17,31 @@ import (
 func TestReceiveDeferredReturnsBeforeSlowTriage(t *testing.T) {
 	release := make(chan struct{})
 	m := New(Config{Turns: DefaultTurnConfig()}, NewMemStore(), NewLexicon(), slowDecider{release}, nil, nil, nil)
+	seen := make(contextTurnRecorder, 1)
+	m.SetTurnCaller(seen)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = m.Turns().Stop(ctx)
+	})
 	start := time.Now()
-	id, err := m.ReceiveDeferred(context.Background(), "c", "m1", "cnv", "hola", nil, nil)
+	id, err := m.ReceiveDeferred(context.Background(), "c", "m1", "cnv", "pause R3", nil, nil)
 	if err != nil || id == "" {
 		t.Fatal(id, err)
 	}
 	if time.Since(start) > 500*time.Millisecond {
 		t.Fatalf("receipt waited for triage: %s", time.Since(start))
 	}
-	again, _ := m.ReceiveDeferred(context.Background(), "c", "m1", "cnv", "hola", nil, nil)
+	again, _ := m.ReceiveDeferred(context.Background(), "c", "m1", "cnv", "pause R3", nil, nil)
 	if again != id {
 		t.Fatalf("duplicate client_msg_id got %s want %s", again, id)
 	}
 	close(release)
+	select {
+	case <-seen:
+	case <-time.After(time.Second):
+		t.Fatal("deferred message did not reach the turn after triage")
+	}
 }
 
 type slowDecider struct{ release chan struct{} }

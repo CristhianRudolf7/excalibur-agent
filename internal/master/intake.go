@@ -343,6 +343,9 @@ func Intake(ctx context.Context, msg Normalized, persist func(Normalized) (types
 		return res, nil
 	}
 	res.timing.gated = intakeSwitch("EXCALIBUR_INTAKE_GATED_TRIAGE") && !triageCandidate(msg.Text, pre)
+	if s, ok := dec.(classifySkipper); ok && !res.timing.gated && s.SkipClassify(pre) {
+		res.timing.gated = true
+	}
 	if dec != nil && !res.timing.gated {
 		start := time.Now()
 		if ctx.Err() == nil {
@@ -352,6 +355,12 @@ func Intake(ctx context.Context, msg Normalized, persist func(Normalized) (types
 		res.timing.deciderDuration = time.Since(start)
 	}
 	return res, nil
+}
+
+// classifySkipper lets the master veto a classification the fast lane could
+// never use, such as a status question while no run exists.
+type classifySkipper interface {
+	SkipClassify(pre Preanalysis) bool
 }
 
 // intakeSwitch defaults latency improvements on, including on invalid input.

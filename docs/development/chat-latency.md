@@ -54,3 +54,23 @@ the fast lane/master boundary emits one structured INFO event, `intake timing`:
 The event includes no message text, identifiers, prompts, or credentials.
 Set `EXCALIBUR_INTAKE_TIMING=false` to disable these events. Duplicate message
 receipts are not routed a second time and do not emit another timing event.
+
+Verification uses fakes only. Master tests cover bilingual candidate vocabulary,
+zero-classification turn delivery through synchronous and deferred intake,
+deadline fallback including an uncooperative decider, late-result isolation,
+world-action misclassification, preserved control/mixed-message routing, and
+one timing event per routed message. Daemon tests count the single question,
+legacy rollback questions, multi-scope questions, deterministic clarification,
+error fallback, and the preserved quick-action type.
+
+The touched packages pass `go vet` and `go test -race`; full Linux, Darwin, and
+Windows builds pass. The diff against the round's starting commit changes only
+the assigned intake/decider files, their tests, and this document.
+
+### Status questions while nothing runs
+
+`EXCALIBUR_INTAKE_REQUIRE_ACTIVE_WORK` (default on) skips classification for
+status-style candidates (no control intent other than `status`, no task or run
+reference) while no run is active. With nothing running, the fast lane has no
+status to serve, so phrases such as "what is" in ordinary questions go straight
+to the conversational turn. Set it to `0` to classify them anyway.
