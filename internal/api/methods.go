@@ -228,6 +228,10 @@ var Methods = []MethodInfo{
 	{MethodLibraryDelete, "library", "Delete library documents."},
 	{MethodLibraryCancel, "library", "Cancel library documents."},
 
+	{MethodGoogleStatus, "google", "Read Google account connection status."},
+	{MethodGoogleConnectStart, "google", "Start connecting a Google account."},
+	{MethodGoogleConnectComplete, "google", "Complete Google account authorization."},
+	{MethodGoogleDisconnect, "google", "Disconnect the Google account."},
 	{MethodPrincipalGet, "principal", "Read the local user's profile."},
 	{MethodPrincipalUpdate, "principal", "Update the local user's time zone."},
 	{MethodConversationSend, "conversation", "Send a message; idempotent on client_msg_id."},

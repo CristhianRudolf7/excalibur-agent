@@ -79,6 +79,10 @@
     { "name": "library.chunk", "family": "library", "summary": "Chunk library documents." },
     { "name": "library.delete", "family": "library", "summary": "Delete library documents." },
     { "name": "library.cancel", "family": "library", "summary": "Cancel library documents." },
+    { "name": "google.status", "family": "google", "summary": "Read Google account connection status." },
+    { "name": "google.connect.start", "family": "google", "summary": "Start connecting a Google account." },
+    { "name": "google.connect.complete", "family": "google", "summary": "Complete Google account authorization." },
+    { "name": "google.disconnect", "family": "google", "summary": "Disconnect the Google account." },
     { "name": "principal.get", "family": "principal", "summary": "Read the local user's profile." },
     { "name": "principal.update", "family": "principal", "summary": "Update the local user's time zone." },
     { "name": "conversation.send", "family": "conversation", "summary": "Send a message; idempotent on client_msg_id." },
@@ -299,6 +303,9 @@
     "CredentialsCancelParams": {"additionalProperties":false,"properties":{"request_id":{"type":"string"}},"required":["request_id"],"type":"object"},
     "CredentialsOKResult": {"additionalProperties":false,"properties":{"ok":{"type":"boolean"}},"required":["ok"],"type":"object"},
     "CredentialsRequestedEvent": {"additionalProperties":false,"properties":{"conversation_id":{"type":"string"},"created_at":{"type":"string"},"fields":{"items":{"type":"string"},"type":"array"},"purpose":{"type":"string"},"remember_default":{"type":"boolean"},"request_id":{"type":"string"},"run_id":{"type":"string"},"site":{"type":"string"}},"required":["request_id","conversation_id","run_id","site","purpose","fields","remember_default","created_at"],"type":"object"},
-    "CredentialsResolvedEvent": {"additionalProperties":false,"properties":{"request_id":{"type":"string"},"status":{"type":"string"}},"required":["request_id","status"],"type":"object"}
+    "CredentialsResolvedEvent": {"additionalProperties":false,"properties":{"request_id":{"type":"string"},"status":{"type":"string"}},"required":["request_id","status"],"type":"object"},
+    "GoogleStatusResult": {"additionalProperties":false,"properties":{"configured":{"type":"boolean"},"connected":{"type":"boolean"},"email":{"type":"string"},"expires_at":{"format":"date-time","type":"string"},"missing_scopes":{"items":{"type":"string"},"type":"array"},"reason":{"type":"string"},"scopes":{"items":{"type":"string"},"type":"array"},"warning":{"type":"string"}},"required":["connected","configured"],"type":"object"},
+    "GoogleConnectStartResult": {"additionalProperties":false,"properties":{"auth_url":{"type":"string"}},"required":["auth_url"],"type":"object"},
+    "GoogleConnectCompleteParams": {"additionalProperties":false,"properties":{"code":{"type":"string"},"state":{"type":"string"}},"required":["code","state"],"type":"object"}
   }
 }

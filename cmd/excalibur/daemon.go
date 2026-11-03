@@ -20,6 +20,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/googleapi"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
@@ -316,6 +317,15 @@ func runDaemonStart(args []string) error {
 	if err != nil {
 		return err
 	}
+	googleConfigDir, err := dirs.ConfigDir()
+	if err != nil {
+		return err
+	}
+	googleAccount, err := googleapi.NewOAuth(ctx, googleapi.OAuthOptions{ConfigDir: googleConfigDir, Vault: v})
+	if err != nil {
+		return err
+	}
+	svc.Google = googleAccount
 	var principal *daemon.PrincipalService
 	if db != nil {
 		// Profile seeding is best effort and logs its own failures.
@@ -341,6 +351,7 @@ func runDaemonStart(args []string) error {
 	}
 	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
+		Google: googleAccount,
 		Agents: personalAgents,
 		Robot:  robotService,
 		WorkspaceRoots: func(context.Context) []string {

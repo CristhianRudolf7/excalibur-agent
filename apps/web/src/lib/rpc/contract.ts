@@ -12,6 +12,16 @@ export interface Principal {
   timezone_source: 'default' | 'auto' | 'manual'
   language: string
 }
+export interface GoogleStatus {
+  connected: boolean
+  configured: boolean
+  email?: string
+  scopes?: string[]
+  expires_at?: string
+  reason?: string
+  warning?: string
+  missing_scopes?: string[]
+}
 export const clientMethods = [
   'credentials.pending',
   'credentials.submit',
@@ -37,6 +47,10 @@ export const clientMethods = [
   'conversation.send',
   'conversation.history',
   'conversation.subscribe',
+  'google.status',
+  'google.connect.start',
+  'google.connect.complete',
+  'google.disconnect',
   'principal.get',
   'principal.update',
   'voice.status',
@@ -271,6 +285,10 @@ export interface RpcMethods
     params: { cursor?: string; types?: string[] }
     result: { events: ConversationEvent[] | null; cursor: string }
   }
+  'google.status': { params: Record<string, never>; result: GoogleStatus }
+  'google.connect.start': { params: Record<string, never>; result: { auth_url: string } }
+  'google.connect.complete': { params: { code: string; state: string }; result: GoogleStatus }
+  'google.disconnect': { params: Record<string, never>; result: GoogleStatus }
   'principal.get': { params: undefined; result: Principal }
   'principal.update': {
     params: {

@@ -12,6 +12,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/googleapi"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
@@ -378,6 +379,7 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
+	Google         googleapi.TokenProvider
 	Credentials    *CredentialRegistry
 	RobotLab       *robotlab.Service
 	RobotLabTool   *robotlab.Tool

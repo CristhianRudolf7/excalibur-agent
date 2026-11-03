@@ -14,6 +14,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/googleapi"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
@@ -33,6 +34,7 @@ import (
 // embedded MemoryBackend behavior so embedded profiles and unit
 // tests never need the full stack.
 type BackendServices struct {
+	Google    googleapi.TokenProvider
 	Agents    *agents.Registry
 	Robot     *robot.Service
 	RobotLab  *robotlab.Service
@@ -217,6 +219,8 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 		return b.embed.Passthrough(ctx, method, params)
 	}
 	switch method {
+	case api.MethodGoogleStatus, api.MethodGoogleConnectStart, api.MethodGoogleConnectComplete, api.MethodGoogleDisconnect:
+		return googleOp(ctx, svc.Google, method, params)
 	case api.MethodPrincipalGet:
 		if len(params) > 0 && !json.Valid(params) {
 			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad principal.get params"}
