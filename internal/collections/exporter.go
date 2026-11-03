@@ -71,6 +71,9 @@ func (e *Engine) Export(ctx context.Context, blobs Blobs, p api.CollectionsExpor
 		}
 		rows = append(rows, row)
 	}
+	if (len(records)+1)*len(c.Fields) > MaxImportCells {
+		return out, invalid("id", "export exceeds 1,000,000 cells; use filters")
+	}
 	var buf bytes.Buffer
 	out.Name = "collection_" + strings.TrimPrefix(c.ID, "col_") + "." + p.Format
 	if p.Format == "csv" {
@@ -100,10 +103,15 @@ func (e *Engine) Export(ctx context.Context, blobs Blobs, p api.CollectionsExpor
 				sheet.Cells = append(sheet.Cells, cell)
 			}
 		}
-		pkg, err := create.Build("xlsx", create.Spec{Sheets: []create.Sheet{sheet}}, nil)
+		pkg, err := create.Build("xlsx", create.Spec{Sheets: []create.Sheet{{Name: "Data", FreezeFirstRow: true}}}, nil)
 		if err != nil {
 			return out, err
 		}
+		sheetXML, err := create.SheetXML(sheet)
+		if err != nil {
+			return out, err
+		}
+		pkg.Parts["xl/worksheets/sheet1.xml"] = []byte(sheetXML)
 		encoded, err := pkg.Bytes()
 		if err != nil {
 			return out, err

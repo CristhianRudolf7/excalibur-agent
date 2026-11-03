@@ -48,12 +48,31 @@ func Open(dataDir string, changed func(api.CollectionsChangedEvent)) (*Engine, e
 		return nil, err
 	}
 	path := filepath.Join(dataDir, "collections.db")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err = file.Close(); err != nil {
+		return nil, err
+	}
+	if err = os.Chmod(path, 0600); err != nil {
+		return nil, err
+	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
 	e := &Engine{db: db, versions: DefaultSchemaVersions, changed: changed}
+	var version int
+	if err = db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version > 1 {
+		db.Close()
+		return nil, fmt.Errorf("unsupported collections database version %d", version)
+	}
 	if _, err = db.Exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;
  CREATE TABLE IF NOT EXISTS collection_meta(id TEXT PRIMARY KEY, schema_json TEXT NOT NULL, deleted_at TEXT);
  CREATE TABLE IF NOT EXISTS collection_fields(collection_id TEXT NOT NULL, field_id TEXT NOT NULL, ordinal INTEGER NOT NULL, schema_json TEXT NOT NULL, PRIMARY KEY(collection_id,field_id));
@@ -186,7 +205,20 @@ func createTable(ctx context.Context, q queryer, c Collection) error {
 		cols = append(cols, s)
 	}
 	_, err := q.ExecContext(ctx, `CREATE TABLE `+table(c)+` (`+strings.Join(cols, ",")+`)`)
-	return err
+	if err != nil {
+		return err
+	}
+	if _, err = q.ExecContext(ctx, `CREATE INDEX `+quote(c.ID+"_hash")+` ON `+table(c)+`(row_hash)`); err != nil {
+		return err
+	}
+	for _, f := range c.Fields {
+		if f.Type == "relation" {
+			if _, err = q.ExecContext(ctx, `CREATE INDEX `+quote(c.ID+"_"+f.ID)+` ON `+table(c)+`(`+quote(f.ID)+`)`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func (e *Engine) validateTargets(ctx context.Context, q queryer, c Collection) error {
 	for _, f := range c.Fields {
@@ -389,6 +421,10 @@ func (e *Engine) Fields(ctx context.Context, p api.CollectionsFieldsParams) (api
 		for _, change := range p.ChangeType {
 			found := false
 			report := api.FieldConversion{Field: change.Field, Failed: []api.ConversionFailure{}}
+			sourceValues := map[string]any{}
+			for _, r := range records {
+				sourceValues[r.ID] = r.Values[change.Field]
+			}
 			for i := range c.Fields {
 				if c.Fields[i].ID == change.Field {
 					found = true
@@ -414,6 +450,40 @@ func (e *Engine) Fields(ctx context.Context, p api.CollectionsFieldsParams) (api
 			if !found {
 				return invalid(change.Field, "unknown field")
 			}
+			field, _ := fieldByID(c, change.Field)
+			seen := map[string]bool{}
+			failed := map[string]bool{}
+			for _, f := range report.Failed {
+				failed[f.RecordID] = true
+			}
+			for _, r := range records {
+				if failed[r.ID] || r.Values[field.ID] == nil {
+					continue
+				}
+				v := r.Values[field.ID]
+				key := fmt.Sprint(sqlValue(v))
+				bad := field.Unique && seen[key]
+				seen[key] = true
+				if field.Type == "relation" && field.Target != "" {
+					target, targetErr := getCollection(ctx, tx, field.Target, false)
+					if targetErr != nil {
+						bad = true
+					} else {
+						var count int
+						if queryErr := tx.QueryRowContext(ctx, `SELECT count(*) FROM `+table(target)+` WHERE id=?`, v).Scan(&count); queryErr != nil {
+							return queryErr
+						}
+						if count == 0 && !(field.Target == c.ID && v == r.ID) {
+							bad = true
+						}
+					}
+				}
+				if bad {
+					report.Failed = append(report.Failed, api.ConversionFailure{RecordID: r.ID, Value: sourceValues[r.ID]})
+					report.Converted--
+				}
+			}
+
 			out.Report = append(out.Report, report)
 		}
 		if err = validateSchema(c); err != nil {

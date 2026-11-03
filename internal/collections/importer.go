@@ -16,8 +16,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/office/read"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -54,71 +52,10 @@ func readInput(ctx context.Context, data []byte, sheet string) (inputTable, erro
 	name := "Imported data"
 	sourceFixes := []api.ImportFix{}
 	if bytes.HasPrefix(data, []byte("PK")) {
-		doc, err := read.New("xlsx").Extract(ctx, bytes.NewReader(data), int64(len(data)), docextract.Options{})
+		var err error
+		rows, lines, name, sourceFixes, err = readSpreadsheet(ctx, data, sheet)
 		if err != nil {
 			return inputTable{}, err
-		}
-		if len(doc.Pages) == 0 {
-			return inputTable{}, invalid("sheet", "workbook has no sheets")
-		}
-		selected := doc.Pages[0]
-		if sheet != "" {
-			found := false
-			for i, p := range doc.Pages {
-				if p.Title == sheet || strconv.Itoa(i+1) == sheet {
-					selected = p
-					found = true
-					break
-				}
-			}
-			if !found {
-				return inputTable{}, invalid("sheet", "sheet not found")
-			}
-		}
-		// The native Office reader explicitly warns when its cell budget is reached.
-		// Never report a partial extraction as a complete import.
-		if len(selected.Warnings) > 0 {
-			return inputTable{}, invalid("blob_digest", strings.Join(selected.Warnings, "; "))
-		}
-		name = selected.Title
-		dateFixes, dateErr := excelDateFixes(data, name)
-		if dateErr != nil {
-			return inputTable{}, dateErr
-		}
-		cells := map[[2]int]string{}
-		maxRow, maxCol := 0, 0
-		for _, b := range selected.Blocks {
-			if b.Kind != docextract.KindCell {
-				continue
-			}
-			pos := strings.LastIndex(b.Anchor, "!")
-			if pos < 0 {
-				continue
-			}
-			ref := b.Anchor[pos+1:]
-			r, col := cellPosition(ref)
-			if r < 1 || col < 1 || r > MaxImportRows+1 || col > 128 {
-				return inputTable{}, invalid("blob_digest", "sheet dimensions exceed import limits")
-			}
-			cells[[2]int{r, col}] = b.Text
-			if fix, ok := dateFixes[ref]; ok {
-				cells[[2]int{r, col}] = fix.To
-				sourceFixes = append(sourceFixes, fix)
-			}
-			if r > maxRow {
-				maxRow = r
-			}
-			if col > maxCol {
-				maxCol = col
-			}
-		}
-		for r := 1; r <= maxRow; r++ {
-			row := make([]string, maxCol)
-			for c := 1; c <= maxCol; c++ {
-				row[c-1] = cells[[2]int{r, c}]
-			}
-			rows = append(rows, row)
-			lines = append(lines, r)
 		}
 	} else {
 		if !utf8.Valid(data) {
@@ -181,6 +118,9 @@ func readInput(ctx context.Context, data []byte, sheet string) (inputTable, erro
 			line, _ := r.FieldPos(0)
 			rows = append(rows, row)
 			lines = append(lines, line)
+			if len(rows)*len(row) > MaxImportCells {
+				return inputTable{}, invalid("blob_digest", "table exceeds 1,000,000 cells")
+			}
 			if len(rows) > MaxImportRows+20 {
 				return inputTable{}, invalid("blob_digest", "too many import rows")
 			}

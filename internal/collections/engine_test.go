@@ -333,3 +333,37 @@ func TestRestoreRechecksRelations(t *testing.T) {
 		t.Fatal("restored dangling relation")
 	}
 }
+
+func TestConversionReportsUniqueCollisions(t *testing.T) {
+	e := testEngine(t)
+	c := createTest(t, e, Field{ID: "number", Name: "Number", Type: "text", Unique: true})
+	insertTest(t, e, c, map[string]any{"number": "01"})
+	insertTest(t, e, c, map[string]any{"number": "1"})
+	out, err := e.Fields(ctx, api.CollectionsFieldsParams{ID: c.ID, ChangeType: []api.FieldTypeChange{{Field: "number", Type: "integer"}}, DryRun: true})
+	if err != nil || len(out.Report) != 1 || len(out.Report[0].Failed) != 1 || out.Report[0].Converted != 1 {
+		t.Fatal(out, err)
+	}
+	current, _ := e.Get(ctx, c.ID)
+	if current.Fields[0].Type != "text" || current.Version != 1 {
+		t.Fatal("conversion preview wrote schema")
+	}
+}
+func TestDatabaseMigrationRejectsFutureVersion(t *testing.T) {
+	dir := t.TempDir()
+	e, err := Open(dir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err = e.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 1 {
+		t.Fatal(version, err)
+	}
+	if _, err = e.db.Exec(`PRAGMA user_version=2`); err != nil {
+		t.Fatal(err)
+	}
+	e.Close()
+	if e, err = Open(dir, nil); err == nil {
+		e.Close()
+		t.Fatal("future database version was silently downgraded")
+	}
+}

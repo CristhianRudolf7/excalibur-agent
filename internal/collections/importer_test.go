@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -255,5 +257,38 @@ func TestUpsertPreservesUnmappedRequiredFields(t *testing.T) {
 	got, err := e.Record(ctx, api.RecordsIDParams{Collection: c.ID, ID: r.ID})
 	if err != nil || got.Record.Values["name"] != "Ana" || got.Record.Values["amount"] != float64(20) {
 		t.Fatal(got, err)
+	}
+}
+
+func TestSpreadsheetImportBeyondPreviewCellBudget(t *testing.T) {
+	// Collection imports must read all rows even when a document preview would stop.
+	const count = 10001
+	var csv strings.Builder
+	csv.WriteString("Name,Amount\n")
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&csv, "Row %d,%d\n", i, i)
+	}
+	e := testEngine(t)
+	b := gateway.NewMemoryBlobs()
+	out, err := e.Import(ctx, b, api.CollectionsImportParams{BlobDigest: blob(t, b, []byte(csv.String())), CreateSchema: true})
+	if err != nil || out.Report.Imported != count {
+		t.Fatal(out.Report, err)
+	}
+	exported, err := e.Export(ctx, b, api.CollectionsExportParams{ID: out.Collection.ID, Format: "xlsx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := b.Get(exported.BlobDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := readInput(ctx, data, "")
+	if err != nil || len(table.rows) != count {
+		t.Fatal(len(table.rows), err)
 	}
 }

@@ -13,12 +13,9 @@ import (
 
 // Native extraction preserves cached cell values. This pass handles Excel's
 // numeric date storage, including the 1904 epoch, using the workbook styles.
-func excelDateFixes(data []byte, sheet string) (map[string]api.ImportFix, error) {
+func excelDateFixesPackage(p *opc.Package, sheet string) (map[string]api.ImportFix, error) {
 	out := map[string]api.ImportFix{}
-	p, err := opc.Open(data)
-	if err != nil {
-		return nil, err
-	}
+	var err error
 	var book struct {
 		Properties struct {
 			Date1904 string `xml:"date1904,attr"`

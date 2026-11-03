@@ -25,8 +25,8 @@ snapshots, trash expiry and restoration, incoming/outgoing relations, filtering,
 sorting, pagination, and SQL summary cards.
 
 Imports read CSV (comma, semicolon or tab, UTF-8/BOM or Latin-1) and XLSX from
-daemon blobs. Native Office extraction supplies cell values; a style pass converts
-Excel serial dates, including the 1904 epoch. Source row numbers survive leading
+daemon blobs. The existing bounded OOXML package reader supplies the complete cell grid;
+a style pass converts Excel serial dates, including the 1904 epoch. Source row numbers survive leading
 blank/title rows and sparse sheets. Schema inference and exact, accent-insensitive,
 then unambiguous fuzzy mapping are overridable. Automatic trimming, decimal commas,
 select casing, and date changes are logged. Ambiguous slash dates require ISO
@@ -37,16 +37,18 @@ multiple matches as conflicts. Dry runs execute the same transaction then roll b
 Without a collection or `create_schema:true`, imports only return a proposal.
 
 Exports produce daemon CSV/XLSX blobs and preserve typed values on round trip.
-XLSX uses native Office creation and extraction limits (20,000 cells); warnings or
-limits fail explicitly rather than silently dropping rows. CSV is limited to
-100,000 rows and all imports to 64 MiB/128 columns. Untrusted formulas are never
+XLSX reuses the native sheet writer and OOXML container, independently of the
+document preview extractor's 20,000-cell limit. CSV/XLSX imports support 100,000
+rows, 128 columns, 1,000,000 grid cells, and blobs up to 64 MiB; limits fail
+explicitly rather than silently dropping rows. Exports enforce the cell budget
+and support filters for larger collections. Untrusted formulas are never
 executed; XLSX exports store user strings as literal cells.
 
 `internal/collections/importer_test.go` covers Spanish decimal-comma CSV,
 Latin-1, tabs, title/header detection, inference, accent/fuzzy/explicit mapping,
 mixed date conflicts, duplicate/upsert behavior, relation conflicts, dry runs,
 automatic fix logs, sheet selection, rows beyond preview limits, Excel serial dates,
-and CSV/XLSX typed round trips.
+CSV/XLSX typed round trips, and complete export/import beyond 20,000 cells.
 
 The daemon opens the collections store during production startup, passes its blob
 adapter to imports/exports, and closes it after draining turns during shutdown.
@@ -77,7 +79,8 @@ conversation language.
 rejections, proposal purity, dry-run defaults, trash/schema restoration, deferred
 registration and real chat execution with fake model responses. No model API calls
 are used. Follow-up engine tests cover stale relations on trash restoration and
-preserving unmapped required fields during upserts.
+preserving unmapped required fields during upserts, per-record unique conversion
+failures, and refusing unsupported future database migrations.
 
 ### Verification
 
