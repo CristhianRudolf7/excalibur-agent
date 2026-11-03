@@ -156,3 +156,12 @@ Go registry entries. The required entries match `internal/api/methods.go`:
 
 The Python bridge was unchanged, so its conditional pytest run was not needed.
 No hardware, URSim motion or paid model API was used for this verification.
+
+## Confirmations
+
+`robot.json` `require_approval` (default `true`) controls per-motion confirmations. With
+`false`, the bridge accepts motions without `approved:true`, `status`/`look` report
+`approval_required:false`, and the robot tool carries out the whole requested task (for
+example pick, deliver and place) without asking. Workspace, speed, step and safety-mode
+limits and STOP stay enforced either way. The tool fails closed: if the bridge does not
+report `approval_required:false`, every motion still needs explicit approval.

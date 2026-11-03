@@ -33,7 +33,9 @@ type RobotState struct {
 	SpeedScaling   float64   `json:"speed_scaling"`
 	Gripper        string    `json:"gripper,omitempty"`
 	// GripperSource is "sensor" when DI feedback exists, "command" when only the commanded output is known.
-	GripperSource    string `json:"gripper_source,omitempty"`
+	GripperSource string `json:"gripper_source,omitempty"`
+	// ApprovalRequired mirrors robot.json require_approval; false means the operator disabled per-motion confirmations.
+	ApprovalRequired *bool  `json:"approval_required,omitempty"`
 	UpdatedAt        string `json:"updated_at,omitempty"`
 	PolyscopeVersion string `json:"polyscope_version,omitempty"`
 	RemoteControl    *bool  `json:"remote_control,omitempty"`

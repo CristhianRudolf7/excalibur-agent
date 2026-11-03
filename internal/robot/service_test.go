@@ -35,6 +35,8 @@ type fakeBridge struct {
 	bodies    []map[string]any
 	connected bool
 	failure   string
+	// autonomous makes /state report approval_required:false (robot.json require_approval:false).
+	autonomous bool
 }
 
 func (f *fakeBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +62,12 @@ func (f *fakeBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.connected = false
 		fmt.Fprint(w, `{"ok":true,"connected":false}`)
 	case "/state":
-		_ = json.NewEncoder(w).Encode(State{Connected: f.connected, Host: "127.0.0.1", RobotMode: "RUNNING", SafetyMode: "NORMAL", TCPPose: []float64{.1, .2, .3, 0, 0, 0}})
+		state := State{Connected: f.connected, Host: "127.0.0.1", RobotMode: "RUNNING", SafetyMode: "NORMAL", TCPPose: []float64{.1, .2, .3, 0, 0, 0}}
+		if f.autonomous {
+			off := false
+			state.ApprovalRequired = &off
+		}
+		_ = json.NewEncoder(w).Encode(state)
 	case "/poses":
 		fmt.Fprint(w, `{"poses":{"home":[0.1,0.2,0.3,0,0,0]}}`)
 	case "/health":
@@ -232,8 +239,10 @@ func TestEveryToolActionAndApproval(t *testing.T) {
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.calls) != count {
-		t.Fatal("denied tool contacted bridge")
+	for _, call := range f.calls[count:] {
+		if strings.HasPrefix(call, "POST ") {
+			t.Fatalf("denied tool sent a command to the bridge: %s", call)
+		}
 	}
 	for _, body := range f.bodies {
 		if body["kind"] != nil && body["approved"] != true {
@@ -419,5 +428,32 @@ func TestCanceledOwnerCannotRestartBridge(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestToolSkipsConfirmationOnlyWhenBridgeDisablesIt(t *testing.T) {
+	s, f := fixture(t)
+	ctx := context.Background()
+	if _, err := s.Connect(ctx, "127.0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.autonomous = true
+	f.mu.Unlock()
+	tool := &Tool{Service: s}
+	result, err := tool.Invoke(ctx, tools.Invocation{Arguments: json.RawMessage(`{"action":"move_named","name":"home"}`)})
+	if err != nil || result.Status != tools.StatusOK {
+		t.Fatalf("autonomous move refused: %+v %v", result, err)
+	}
+	f.mu.Lock()
+	last := f.bodies[len(f.bodies)-1]
+	f.autonomous = false
+	f.mu.Unlock()
+	if last["approved"] != true || last["kind"] != "named" {
+		t.Fatalf("bridge body %v", last)
+	}
+	result, err = tool.Invoke(ctx, tools.Invocation{Arguments: json.RawMessage(`{"action":"gripper","gripper":"open"}`)})
+	if err == nil || result.Status != tools.StatusDenied {
+		t.Fatalf("confirmation must be required again: %+v %v", result, err)
 	}
 }

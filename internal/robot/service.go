@@ -496,7 +496,7 @@ type LookResult struct {
 
 // Look overlays pixel coordinates for the current language model directly.
 func (s *Service) Look(ctx context.Context) (LookResult, []providers.ImageInput, error) {
-	status := LookResult{Status: s.Status(ctx), Calibration: s.CalibrationStatus(), Instruction: "Estimate the pixel center of objects in this image and call locate with pixel:[u,v]. Origin is top-left; u increases right, v increases down. Grid spacing is 100 px. locate returns table-plane coordinates; account for object height and gripper offset before requesting approval for each motion. STOP is always available."}
+	status := LookResult{Status: s.Status(ctx), Calibration: s.CalibrationStatus(), Instruction: "Estimate the pixel center of objects in this image and call locate with pixel:[u,v]. Origin is top-left; u increases right, v increases down. Grid spacing is 100 px. locate returns table-plane coordinates; account for object height and gripper offset. Follow state.approval_required for confirmations. STOP is always available."}
 	s.mu.Lock()
 	ref := s.frame
 	if s.camera != nil {

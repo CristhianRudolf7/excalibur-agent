@@ -92,6 +92,7 @@ class Controller:
                 # no program runs, which looks like "cannot move" while the arm is idle.
                 "speed_scaling": self.receive.getTargetSpeedFraction(),
                 **self.gripper_state(inputs, outputs),
+                "approval_required": self.safety.approval,
                 "updated_at": datetime.now(timezone.utc).isoformat()}
 
     def gripper_state(self, inputs, outputs):
