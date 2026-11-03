@@ -1,11 +1,13 @@
 import { test, expect } from './fixtures'
 import { mockChat } from './chat-fixture'
 
-test('one Excalibur in the sidebar and rail, with no create-agent control', async ({ page }) => {
+test('shows the default agent in the sidebar and rail with the create-agent control', async ({
+  page,
+}) => {
   await page.goto('/agents/excalibur?view=chat')
   await expect(page.locator('.agent-nav button')).toHaveCount(1)
   await expect(page.locator('.agent-nav')).toContainText('Excalibur')
-  await expect(page.getByRole('button', { name: 'Crear agente' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Crear agente' })).toBeVisible()
   await page.keyboard.press('Control+b')
   await expect(page.locator('.sidebar-rail-agents button')).toHaveCount(1)
   await expect(page.locator('.sidebar-rail-agents button')).toHaveAttribute(
@@ -199,7 +201,7 @@ for (const width of [1440, 390]) {
       .getByRole(width === 390 ? 'menuitem' : 'button', { name: 'Llamar', exact: true })
       .click()
     await expect(page.getByRole('dialog')).toBeVisible()
-    await expect(page.locator('.call-orb-core .pixel-avatar')).toHaveCSS('width', '132px')
+    await expect(page.locator('.call-orb-core .pixel-avatar')).toHaveCSS('height', '132px')
     await page.screenshot({ path: testInfo.outputPath(`chat-call-${width}.png`) })
     await page.keyboard.press('Escape')
     await page.evaluate(() => document.documentElement.classList.add('dark'))

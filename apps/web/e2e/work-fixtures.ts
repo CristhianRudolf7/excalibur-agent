@@ -69,6 +69,7 @@ export async function mockWork(page: Page) {
       method: string
       params?: Record<string, unknown>
     }
+    if (method.startsWith('agents.')) return route.fallback()
     state.calls.push({ method, params })
     const error = async () =>
       route.fulfill({

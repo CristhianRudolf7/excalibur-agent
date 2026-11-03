@@ -1,3 +1,4 @@
+import { useAgents } from '@/features/agents/store'
 import { automationPrefix, useAutomationContext } from '@/features/automations/context'
 import { Workflow, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -13,12 +14,14 @@ import { CallControls, useCallElapsed } from './voice/CallOverlay'
 import { callActive, useCall } from './voice/callStore'
 export function Composer({
   agent,
+  agentId,
   typing,
   onSend,
   onStop,
   onSendDocuments,
 }: {
   agent: string
+  agentId?: string
   typing: boolean
   onSend: (text: string) => void
   onStop: () => void
@@ -58,6 +61,15 @@ export function Composer({
   )
   const [text, setText] = useState(() => useAutomationContext.getState().draft)
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const prefill = useAgents((state) => (agentId ? state.drafts[agentId] : undefined))
+  useLayoutEffect(() => {
+    if (!prefill || !agentId) return
+    // oxlint-disable-next-line react/set-state-in-effect -- Apply an external navigation request to the mounted composer before focusing it.
+    setText(prefill.text)
+    useAutomationContext.getState().clear()
+    textarea.current?.focus()
+    useAgents.getState().clearPrefill(agentId, prefill.request)
+  }, [prefill, agentId])
   useLayoutEffect(() => {
     if (context.automation || context.draft) textarea.current?.focus()
   }, [context.automation, context.draft])

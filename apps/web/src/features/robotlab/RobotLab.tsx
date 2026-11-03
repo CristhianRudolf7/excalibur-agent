@@ -1,3 +1,4 @@
+import { AgentSwitcher } from '@/features/agents/AgentSwitcher'
 import { SceneRunControls } from './SceneRunControls'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -226,6 +227,7 @@ export default function RobotLab({
             onClick={() => shell.toggleSidebar(mobile)}
           />
           <h1>{text('title')}</h1>
+          <AgentSwitcher />
         </header>
         <ToolStore />
       </div>
@@ -266,6 +268,7 @@ export default function RobotLab({
             />
           </div>
         )}
+        <AgentSwitcher />
         <Button
           variant="icon"
           className="icon-button lab-chat-toggle"

@@ -1,3 +1,4 @@
+import { AgentSettings } from '@/features/agents/AgentSettings'
 import { useArtifacts } from '@/features/artifacts/store'
 import { loadingLazy as lazy, LoadingFallback } from '@/features/shell/loading'
 import { useLoading } from '@/components/shared'
@@ -5,7 +6,7 @@ import { UsageSkeleton } from './Skeletons'
 import { useEffect, useState, Suspense } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { SlidersHorizontal, UserRound, ChartNoAxesCombined, Sparkles } from 'lucide-react'
+import { SlidersHorizontal, UserRound, ChartNoAxesCombined, Sparkles, Users } from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
 import { Segmented } from './Segmented'
 import { Skills } from './Skills'
@@ -14,6 +15,7 @@ const Usage = lazy(() => import('./Usage'))
 const sections = [
   { id: 'general', label: 'settingsGeneral', icon: SlidersHorizontal },
   { id: 'profile', label: 'profileTitle', icon: UserRound },
+  { id: 'agents', label: 'agentSettings', icon: Users },
   { id: 'usage', label: 'settingsUsage', icon: ChartNoAxesCombined },
   { id: 'skills', label: 'skills', icon: Sparkles },
 ] as const
@@ -118,6 +120,8 @@ export default function Settings() {
             <General />
           ) : section.id === 'profile' ? (
             <Profile />
+          ) : section.id === 'agents' ? (
+            <AgentSettings />
           ) : section.id === 'skills' ? (
             <Skills />
           ) : (

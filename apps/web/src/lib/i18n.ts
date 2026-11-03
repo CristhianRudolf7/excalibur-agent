@@ -1,3 +1,4 @@
+import { agentMessages } from '@/features/agents/i18n'
 import { classroomMessages } from '@/features/classroom/i18n'
 import { robotMessages } from '@/features/robot/i18n'
 import { robotlabMessages } from '@/features/robotlab/i18n'
@@ -13,6 +14,7 @@ import { libraryMessages } from '@/features/library/i18n'
 import { initReactI18next } from 'react-i18next'
 
 const entries = {
+  ...agentMessages,
   ...classroomMessages,
   ...robotMessages,
   ...robotlabMessages,

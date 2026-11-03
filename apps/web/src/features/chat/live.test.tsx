@@ -80,7 +80,7 @@ it('sends optimistically with document IDs, deduplicates an early echo and retri
   })
   expect(call).toHaveBeenCalledWith(
     'conversation.send',
-    expect.objectContaining({ conversation_id: 'cnv_web_byte', attachments: ['doc-1'] }),
+    expect.objectContaining({ conversation_id: 'cnv_agent_byte', attachments: ['doc-1'] }),
     expect.objectContaining({ timeoutMs: 30_000 }),
   )
   receiveEvent('byte', event({ ...wire('msg-1', 'Read this'), role: 'user' }))
@@ -100,7 +100,7 @@ it('paginates history and merges overlapping live events without duplicates or c
   const rows = Array.from({ length: 50 }, (_, i) => wire(`msg-${String(i + 50).padStart(3, '0')}`))
   const call = vi.spyOn(rpc, 'call').mockResolvedValueOnce({ messages: rows })
   receiveEvent('byte', event(rows[49]!))
-  receiveEvent('byte', event({ ...wire('other'), conversation_id: 'cnv_web_atlas' }))
+  receiveEvent('byte', event({ ...wire('other'), conversation_id: 'cnv_agent_atlas' }))
   await loadHistory('byte')
   expect(useChat.getState().live.byte).toHaveLength(50)
   expect(useChat.getState().older.byte).toBe('msg-050')
@@ -108,7 +108,7 @@ it('paginates history and merges overlapping live events without duplicates or c
   await loadHistory('byte', useChat.getState().older.byte)
   expect(call).toHaveBeenLastCalledWith(
     'conversation.history',
-    { conversation_id: 'cnv_web_byte', before: 'msg-050', limit: 50 },
+    { conversation_id: 'cnv_agent_byte', before: 'msg-050', limit: 50 },
     { signal: undefined },
   )
   expect(useChat.getState().live.byte).toHaveLength(51)

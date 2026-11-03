@@ -1,3 +1,4 @@
+import { AgentSwitcher, AgentChatLink } from '@/features/agents/AgentSwitcher'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Bot, Network, Plug, Unplug } from 'lucide-react'
@@ -93,6 +94,10 @@ export function Robot() {
         <div className="robot-heading">
           <h1 id="robot-title">{t('robot')}</h1>
           <p>{t('robotSubtitle')}</p>
+        </div>
+        <div className="agent-tool-actions">
+          <AgentSwitcher />
+          <AgentChatLink />
         </div>
       </header>
       <div className="robot-grid">

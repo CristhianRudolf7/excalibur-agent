@@ -1,4 +1,4 @@
-export type AgentId = 'excalibur'
+export type AgentId = string
 export type Color =
   'violet' | 'blue' | 'green' | 'yellow' | 'orange' | 'red' | 'pink' | 'gray' | 'primary'
 export interface Agent {

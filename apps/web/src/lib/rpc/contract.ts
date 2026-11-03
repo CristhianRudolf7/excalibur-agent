@@ -1,3 +1,4 @@
+import type { AgentMethods } from '@/features/agents/types'
 import type { ClassroomMethods, ClassroomContext } from './classroom'
 import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
 import type { WhiteboardMethods } from '@/features/whiteboard/types'
@@ -147,6 +148,7 @@ export interface ConversationMessage {
   conversation_id: string
   role: string
   text: string
+  relayed_by?: string
   sources?: SourceRef[]
   changes?: FileChange[]
 }
@@ -159,6 +161,10 @@ export interface ConversationEvent {
   task_id?: string
   payload:
     | {
+        agent_id?: string
+        unread?: number
+        last_preview?: string
+        last_message_at?: string
         course_id?: string
         topic_id?: string
         quiz_id?: string
@@ -178,6 +184,7 @@ export interface ConversationEvent {
         message_id?: string
         conversation_id?: string
         role?: string
+        relayed_by?: string
         text?: string
         sources?: SourceRef[]
         changes?: FileChange[]
@@ -208,7 +215,7 @@ export interface ActivityItem {
   finished_at?: string
   error?: string
 }
-export interface RpcMethods extends WhiteboardMethods, ClassroomMethods {
+export interface RpcMethods extends WhiteboardMethods, ClassroomMethods, AgentMethods {
   'artifacts.get': { params: { id: string }; result: ArtifactContent }
   'activity.list': { params: { conversation_id: string }; result: { items: ActivityItem[] } }
 

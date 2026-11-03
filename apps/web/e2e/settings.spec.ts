@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import type { SkillSummary, UsageSummary } from '../src/lib/rpc/contract'
+import { defaultAgent } from '../src/features/agents/store'
 const initial: SkillSummary[] = [
   {
     name: 'review-code',
@@ -35,6 +36,12 @@ async function mock(page: Page, failState = false, failDelete = false) {
     let result: unknown = {}
     let error: unknown
     switch (request.method) {
+      case 'agents.list':
+        result = { agents: [defaultAgent], favorite_id: defaultAgent.id }
+        break
+      case 'agents.mark_read':
+        result = { unread: 0 }
+        break
       case 'principal.get':
         result = { id: 'local', name: 'Ana Example', timezone: 'UTC', language: 'en' }
         break
@@ -273,8 +280,10 @@ test('failed toggle rolls back and offline endpoints show retry', async ({ page 
     }),
   )
   await page.goto('/settings?section=usage')
-  await expect(page.getByRole('alert')).toContainText('No se pudo conectar')
-  await expect(page.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+  await expect(page.locator('.main-panel').getByRole('alert')).toContainText('No se pudo conectar')
+  await expect(
+    page.locator('.main-panel').getByRole('button', { name: 'Reintentar' }),
+  ).toBeVisible()
 })
 test('settings stays inside a 390px viewport', async ({ page }) => {
   await mock(page)

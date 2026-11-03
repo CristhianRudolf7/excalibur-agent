@@ -10,7 +10,8 @@ import { ChatHistorySkeleton } from './Skeletons'
 import { useLoading } from '@/components/shared'
 import { PixelAvatar } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { getAgent } from '@/features/shell/mock-data'
+import { useAgent, useAgents } from '@/features/agents/store'
+import { markAgentRead } from '@/features/agents/api'
 import { useChat } from './store'
 import { Markdown } from '@/components/markdown/Markdown'
 import { Composer } from './Composer'
@@ -31,7 +32,9 @@ export function Chat({
   showWelcome?: boolean
 }) {
   const { t } = useTranslation()
-  const agent = getAgent(agentId)
+  const agent = useAgent(agentId)
+  const agents = useAgents((state) => state.agents)
+  const [readError, setReadError] = useState(false)
   const initialHistory = useChat((s) => s.live[agentId])
   const initialError = useChat((s) => s.historyError[agentId])
   const loading = useLoading(liveChatEnabled && !initialHistory && !initialError)
@@ -48,6 +51,16 @@ export function Chat({
   const atBottom = useRef(true)
   const conversation = live ?? []
   useEffect(() => connectConversation(agentId), [agentId])
+  useEffect(() => {
+    if (!agent.unread) return
+    let active = true
+    void markAgentRead(agentId).catch(() => {
+      if (active) setReadError(true)
+    })
+    return () => {
+      active = false
+    }
+  }, [agentId, agent])
   // oxlint-disable-next-line react/incompatible-library -- Virtualizer measurements intentionally remain outside React Compiler memoization.
   const virtual = useVirtualizer({
     count: conversation.length,
@@ -77,6 +90,11 @@ export function Chat({
   }
   return (
     <div className="chat-body">
+      {readError && (
+        <p className="agent-error" role="alert">
+          {t('agentReadError')}
+        </p>
+      )}
       {!online && !loading.busy && (
         <div className="chat-connection" role="status">
           <span className="chat-connection-dot" aria-hidden="true" />
@@ -164,9 +182,18 @@ export function Chat({
                 >
                   {message.sender === 'agent' && <PixelAvatar id={agent.id} size={32} />}
                   <div className="message-content">
+                    {message.relayedBy && (
+                      <small className="agent-relayed">
+                        {t('agentRelayed', {
+                          name:
+                            agents.find((item) => item.id === message.relayedBy)?.name ??
+                            t('agentRelayedUnknown'),
+                        })}
+                      </small>
+                    )}
                     {message.sender === 'agent' && (
                       <div className="message-author">
-                        <strong>{t(agent.name, { defaultValue: agent.name })}</strong>
+                        <strong>{agent.name}</strong>
                         <time>{message.time}</time>
                       </div>
                     )}
@@ -218,11 +245,12 @@ export function Chat({
               )
             })}
         </div>
-        {typing && <ThinkingRow agentId={agent.id} activity={activity} />}
+        {typing && <ThinkingRow agentId={agentId} activity={activity} />}
       </div>
       <Composer
         key={agentId}
         agent={agent.name}
+        agentId={agentId}
         typing={typing}
         onSend={send}
         onSendDocuments={(text, ids) => {

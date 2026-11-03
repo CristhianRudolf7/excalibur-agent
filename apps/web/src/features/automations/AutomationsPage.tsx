@@ -1,3 +1,4 @@
+import { useAgents } from '@/features/agents/store'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -93,7 +94,7 @@ export function AutomationsPage() {
               useAutomationContext.getState().prefill(t('autoExample'))
               void navigate({
                 to: '/agents/$agentId',
-                params: { agentId: 'excalibur' },
+                params: { agentId: useAgents.getState().favorite_id },
                 search: { view: 'chat', panel: 'files' },
               })
             }}

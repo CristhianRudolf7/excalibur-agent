@@ -1,3 +1,9 @@
+import { AgentSwitcher } from '@/features/agents/AgentSwitcher'
+import { AgentSidebar } from '@/features/agents/AgentSidebar'
+import { useAgents, useSelectedAgent } from '@/features/agents/store'
+import { useAgentsConnection, markAgentRead } from '@/features/agents/api'
+import { useOpenAgentChat } from '@/features/agents/navigation'
+import '@/features/agents/agents.css'
 import { ToolStore } from '@/features/robotlab/ToolStore'
 import { FocusConnection } from '@/features/robotlab/FocusConnection'
 import { Classroom } from '@/features/classroom/Classroom'
@@ -14,7 +20,7 @@ import { SettingsSkeleton } from '@/features/settings/Skeletons'
 import { AgentHeaderSkeleton, WorldSkeleton } from './Skeletons'
 import { Whiteboard, WhiteboardConnection } from '@/features/whiteboard/Whiteboard'
 import { useWhiteboard } from '@/features/whiteboard/store'
-import { conversationId, liveChatEnabled } from '@/features/chat/live'
+import { conversationId } from '@/features/chat/live'
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
@@ -30,11 +36,10 @@ import {
   Workflow,
   Settings,
   X,
-  LoaderCircle,
 } from 'lucide-react'
-import { IconButton, PixelAvatar, PageHeader, EmptyState, useLoading } from '@/components/shared'
+import { IconButton, PageHeader, EmptyState } from '@/components/shared'
 import { Dialog } from '@/components/ui/dialog'
-import { getAgent, getAgents, type AgentId } from './mock-data'
+import type { AgentId } from './mock-data'
 import { validatePanel, type Panel } from './panels'
 import { ModeSwitch } from './ModeSwitch'
 import { ResizeHandle } from '@/components/resize/ResizeHandle'
@@ -49,7 +54,6 @@ import { useShell } from './store'
 import { splitWidths, splitRatioFromPanel } from './split-layout'
 import { ProfileButton, ProfileDialog } from '@/features/profile/Profile'
 import { Chat } from '@/features/chat/Chat'
-import { useChat } from '@/features/chat/store'
 import { Reminders } from '@/features/reminders/Reminders'
 import { Tasks } from '@/features/tasks/Tasks'
 import { Files } from '@/features/files/Files'
@@ -86,7 +90,9 @@ export function Shell() {
   const { t } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
-  const online = useChat((state) => state.online.excalibur ?? false)
+  const agentsQuery = useAgentsConnection()
+  const agents = useAgents((state) => state.agents)
+  const openAgentChat = useOpenAgentChat()
   const shell = useShell()
   const viewerTarget = useViewerStore((s) => s.target)
   const mobile = useMobile()
@@ -129,11 +135,36 @@ export function Shell() {
   useAutomationEvents(onAutomationDeleted)
   const isProjects = location.pathname === '/projects'
   const isSoon = location.pathname.startsWith('/coming-soon')
-  const agentId = location.pathname.split('/')[2] ?? 'excalibur'
-  const agent = getAgent(agentId)
-  const history = useChat((s) => s.live[agentId])
-  const historyError = useChat((s) => s.historyError[agentId])
-  const headerLoading = useLoading(liveChatEnabled && !history && !historyError)
+  const selected = useSelectedAgent()
+  const favoriteId = useAgents((state) => state.favorite_id)
+  const routeAgentId = location.pathname.startsWith('/agents/')
+    ? decodeURIComponent(location.pathname.split('/')[2] ?? '')
+    : undefined
+  const routeAgent = agents.find((item) => item.id === routeAgentId && !item.archived)
+  const agent = routeAgent ?? selected
+  const activeRouteAgentId = routeAgent?.id
+  useEffect(() => {
+    if (activeRouteAgentId) useAgents.getState().select(activeRouteAgentId)
+  }, [activeRouteAgentId])
+  const agentsLoaded = useAgents((state) => state.loaded)
+  useEffect(() => {
+    if (agentsLoaded && (location.pathname === '/' || (routeAgentId && !activeRouteAgentId)))
+      void navigate({
+        to: '/agents/$agentId',
+        params: { agentId: location.pathname === '/' ? favoriteId : agent.id },
+        search: validatePanel(location.search as Record<string, unknown>),
+        replace: true,
+      })
+  }, [
+    agentsLoaded,
+    routeAgentId,
+    activeRouteAgentId,
+    favoriteId,
+    agent.id,
+    navigate,
+    location.pathname,
+    location.search,
+  ])
   const viewerAgent = useRef(agent.id)
   useEffect(() => {
     if (isClassroom) {
@@ -361,6 +392,8 @@ export function Shell() {
     if (ratio !== null) shell.setRatio(ratio)
   }
   const selectAgent = (id: AgentId) => {
+    useAgents.getState().select(id)
+    void markAgentRead(id).catch(() => setNotice('agentReadError'))
     shell.setDrawer(false)
     void navigate({
       to: '/agents/$agentId',
@@ -391,7 +424,7 @@ export function Shell() {
       >
         {railVisible && (
           <SidebarRail
-            agents={getAgents()}
+            agents={agentsLoaded ? agents : []}
             selectedAgentId={
               !isLab && !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage
                 ? agent.id
@@ -457,45 +490,19 @@ export function Shell() {
             <Wordmark />
           </div>
           <div className="sidebar-section-title">{t('agents')}</div>
-          <nav className="agent-nav">
-            {getAgents().map((a) => (
-              <button
-                key={a.id}
-                className={
-                  !isLab &&
-                  !isRobot &&
-                  !isSettings &&
-                  !isProjects &&
-                  !isSoon &&
-                  !isWorkPage &&
-                  agent.id === a.id
-                    ? 'selected'
-                    : ''
-                }
-                aria-current={
-                  !isLab &&
-                  !isRobot &&
-                  !isSettings &&
-                  !isProjects &&
-                  !isSoon &&
-                  !isWorkPage &&
-                  agent.id === a.id
-                    ? 'page'
-                    : undefined
-                }
-                onClick={() => selectAgent(a.id)}
-              >
-                <PixelAvatar id={a.id} />
-                <span className="sidebar-label">{t(a.name, { defaultValue: a.name })}</span>
-                {online && <i className="online-dot" />}
-                {a.working ? (
-                  <LoaderCircle className="working-spinner" aria-label={t('working')} />
-                ) : a.unread ? (
-                  <span className="unread">{a.unread}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
+          <AgentSidebar
+            agents={agents}
+            disabled={!agentsLoaded}
+            selectedId={location.pathname.startsWith('/agents/') ? agent.id : undefined}
+            onSelect={selectAgent}
+            onCreate={() => openAgentChat(t('agentCreateRequest'))}
+          />
+          {agentsQuery.isError && (
+            <p className="agent-error" role="alert">
+              {t('agentLoadError')}{' '}
+              <button onClick={() => void agentsQuery.refetch()}>{t('agentRetry')}</button>
+            </p>
+          )}
           <nav className="primary-nav">
             {[
               { key: 'myTasks', icon: ClipboardCheck },
@@ -644,7 +651,11 @@ export function Shell() {
               />
             </div>
           )}
-          {isLab ? (
+          {!agentsLoaded ? (
+            <LoadingFallback>
+              <AgentHeaderSkeleton />
+            </LoadingFallback>
+          ) : isLab ? (
             <Suspense fallback={<WorldSkeleton />}>
               <RobotLab agentId={agent.id} mobile={mobile} />
             </Suspense>
@@ -734,16 +745,17 @@ export function Shell() {
                     open={mobile ? shell.drawer : !shell.collapsed}
                     onClick={() => shell.toggleSidebar(mobile)}
                   />
-                  {headerLoading.visible && <AgentHeaderSkeleton />}
-                  {!headerLoading.busy && (
-                    <>
-                      <PixelAvatar id={agent.id} size={40} />
-                      <div className="agent-heading">
-                        <h1>{t(agent.name, { defaultValue: agent.name })}</h1>
-                        <p>{t(agent.role)}</p>
-                      </div>
-                    </>
-                  )}
+                  <h1 className="sr-only">{agent.name}</h1>
+                  <AgentSwitcher
+                    selectedId={agent.id}
+                    onChange={(id) => {
+                      void navigate({
+                        to: '/agents/$agentId',
+                        params: { agentId: id },
+                        search: validatePanel(location.search as Record<string, unknown>),
+                      })
+                    }}
+                  />
                   <ChatHeaderActions
                     onMode={(mode) => changeMode(mode === 'world')}
                     onNotice={setNotice}
@@ -784,6 +796,16 @@ export function Shell() {
                     aria-label={t(panel === 'changes' ? 'panelChangesTitle' : panel)}
                   >
                     <header className="panel-navigation">
+                      <AgentSwitcher
+                        selectedId={agent.id}
+                        onChange={(id) => {
+                          void navigate({
+                            to: '/agents/$agentId',
+                            params: { agentId: id },
+                            search: validatePanel(location.search as Record<string, unknown>),
+                          })
+                        }}
+                      />
                       {panel !== 'home' && (
                         <button onClick={() => setPanel('home')} aria-label={t('panelBack')}>
                           ← {t('panelHome')}
@@ -842,7 +864,15 @@ export function Shell() {
       {profileOpen && <ProfileDialog onClose={() => setProfileOpen(false)} />}
       {notice && (
         <Dialog title={notice} onClose={() => setNotice(null)}>
-          <p>{t(notice === 'info' ? 'infoDetail' : 'soonDetail')}</p>
+          <p>
+            {t(
+              notice === 'agentReadError'
+                ? 'agentReadError'
+                : notice === 'info'
+                  ? 'infoDetail'
+                  : 'soonDetail',
+            )}
+          </p>
         </Dialog>
       )}
     </div>

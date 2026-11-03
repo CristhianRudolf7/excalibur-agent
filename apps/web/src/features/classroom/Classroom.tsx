@@ -1,3 +1,5 @@
+import { AgentSwitcher } from '@/features/agents/AgentSwitcher'
+import { useSelectedAgent } from '@/features/agents/store'
 import { QuizSession } from './QuizSession'
 import { TopicPage } from './TopicPage'
 import { CoursePage } from './CoursePage'
@@ -16,6 +18,7 @@ import { useShell } from '@/features/shell/store'
 import './classroom.css'
 export function Classroom() {
   const { t } = useTranslation()
+  const agent = useSelectedAgent()
   useClassroomEvents()
   const state = useClassroom()
   const courses = useCourses()
@@ -93,6 +96,7 @@ export function Classroom() {
           <h1>{t('classroom')}</h1>
         </div>
         <div className="header-actions">
+          <AgentSwitcher />
           <IconButton
             label="classChat"
             aria-expanded={chatOpen}
@@ -173,7 +177,8 @@ export function Classroom() {
                   {creating && <Button onClick={() => setCreating(false)}>{t('classBack')}</Button>}
                   {!chatOpen && (
                     <Chat
-                      agentId="excalibur"
+                      key={agent.id}
+                      agentId={agent.id}
                       onFile={() => {}}
                       context={context}
                       showWelcome={false}
@@ -216,7 +221,13 @@ export function Classroom() {
                   <X />
                 </IconButton>
               </header>
-              <Chat agentId="excalibur" onFile={() => {}} context={context} showWelcome={false} />
+              <Chat
+                key={agent.id}
+                agentId={agent.id}
+                onFile={() => {}}
+                context={context}
+                showWelcome={false}
+              />
             </section>
           </>
         )}

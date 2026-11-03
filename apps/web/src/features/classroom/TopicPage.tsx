@@ -1,3 +1,4 @@
+import { useSelectedAgent } from '@/features/agents/store'
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -23,6 +24,7 @@ export function TopicPage({
   onChat: () => void
 }) {
   const { t } = useTranslation()
+  const agent = useSelectedAgent()
   const client = useQueryClient()
   const topic = course.units.flatMap((unit) => unit.topics).find((topic) => topic.id === topicId)
   const preparing = useClassroom((state) => state.preparing[targetKey(course.id, topicId)])
@@ -54,7 +56,7 @@ export function TopicPage({
     setRegenerating(true)
     setRegenerationError(false)
     const sent = await sendMessage(
-      'excalibur',
+      agent.id,
       t('classRegenerateRequest', { topic: topic.title, lng: course.language }),
       [],
       undefined,
@@ -89,7 +91,7 @@ export function TopicPage({
           {lesson.format === 'whiteboard' && lesson.whiteboard_id && (
             <div className="classroom-whiteboard">
               <Whiteboard
-                conversationId={conversationId('excalibur')}
+                conversationId={conversationId(agent.id)}
                 boardId={lesson.whiteboard_id}
               />
             </div>

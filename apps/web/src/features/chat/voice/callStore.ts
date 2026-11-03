@@ -1,3 +1,4 @@
+import { useAgents, selectedAgent } from '@/features/agents/store'
 import { create } from 'zustand'
 import { rpc } from '@/lib/rpc/client'
 import i18n from '@/lib/i18n'
@@ -7,6 +8,7 @@ import { browserVoiceSupported, speechLang } from './speech'
 const idle: CallSnapshot = { state: 'ready', energy: 0, transcript: [] }
 
 interface CallStore {
+  agentId: string
   snapshot: CallSnapshot
   /** The call keeps running while the overlay is hidden. */
   overlay: boolean
@@ -40,6 +42,7 @@ async function voiceMode(): Promise<VoiceMode | undefined> {
 }
 
 export const useCall = create<CallStore>((set, get) => ({
+  agentId: 'excalibur',
   snapshot: idle,
   overlay: false,
   connecting: false,
@@ -50,10 +53,12 @@ export const useCall = create<CallStore>((set, get) => ({
     set({ overlay: true })
     const { snapshot, connecting } = get()
     if (connecting || callActive(snapshot)) return
+    const agentId = selectedAgent(useAgents.getState()).id
     const id = ++attempt
     call?.end()
     call = undefined
     set({
+      agentId,
       connecting: true,
       unavailable: false,
       muted: false,
@@ -75,7 +80,7 @@ export const useCall = create<CallStore>((set, get) => ({
             startedAt: callActive(next) ? (state.startedAt ?? Date.now()) : state.startedAt,
           }))
         },
-        { mode, lang: speechLang(i18n.language) },
+        { mode, lang: speechLang(i18n.language), agentId },
       )
       call = instance
       await instance.start()

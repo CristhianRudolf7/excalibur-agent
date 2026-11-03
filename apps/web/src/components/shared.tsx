@@ -1,10 +1,10 @@
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PixelPortrait } from './PixelSprite'
-import type { SpriteVariant } from './pixel-sprites'
+import { AgentAvatar } from './AgentAvatar'
+import { useAgent } from '@/features/agents/store'
 import { Button } from './ui/button'
-import { getAgent, type AgentId } from '@/features/shell/mock-data'
+import type { AgentId } from '@/features/shell/mock-data'
 export function IconButton({
   label,
   children,
@@ -18,21 +18,8 @@ export function IconButton({
   )
 }
 export function PixelAvatar({ id, size = 28 }: { id: AgentId; size?: number }) {
-  const agent = getAgent(id)
-  // The master agent's face is the brand Paladin; other agents keep pixel portraits.
-  if (agent.role === 'master')
-    return (
-      <span className="pixel-avatar brand-avatar" style={{ width: size, height: size }}>
-        <img src="/paladin.svg" alt="" width={size} height={size} draggable={false} />
-      </span>
-    )
-  const variants: Record<string, SpriteVariant> = {}
-  return (
-    <PixelPortrait
-      sprite={{ variant: variants[id] ?? 'hood', tone: `var(--${agent.color})` }}
-      size={size}
-    />
-  )
+  const agent = useAgent(id)
+  return <AgentAvatar spec={agent.avatar} size={size} />
 }
 
 export type Status = 'pending' | 'progress' | 'review' | 'done' | 'blocked' | 'cancelled'

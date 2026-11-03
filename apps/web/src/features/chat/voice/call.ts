@@ -1,5 +1,5 @@
 import { rpc } from '@/lib/rpc/client'
-import { sendMessage } from '../live'
+import { sendMessage, connectConversation } from '../live'
 import { useChat } from '../store'
 import {
   callTransition,
@@ -27,6 +27,7 @@ export interface CallSnapshot {
 }
 
 export interface VoiceCallOptions {
+  agentId?: string
   mode?: VoiceMode
   lang?: string
   vad?: VadOptions
@@ -48,10 +49,13 @@ export class VoiceCall {
   private speaker = true
   private stt: VoiceMode
   private tts: VoiceMode
+  private agentId: string
+  private closeConversation?: () => void
   private lang: string
   private vad: VoiceActivityDetector
   private changed: (snapshot: CallSnapshot) => void
   constructor(changed: (snapshot: CallSnapshot) => void, options: VoiceCallOptions = {}) {
+    this.agentId = options.agentId ?? 'excalibur'
     this.changed = changed
     this.stt = options.mode ?? 'server'
     this.tts = this.stt
@@ -70,6 +74,7 @@ export class VoiceCall {
     return !this.controller.signal.aborted
   }
   async start() {
+    this.closeConversation = connectConversation(this.agentId)
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -230,12 +235,14 @@ export class VoiceCall {
     try {
       this.emit({ transcript: [...this.snapshot.transcript, { role: 'user', text }] })
       // Subscribe before sending: an assistant event can arrive before the send receipt.
-      const before = new Set((useChat.getState().live.excalibur ?? []).map((message) => message.id))
+      const before = new Set(
+        (useChat.getState().live[this.agentId] ?? []).map((message) => message.id),
+      )
       const reply = this.waitForReply(before, signal)
       // Attach the rejection handler immediately, including on a failed send.
       void reply.catch(() => {})
       this.transition('sent')
-      const sent = await sendMessage('excalibur', text, [], undefined, signal)
+      const sent = await sendMessage(this.agentId, text, [], undefined, signal)
       signal.throwIfAborted()
       if (!sent) throw new Error('Message delivery failed')
       const answer = await reply
@@ -302,7 +309,7 @@ export class VoiceCall {
         reject(new DOMException('Canceled', 'AbortError'))
       }
       const unsubscribe = useChat.subscribe((state) => {
-        const reply = state.live.excalibur?.find(
+        const reply = state.live[this.agentId]?.find(
           (message) =>
             !before.has(message.id) &&
             message.sender === 'agent' &&
@@ -389,6 +396,8 @@ export class VoiceCall {
     this.emit({ error })
   }
   end() {
+    this.closeConversation?.()
+    this.closeConversation = undefined
     this.controller.abort()
     this.turn?.abort()
     this.stopAudio?.()

@@ -10,13 +10,14 @@ import {
   Wrench,
   Workflow,
   Settings,
-  LoaderCircle,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Fragment, type ReactNode } from 'react'
-import { IconButton, PixelAvatar } from '@/components/shared'
+import { IconButton } from '@/components/shared'
 import { ProfileButton } from '@/features/profile/Profile'
-import type { Agent, AgentId } from './mock-data'
+import type { Agent } from '@/features/agents/types'
+import { AgentAvatar } from '@/components/AgentAvatar'
+import { orderAgents } from '@/features/agents/store'
 
 function RailTooltip({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -44,7 +45,7 @@ export function SidebarRail({
   selectedAgentId?: string
   activeItem?: string
   onNavigate: (item: string) => void
-  onAgent: (id: AgentId) => void
+  onAgent: (id: string) => void
   onProfile: () => void
 }) {
   const { t } = useTranslation()
@@ -63,7 +64,7 @@ export function SidebarRail({
           <img className="sidebar-rail-logo" src="/paladin.svg" alt={t('workspace')} />
         </span>
         <nav className="sidebar-rail-agents" aria-label={t('agents')}>
-          {agents.map((agent) => (
+          {orderAgents(agents).map((agent) => (
             <RailTooltip label={t(agent.name, { defaultValue: agent.name })} key={agent.id}>
               <button
                 type="button"
@@ -72,13 +73,9 @@ export function SidebarRail({
                 aria-pressed={selectedAgentId === agent.id}
                 onClick={() => onAgent(agent.id)}
               >
-                <PixelAvatar id={agent.id} size={30} />
+                <AgentAvatar spec={agent.avatar} size={30} />
                 <i className="online-dot" />
-                {agent.working ? (
-                  <LoaderCircle className="sidebar-rail-working" aria-label={t('working')} />
-                ) : agent.unread ? (
-                  <span className="sidebar-rail-unread">{agent.unread}</span>
-                ) : null}
+                {agent.unread ? <span className="sidebar-rail-unread">{agent.unread}</span> : null}
               </button>
             </RailTooltip>
           ))}

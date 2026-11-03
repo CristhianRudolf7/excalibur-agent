@@ -1,3 +1,4 @@
+import { defaultAgent } from '../src/features/agents/store'
 import type { Page } from '@playwright/test'
 import type { ConversationMessage } from '../src/lib/rpc/contract'
 import { mockEvents } from './event-fixture'
@@ -14,6 +15,16 @@ export async function mockChat(page: Page, initial: Partial<ConversationMessage>
   const emit = events.emit
   await page.route('**/rpc', async (route) => {
     const request = route.request().postDataJSON()
+    if (request.method === 'agents.list')
+      return route.fulfill({
+        json: {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: { agents: [defaultAgent], favorite_id: defaultAgent.id },
+        },
+      })
+    if (request.method === 'agents.mark_read')
+      return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { unread: 0 } } })
     if (request.method === 'activity.list')
       return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { items: [] } } })
     if (request.method === 'conversation.history')

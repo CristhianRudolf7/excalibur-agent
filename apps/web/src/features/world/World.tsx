@@ -191,10 +191,10 @@ export default function World({
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [room, onRoom, store, mapOpen])
-  useEffect(() => connectConversation('excalibur'), [])
+  useEffect(() => connectConversation(agentId), [agentId])
   const send = () => {
     if (!text.trim() || !selectedAgent) return
-    void sendMessage('excalibur', text.trim())
+    void sendMessage(agentId, text.trim())
     setText('')
   }
   const toggleActivity = () => {

@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import '@/lib/i18n'
 import { SidebarRail } from './SidebarRail'
-import { getAgents } from './mock-data'
+import { defaultAgent } from '@/features/agents/store'
 
 vi.mock('@/features/profile/api', () => ({
   useProfile: () => ({ data: { id: 'local', name: 'Ana Prueba' }, isPending: false }),
@@ -10,7 +10,7 @@ vi.mock('@/features/profile/api', () => ({
 afterEach(cleanup)
 function props() {
   return {
-    agents: getAgents(),
+    agents: [defaultAgent],
     selectedAgentId: 'excalibur',
     activeItem: 'world',
     onNavigate: vi.fn(),

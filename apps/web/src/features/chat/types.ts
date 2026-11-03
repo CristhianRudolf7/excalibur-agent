@@ -8,6 +8,7 @@ export interface Message {
   attachments?: string[]
   delivery?: 'sending' | 'failed'
   error?: string
+  relayedBy?: string
   sender: 'user' | 'agent'
   text: string
   time: string

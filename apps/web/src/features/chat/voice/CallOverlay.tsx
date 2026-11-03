@@ -70,7 +70,7 @@ export function CallControls({ compact = false }: { compact?: boolean }) {
 /** Live voice view. Closing it only hides it: the call goes on until hang-up. */
 export function CallOverlay() {
   const { t } = useTranslation()
-  const { snapshot, overlay, connecting, unavailable, muted, hide } = useCall()
+  const { snapshot, overlay, connecting, unavailable, muted, hide, agentId } = useCall()
   const elapsed = useCallElapsed()
   if (!overlay) return null
   const live = callActive(snapshot)
@@ -90,7 +90,7 @@ export function CallOverlay() {
           <span className="call-orb-halo" />
           <span className="call-orb-ring" />
           <span className="call-orb-core">
-            <PixelAvatar id="excalibur" size={132} />
+            <PixelAvatar id={agentId} size={132} />
           </span>
         </div>
         <p className="call-status" role="status">

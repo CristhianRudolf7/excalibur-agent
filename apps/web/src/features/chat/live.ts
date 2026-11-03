@@ -1,3 +1,4 @@
+import { useAgents } from '@/features/agents/store'
 import type { ClassroomContext } from '@/lib/rpc/classroom'
 import i18n from '@/lib/i18n'
 import { rpc, RpcError, TransportError } from '@/lib/rpc/client'
@@ -8,15 +9,18 @@ import { useChat } from './store'
 import type { Message } from './types'
 
 export const liveChatEnabled = import.meta.env.EXCALIBUR_WEB_CHAT_LIVE !== '0'
-// Caller-defined IDs are accepted by the daemon; agent IDs stay stable across browser sessions.
-export const conversationId = (agent: string) => `cnv_web_${agent}`
+// The default identity retains the installation's existing history.
+export const conversationId = (agent: string) =>
+  useAgents.getState().agents.find((item) => item.id === agent)?.conversation_id ??
+  (agent === 'excalibur' ? 'cnv_web_excalibur' : `cnv_agent_${agent}`)
 const pageSize = 50
 const unavailable = (error: unknown) =>
   error instanceof TransportError || (error instanceof RpcError && error.code === -32601)
 export function fromWire(message: ConversationMessage): Message {
   return {
     id: message.id,
-    sender: message.role === 'user' ? 'user' : 'agent',
+    sender: message.role === 'user' || message.relayed_by ? 'user' : 'agent',
+    relayedBy: message.relayed_by,
     text: message.text,
     time: '',
     literal: true,
@@ -62,6 +66,7 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
         conversation_id: payload.conversation_id,
         role: payload.role ?? 'assistant',
         text: payload.text ?? '',
+        relayed_by: payload.relayed_by,
         sources: payload.sources,
         changes: payload.changes,
       }),
@@ -71,7 +76,18 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
       useChat.getState().setActivity(agent)
     }
   }
-  if (agent === 'excalibur' && (event.type === 'tool.called' || event.type === 'tool.completed')) {
+  // A scoped event belongs only to that conversation. Unscoped system turns
+  // use the favorite, just like the daemon's default intake path.
+  const targetConversation = payload.conversation_id
+  if (
+    targetConversation
+      ? targetConversation !== conversationId(agent)
+      : payload.agent_id
+        ? payload.agent_id !== agent
+        : agent !== useAgents.getState().favorite_id
+  )
+    return
+  if (event.type === 'tool.called' || event.type === 'tool.completed') {
     if (event.type === 'tool.called') useChat.getState().setTyping(agent, true)
     const label =
       payload.tool === 'web_search' || payload.tool === 'source_search'
@@ -81,10 +97,7 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
           : 'chatTool'
     useChat.getState().setActivity(agent, event.type === 'tool.called' ? label : undefined)
   }
-  if (
-    agent === 'excalibur' &&
-    (event.type === 'question.asked' || event.type === 'plan.approval_requested')
-  ) {
+  if (event.type === 'question.asked' || event.type === 'plan.approval_requested') {
     const id = payload.question_id ?? payload.plan_id
     if (id)
       useChat.getState().merge(agent, [
@@ -98,8 +111,6 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
         },
       ])
   }
-  // The daemon emits notices and progress globally. Present those in the master chat only.
-  if (agent !== 'excalibur') return
   if (event.type === 'notice.posted' && payload.notice_id) {
     useChat.getState().merge(agent, [
       {

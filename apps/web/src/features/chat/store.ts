@@ -28,7 +28,11 @@ export const useChat = create<ChatState>((set) => ({
         // A persisted user echo can arrive before its receipt. Reconcile only an
         // in-flight optimistic message; never collapse two persisted messages.
         const pending =
-          !history && message.sender === 'user' && !message.delivery && !byId.has(message.id)
+          !history &&
+          message.sender === 'user' &&
+          !message.relayedBy &&
+          !message.delivery &&
+          !byId.has(message.id)
             ? [...byId.values()].find(
                 (item) =>
                   item.sender === 'user' &&
