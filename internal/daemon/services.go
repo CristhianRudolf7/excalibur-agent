@@ -376,13 +376,14 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
-	engineOptions engineWiring
-	delegations   *chatDelegations
-	History       *workspace.History
-	Sources       tools.SourceRecorder
-	Whiteboard    *whiteboard.Service
-	Classroom     *classroom.Service
-	BrowserWeb    *wireengine.BrowserWeb
+	ClassroomAgent classroom.AgentService
+	engineOptions  engineWiring
+	delegations    *chatDelegations
+	History        *workspace.History
+	Sources        tools.SourceRecorder
+	Whiteboard     *whiteboard.Service
+	Classroom      *classroom.Service
+	BrowserWeb     *wireengine.BrowserWeb
 
 	Automations AutomationLifecycle
 	Agenda      *agenda.Agenda
@@ -421,8 +422,9 @@ type Services struct {
 // AssembleOptions overrides pieces of the assembled stack. Nil pieces
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
-	Whiteboard *whiteboard.Service
-	Classroom  *classroom.Service
+	ClassroomAgent classroom.AgentService
+	Whiteboard     *whiteboard.Service
+	Classroom      *classroom.Service
 	// Media supplies optional real document backends.
 	Media *tools.MediaDeps
 	// BrowserWeb is supplied by production startup; nil preserves test fakes.
@@ -468,6 +470,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	if s.Classroom == nil {
 		s.Classroom = classroom.NewService(nil, opts.Bus)
 	}
+	s.ClassroomAgent = opts.ClassroomAgent
 	s.Whiteboard = opts.Whiteboard
 	if s.Whiteboard == nil {
 		s.Whiteboard = whiteboard.NewService(nil, opts.Bus)
@@ -523,7 +526,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Skills = wireengine.DefaultSkillsIndex()
 	}
 	wiring := engineWiring{
-		Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
+		Classroom: s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
 		Vault: opts.Vault, Memory: opts.Memory, Skills: s.Skills,
 		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
 	}

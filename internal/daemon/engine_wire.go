@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
@@ -46,6 +47,7 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
+	Classroom  classroom.AgentService
 	Workdir    string
 	History    *wireengine.SharedHistory
 	Leases     *workspace.LeaseManager
@@ -114,12 +116,12 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 	}
 	emb, err := wireengine.BuildEmbedded(wireengine.EmbeddedOptions{
 		Workdir: w.Workdir, History: w.History, Leases: w.Leases,
-		Whiteboard: w.Whiteboard,
-		Web:        web,
-		Vault:      w.Vault,
-		Media:      w.Media,
-		Skills:     w.Skills,
-		Surface:    surface,
+		Whiteboard: w.Whiteboard, Classroom: w.Classroom,
+		Web:     web,
+		Vault:   w.Vault,
+		Media:   w.Media,
+		Skills:  w.Skills,
+		Surface: surface,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("daemon: build tool surface: %w", err)

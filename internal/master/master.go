@@ -50,8 +50,8 @@ func (m *MemStore) SaveMessage(_ context.Context, conv string, msg Normalized) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := types.NewMessageID()
+	msg.Context = api.CloneAppContext(msg.Context)
 	msg.Changes = api.CloneChanges(msg.Changes)
-	msg.AppContext = api.CloneAppContext(msg.AppContext)
 	m.msgs[conv] = append(m.msgs[conv], msg)
 	m.ids[conv] = append(m.ids[conv], id)
 	return id, nil
@@ -67,8 +67,8 @@ func (m *MemStore) History(conv string, limit int) []Normalized {
 	}
 	out := append([]Normalized(nil), rows...)
 	for i := range out {
+		out[i].Context = api.CloneAppContext(out[i].Context)
 		out[i].Changes = api.CloneChanges(out[i].Changes)
-		out[i].AppContext = api.CloneAppContext(out[i].AppContext)
 	}
 	return out
 }
@@ -236,13 +236,22 @@ func (m *Master) Receive(ctx context.Context, clientID, clientMsgID, conv string
 // ReceiveWithAttachments preserves document ids supplied by a conversation
 // transport. Receive remains compatible with text-only channel adapters.
 func (m *Master) ReceiveWithAttachments(ctx context.Context, clientID, clientMsgID, conv, text string, attachments []string) (types.MessageID, Outcome, error) {
+	return m.ReceiveWithContext(ctx, clientID, clientMsgID, conv, text, attachments, api.AppContextFrom(ctx))
+}
+
+// ReceiveWithContext carries per-message app state through normal channel intake.
+// Previous messages never implicitly lend their context to the current turn.
+func (m *Master) ReceiveWithContext(ctx context.Context, clientID, clientMsgID, conv, text string, attachments []string, app *api.AppContext) (types.MessageID, Outcome, error) {
+	if err := app.Validate(); err != nil {
+		return "", Outcome{}, err
+	}
 	if strings.TrimSpace(text) == "" {
 		return "", Outcome{}, fmt.Errorf("master: empty message")
 	}
 	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
 		return id, Outcome{}, nil
 	}
-	msg := Normalized{AppContext: api.AppContextFrom(ctx), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
+	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
 	persist := func(n Normalized) (types.MessageID, error) {
 		return m.store.SaveMessage(ctx, conv, n)
 	}
@@ -255,7 +264,7 @@ func (m *Master) ReceiveWithAttachments(ctx context.Context, clientID, clientMsg
 		return in.MsgID, out, nil
 	} else if out.Handled {
 		// Mixed: control ran; the rest joins the turn.
-		rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, AppContext: api.CloneAppContext(msg.AppContext)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
+		rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
 		m.turns.Deliver(conv, rest)
 		return in.MsgID, out, nil
 	}

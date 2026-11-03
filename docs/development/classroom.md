@@ -11,7 +11,7 @@ Contract shared by the backend, the agent tool and the web interface.
 - Content language follows the user's language preference. Courses belong to the local user only.
 
 ## Conversation model
-There is one agent conversation (the same one used from Telegram). The classroom header chat is a view of that conversation: messages sent from the classroom carry a context object `{app: "classroom", course_id, topic_id?}` so the agent knows where the user is, and the replies stay in the single history. The empty classroom view asks "What do you want to study?" through the same conversation.
+There is one agent conversation (the same one used from Telegram). The classroom header chat is a view of that conversation: messages sent from the classroom carry a context object `{app: "classroom", course_id?, topic_id?}` so the agent knows where the user is, and the replies stay in the single history. Both course_id and topic_id are optional. Without course_id the prompt note identifies the classroom home. The empty classroom view asks "What do you want to study?" through the same conversation.
 
 ## API (JSON-RPC, registered in internal/api and exported to packages/contracts)
 - `classroom.list` -> {courses: [CourseSummary]} (id, title, progress, updated_at, topic counts)

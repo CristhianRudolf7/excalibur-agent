@@ -312,6 +312,7 @@ func (b *DaemonBackend) publishActivity(item api.ActivityItem, now time.Time) {
 // StartActivity observes live service snapshots, including engine step/plan
 // changes that have no orchestrator state event. It stops with the daemon.
 func (b *DaemonBackend) StartActivity(ctx context.Context) {
+	b.StartClassroomTurns(ctx)
 	b.activity.once.Do(func() {
 		safego.Go("daemon-activity", nil, func() {
 			ticker := time.NewTicker(100 * time.Millisecond)

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://excalibur.local/contracts/conversation-context.json",
+  "title": "Per-message application context",
+  "$defs": {
+    "AppContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "app"
+      ],
+      "properties": {
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "course_id": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "topic_id": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "ConversationSendParams": {
+      "type": "object",
+      "required": [
+        "conversation_id",
+        "client_msg_id",
+        "text"
+      ],
+      "properties": {
+        "conversation_id": {
+          "type": "string"
+        },
+        "client_msg_id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reply_to": {
+          "type": "string"
+        },
+        "context": {
+          "$ref": "#/$defs/AppContext"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$ref": "#/$defs/AppContext"
+}

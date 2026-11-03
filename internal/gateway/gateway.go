@@ -281,13 +281,18 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 		if p.ClientMsgID == "" || p.ConversationID == "" {
 			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "conversation.send needs conversation_id and client_msg_id"}
 		}
-		if p.Context != nil {
-			if p.Context.App != "classroom" || (p.Context.TopicID != "" && p.Context.CourseID == "") {
-				return nil, &api.Error{Code: api.CodeInvalidParams, Message: "invalid classroom message context"}
-			}
-			ctx = api.WithAppContext(ctx, *p.Context)
+		if err := p.Context.Validate(); err != nil {
+			return nil, asAPIError(err)
 		}
-		msgID, _, err := s.backend.ConversationSend(ctx, clientID, p.ClientMsgID, p.ConversationID, p.Text)
+		var msgID types.MessageID
+		var err error
+		if contextual, ok := s.backend.(ConversationContextBackend); ok {
+			msgID, _, err = contextual.ConversationSendContext(ctx, clientID, p.ClientMsgID, p.ConversationID, p.Text, p.Attachments, p.Context)
+		} else if p.Context != nil {
+			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "app context is unavailable on this backend"}
+		} else {
+			msgID, _, err = s.backend.ConversationSend(ctx, clientID, p.ClientMsgID, p.ConversationID, p.Text)
+		}
 		if err != nil {
 			return nil, asAPIError(err)
 		}

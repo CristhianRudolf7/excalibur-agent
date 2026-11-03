@@ -37,6 +37,12 @@ type Backend interface {
 	Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error)
 }
 
+// ConversationContextBackend is an optional additive conversation transport.
+// Existing text-only channel adapters and Backend implementations remain valid.
+type ConversationContextBackend interface {
+	ConversationSendContext(context.Context, string, string, string, string, []string, *api.AppContext) (types.MessageID, bool, error)
+}
+
 // StoredMessage is one persisted conversation message.
 type StoredMessage struct {
 	ID             types.MessageID      `json:"id"`

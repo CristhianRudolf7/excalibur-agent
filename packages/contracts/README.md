@@ -4,6 +4,8 @@ Shared wire contracts for non-Go clients (web UI, channel adapters,
 external tools). Source of truth is `internal/api`; the JSON documents
 here are an export of its registries.
 
+- `conversation-context.json`: optional per-message app context for
+  `conversation.send`, including classroom course and topic ids.
 - `jsonrpc.json`: JSON Schema (2020-12) for the JSON-RPC 2.0 envelope.
 - `methods.json`: every method name, family and summary. Must match
   `api.Methods` exactly; `TestContractsParity` enforces this.

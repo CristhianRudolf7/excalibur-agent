@@ -94,10 +94,11 @@ func TestDaemonToolSurfaceMatchesEmbedded(t *testing.T) {
 // the daemon composition changed. A deliberate change updates these
 // values in the same commit and says why. Automations intentionally extends
 // the default catalog only. code_diagram adds one deferred default tool;
-// the eval profile and core prefix stay frozen (its description moved when
+// classroom adds one deferred tool to default/assistant study requests.
+// The eval profile and core prefix stay frozen (its description moved when
 // script/notify guidance was added); the eval profile hash stays frozen.
 const (
-	embeddedToolsHash = "29eed2721df37f82f1ad39b5e3a6a15936c62be6ab85bf9d2d6794e14bdb2f29"
+	embeddedToolsHash = "8fce82d7bd4e6632e159c7c7d69fcbb505087e905d385494a8462e1d09148ae4"
 	embeddedPrefix    = "13e36f12dbbd571bb406e6fdaa55633ed619bf8724d03a1716e443a8faf61557"
 	evalProfileHash   = "4ecb6a58986660326b7d20d912918d479e7c72140c6e04ab38d83a23315fec28"
 )

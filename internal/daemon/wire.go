@@ -162,12 +162,13 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // AttachServices installs the real daemon-side backends; without them
 // every family degrades to the embedded backend.
 type DaemonBackend struct {
-	Master    *master.Master
-	Ctrls     *OrchControl
-	Bus       *telemetry.Bus
-	activity  activityState
-	artifacts *artifactStore
-	embed     *gateway.MemoryBackend
+	classroomTurns classroomTurns
+	Master         *master.Master
+	Ctrls          *OrchControl
+	Bus            *telemetry.Bus
+	activity       activityState
+	artifacts      *artifactStore
+	embed          *gateway.MemoryBackend
 	// Services holds the real backends; nil keeps embedded behavior.
 	Services *daemonServices
 }
@@ -304,10 +305,21 @@ func forwardEvent(bus *telemetry.Bus, notify *master.Notifier, ev orchestrator.E
 // ConversationSendAttachments is the additive transport seam for document ids.
 // The text-only Backend contract continues through ConversationSend.
 func (b *DaemonBackend) ConversationSendAttachments(ctx context.Context, clientID, clientMsgID, conversationID, text string, attachments []string) (types.MessageID, bool, error) {
+	return b.ConversationSendContext(ctx, clientID, clientMsgID, conversationID, text, attachments, nil)
+}
+
+// ConversationSendContext preserves app context and attachments in one intake.
+func (b *DaemonBackend) ConversationSendContext(ctx context.Context, clientID, clientMsgID, conversationID, text string, attachments []string, app *api.AppContext) (types.MessageID, bool, error) {
+	if err := app.Validate(); err != nil {
+		return "", false, err
+	}
 	if b.Master == nil {
+		if app != nil {
+			return "", false, &api.Error{Code: api.CodeInvalidParams, Message: "app context requires the daemon master"}
+		}
 		return b.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
 	}
-	id, out, err := b.Master.ReceiveWithAttachments(ctx, clientID, clientMsgID, conversationID, text, attachments)
+	id, out, err := b.Master.ReceiveWithContext(ctx, clientID, clientMsgID, conversationID, text, attachments, app)
 	if err == nil && out.Handled && out.Reply != "" {
 		_, err = b.Master.SendAssistant(ctx, conversationID, out.Reply, nil)
 	}

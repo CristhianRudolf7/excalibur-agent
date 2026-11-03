@@ -6,6 +6,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract/pdf"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract/visionocr"
@@ -25,6 +26,7 @@ import (
 // optional; nil entries fall back to deterministic in-memory fakes so
 // unit tests never need a daemon, a language server or the vault.
 type EmbeddedOptions struct {
+	Classroom   classroom.AgentService
 	Reminders   *agenda.ReminderService
 	Automations automations.Service
 
@@ -177,6 +179,11 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	}
 	tools.WireSearchCall(reg, cat, exec)
 	tools.WireWebTools(reg, cat, opts.Web)
+	if opts.Profile != "eval" {
+		if err := cat.RegisterDeferred(&classroom.Tool{Service: opts.Classroom}); err != nil {
+			return nil, err
+		}
+	}
 	if whiteboard.Enabled() && opts.Profile != "eval" {
 		board := opts.Whiteboard
 		if board == nil {

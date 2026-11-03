@@ -56,7 +56,7 @@ var knownTools = map[string]bool{
 	// Apps with contextual agents (14.8).
 	"app_state": true, "spreadsheet_ops": true, "model3d_ops": true,
 	"video_timeline_ops": true, "design_canvas_ops": true, "whiteboard_ops": true,
-	"course_ops": true, "job_tracker_ops": true, "monitor_ops": true,
+	"classroom": true, "course_ops": true, "job_tracker_ops": true, "monitor_ops": true,
 	"simulation_ops": true, "bi_ops": true, "gpu_training": true,
 	// Agenda and automation (Section 21).
 	"schedule": true, "trigger_rules": true, "workflow": true, "flow_simulate": true,

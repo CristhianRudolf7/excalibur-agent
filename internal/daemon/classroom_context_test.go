@@ -51,7 +51,7 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		}
 		got := <-seen
 		if app == nil {
-			if got.app != nil || strings.Contains(got.prompt, "Current message application context") {
+			if got.app != nil || strings.Contains(got.prompt, "Current app view") {
 				t.Fatal("context leaked from prior turn", got)
 			}
 		} else {
@@ -69,7 +69,7 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		}
 	}
 	normalized := b.Master.TurnHistory("one-history", 0)
-	if normalized[0].AppContext == nil || normalized[0].AppContext.CourseID != "course-a" || normalized[2].AppContext.CourseID != "course-b" {
+	if normalized[0].Context == nil || normalized[0].Context.CourseID != "course-a" || normalized[2].Context.CourseID != "course-b" {
 		t.Fatal("context missing from queued envelope")
 	}
 }
@@ -78,7 +78,7 @@ func TestClassroomMessageContextValidation(t *testing.T) {
 	backend := NewDaemonBackend(nil, nil, nil)
 	server := httptest.NewServer(gateway.New(gateway.Config{}, backend, gateway.NewMemoryBlobs(), nil))
 	defer server.Close()
-	for _, app := range []api.AppContext{{App: "other"}, {App: "classroom", TopicID: "topic"}} {
+	for _, app := range []api.AppContext{{App: ""}, {App: "classroom", TopicID: strings.Repeat("t", 201)}} {
 		req, _ := api.NewRequest("bad", api.MethodConversationSend, api.ConversationSendParams{ConversationID: "history", ClientMsgID: "message", Text: "Explain", Context: &app})
 		raw, _ := json.Marshal(req)
 		response, err := http.Post(server.URL+"/rpc", "application/json", bytes.NewReader(raw))

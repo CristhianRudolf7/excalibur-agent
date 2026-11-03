@@ -14,7 +14,7 @@ import (
 // plain text, voice transcripts with end-of-turn marks, attachments
 // as blob references, reply links and the detected language.
 type Normalized struct {
-	AppContext  *api.AppContext
+	Context     *api.AppContext
 	Role        string
 	Changes     []api.FileChange
 	Sources     []api.SourceRef
