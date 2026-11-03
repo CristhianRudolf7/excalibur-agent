@@ -128,8 +128,21 @@ func readInput(ctx context.Context, data []byte, sheet string) (inputTable, erro
 	}
 	// Skip leading title/blank rows by selecting the first row with the dominant
 	// width. Numeric/date first rows are treated as data with generated headers.
-	start, maxWidth := 0, 0
+	start, maxWidth, firstNonempty := 0, 0, 0
 	for i, row := range rows {
+		nonempty := false
+		for _, cell := range row {
+			if strings.TrimSpace(cell) != "" {
+				nonempty = true
+				break
+			}
+		}
+		if nonempty {
+			firstNonempty = i
+			break
+		}
+	}
+	for i, row := range rows[firstNonempty:] {
 		if i >= 10 {
 			break
 		}
@@ -140,7 +153,7 @@ func readInput(ctx context.Context, data []byte, sheet string) (inputTable, erro
 			}
 		}
 		if n > maxWidth {
-			start = i
+			start = firstNonempty + i
 			maxWidth = n
 		}
 	}
@@ -170,6 +183,9 @@ func readInput(ctx context.Context, data []byte, sheet string) (inputTable, erro
 		if len(row) > width {
 			width = len(row)
 		}
+	}
+	if len(rows)*width > MaxImportCells {
+		return inputTable{}, invalid("blob_digest", "table grid exceeds 1,000,000 cells")
 	}
 	if width > 128 {
 		return inputTable{}, invalid("blob_digest", "too many columns")

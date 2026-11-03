@@ -292,3 +292,26 @@ func TestSpreadsheetImportBeyondPreviewCellBudget(t *testing.T) {
 		t.Fatal(len(table.rows), err)
 	}
 }
+
+func TestSpreadsheetLeadingBlankRowsAndCSVGridBudget(t *testing.T) {
+	pkg, err := create.Build("xlsx", create.Spec{Sheets: []create.Sheet{{Name: "Leading", Cells: []create.Cell{{Ref: "A20", Value: "Name"}, {Ref: "A21", Value: "Ana"}}}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := pkg.Bytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := readInput(ctx, data, "")
+	if err != nil || len(table.rows) != 1 || table.lines[0] != 21 || table.headers[0] != "Name" {
+		t.Fatal(table, err)
+	}
+	headers := []string{}
+	for i := 0; i < 128; i++ {
+		headers = append(headers, fmt.Sprintf("Field%d", i))
+	}
+	large := strings.Join(headers, ",") + "\n" + strings.Repeat("value\n", 8000)
+	if _, err = readInput(ctx, []byte(large), ""); err == nil {
+		t.Fatal("sparse CSV exceeded grid budget")
+	}
+}

@@ -25,9 +25,9 @@ snapshots, trash expiry and restoration, incoming/outgoing relations, filtering,
 sorting, pagination, and SQL summary cards.
 
 Imports read CSV (comma, semicolon or tab, UTF-8/BOM or Latin-1) and XLSX from
-daemon blobs. The existing bounded OOXML package reader supplies the complete cell grid;
-a style pass converts Excel serial dates, including the 1904 epoch. Source row numbers survive leading
-blank/title rows and sparse sheets. Schema inference and exact, accent-insensitive,
+daemon blobs. The existing bounded OOXML package reader supplies the complete
+cell grid; a style pass converts Excel serial dates, including the 1904 epoch.
+Source row numbers survive leading blank/title rows and sparse sheets. Schema inference and exact, accent-insensitive,
 then unambiguous fuzzy mapping are overridable. Automatic trimming, decimal commas,
 select casing, and date changes are logged. Ambiguous slash dates require ISO
 input. Conflicts identify row, column, source value, problem, and a suggested fix.
@@ -84,5 +84,20 @@ failures, and refusing unsupported future database migrations.
 
 ### Verification
 
-Final checks are in progress. The web agent owns collection UI flows and TypeScript
-contract additions; this backend worktree contains no UI changes.
+Completed checks:
+
+- `gofmt -l .` and `scripts/check-no-bare-go.sh` are clean.
+- Touched-package vet and whole-repository Linux/Darwin/Windows builds pass.
+- Collection engine race tests, RPC/WS/tool/chat tests, contract parity and pinned
+  embedded/eval hashes pass. Full daemon/tools race suites are still running.
+- Web `npx tsc --noEmit -p .` and `npx tsc -b --pretty false` pass from `apps/web`.
+- All web Vitest tests pass: 121 files, 646 tests (`--maxWorkers 2`).
+- Existing Playwright chat/agent/settings smoke tests pass: 32 tests using owned
+  port 5356 (`EXCALIBUR_WEB_TEST_PORT=5356`, two workers).
+- `git diff --name-only 766dc51` contains no forbidden paths.
+
+The web agent owns collection UI flows and TypeScript contract additions; this
+backend worktree contains no UI changes. The documentation file is shared: retain
+this Backend section when merging the web agent's section. No changes to the
+embedded/eval catalog, provider wiring, robot code, integrations or web contracts
+are required from this branch.
