@@ -32,7 +32,7 @@ export function orderAgents(agents: readonly Agent[]) {
     .sort(
       (a, b) =>
         Number(b.favorite) - Number(a.favorite) ||
-        b.last_message_at.localeCompare(a.last_message_at) ||
+        (b.last_message_at ?? '').localeCompare(a.last_message_at ?? '') ||
         a.created_at.localeCompare(b.created_at) ||
         a.id.localeCompare(b.id),
     )

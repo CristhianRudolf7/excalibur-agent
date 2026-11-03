@@ -113,3 +113,17 @@ it('disables selection and creation while the registry is loading', () => {
   expect(select).not.toHaveBeenCalled()
   expect(create).not.toHaveBeenCalled()
 })
+
+it('renders newly created agents with null message timestamps from the Go registry', () => {
+  const fresh = {
+    ...defaultAgent,
+    id: 'fresh',
+    name: 'Pablito',
+    favorite: false,
+    last_message_at: null,
+  }
+  render(<AgentSidebar agents={[fresh, recent]} onSelect={() => {}} onCreate={() => {}} />)
+  expect(orderAgents([fresh, recent]).map((agent) => agent.id)).toEqual(['recent', 'fresh'])
+  expect(screen.getByRole('button', { name: 'Pablito' })).toBeVisible()
+  expect(document.querySelectorAll('time')).toHaveLength(1)
+})

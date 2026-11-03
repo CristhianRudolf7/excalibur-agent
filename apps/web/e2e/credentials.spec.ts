@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import type { CredentialRequest } from '../src/lib/rpc/credentials'
+import { defaultAgent } from '../src/features/agents/store'
 import { mockEvents } from './event-fixture'
 
 const initial: CredentialRequest = {
@@ -14,10 +15,25 @@ const initial: CredentialRequest = {
 }
 async function mock(
   page: Page,
-  options: { locked?: boolean; pending?: boolean; language?: string } = {},
+  options: { locked?: boolean; pending?: boolean; language?: string; personal?: boolean } = {},
 ) {
   const events = await mockEvents(page)
-  let requests = options.pending === false ? [] : [initial]
+  const personal = {
+    ...defaultAgent,
+    id: 'pablito',
+    name: 'Pablito',
+    favorite: false,
+    conversation_id: 'cnv_agent_pablito',
+  }
+  let requests =
+    options.pending === false
+      ? []
+      : [
+          {
+            ...initial,
+            conversation_id: options.personal ? personal.conversation_id : initial.conversation_id,
+          },
+        ]
   let entries = [
     {
       id: 'saved-1',
@@ -44,6 +60,15 @@ async function mock(
     let result: unknown = {}
     let error: unknown
     switch (request.method) {
+      case 'agents.list':
+        result = {
+          agents: options.personal ? [defaultAgent, personal] : [defaultAgent],
+          favorite_id: defaultAgent.id,
+        }
+        break
+      case 'agents.mark_read':
+        result = { unread: 0 }
+        break
       case 'principal.get':
         result = { id: 'local', name: 'Example User', language: 'en', timezone: 'UTC' }
         break
@@ -249,4 +274,37 @@ test('an arriving card stays visible at the bottom of a long conversation', asyn
   await expect(
     page.getByRole('region', { name: 'Credentials for accounts.example.org' }),
   ).toBeInViewport()
+})
+
+test('credential cards stay in the requesting agent chat and its unread badge updates', async ({
+  page,
+}) => {
+  const api = await mock(page, { personal: true })
+  await page.goto('/agents/excalibur?view=chat')
+  await api.events.ready('agents.unread')
+  await expect(
+    page.getByRole('region', { name: 'Credentials for accounts.example.org' }),
+  ).toHaveCount(0)
+  api.events.emit('agents.unread', {
+    agent_id: 'pablito',
+    unread: 1,
+    last_preview: 'Secure credentials requested',
+    last_message_at: initial.created_at,
+  })
+  const row = page
+    .locator('.personal-agent-nav')
+    .getByRole('button', { name: 'Pablito', exact: true })
+  await expect(row.getByLabel('1 unread')).toBeVisible()
+  await row.click()
+  await expect(page.getByRole('button', { name: 'Switch agent: Pablito' })).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'Credentials for accounts.example.org' }),
+  ).toBeVisible()
+  expect(api.historyTargets).toContain('cnv_agent_pablito')
+  await page.goto('/agents/excalibur?credential=credential-e2e&conversation=cnv_agent_pablito')
+  await expect(page).toHaveURL(/agents\/pablito/)
+  await expect(page.getByRole('button', { name: 'Switch agent: Pablito' })).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'Credentials for accounts.example.org' }),
+  ).toBeFocused()
 })

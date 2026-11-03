@@ -60,6 +60,9 @@ export async function mockAgents(page: Page) {
     let result: unknown
     const id = request.params?.id
     switch (request.method) {
+      case 'credentials.pending':
+        result = { requests: [] }
+        break
       case 'agents.list':
         result = { agents, favorite_id: favorite } satisfies AgentList
         break

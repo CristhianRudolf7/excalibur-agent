@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { useAgents } from '@/features/agents/store'
 import { rpc } from '@/lib/rpc/client'
 import { Chat } from '@/features/chat/Chat'
 import { Button } from '@/components/ui/button'
@@ -37,11 +38,15 @@ export function CredentialConversation({
     retry: false,
   })
   const target = conversation ?? pending.data?.conversation_id
+  const owner = useAgents((state) =>
+    state.agents.find((agent) => agent.conversation_id === target && !agent.archived),
+  )
+  const targetAgentId = owner?.id ?? agentId
   useEffect(() => {
-    if (conversation || !target) return
+    if (!target || (conversation === target && agentId === targetAgentId)) return
     void navigate({
       to: '/agents/$agentId',
-      params: { agentId },
+      params: { agentId: targetAgentId },
       replace: true,
       search: (previous) => ({
         ...previous,
@@ -51,12 +56,12 @@ export function CredentialConversation({
         conversation: target,
       }),
     })
-  }, [navigate, agentId, target, conversation, credentialId])
+  }, [navigate, agentId, targetAgentId, target, conversation, credentialId])
   if (target)
     return (
       <Chat
         key={target}
-        agentId={agentId}
+        agentId={targetAgentId}
         conversation={target}
         credentialId={credentialId}
         onFile={onFile}

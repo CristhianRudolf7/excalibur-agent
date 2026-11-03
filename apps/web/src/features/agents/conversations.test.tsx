@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import i18n from '@/lib/i18n'
 import { rpc } from '@/lib/rpc/client'
 import type { ConversationEvent } from '@/lib/rpc/contract'
@@ -24,6 +25,16 @@ vi.mock('@tanstack/react-virtual', () => ({
     scrollToIndex: () => {},
   }),
 }))
+const clients: QueryClient[] = []
+function renderChat() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  clients.push(client)
+  render(
+    <QueryClientProvider client={client}>
+      <Chat agentId="ada" onFile={() => {}} />
+    </QueryClientProvider>,
+  )
+}
 const ada = { ...defaultAgent, id: 'ada', name: 'Ada', conversation_id: 'cnv_agent_ada' }
 const sam = {
   ...defaultAgent,
@@ -39,6 +50,7 @@ beforeEach(async () => {
 })
 afterEach(() => {
   cleanup()
+  clients.splice(0).forEach((client) => client.clear())
   vi.restoreAllMocks()
 })
 const event = (conversation: string, text: string, extra = {}): ConversationEvent => ({
@@ -81,7 +93,7 @@ it('uses the server conversation ID for history, sends and incoming messages, ke
 it('renders relays as user messages with the sender name, including archived senders', async () => {
   vi.spyOn(rpc, 'call').mockResolvedValue({ messages: [] })
   useAgents.setState({ agents: [ada, { ...sam, archived: true }] })
-  render(<Chat agentId="ada" onFile={() => {}} />)
+  renderChat()
   await waitFor(() => expect(useChat.getState().live.ada).toEqual([]))
   act(() => {
     receiveEvent('ada', event('cnv_agent_ada', 'Please review this', { relayed_by: 'sam' }))
@@ -117,7 +129,7 @@ it('acknowledges a newer unread event even when its count stays the same', async
     }
     return { messages: [] } as never
   })
-  render(<Chat agentId="ada" onFile={() => {}} />)
+  renderChat()
   await waitFor(() => expect(acknowledgements).toHaveLength(1))
   act(() => {
     useAgents.getState().unread({

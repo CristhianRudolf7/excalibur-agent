@@ -26,10 +26,9 @@ apply confirmed RPC results, keep failed edits available for retry, confirm
 archiving, explain favorite hand-over and prevent archiving the last active
 agent. Shared user resources remain accessible through the existing interfaces.
 
-`types.ts` follows the agreed multiple-agent RPC contract while the backend is
-developed separately. `AgentAvatar` is a thin `PixelSprite` adapter for the avatar
-worker to replace with the complete renderer. This branch does not implement
-registry persistence, agent tools or avatar design.
+`types.ts` follows the Go registry RPC and event contracts. `AgentAvatar`
+renders normalized palettes and accessories through the shared pixel sprite
+renderer. Agent persistence, tools and avatar design run in the daemon.
 
 Unit coverage exercises ordering, badges, prefill isolation, keyboard switching,
 settings mutations and errors, event refreshes, conversation isolation, relay

@@ -1,13 +1,5 @@
-export interface AvatarSpec {
-  variant: 'hood' | 'long-hair' | 'cap' | 'bow' | 'beard' | 'headphones'
-  tone: string
-  hair: string
-  highlight: string
-  outfit: string
-  accent: string
-  accessory: 'none' | 'glasses' | 'sunglasses' | 'earring' | 'scarf' | 'star'
-  background: string
-}
+export type { AvatarSpec } from '@/components/avatar-spec'
+import type { AvatarSpec } from '@/components/avatar-spec'
 
 export interface Agent {
   id: string
@@ -21,7 +13,7 @@ export interface Agent {
   conversation_id: string
   created_at: string
   updated_at: string
-  last_message_at: string
+  last_message_at: string | null
   unread: number
   last_preview: string
 }
@@ -58,5 +50,14 @@ export interface AgentUnread {
   agent_id: string
   unread: number
   last_preview: string
-  last_message_at: string
+  last_message_at: string | null
+}
+
+export interface AgentEvents {
+  'agents.created': Agent
+  'agents.updated': Agent
+  'agents.archived': Agent
+  'agents.restored': Agent
+  'agents.favorite_changed': { favorite_id: string }
+  'agents.unread': AgentUnread
 }

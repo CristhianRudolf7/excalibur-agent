@@ -2,18 +2,33 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import i18n from '@/lib/i18n'
+import { defaultAgent, useAgents } from '@/features/agents/store'
 import { rpc } from '@/lib/rpc/client'
 import { CredentialConversation } from './CredentialConversation'
 import { validatePanel } from '@/features/shell/panels'
 const { navigate } = vi.hoisted(() => ({ navigate: vi.fn() }))
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
 vi.mock('@/features/chat/Chat', () => ({
-  Chat: ({ conversation, credentialId }: { conversation: string; credentialId: string }) => (
-    <div data-testid="linked-chat" data-conversation={conversation} data-request={credentialId} />
+  Chat: ({
+    agentId,
+    conversation,
+    credentialId,
+  }: {
+    agentId: string
+    conversation: string
+    credentialId: string
+  }) => (
+    <div
+      data-testid="linked-chat"
+      data-agent={agentId}
+      data-conversation={conversation}
+      data-request={credentialId}
+    />
   ),
 }))
 const clients: QueryClient[] = []
 beforeEach(async () => {
+  useAgents.setState({ agents: [defaultAgent] })
   await i18n.changeLanguage('en')
 })
 afterEach(() => {
@@ -85,3 +100,38 @@ it('preserves valid request and conversation identifiers and forces chat mode', 
   ).toBeUndefined()
   expect(validatePanel({ conversation: 'cnv_telegram_123' }).conversation).toBeUndefined()
 })
+
+it.each([true, false])(
+  'selects the requesting personal agent for credential links (explicit=%s)',
+  async (explicit) => {
+    useAgents.setState({
+      agents: [
+        defaultAgent,
+        {
+          ...defaultAgent,
+          id: 'pablito',
+          name: 'Pablito',
+          favorite: false,
+          conversation_id: 'cnv_agent_pablito',
+        },
+      ],
+    })
+    vi.spyOn(rpc, 'call').mockResolvedValue({
+      requests: [
+        {
+          id: 'req-1',
+          conversation_id: 'cnv_agent_pablito',
+          fields: ['password'],
+          status: 'pending',
+        },
+      ],
+    })
+    setup(explicit ? 'cnv_agent_pablito' : undefined)
+    expect(await screen.findByTestId('linked-chat')).toHaveAttribute('data-agent', 'pablito')
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith(
+        expect.objectContaining({ params: { agentId: 'pablito' } }),
+      ),
+    )
+  },
+)

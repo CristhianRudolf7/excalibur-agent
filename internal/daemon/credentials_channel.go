@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"log/slog"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 )
@@ -22,12 +24,24 @@ func credentialWebInstruction(base, request, conversation string) string {
 }
 
 func (a *assistantTurns) credentialOrigin(ctx context.Context, conv, run, channel string) credentialOrigin {
-	origin := credentialOrigin{conversation: conv, run: run, channel: channel}
-	switch strings.ToLower(channel) {
-	case "", "api", "web":
-		return origin
+	if conv == "" && a.backend != nil {
+		conv = a.backend.SystemConversation("")
 	}
+	origin := credentialOrigin{conversation: conv, run: run, channel: channel}
 	origin.requested = func(event api.CredentialsRequestedEvent) {
+		// A card is an unread chat item even though its values never enter history.
+		if a.backend != nil {
+			if registry := a.backend.agentRegistry(); registry != nil {
+				at, _ := time.Parse(time.RFC3339Nano, event.CreatedAt)
+				if err := registry.ObserveMessage(ctx, conv, "Secure credentials requested", at, true); err != nil {
+					slog.Error("could not update credential request unread state", "error", err)
+				}
+			}
+		}
+		switch strings.ToLower(channel) {
+		case "", "api", "web":
+			return
+		}
 		// Channel adapters forward normal assistant messages. Keep site, purpose,
 		// requested values and refs out of this message; the web card owns the form.
 		if a.backend != nil && a.backend.Master != nil {

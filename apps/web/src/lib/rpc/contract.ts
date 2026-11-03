@@ -1,4 +1,4 @@
-import type { AgentMethods } from '@/features/agents/types'
+import type { AgentMethods, AgentEvents } from '@/features/agents/types'
 import type { CredentialMethods, CredentialEvents } from './credentials'
 import type { ClassroomMethods, ClassroomContext } from './classroom'
 import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
@@ -131,7 +131,7 @@ export interface SourceRef {
   snippet?: string
   url?: string
 }
-export interface RpcEvents extends CredentialEvents {
+export interface RpcEvents extends CredentialEvents, AgentEvents {
   'library.document_updated': DocumentInfo
 }
 export interface FileHunk {
@@ -223,7 +223,8 @@ export interface ActivityItem {
   finished_at?: string
   error?: string
 }
-export interface RpcMethods extends WhiteboardMethods, ClassroomMethods, AgentMethods, CredentialMethods {
+export interface RpcMethods
+  extends WhiteboardMethods, ClassroomMethods, AgentMethods, CredentialMethods {
   'artifacts.get': { params: { id: string }; result: ArtifactContent }
   'activity.list': { params: { conversation_id: string }; result: { items: ActivityItem[] } }
 

@@ -31,7 +31,7 @@ export function AgentSidebar({
     overscan: 4,
   })
   const row = (agent: Agent) => {
-    const date = new Date(agent.last_message_at)
+    const date = new Date(agent.last_message_at ?? NaN)
     return (
       <button
         type="button"
@@ -52,7 +52,7 @@ export function AgentSidebar({
         </span>
         <span className="agent-chat-meta">
           {Number.isFinite(date.getTime()) && (
-            <time dateTime={agent.last_message_at}>
+            <time dateTime={agent.last_message_at ?? undefined}>
               {new Intl.DateTimeFormat(i18n.language, {
                 hour: '2-digit',
                 minute: '2-digit',

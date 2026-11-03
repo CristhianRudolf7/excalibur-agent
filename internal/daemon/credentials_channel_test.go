@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
@@ -88,5 +89,31 @@ func TestCredentialChannelLinkEscapesIdentifiers(t *testing.T) {
 	link, err := url.Parse(strings.Fields(text)[1])
 	if err != nil || link.Query().Get("credential") != "req&other=1" || link.Query().Get("conversation") != "conv space&x=1" || len(link.Query()) != 2 {
 		t.Fatal("channel link did not encode identifiers")
+	}
+}
+
+func TestPersonalAgentCredentialOriginAndUnread(t *testing.T) {
+	ctx := context.Background()
+	b, registry := personalBackend(t, nil)
+	first := registry.Favorite()
+	target, err := registry.Create(ctx, agents.CreateParams{Name: "Pablito"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.SetFavorite(ctx, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	a := &assistantTurns{backend: b}
+	for _, test := range []struct{ origin, want string }{{first.ConversationID, first.ID}, {"", target.ID}} {
+		origin := a.credentialOrigin(ctx, test.origin, "run", "web")
+		agent, _ := registry.Get(test.want)
+		origin.requested(api.CredentialsRequestedEvent{ConversationID: origin.conversation, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
+		got, _ := registry.Get(test.want)
+		if got.Unread != agent.Unread+1 || got.LastPreview != "Secure credentials requested" || origin.conversation != got.ConversationID {
+			t.Fatal("credential card missed its requesting agent")
+		}
+		if len(b.Master.History(got.ConversationID, 0)) != 0 {
+			t.Fatal("credential card was persisted as a chat message")
+		}
 	}
 }

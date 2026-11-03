@@ -1,4 +1,4 @@
-# Personal agents backend
+# Personal agents
 
 The daemon stores personal agents separately from orchestrator execution
 identities. Migration 11 preserves existing conversation and message rows. On
@@ -48,9 +48,10 @@ Three fast deferred tools are registered on the daemon chat catalog:
 These tools have English and Spanish intent keywords. They remain outside the
 frozen eval profile and the embedded catalog. The eval hash remains
 `4ecb6a58986660326b7d20d912918d479e7c72140c6e04ab38d83a23315fec28`.
-`design_avatar` is supplied by the separate avatar implementation. Registry
-writes call `agents.ValidateAvatar`; the temporary implementation validates the
-shared sprite enums and RGB colors.
+`design_avatar` validates model-selected sprite fields and returns a normalized
+spec and preview. Registry writes use the same validator, including enum, RGB
+and contrast handling. The web renders the full palette and accessories with
+`AgentAvatar`. Avatar design remains deferred and outside eval.
 
 Backend regression tests exercise migration with existing history, registry
 lifecycle and favorite selection, persisted unread counts, per-agent prompt and
@@ -58,3 +59,37 @@ history isolation with shared user preferences, RPC lifecycle events, classroom
 origins and bus-sequence restarts, system routing, relay delivery and retry behavior, loop prevention,
 search bounds and deferred tool activation. Tests use simulated model providers
 and never call a paid API.
+
+Secure credential cards retain their requesting conversation, increment its
+agent's unread count and use a generic preview without storing a chat message.
+An absent origin resolves the current favorite. Credential links to a registered
+conversation select that agent's header and chat; explicit external channel
+conversations remain supported. Shared web event types cover both registries,
+and sidebar ordering accepts null message timestamps for agents with no history.
+
+`TestPersonalAgentsAvatarRelayAndFavoriteEndToEnd` drives public daemon RPC with
+a simulated model. The favorite designs an avatar, creates Pablito and relays
+one message. The test verifies the listed avatar, durable user-role relay
+metadata, exactly one target turn, unread increments and favorite handover on
+archive. Credential-origin tests cover both an explicit agent and favorite
+fallback; web tests cover card ownership, deep links and unread badges.
+
+Integration verification passed the full Go race suite with two package workers,
+low process priority, a 4 GiB memory cap and swap disabled. No Go timing retries
+were needed. Go vet, staticcheck, formatting, the bare-goroutine check and Linux,
+Darwin and Windows builds passed. Agent and credential contract regeneration is
+idempotent, and the embedded/eval pin checks passed.
+
+The tagged real-Chrome suites passed, including deterministic-model secure login
+through daemon chat. Web verification passed frozen-lockfile installation,
+typecheck, lint, formatting, build and all 566 unit tests in 109 files. The 37
+agent, credential, classroom and Robot Lab Playwright cases passed across the
+combined run and one isolated retry: the initial Robot Lab ballplate case timed
+out while loading its starting 3D scene, then passed unchanged. No test deadlines
+were relaxed. Existing lint and bundle-size warnings remain.
+
+Python Robot Lab tests were not run because pytest and the physics dependencies
+were unavailable in the checked environments. Successful live-model credential
+dashboard reporting and remembered reuse remain unverified as documented in
+`secure-credentials.md`; integration used simulated inference and made no paid
+API calls.
