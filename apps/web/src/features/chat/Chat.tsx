@@ -4,7 +4,7 @@ import { ChangesCard } from './ChangesCard'
 import { visibleAutomationMessage } from '@/features/automations/context'
 import { InlineInteraction } from './InlineInteraction'
 import './chat.css'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { ChatHistorySkeleton } from './Skeletons'
@@ -67,7 +67,11 @@ export function Chat({
   const revealCredentials = useCallback(() => {
     if (atBottom.current && parent.current) parent.current.scrollTop = parent.current.scrollHeight
   }, [])
-  const conversation = live ?? []
+  // The stop button sends a /stop control message; it is not something the user wrote.
+  const conversation = useMemo(
+    () => (live ?? []).filter((m) => !(m.sender === 'user' && m.text.trim() === '/stop')),
+    [live],
+  )
   useEffect(() => connectConversation(agentId, targetConversation), [agentId, targetConversation])
   useEffect(() => {
     if (!agent.unread) return

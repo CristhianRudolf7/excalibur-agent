@@ -71,7 +71,7 @@ func TestClassroomContextSurvivesDeferredReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	history := awaitAssistant(t, b, "conversation", 2)
-	if !strings.Contains(history[len(history)-1].Text, "Interrupted the master turn") {
+	if !strings.Contains(history[len(history)-1].Text, "Detuve la respuesta en esta conversación") {
 		t.Fatal("contextual fast-lane reply was not persisted")
 	}
 }

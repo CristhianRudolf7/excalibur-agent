@@ -103,7 +103,7 @@ func (f *FastLane) slash(cmd, args string, in IntakeResult) Outcome {
 			rows := f.Controls.PauseAll()
 			return Outcome{Handled: true, Reply: fmt.Sprintf("Paused %d runs.", len(rows))}
 		}
-		return Outcome{Handled: true, Reply: "Interrupted the master turn in this conversation; background work continues."}
+		return Outcome{Handled: true, Reply: "Detuve la respuesta en esta conversación. Las tareas en segundo plano siguen activas."}
 	case "approve":
 		if args == "" {
 			return Outcome{Handled: true, Reply: "Which plan? Say /approve <plan>."}
@@ -138,7 +138,7 @@ func (f *FastLane) slash(cmd, args string, in IntakeResult) Outcome {
 // and return the rest to the master (Section 6.1).
 func (f *FastLane) control(intent, target string, in IntakeResult, raw string) Outcome {
 	if intent == "stop" {
-		return Outcome{Handled: true, Reply: "Interrupted the master turn in this conversation; background work continues."}
+		return Outcome{Handled: true, Reply: "Detuve la respuesta en esta conversación. Las tareas en segundo plano siguen activas."}
 	}
 	if intent == "stop_all" {
 		rows := f.Controls.PauseAll()

@@ -428,7 +428,7 @@ func TestAssistantFastLaneReplyIsDelivered(t *testing.T) {
 		t.Fatal(err)
 	}
 	rows := awaitAssistant(t, b, "cnv_control", 1)
-	if calls != 0 || !strings.Contains(rows[len(rows)-1].Text, "Interrupted the master turn") {
+	if calls != 0 || !strings.Contains(rows[len(rows)-1].Text, "Detuve la respuesta en esta conversación") {
 		t.Fatalf("fast lane %+v, calls=%d", rows, calls)
 	}
 	_, _, err = b.ConversationSend(context.Background(), "client", "stop", "cnv_control", "/stop")
