@@ -347,6 +347,12 @@
           "items": {
             "$ref": "#/$defs/ImportFix"
           }
+        },
+        "pending_rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportPendingRow"
+          }
         }
       },
       "required": [
@@ -950,6 +956,29 @@
       "required": [
         "collection",
         "kind"
+      ],
+      "additionalProperties": false
+    },
+    "ImportPendingRow": {
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer"
+        },
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "values",
+        "reason"
       ],
       "additionalProperties": false
     }

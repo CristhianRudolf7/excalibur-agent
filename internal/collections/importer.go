@@ -450,6 +450,10 @@ func ambiguousDate(s string) bool {
 	b, e2 := strconv.Atoi(parts[1])
 	return e1 == nil && e2 == nil && a >= 1 && a <= 12 && b >= 1 && b <= 12 && a != b
 }
+
+// maxPendingRows bounds the skipped rows echoed back in one report.
+const maxPendingRows = 200
+
 func importValue(f Field, raw string, auto bool, row int, column string, dayFirst bool) (any, []api.ImportFix, *api.ImportConflict) {
 	s := raw
 	fixes := []api.ImportFix{}
@@ -616,6 +620,19 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				return err
 			}
 			line := input.lines[i]
+			pend := func(reason string) {
+				out.Report.Skipped++
+				if len(out.Report.PendingRows) >= maxPendingRows {
+					return
+				}
+				cells := map[string]string{}
+				for col, name := range input.headers {
+					if col < len(row) {
+						cells[name] = row[col]
+					}
+				}
+				out.Report.PendingRows = append(out.Report.PendingRows, api.ImportPendingRow{Row: line, Values: cells, Reason: reason})
+			}
 			values := map[string]any{}
 			columns := map[string]string{}
 			rawValues := map[string]string{}
@@ -645,7 +662,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				}
 			}
 			if bad {
-				out.Report.Skipped++
+				pend("conflict")
 				continue
 			}
 			var existing *Record
@@ -656,7 +673,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				}
 				if len(matches) > 1 {
 					out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: columns[key], Value: fmt.Sprint(values[key]), Problem: "duplicate", Suggestion: "Use a unique upsert key; multiple existing records match"})
-					out.Report.Skipped++
+					pend("duplicate")
 					continue
 				}
 				if len(matches) == 1 {
@@ -670,7 +687,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				}
 				if n > 0 {
 					out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: "", Value: "", Problem: "duplicate", Suggestion: "Identical row already exists; choose an upsert key to update"})
-					out.Report.Skipped++
+					pend("duplicate")
 					continue
 				}
 			}
@@ -716,7 +733,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 					}
 					out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: column, Value: rawValues[v.Field], Problem: problem, Suggestion: v.Message})
 				}
-				out.Report.Skipped++
+				pend("conflict")
 				continue
 			}
 			if existing != nil {

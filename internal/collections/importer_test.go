@@ -345,3 +345,21 @@ func TestInferenceToleratesOutliersAndDayFirstColumns(t *testing.T) {
 		t.Fatal("a date without a year is reported, never invented")
 	}
 }
+
+func TestImportReportCarriesPendingRowsWithAllCells(t *testing.T) {
+	e := testEngine(t)
+	b := gateway.NewMemoryBlobs()
+	c := createTest(t, e, Field{ID: "course", Name: "Curso", Type: "text"}, Field{ID: "grade", Name: "Nota", Type: "number"}, Field{ID: "date", Name: "Fecha", Type: "date"}, Field{ID: "credits", Name: "Créditos", Type: "integer"})
+	digest := blob(t, b, []byte("Curso;Nota;Fecha;Créditos\nCálculo III;14;3/11;4\nCálculo III;11;15/10/2026;4\n"))
+	out, err := e.Import(ctx, b, api.CollectionsImportParams{Collection: c.ID, BlobDigest: digest, DryRun: true, Fixes: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Report.PendingRows) != 1 {
+		t.Fatalf("one skipped row expected: %+v", out.Report)
+	}
+	pending := out.Report.PendingRows[0]
+	if pending.Row != 2 || pending.Values["Curso"] != "Cálculo III" || pending.Values["Nota"] != "14" || pending.Values["Créditos"] != "4" || pending.Values["Fecha"] != "3/11" {
+		t.Fatalf("pending row must keep every original cell: %+v", pending)
+	}
+}

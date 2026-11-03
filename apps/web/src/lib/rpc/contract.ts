@@ -714,6 +714,7 @@ export type ImportReport = {
     suggestion?: string
   }[]
   fixes_applied: { row: number; column: string; from: string; to: string; rule: string }[]
+  pending_rows?: { row: number; values: Record<string, string>; reason: string }[]
 }
 export interface RpcMethods {
   'collections.list': { params: Record<string, never>; result: { collections: Collection[] } }

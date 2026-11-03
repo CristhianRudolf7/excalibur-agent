@@ -194,6 +194,16 @@ type ImportReport struct {
 	UnknownColumns []string         `json:"unknown_columns"`
 	Conflicts      []ImportConflict `json:"conflicts"`
 	FixesApplied   []ImportFix      `json:"fixes_applied"`
+	// PendingRows carries every skipped row with all its original cells so a
+	// follow-up correction can re-insert it without losing other columns.
+	PendingRows []ImportPendingRow `json:"pending_rows,omitempty"`
+}
+
+// ImportPendingRow is one skipped source row, keyed by source column.
+type ImportPendingRow struct {
+	Row    int               `json:"row"`
+	Values map[string]string `json:"values"`
+	Reason string            `json:"reason"`
 }
 type CollectionsImportParams struct {
 	Collection   string          `json:"collection,omitempty"`
