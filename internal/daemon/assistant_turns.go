@@ -101,7 +101,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	allow := map[string]bool{}
 	for _, name := range profile.ToolSet(0) {
 		switch name {
-		case "automations", "library_list", "library_search", "library_view", "library_grep", "library_status", "memory_search", "history_search", "doc_read", "status", "clock", "subagent", "leave_continuation_note", "get_tool_output":
+		case "web_search", "web_read", "automations", "library_list", "library_search", "library_view", "library_grep", "library_status", "memory_search", "history_search", "doc_read", "status", "clock", "subagent", "leave_continuation_note", "get_tool_output":
 			allow[name] = true
 		}
 	}
