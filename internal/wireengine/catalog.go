@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract"
@@ -183,6 +184,9 @@ func BuildEmbedded(opts EmbeddedOptions) (*Embedded, error) {
 	tools.WireWebTools(reg, cat, opts.Web)
 	// Always discoverable outside eval, even when disabled or not installed.
 	if opts.Profile != "eval" {
+		if err := cat.RegisterDeferred(&agents.DesignAvatarTool{}); err != nil {
+			return nil, err
+		}
 		if err := cat.RegisterDeferred(&classroom.Tool{Service: opts.Classroom}); err != nil {
 			return nil, err
 		}

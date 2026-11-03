@@ -33,6 +33,8 @@ var knownTools = map[string]bool{
 	// Section 13.3 deferred tools: code and workspace.
 	"lsp": true, "code_graph": true, "code_diagram": true, "file_history": true, "revert_edit": true,
 	"workspace_snapshot": true, "worktree": true, "integration_queue": true, "github": true,
+	// Personal-agent appearance.
+	"design_avatar": true,
 	// Browser (contract 14.2).
 	"robot_lab":            true,
 	"whiteboard":           true,

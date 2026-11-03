@@ -1,0 +1,94 @@
+[
+  {
+    "name": "lowercase palette",
+    "input": {
+      "variant": "long-hair",
+      "tone": "#F2C9A1",
+      "hair": "#8754b3",
+      "highlight": "#e5d8ff",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "glasses",
+      "background": "#E6ECF8"
+    },
+    "expected": {
+      "variant": "long-hair",
+      "tone": "#F2C9A1",
+      "hair": "#8754B3",
+      "highlight": "#E5D8FF",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "glasses",
+      "background": "#E6ECF8"
+    }
+  },
+  {
+    "name": "dark face and matching hair",
+    "input": {
+      "variant": "hood",
+      "tone": "#171923",
+      "hair": "#f2c9a1",
+      "highlight": "#D5E2FF",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "none",
+      "background": "#E6ECF8"
+    },
+    "expected": {
+      "variant": "hood",
+      "tone": "#F2C9A1",
+      "hair": "#30283F",
+      "highlight": "#D5E2FF",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "none",
+      "background": "#E6ECF8"
+    }
+  },
+  {
+    "name": "readable darker skin",
+    "input": {
+      "variant": "beard",
+      "tone": "#B78059",
+      "hair": "#30283F",
+      "highlight": "#D5E2FF",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "none",
+      "background": "#E6ECF8"
+    },
+    "expected": {
+      "variant": "beard",
+      "tone": "#B78059",
+      "hair": "#30283F",
+      "highlight": "#D5E2FF",
+      "outfit": "#586FA8",
+      "accent": "#F4C76B",
+      "accessory": "none",
+      "background": "#E6ECF8"
+    }
+  },
+  {
+    "name": "orange headphone robot",
+    "input": {
+      "variant": "headphones",
+      "tone": "#D1DCE5",
+      "hair": "#566879",
+      "highlight": "#FFE0B2",
+      "outfit": "#D67B38",
+      "accent": "#E99245",
+      "accessory": "none",
+      "background": "#E8F0F6"
+    },
+    "expected": {
+      "variant": "headphones",
+      "tone": "#D1DCE5",
+      "hair": "#566879",
+      "highlight": "#FFE0B2",
+      "outfit": "#D67B38",
+      "accent": "#E99245",
+      "accessory": "none",
+      "background": "#E8F0F6"
+    }
+  }
+]

@@ -95,10 +95,11 @@ func TestDaemonToolSurfaceMatchesEmbedded(t *testing.T) {
 // values in the same commit and says why. Automations intentionally extends
 // the default catalog only. code_diagram adds one deferred default tool;
 // classroom and robot_lab each add one deferred tool outside eval.
+// design_avatar adds one deferred default tool; its spec and skill stay outside eval.
 // The eval profile and core prefix stay frozen (its description moved when
 // script/notify guidance was added); the eval profile hash stays frozen.
 const (
-	embeddedToolsHash = "96daa69555fed7ce799dbd7cc6fa973fe5278eff85bf3e0c84fe807e6d2921ff"
+	embeddedToolsHash = "f0515025f961d405e558e2cfb5408384e3aa03e6ebd0b4721d6ef4fd0fe7eaf4"
 	embeddedPrefix    = "13e36f12dbbd571bb406e6fdaa55633ed619bf8724d03a1716e443a8faf61557"
 	evalProfileHash   = "4ecb6a58986660326b7d20d912918d479e7c72140c6e04ab38d83a23315fec28"
 )

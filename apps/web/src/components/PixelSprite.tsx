@@ -8,11 +8,22 @@ export interface PixelSpriteProps {
 }
 const spriteStyle = (sprite: SpriteDefinition): CSSProperties =>
   ({
-    '--tone': sprite.tone,
-    '--sprite-tone': sprite.tone,
+    '--tone': sprite.outfit ?? sprite.tone,
+    '--sprite-tone': sprite.outfit ?? sprite.tone,
     '--sprite-hair': sprite.hair ?? sprite.tone,
     '--sprite-highlight':
       sprite.highlight ?? 'color-mix(in srgb, var(--sprite-tone) 55%, var(--surface))',
+    ...(sprite.skin
+      ? {
+          '--pixel-face': sprite.skin,
+          '--pixel-skin': sprite.skin,
+          '--pixel-dark': '#171923',
+          '--pixel-eyes': '#171923',
+        }
+      : {}),
+    ...(sprite.accent ? { '--pixel-gold': sprite.accent } : {}),
+    ...(sprite.background ? { backgroundColor: sprite.background } : {}),
+    imageRendering: 'pixelated',
   }) as CSSProperties
 function Pixels({
   sprite,

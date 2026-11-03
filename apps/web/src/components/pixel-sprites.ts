@@ -1,3 +1,4 @@
+import type { AvatarSpec } from './avatar-spec'
 import { getPortraitPixels, type PortraitVariant } from './avatar-pixels'
 export type SpriteVariant = PortraitVariant
 export interface SpriteDefinition {
@@ -6,14 +7,27 @@ export interface SpriteDefinition {
   hair?: string
   highlight?: string
   scale?: number
+  skin?: string
+  outfit?: string
+  accent?: string
+  accessory?: AvatarSpec['accessory']
+  background?: string
 }
 export function portraitPixels(sprite: SpriteDefinition) {
-  return getPortraitPixels(sprite.variant)
+  const grid = getPortraitPixels(sprite.variant)
+  if (sprite.skin && sprite.variant !== 'hood' && sprite.variant !== 'cap') {
+    // The world silhouettes use hood shading on the head; personal avatars
+    // give uncovered heads their selected hair palette instead.
+    for (let y = 0; y < 10; y++) {
+      grid[y] = grid[y]!.map((pixel) => (pixel === 'h' || pixel === 'l' ? 'a' : pixel))
+    }
+  }
+  return overlayAccessory(grid, sprite.accessory, true)
 }
 /** A shared portrait silhouette extends into a detailed 16 × 28 body; six precomputed poses. */
 export function spritePixels(sprite: SpriteDefinition, frame = 0, action = 'idle'): string[][] {
   const grid = Array.from({ length: 28 }, () => Array<string>(16).fill('.'))
-  const portrait = portraitPixels(sprite)
+  const portrait = portraitPixels({ ...sprite, accessory: undefined })
   portrait.slice(0, 11).forEach((row, y) =>
     row.forEach((pixel, x) => {
       grid[y]![x + 1] = pixel
@@ -92,7 +106,7 @@ export function spritePixels(sprite: SpriteDefinition, frame = 0, action = 'idle
     grid[18]![3] = 'g'
     grid[18]![12] = 'g'
   }
-  return grid
+  return overlayAccessory(grid, sprite.accessory, false)
 }
 export const pixelColors: Record<string, string> = {
   o: 'var(--pixel-dark)',
@@ -104,4 +118,50 @@ export const pixelColors: Record<string, string> = {
   t: 'var(--sprite-tone)',
   a: 'var(--sprite-hair)',
   g: 'var(--pixel-gold)',
+}
+
+/** Overlay coordinates share the face landmarks of the 14 × 14 portrait.
+ * Full sprites offset those landmarks by one column and wear scarves lower. */
+function overlayAccessory(
+  grid: string[][],
+  accessory: SpriteDefinition['accessory'],
+  portrait: boolean,
+): string[][] {
+  const dx = portrait ? 0 : 1
+  const fill = (x: number, y: number, width: number, height: number, color: string) => {
+    for (let row = y; row < y + height; row++)
+      for (let col = x; col < x + width; col++) grid[row]![col + dx] = color
+  }
+  switch (accessory) {
+    case 'glasses':
+      // Leave skin beside each eye so the frames read as clear lenses.
+      fill(3, 5, 8, 1, 'o')
+      fill(3, 7, 8, 1, 'o')
+      for (const x of [3, 6, 7, 10]) fill(x, 6, 1, 1, 'o')
+      break
+    case 'sunglasses':
+      fill(4, 5, 6, 3, 'o')
+      fill(5, 5, 1, 1, 'l')
+      fill(8, 5, 1, 1, 'l')
+      break
+    case 'earring':
+      fill(11, 8, 1, 2, 'g')
+      fill(10, 9, 1, 1, 'l')
+      break
+    case 'scarf': {
+      const y = portrait ? 10 : 11
+      fill(4, y, 6, 2, 'g')
+      fill(8, y + 2, 2, portrait ? 2 : 5, 'g')
+      fill(4, y, 5, 1, 'l')
+      break
+    }
+    case 'star': {
+      const y = portrait ? 10 : 13
+      fill(10, y, 1, 3, 'g')
+      fill(9, y + 1, 3, 1, 'g')
+      fill(10, y + 1, 1, 1, 'l')
+      break
+    }
+  }
+  return grid
 }
