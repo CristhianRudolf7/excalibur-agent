@@ -350,7 +350,8 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 			return nil, asAPIError(err)
 		}
 		return res, nil
-	case api.MethodVoiceStatus, api.MethodVoiceTranscribe, api.MethodVoiceSpeak,
+	case api.MethodRobotStatus, api.MethodRobotConnect, api.MethodRobotDisconnect, api.MethodRobotStop, api.MethodRobotFrame,
+		api.MethodVoiceStatus, api.MethodVoiceTranscribe, api.MethodVoiceSpeak,
 		api.MethodAutomationsList, api.MethodAutomationsGet, api.MethodAutomationsRuns, api.MethodAutomationsRun, api.MethodAutomationsPause, api.MethodAutomationsResume, api.MethodAutomationsDelete, api.MethodTasksQuery, api.MethodTasksGet, api.MethodRemindersList, api.MethodRemindersCreate, api.MethodRemindersUpdate, api.MethodRemindersDelete, api.MethodSkillsGroups, api.MethodSkillsList, api.MethodSkillsGet, api.MethodSkillsUpdate, api.MethodSkillsSetState, api.MethodSkillsDelete, api.MethodUsageSummary:
 		res, err := s.backend.Passthrough(ctx, method, params)
 		if err != nil {

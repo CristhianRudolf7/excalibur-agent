@@ -27,6 +27,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store/migrations"
@@ -231,7 +232,17 @@ func runDaemonStart(args []string) error {
 	if db != nil {
 		webOpts.Blobs = wireengine.StoreBrowserBlobs{Store: db.Blob()}
 	}
+	var audioBlobs gateway.BlobStore = gateway.NewMemoryBlobs()
+	if db != nil {
+		audioBlobs = gateway.StoreBlobs{Store: db.Blob()}
+	}
+	var robotService *robot.Service
+	if layerCfg.Robot.Enabled {
+		robotService = robot.New(robot.Options{Blobs: audioBlobs, Bus: bus})
+		defer robotService.Close()
+	}
 	svc, err := daemon.Assemble(daemon.AssembleOptions{
+		Robot:      robotService,
 		Whiteboard: whiteboard.NewService(whiteboard.NewStore(db), bus),
 		Classroom:  classroom.NewService(classroom.NewStore(db), bus),
 		BrowserWeb: webOpts,
@@ -315,10 +326,6 @@ func runDaemonStart(args []string) error {
 	unsubscribeAutomations := daemon.WireAutomationEvents(automationService, bus)
 	defer unsubscribeAutomations()
 	svc.Automations = automationService
-	var audioBlobs gateway.BlobStore = gateway.NewMemoryBlobs()
-	if db != nil {
-		audioBlobs = gateway.StoreBlobs{Store: db.Blob()}
-	}
 	// Reload the configured credential file and vault at the audio execution boundary.
 	voiceModels := layerCfg.Models
 	if voiceModels.CredentialsFile == "" {
@@ -326,6 +333,7 @@ func runDaemonStart(args []string) error {
 	}
 	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
+		Robot: robotService,
 		WorkspaceRoots: func(context.Context) []string {
 			if workspaceRoot == "" {
 				return nil
@@ -333,7 +341,7 @@ func runDaemonStart(args []string) error {
 			return []string{workspaceRoot}
 		},
 		FileBlobs:   audioBlobs,
-		Voice:       &daemon.VoiceRoutes{Client: &voice.Client{Config: layerCfg.Voice, Credentials: voice.ModelCredentials(voiceModels, daemon.VaultSecretResolver(v))}, Blobs: audioBlobs},
+		Voice:       &daemon.VoiceRoutes{Client: &voice.Client{Config: layerCfg.Voice, Credentials: voice.ModelCredentials(voiceModels, daemon.VaultSecretResolver(v)), FallbackCredentials: voice.ModelFallbackCredentials(voiceModels, daemon.VaultSecretResolver(v))}, Blobs: audioBlobs},
 		Sources:     svc.Sources,
 		TaskQueries: taskQueries, Reminders: reminderService, Automations: automationService,
 		Whiteboard: svc.Whiteboard,

@@ -81,6 +81,7 @@ it('sends optimistically with document IDs, deduplicates an early echo and retri
   expect(call).toHaveBeenCalledWith(
     'conversation.send',
     expect.objectContaining({ conversation_id: 'cnv_web_byte', attachments: ['doc-1'] }),
+    expect.objectContaining({ timeoutMs: 30_000 }),
   )
   receiveEvent('byte', event({ ...wire('msg-1', 'Read this'), role: 'user' }))
   resolve({ msg_id: 'msg-1' })
@@ -161,6 +162,7 @@ it('shows an offline state when unavailable, reconnects to real history, and sen
     expect(call).toHaveBeenCalledWith(
       'conversation.send',
       expect.objectContaining({ text: 'Hello daemon', attachments: [] }),
+      expect.objectContaining({ timeoutMs: 30_000 }),
     ),
   )
 })
@@ -215,6 +217,7 @@ it('renders a failed send with retry and receives cited assistant replies in cha
     expect(call).toHaveBeenCalledWith(
       'conversation.send',
       expect.objectContaining({ text: '/stop' }),
+      expect.objectContaining({ timeoutMs: 30_000 }),
     ),
   )
   expect(useChat.getState().typing.byte).toBe(false)
@@ -329,5 +332,6 @@ it('keeps classroom context on the single conversation and preserves it on retry
       context,
       client_msg_id: failed.clientMsgId,
     }),
+    { timeoutMs: 30_000 },
   )
 })

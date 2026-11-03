@@ -1,0 +1,673 @@
+.robot-page,
+.robot-device-menu {
+  --robot-accent-foreground: var(--primary-strong);
+}
+.dark .robot-page,
+.dark .robot-device-menu {
+  --robot-accent-foreground: var(--primary);
+}
+.robot-page {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 42px 40px 160px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+}
+.robot-page:focus {
+  outline: none;
+}
+.robot-header,
+.robot-grid {
+  max-width: 1180px;
+  margin-inline: auto;
+}
+.robot-header {
+  margin-bottom: 30px;
+}
+.robot-header > span {
+  color: var(--robot-accent-foreground);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+}
+.robot-header h1 {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -1px;
+  margin: 7px 0 10px;
+}
+.robot-header p {
+  color: var(--muted-foreground);
+  line-height: 1.7;
+  max-width: 610px;
+}
+.robot-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.5fr);
+  gap: 22px;
+  align-items: start;
+}
+.robot-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  background: var(--surface);
+  box-shadow: 0 4px 20px var(--shadow);
+  animation: robot-enter var(--dur-base) var(--ease-out) both;
+}
+.robot-camera-card {
+  animation-delay: 35ms;
+}
+.robot-card-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 24px;
+}
+.robot-card-heading h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.robot-card-heading p {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin: 4px 0 0;
+}
+.robot-card-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: var(--accent-tint);
+  color: var(--robot-accent-foreground);
+}
+.robot-card-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.robot-status {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 7px;
+  align-items: center;
+  border-radius: 20px;
+  padding: 6px 10px;
+  margin-bottom: 23px;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.robot-status i,
+.robot-live i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.robot-status-connected,
+.robot-status-connecting {
+  background: var(--accent-tint);
+  color: var(--robot-accent-foreground);
+}
+.robot-status-error {
+  background: var(--diff-del-tint);
+  color: var(--diff-del);
+}
+.robot-connection-card label {
+  display: block;
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 8px;
+}
+.robot-input {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.robot-input > svg {
+  width: 16px;
+  height: 16px;
+  color: var(--tertiary);
+  flex-shrink: 0;
+}
+.robot-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+}
+.robot-input:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.robot-input input::placeholder {
+  color: var(--tertiary);
+}
+.robot-field-hint {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: 8px 0 18px;
+}
+.robot-button {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.robot-button svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.robot-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.robot-button:not(:disabled):hover {
+  color: var(--robot-accent-foreground);
+  background: var(--accent-tint);
+  transform: translateY(-1px);
+}
+.robot-button:not(:disabled):active {
+  transform: scale(0.97);
+}
+.robot-primary {
+  background: var(--accent-gradient);
+  color: var(--primary-foreground);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--primary-foreground) 25%, transparent),
+    0 4px 12px var(--accent-glow);
+}
+.robot-primary:not(:disabled):hover {
+  background: var(--primary-hover);
+  color: var(--primary-foreground);
+}
+.robot-connection-card form > button {
+  width: 100%;
+}
+.robot-readouts {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 18px;
+}
+.robot-readouts dl {
+  margin: 0 0 23px;
+}
+.robot-readouts dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 11px;
+}
+.robot-readouts dt {
+  color: var(--muted-foreground);
+}
+.robot-readouts dd {
+  margin: 0;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.robot-tcp-label {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.robot-tcp {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.robot-tcp > div {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 8px;
+}
+.robot-tcp span {
+  display: block;
+  color: var(--tertiary);
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+.robot-tcp strong {
+  font-size: 15px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.robot-awaiting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+  padding-top: 20px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.robot-awaiting svg {
+  width: 24px;
+  flex-shrink: 0;
+  color: var(--tertiary);
+}
+.robot-camera-controls {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.robot-device {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 12px;
+}
+.robot-device > span:first-of-type {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.robot-device svg {
+  width: 16px;
+  height: 16px;
+  color: var(--icon);
+  flex-shrink: 0;
+}
+.robot-device:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.robot-device-menu {
+  z-index: 100;
+  min-width: var(--radix-select-trigger-width);
+  max-width: calc(100vw - 32px);
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 35px var(--shadow);
+  animation: robot-enter var(--dur-fast) var(--ease-out) both;
+}
+.robot-device-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.robot-device-option[data-highlighted] {
+  background: var(--accent-tint);
+  color: var(--robot-accent-foreground);
+}
+.robot-device-option svg {
+  width: 14px;
+  height: 14px;
+}
+.robot-preview {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: 340px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.robot-preview video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  opacity: 0;
+}
+.robot-preview.is-live {
+  background: var(--ink);
+}
+.robot-preview.is-live video {
+  opacity: 1;
+}
+.robot-preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 20px;
+}
+.robot-preview-empty > span {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  background: var(--accent-tint);
+  color: var(--robot-accent-foreground);
+  margin-bottom: 4px;
+}
+.robot-preview-empty strong {
+  font-size: 14px;
+  font-weight: 550;
+}
+.robot-preview-empty p {
+  max-width: 290px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  line-height: 1.7;
+}
+.robot-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--robot-accent-foreground);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.robot-frame-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 20px;
+}
+.robot-frame-controls > div > span {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.robot-interval {
+  display: inline-flex;
+  gap: 3px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+}
+.robot-interval button {
+  min-width: 43px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 11px;
+}
+.robot-interval button[aria-pressed='true'] {
+  color: var(--robot-accent-foreground);
+  background: var(--surface);
+  box-shadow: 0 1px 4px var(--shadow);
+}
+.robot-frame-age {
+  font-size: 10px;
+  color: var(--muted-foreground);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.robot-camera-privacy {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 20px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.7;
+}
+.robot-error {
+  color: var(--diff-del);
+  overflow-wrap: anywhere;
+}
+.robot-camera-card > .robot-error {
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.robot-stop-dock {
+  position: fixed;
+  right: 32px;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 12px 10px 20px;
+  border-radius: 60px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 40px var(--shadow);
+}
+.robot-stop-dock strong,
+.robot-stop-dock span {
+  display: block;
+}
+.robot-stop-dock strong {
+  font-size: 12px;
+  font-weight: 550;
+  margin-bottom: 5px;
+}
+.robot-stop-dock span {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.robot-stop {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 5px solid color-mix(in srgb, var(--blocked) 20%, var(--surface));
+  background: color-mix(in srgb, var(--blocked) 80%, var(--ink));
+  color: var(--primary-foreground);
+  font-size: 18px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--primary-foreground) 25%, transparent);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.robot-stop:hover {
+  transform: scale(1.04);
+}
+.robot-stop:active {
+  transform: scale(0.96);
+}
+.robot-toast {
+  position: fixed;
+  bottom: 142px;
+  right: 32px;
+  z-index: 36;
+  max-width: min(420px, calc(100vw - 40px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  box-shadow: 0 8px 30px var(--shadow);
+  font-size: 12px;
+}
+.robot-page button:focus-visible,
+.robot-device-menu:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+@keyframes robot-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 1100px) {
+  .robot-grid {
+    grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.15fr);
+    gap: 16px;
+  }
+  .robot-page {
+    padding-inline: 24px;
+  }
+  .robot-card {
+    padding: 20px;
+  }
+  .robot-camera-controls {
+    flex-wrap: wrap;
+  }
+  .robot-device {
+    flex-basis: 100%;
+  }
+}
+@media (max-width: 760px) {
+  .robot-page {
+    padding: 68px 18px 160px;
+  }
+  .robot-header {
+    margin-bottom: 24px;
+  }
+  .robot-header h1 {
+    font-size: 30px;
+  }
+  .robot-header p {
+    font-size: 12px;
+  }
+  .robot-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+  }
+  .robot-card {
+    padding: 20px;
+  }
+  .robot-camera-controls > button {
+    width: 100%;
+  }
+  .robot-preview {
+    aspect-ratio: 1;
+    max-height: none;
+  }
+  .robot-frame-controls {
+    align-items: end;
+  }
+  .robot-frame-age {
+    max-width: 105px;
+    line-height: 1.6;
+  }
+  .robot-stop-dock {
+    right: 18px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+  }
+  .robot-stop {
+    width: 70px;
+    height: 70px;
+  }
+  .robot-toast {
+    right: 18px;
+    bottom: 130px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .robot-page *,
+  .robot-device-menu {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Compact chat-style header, like the Robot Lab: sidebar toggle + title. */
+.robot-page {
+  padding: 0 0 160px;
+}
+.robot-page > .robot-header.chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: none;
+  margin: 0 0 28px;
+  height: 72px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(18px);
+}
+.robot-heading {
+  min-width: 0;
+}
+.robot-page > .robot-header h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.robot-page > .robot-header p {
+  margin: 1px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.robot-page > .robot-grid {
+  padding-inline: 40px;
+}
+@media (max-width: 700px) {
+  .robot-page,
+  .robot-page:where(*) {
+    padding-top: 0;
+  }
+  .robot-page > .robot-header.chat-header {
+    height: 64px;
+    padding: 10px 12px;
+  }
+  .robot-page > .robot-grid {
+    padding-inline: 16px;
+  }
+}

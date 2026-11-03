@@ -26,7 +26,7 @@ var configSectionNames = []string{
 	"master", "engine", "porter", "provider", "context", "memory",
 	"codeintel", "workspace", "skills", "tools", "models", "agenda",
 	"capabilities", "telemetry", "vault", "gateway", "daemon", "eval",
-	"browser", "search",
+	"browser", "search", "robot",
 }
 
 // Op routes one config.* gate call.

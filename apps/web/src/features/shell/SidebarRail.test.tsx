@@ -47,6 +47,7 @@ it('routes every navigation and action through its supplied handler', () => {
     ['Proyectos', 'projects'],
     ['Mundo 2D', 'world'],
     ['Aula', 'classroom'],
+    ['Robot', 'robot'],
     ['Tiendas', 'stores'],
     ['Herramientas', 'tools'],
     ['Automatizaciones', 'automations'],
@@ -68,4 +69,9 @@ it('clears agent selection outside conversations and highlights the current page
 it('highlights the classroom entry independently of the agent', () => {
   render(<SidebarRail {...props()} selectedAgentId={undefined} activeItem="classroom" />)
   expect(screen.getByRole('button', { name: 'Aula' })).toHaveAttribute('aria-pressed', 'true')
+})
+it('highlights Robot without selecting the agent', () => {
+  render(<SidebarRail {...props()} selectedAgentId={undefined} activeItem="robot" />)
+  expect(screen.getByRole('button', { name: 'Robot' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Excalibur' })).toHaveAttribute('aria-pressed', 'false')
 })

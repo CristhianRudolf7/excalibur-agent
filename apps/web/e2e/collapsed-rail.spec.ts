@@ -54,6 +54,8 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
     'Recordatorios',
     'Proyectos',
     'Mundo 2D',
+    'Aula',
+    'Robot',
     'Tiendas',
     'Herramientas',
     'Automatizaciones',
@@ -120,6 +122,21 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
     'aria-pressed',
     'true',
   )
+  for (const [label, path] of [
+    ['Aula', '/classroom'],
+    ['Robot', '/robot'],
+  ]) {
+    await rail.getByRole('button', { name: label, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`${path}$`))
+    await expect(rail.getByRole('button', { name: label, exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await expect(rail.getByRole('button', { name: 'Excalibur', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 

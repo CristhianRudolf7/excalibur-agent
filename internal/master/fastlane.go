@@ -341,6 +341,16 @@ var statusWords = []string{"estado", "status", "cómo va", "como va", "cómo vas
 
 func looksLikeStatusQuery(raw string) bool {
 	low := strings.ToLower(raw)
+	// Long requests ("…dime el estado del brazo…") are real work for the
+	// master; only short questions about running work get the run list.
+	if len(strings.Fields(low)) > 8 {
+		for _, w := range []string{"tarea", "subagente", "ejecuci", "corriendo", "running", "task", "run "} {
+			if strings.Contains(low, w) {
+				return true
+			}
+		}
+		return false
+	}
 	for _, w := range statusWords {
 		if strings.Contains(low, w) {
 			return true

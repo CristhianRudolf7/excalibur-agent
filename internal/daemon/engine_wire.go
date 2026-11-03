@@ -20,6 +20,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -48,6 +49,7 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
 	Classroom  classroom.AgentService
+	Robot      *robot.Service
 	Workdir    string
 	History    *wireengine.SharedHistory
 	Leases     *workspace.LeaseManager
@@ -125,6 +127,11 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("daemon: build tool surface: %w", err)
+	}
+	if w.Robot != nil {
+		if err := emb.Catalog.RegisterDeferred(&robot.Tool{Service: w.Robot}); err != nil {
+			return nil, nil, err
+		}
 	}
 	// Daemon delegation must never use the embedded record-only adapter,
 	// including when the authoritative orchestrator store is SQL-backed.

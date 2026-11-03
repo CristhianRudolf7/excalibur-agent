@@ -1529,7 +1529,7 @@ func (e *Engine) execBatch(ctx context.Context, run *Run, batch []providers.Tool
 		run.History = append(run.History, ctxcompiler.ActivityEvent{
 			Seq: seq, Role: providers.RoleTool,
 			Content: out, Dependencies: dependencies,
-			ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: out, IsError: res.Status != tools.StatusOK},
+			ToolResult: &providers.ToolResult{Images: res.Images, CallID: tc.ID, Name: tc.Name, Output: out, IsError: res.Status != tools.StatusOK},
 		})
 		run.mu.Unlock()
 		if refused[i] != "" {
@@ -1681,7 +1681,7 @@ func (e *Engine) recordBlockedCall(run *Run, tc providers.ToolCall, res tools.Re
 	run.History = append(run.History, ctxcompiler.ActivityEvent{
 		Seq: seq, Role: providers.RoleTool,
 		Content:    out,
-		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: out, IsError: true},
+		ToolResult: &providers.ToolResult{Images: res.Images, CallID: tc.ID, Name: tc.Name, Output: out, IsError: true},
 	})
 	run.mu.Unlock()
 	e.harvestBatch(run, []providers.ToolCall{tc}, []tools.Result{res})

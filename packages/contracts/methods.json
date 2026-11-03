@@ -2,6 +2,12 @@
   "version": 0,
   "description": "Excalibur gate methods. Exported from internal/api Methods; do not edit by hand without updating the registry.",
   "methods": [
+    {"name": "robot.status", "family": "robot", "summary": "Read robot bridge, arm and camera status."},
+    {"name": "robot.connect", "family": "robot", "summary": "Connect to a robot by IP."},
+    {"name": "robot.disconnect", "family": "robot", "summary": "Disconnect the robot."},
+    {"name": "robot.stop", "family": "robot", "summary": "Stop robot motion without approval."},
+    {"name": "robot.frame", "family": "robot", "summary": "Set the latest camera frame blob."},
+
     {"name": "artifacts.get", "family": "artifacts", "summary": "Fetch a visual artifact and its source in a conversation run."},
     {"name": "artifacts.list", "family": "artifacts", "summary": "List retained visual artifacts in a conversation."},
     {"name": "activity.list", "family": "activity", "summary": "List conversation activity."},
@@ -100,6 +106,13 @@
     {"name": "automations.delete", "family": "automations", "summary": "automations.delete."}
   ],
   "$defs": {
+    "RobotConnectParams": {"type": "object", "required": ["host"], "properties": {"host": {"type": "string"}}, "additionalProperties": false},
+    "RobotFrameParams": {"type": "object", "required": ["blob", "width", "height"], "properties": {"blob": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}, "width": {"type": "integer", "minimum": 1, "maximum": 4096}, "height": {"type": "integer", "minimum": 1, "maximum": 4096}}, "additionalProperties": false},
+    "RobotOK": {"type": "object", "required": ["ok"], "properties": {"ok": {"type": "boolean"}}},
+    "RobotState": {"type": "object", "required": ["connected"], "properties": {"connected": {"type": "boolean"}, "host": {"type": "string"}, "robot_mode": {"type": "string"}, "safety_mode": {"type": "string"}, "program_running": {"type": "boolean"}, "tcp_pose": {"type": "array", "items": {"type": "number"}, "minItems": 6, "maxItems": 6}, "joints": {"type": "array", "items": {"type": "number"}, "minItems": 6, "maxItems": 6}, "digital_out": {"type": "array", "items": {"type": "boolean"}}, "digital_in": {"type": "array", "items": {"type": "boolean"}}, "speed_scaling": {"type": "number"}, "gripper": {"enum": ["open", "closed", "unknown"]}, "updated_at": {"type": "string"}, "polyscope_version": {"type": "string"}, "remote_control": {"type": "boolean"}}},
+    "RobotCamera": {"type": "object", "required": ["updated_at", "width", "height"], "properties": {"updated_at": {"type": "string", "format": "date-time"}, "width": {"type": "integer", "minimum": 1}, "height": {"type": "integer", "minimum": 1}}},
+    "RobotStatusResult": {"type": "object", "required": ["bridge"], "properties": {"bridge": {"enum": ["running", "stopped", "error"]}, "state": {"$ref": "#/$defs/RobotState"}, "camera": {"$ref": "#/$defs/RobotCamera"}, "error": {"type": "string"}}},
+
     "Artifact": {
       "$ref": "events.json#/$defs/Artifact"
     },

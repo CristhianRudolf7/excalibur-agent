@@ -127,6 +127,8 @@ func TestLooksLikeStatusQuery(t *testing.T) {
 		{"¿cómo va?", true},
 		{"what is the status", true},
 		{"qué está corriendo", true},
+		{"Usa la herramienta robot: mira la cámara y dime el estado del brazo. No muevas nada.", false},
+		{"dime el estado de las tareas que están corriendo ahora mismo por favor gracias", true},
 	} {
 		if got := looksLikeStatusQuery(tc.in); got != tc.want {
 			t.Errorf("looksLikeStatusQuery(%q) = %v, want %v", tc.in, got, tc.want)

@@ -780,3 +780,366 @@
   width: 20px;
   height: 20px;
 }
+
+/* Wider conversation column (the content looked cramped). */
+.message-history,
+.composer,
+.chat-body .date-separator,
+.composer-area .library-attachments {
+  max-width: min(1080px, 100%);
+}
+
+/* One-line, quiet summary of agent file changes; details open in the panel. */
+.changes-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 6px 10px 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.changes-line:hover {
+  border-color: var(--accent-tint-strong);
+  background: var(--accent-tint);
+  color: var(--foreground);
+}
+.changes-line:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.changes-line .change-add {
+  color: var(--diff-add);
+  font-variant-numeric: tabular-nums;
+}
+.changes-line .change-del {
+  color: var(--diff-del);
+  font-variant-numeric: tabular-nums;
+}
+.changes-line-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  color: var(--primary-strong);
+  font-weight: 500;
+}
+.changes-line:hover .changes-line-cta svg {
+  transform: translateX(2px);
+}
+.changes-line-cta svg {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+/* The composer floats over the conversation: no white band around it. */
+.chat-body .composer-area {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  background: transparent;
+  pointer-events: none;
+}
+.chat-body .composer-area > * {
+  pointer-events: auto;
+}
+.chat-body .messages {
+  padding-bottom: 168px;
+}
+.chat-body {
+  position: relative;
+}
+
+/* Composer like Claude/ChatGPT: the text area itself has no ring, border,
+   shadow or fill; focus only deepens the card's border and shadow softly. */
+.chat-body .composer textarea,
+.chat-body .composer textarea:focus,
+.chat-body .composer textarea:focus-visible {
+  outline: none;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--foreground);
+}
+.chat-body .composer:focus-within {
+  border-color: var(--strong-border, var(--border));
+  box-shadow:
+    0 4px 6px var(--shadow),
+    0 14px 36px var(--shadow);
+}
+.chat-body .composer-toolbar {
+  margin-top: 12px;
+}
+.chat-body .composer .send-button:not(:disabled) svg {
+  color: var(--primary-foreground, #fff);
+  stroke: currentColor;
+}
+.chat-body .messages {
+  padding-bottom: calc(var(--composer-h, 150px) + 12px);
+}
+.chat-body .composer textarea {
+  max-height: min(32dvh, 220px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Message actions: icon-only copy and read-aloud. */
+.message-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+}
+.message-actions .message-copy,
+.message-speak {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.message-speak:hover {
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+}
+.message-speak.speaking {
+  color: var(--destructive, #dc2626);
+  background: color-mix(in srgb, var(--destructive, #dc2626) 12%, transparent);
+  animation: speak-pulse 1.4s ease-in-out infinite;
+}
+.message-speak.speaking:hover {
+  color: var(--destructive, #dc2626);
+  background: color-mix(in srgb, var(--destructive, #dc2626) 18%, transparent);
+}
+.message-actions button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+@keyframes speak-pulse {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--destructive, #dc2626) 14%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-speak.speaking {
+    animation: none;
+  }
+}
+.message-actions .changes-line {
+  margin-top: 0;
+  margin-right: 6px;
+}
+/* Show at most five lines; beyond that the text area scrolls. */
+.chat-body .composer textarea {
+  max-height: calc(1.55em * 5);
+}
+/* Start-call button sits in the control row (it used to fall below the fold). */
+.call-dialog .call-start-round {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  animation: call-ring 1.8s ease-in-out infinite;
+}
+.call-dialog .call-start-round:disabled {
+  animation: none;
+  opacity: 0.5;
+}
+@keyframes call-ring {
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--primary) 18%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .call-dialog .call-start-round {
+    animation: none;
+  }
+}
+.call-dialog .call-controls .call-start-round {
+  background: var(--accent-gradient);
+  color: var(--primary-foreground, #fff);
+  border: 0;
+}
+.call-dialog .call-controls .call-start-round svg {
+  color: var(--primary-foreground, #fff);
+}
+
+/* Working indicator: the last row of the conversation, above the composer. */
+.thinking-row {
+  display: flex;
+  gap: 12px;
+  max-width: min(1080px, 100%);
+  margin: 6px auto 0;
+  padding: 10px 13px;
+  animation: chat-view-enter var(--dur-base) var(--ease-out) both;
+}
+.thinking-avatar {
+  position: relative;
+  flex-shrink: 0;
+  height: 32px;
+}
+.thinking-avatar::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 12px;
+  border: 2px solid var(--accent-2);
+  opacity: 0;
+  animation: thinking-ring 1.8s var(--ease-out) infinite;
+}
+.thinking-body {
+  min-width: 0;
+  flex: 1;
+  max-width: 420px;
+}
+.thinking-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.thinking-text {
+  font-size: 14px;
+  font-weight: 500;
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 35%,
+    var(--primary) 50%,
+    var(--muted-foreground) 65%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 2.2s linear infinite;
+}
+.thinking-row .thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+.thinking-row .thinking-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: thinking-dot 1.2s ease-in-out infinite;
+}
+.thinking-row .thinking-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.thinking-row .thinking-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.thinking-time {
+  margin-left: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  color: var(--primary-strong);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.thinking-bar {
+  position: relative;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--accent-tint);
+  overflow: hidden;
+}
+.thinking-bar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: inherit;
+  background: var(--accent-gradient, var(--primary));
+  animation: thinking-bar 1.6s var(--ease-out) infinite;
+}
+.thinking-hint {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+  animation: chat-view-enter var(--dur-base) var(--ease-out) both;
+}
+.thinking-hint button {
+  color: var(--primary-strong);
+  font-weight: 500;
+  cursor: pointer;
+}
+.thinking-hint button:hover {
+  text-decoration: underline;
+}
+@keyframes thinking-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+@keyframes thinking-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+@keyframes thinking-bar {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+@keyframes thinking-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thinking-text,
+  .thinking-row .thinking-dots i,
+  .thinking-bar span,
+  .thinking-avatar::after {
+    animation: none;
+  }
+  .thinking-text {
+    color: var(--muted-foreground);
+    background: none;
+  }
+}

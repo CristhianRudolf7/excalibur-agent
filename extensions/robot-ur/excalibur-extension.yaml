@@ -1,0 +1,145 @@
+{
+  "id": "robot-ur",
+  "version": "0.1.0",
+  "contract": "excalibur-ext/1",
+  "kind": "builtin",
+  "lifecycle": "lazy",
+  "platforms": [
+    "linux"
+  ],
+  "profiles": [
+    "default"
+  ],
+  "concurrency": 1,
+  "tools": [
+    {
+      "name": "robot",
+      "description": "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan small steps in meters/radians. Before EACH motion, gripper change or freedrive entry, ask the user to explicitly approve that exact action with direction, distance and speed (for example: I will move the gripper 5 cm left at 0.1 m/s). Set approved:true ONLY after that explicit approval in this conversation. Never infer approval from a general goal. Always offer STOP; stop needs no approval. Look sends the latest camera image and robot state to you. Home is the named TCP pose home. Camera frames may be stale: check updated_at. Workspace, speed, step and mode limits are enforced by the bridge.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "look",
+              "move_named",
+              "move_relative",
+              "move_pose",
+              "move_joints",
+              "gripper",
+              "home",
+              "stop",
+              "list_poses",
+              "save_pose",
+              "freedrive"
+            ]
+          },
+          "approved": {
+            "type": "boolean",
+            "default": false
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "pose": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 6,
+            "maxItems": 6
+          },
+          "joints": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 6,
+            "maxItems": 6
+          },
+          "delta": {
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "dx": {
+                "type": "number"
+              },
+              "dy": {
+                "type": "number"
+              },
+              "dz": {
+                "type": "number"
+              },
+              "drx": {
+                "type": "number"
+              },
+              "dry": {
+                "type": "number"
+              },
+              "drz": {
+                "type": "number"
+              }
+            }
+          },
+          "frame": {
+            "type": "string",
+            "enum": [
+              "base",
+              "tool"
+            ]
+          },
+          "speed": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "accel": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "gripper": {
+            "type": "string",
+            "enum": [
+              "open",
+              "close"
+            ]
+          },
+          "on": {
+            "type": "boolean"
+          }
+        }
+      },
+      "effect": "write_external",
+      "idempotency": "non_idempotent",
+      "cancel": "immediate",
+      "timeout": "40s",
+      "output_budget": 16384,
+      "platforms": [
+        "linux"
+      ],
+      "profiles": [
+        "default"
+      ],
+      "group": "robot",
+      "tags": [
+        "robot",
+        "camera",
+        "gripper",
+        "UR10e"
+      ],
+      "keywords": [
+        "arm",
+        "move",
+        "stop",
+        "look",
+        "home"
+      ]
+    }
+  ]
+}

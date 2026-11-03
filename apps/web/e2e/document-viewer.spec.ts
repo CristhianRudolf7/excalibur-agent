@@ -15,7 +15,7 @@ for (const mobile of [false, true]) {
         },
       })
     })
-    await page.goto('/agents/excalibur?panel=document&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     const panel = page.locator('.panel-content')
     await panel.getByRole('button', { name: 'DOCX', exact: true }).click()
@@ -25,8 +25,9 @@ for (const mobile of [false, true]) {
       path: test.info().outputPath(`document-${mobile ? 'mobile' : 'desktop'}.png`),
     })
     await panel.getByRole('button', { name: /Cerrar documento|Close document/ }).click()
-    if (mobile) await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
-    else await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
+    // Reopening the panel lands on its home launcher; a fresh deep link shows the viewer again.
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
+    await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     await panel.getByRole('button', { name: 'XLSX', exact: true }).click()
     await expect(panel.getByRole('gridcell', { name: 'B2' })).toHaveAttribute(
       'aria-selected',
@@ -34,6 +35,7 @@ for (const mobile of [false, true]) {
     )
     await expect(panel.getByRole('gridcell', { name: 'B2' })).toHaveText('42')
     await panel.getByRole('button', { name: /Cerrar documento|Close document/ }).click()
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     await panel.getByRole('button', { name: 'PPTX', exact: true }).click()
     const slide = await panel.locator('.viewer-slide').boundingBox()
@@ -43,6 +45,7 @@ for (const mobile of [false, true]) {
     await panel.getByRole('tab', { name: 'Overview 2' }).click()
     await expect(panel.getByRole('heading', { name: 'Document library 2' })).toBeVisible()
     await panel.getByRole('button', { name: /Cerrar documento|Close document/ }).click()
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     await panel.getByRole('button', { name: 'PDF', exact: true }).click()
     await expect(panel.locator('canvas')).toBeVisible()
@@ -88,7 +91,7 @@ test('renders the original blob at the cited PDF page', async ({ page }) => {
     blobRequested = true
     await route.fulfill({ body: Buffer.from(seedPDF()), contentType: 'application/pdf' })
   })
-  await page.goto('/agents/excalibur?panel=document&view=chat')
+  await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   await page.getByRole('button', { name: 'PDF', exact: true }).click()
   const panel = page.locator('.panel-content')

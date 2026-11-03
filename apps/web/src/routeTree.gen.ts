@@ -14,6 +14,7 @@ import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as RemindersRouteImport } from './routes/reminders'
+import { Route as RobotRouteImport } from './routes/robot'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
@@ -43,6 +44,11 @@ const ProjectsRoute = ProjectsRouteImport.update({
 const RemindersRoute = RemindersRouteImport.update({
   id: '/reminders',
   path: '/reminders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RobotRoute = RobotRouteImport.update({
+  id: '/robot',
+  path: '/robot',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
+  '/robot': typeof RobotRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
@@ -89,6 +96,7 @@ export interface FileRoutesByTo {
   '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
+  '/robot': typeof RobotRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
@@ -102,6 +110,7 @@ export interface FileRoutesById {
   '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
+  '/robot': typeof RobotRoute
   '/settings': typeof SettingsRoute
   '/tasks': typeof TasksRoute
   '/agents/$agentId': typeof AgentsAgentIdRoute
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/classroom'
     | '/projects'
     | '/reminders'
+    | '/robot'
     | '/settings'
     | '/tasks'
     | '/agents/$agentId'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/classroom'
     | '/projects'
     | '/reminders'
+    | '/robot'
     | '/settings'
     | '/tasks'
     | '/agents/$agentId'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/classroom'
     | '/projects'
     | '/reminders'
+    | '/robot'
     | '/settings'
     | '/tasks'
     | '/agents/$agentId'
@@ -153,6 +165,7 @@ export interface RootRouteChildren {
   ClassroomRoute: typeof ClassroomRoute
   ProjectsRoute: typeof ProjectsRoute
   RemindersRoute: typeof RemindersRoute
+  RobotRoute: typeof RobotRoute
   SettingsRoute: typeof SettingsRoute
   TasksRoute: typeof TasksRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
@@ -194,6 +207,13 @@ declare module '@tanstack/react-router' {
       path: '/reminders'
       fullPath: '/reminders'
       preLoaderRoute: typeof RemindersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/robot': {
+      id: '/robot'
+      path: '/robot'
+      fullPath: '/robot'
+      preLoaderRoute: typeof RobotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -252,6 +272,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClassroomRoute: ClassroomRoute,
   ProjectsRoute: ProjectsRoute,
   RemindersRoute: RemindersRoute,
+  RobotRoute: RobotRoute,
   SettingsRoute: SettingsRoute,
   TasksRoute: TasksRoute,
   AgentsAgentIdRoute: AgentsAgentIdRoute,

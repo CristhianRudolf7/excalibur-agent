@@ -10,6 +10,11 @@ import (
 // the task delegation family of Section 3.6. The Methods registry below
 // enumerates them for schema export and conformance tests.
 const (
+	MethodRobotStatus     = "robot.status"
+	MethodRobotConnect    = "robot.connect"
+	MethodRobotDisconnect = "robot.disconnect"
+	MethodRobotStop       = "robot.stop"
+	MethodRobotFrame      = "robot.frame"
 	MethodActivityList    = "activity.list"
 	MethodFilesOpen       = "files.open"
 	MethodVoiceStatus     = "voice.status"
@@ -127,6 +132,11 @@ type MethodInfo struct {
 // reject unknown methods with CodeMethodNotFound and the contracts
 // export test requires every entry to appear in packages/contracts.
 var Methods = []MethodInfo{
+	{MethodRobotStatus, "robot", "Read robot bridge, arm and camera status."},
+	{MethodRobotConnect, "robot", "Connect to a robot by IP."},
+	{MethodRobotDisconnect, "robot", "Disconnect the robot."},
+	{MethodRobotStop, "robot", "Stop robot motion without approval."},
+	{MethodRobotFrame, "robot", "Set the latest camera frame blob."},
 	{MethodArtifactsGet, "artifacts", "Fetch a visual artifact and its source in a conversation run."},
 	{MethodArtifactsList, "artifacts", "List retained visual artifacts in a conversation."},
 	{MethodActivityList, "activity", "List conversation activity."},

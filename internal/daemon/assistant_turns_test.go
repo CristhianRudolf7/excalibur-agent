@@ -265,8 +265,13 @@ func TestEngineAssistantQueuesSecondMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Master.Turns().PendingCount("cnv_queue") != 1 {
-		t.Fatal("second message not queued")
+	// Delivery runs right after the receipt; wait for the second message to queue.
+	deadline := time.Now().Add(3 * time.Second)
+	for b.Master.Turns().PendingCount("cnv_queue") != 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("second message not queued")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	close(release)
 	rows := awaitAssistant(t, b, "cnv_queue", 2)

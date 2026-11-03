@@ -185,11 +185,18 @@ func buildInput(msgs []providers.Message) ([]any, error) {
 					Err:  fmt.Errorf("message %d tool result misses call id", i),
 				}
 			}
-			out = append(out, map[string]any{
-				"type":    "function_call_output",
-				"call_id": m.ToolResult.CallID,
-				"output":  m.ToolResult.Output,
-			})
+			var output any = m.ToolResult.Output
+			if len(m.ToolResult.Images) > 0 {
+				parts := []any{respTextPart{Type: "input_text", Text: m.ToolResult.Output}}
+				for _, img := range m.ToolResult.Images {
+					if img.URL == "" {
+						return nil, fmt.Errorf("responses: tool image requires nonempty URL")
+					}
+					parts = append(parts, map[string]string{"type": "input_image", "image_url": img.URL})
+				}
+				output = parts
+			}
+			out = append(out, map[string]any{"type": "function_call_output", "call_id": m.ToolResult.CallID, "output": output})
 		default:
 			return nil, &providers.ProviderError{
 				Kind: providers.KindInput,

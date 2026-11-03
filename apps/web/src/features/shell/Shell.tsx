@@ -1,4 +1,5 @@
 import { Classroom } from '@/features/classroom/Classroom'
+import { Robot } from '@/features/robot/Robot'
 import { Artifacts } from '@/features/artifacts/Artifacts'
 import { useArtifactEvents } from '@/features/artifacts/store'
 import { PanelHome, PanelChanges, PanelActivity, usePanelData } from '@/features/panel/Panel'
@@ -16,7 +17,7 @@ import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import {
-  Swords,
+  Bot,
   ClipboardCheck,
   Bell,
   Folder,
@@ -38,6 +39,7 @@ import { ResizeHandle } from '@/components/resize/ResizeHandle'
 import { clampSidebarWidth, sidebarWidthLimit } from './sidebar-size'
 import { SidebarRail } from './SidebarRail'
 import { ChatHeaderActions } from './ChatHeaderActions'
+import { Wordmark } from '@/components/brand/Wordmark'
 import { PanelToggle } from '@/components/ui/panel-toggle'
 import { ErrorBoundary } from '@/components/ErrorScreen'
 import { publishWorldDebug } from '@/features/world/debug'
@@ -65,6 +67,18 @@ function useMobile() {
   }, [])
   return mobile
 }
+// Only an explicit deep link (?panelDeepLink=1&panel=…) opens a specific view;
+// a remembered ?panel=… in a bookmarked URL must not override the launcher.
+const initialSearch = typeof location === 'undefined' ? null : new URLSearchParams(location.search)
+const deepLinkPanel =
+  initialSearch?.get('panelDeepLink') === '1' ? initialSearch.get('panel') : null
+let deepLinkUsed = false
+function consumeDeepLinkPanel() {
+  if (deepLinkUsed || !deepLinkPanel || deepLinkPanel === 'home') return false
+  deepLinkUsed = true
+  return true
+}
+
 export function Shell() {
   const { t } = useTranslation()
   const location = useLocation()
@@ -92,6 +106,7 @@ export function Shell() {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [])
+  const isRobot = location.pathname === '/robot'
   const isSettings = location.pathname === '/settings'
   const settingsItem = 'settings'
   const soonPage = location.pathname.split('/')[2] ?? ''
@@ -148,7 +163,8 @@ export function Shell() {
   const worldClock = search.worldClock
   const worldDebug = search.worldDebug,
     worldSpeed = search.worldSpeed
-  const isWorld = !isSettings && !isProjects && !isSoon && !isWorkPage && search.view === 'world'
+  const isWorld =
+    !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage && search.view === 'world'
   const dimensions = splitWidths(splitWidth, shell.ratio)
   const overlayPanel = mobile || dimensions.overlay
   const changeMode = useCallback(
@@ -187,13 +203,13 @@ export function Shell() {
     [navigate, agent.id, panel, worldDebug, worldSpeed, worldClock],
   )
   useEffect(() => {
-    if (search.view || isSettings || isProjects || isSoon || isWorkPage) return
+    if (search.view || isRobot || isSettings || isProjects || isSoon || isWorkPage) return
     try {
       if (localStorage.getItem('world-last-mode') === 'world') changeMode(true)
     } catch {
       /* Preferences are optional. */
     }
-  }, [search.view, isSettings, isProjects, isSoon, isWorkPage, changeMode])
+  }, [search.view, isRobot, isSettings, isProjects, isSoon, isWorkPage, changeMode])
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
@@ -209,7 +225,8 @@ export function Shell() {
       void navigate({
         to: '/agents/$agentId',
         params: { agentId: agent.id },
-        search: { panel: value, view: 'chat' },
+        // Keep other params (world debug/clock flags) when switching panel views.
+        search: (prev) => ({ ...prev, panel: value, view: 'chat' as const }),
       })
       useShell.getState().openPanel()
     },
@@ -231,6 +248,7 @@ export function Shell() {
     else if (path === 'myTasks' || path === '/tasks') void navigate({ to: '/tasks' })
     else if (path === 'reminders' || path === '/reminders') void navigate({ to: '/reminders' })
     else if (path === 'classroom') void navigate({ to: '/classroom' })
+    else if (path === 'robot') void navigate({ to: '/robot' })
     else if (path === 'automations') void navigate({ to: '/automations' })
     else if (path === '/projects') void navigate({ to: '/projects' })
     else void navigate({ to: '/coming-soon/$page', params: { page: path } })
@@ -364,26 +382,30 @@ export function Shell() {
           <SidebarRail
             agents={getAgents()}
             selectedAgentId={
-              !isSettings && !isProjects && !isSoon && !isWorkPage ? agent.id : undefined
+              !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage
+                ? agent.id
+                : undefined
             }
             activeItem={
-              isSettings
-                ? settingsItem
-                : isWorld
-                  ? 'world'
-                  : isProjects
-                    ? 'projects'
-                    : isWorkPage
-                      ? isClassroom
-                        ? 'classroom'
-                        : isAutomations
-                          ? 'automations'
-                          : isTasks
-                            ? 'myTasks'
-                            : 'reminders'
-                      : isSoon
-                        ? location.pathname.split('/')[2]
-                        : undefined
+              isRobot
+                ? 'robot'
+                : isSettings
+                  ? settingsItem
+                  : isWorld
+                    ? 'world'
+                    : isProjects
+                      ? 'projects'
+                      : isWorkPage
+                        ? isClassroom
+                          ? 'classroom'
+                          : isAutomations
+                            ? 'automations'
+                            : isTasks
+                              ? 'myTasks'
+                              : 'reminders'
+                        : isSoon
+                          ? location.pathname.split('/')[2]
+                          : undefined
             }
             onNavigate={(key) =>
               key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
@@ -419,8 +441,7 @@ export function Shell() {
             style={{ transform: `translateY(${navTop ?? 0}px)`, opacity: navTop === null ? 0 : 1 }}
           />
           <div className="workspace-row">
-            <Swords className="workspace-logo" />
-            <strong>{t('workspace')}</strong>
+            <Wordmark />
           </div>
           <div className="sidebar-section-title">{t('agents')}</div>
           <nav className="agent-nav">
@@ -428,12 +449,22 @@ export function Shell() {
               <button
                 key={a.id}
                 className={
-                  !isSettings && !isProjects && !isSoon && !isWorkPage && agent.id === a.id
+                  !isRobot &&
+                  !isSettings &&
+                  !isProjects &&
+                  !isSoon &&
+                  !isWorkPage &&
+                  agent.id === a.id
                     ? 'selected'
                     : ''
                 }
                 aria-current={
-                  !isSettings && !isProjects && !isSoon && !isWorkPage && agent.id === a.id
+                  !isRobot &&
+                  !isSettings &&
+                  !isProjects &&
+                  !isSoon &&
+                  !isWorkPage &&
+                  agent.id === a.id
                     ? 'page'
                     : undefined
                 }
@@ -457,11 +488,13 @@ export function Shell() {
               { key: 'projects', icon: Folder },
               { key: 'world', icon: Globe },
               { key: 'classroom', icon: GraduationCap },
+              { key: 'robot', icon: Bot },
             ].map(({ key, icon: Icon }) => (
               <button
                 key={key}
                 className={
                   (isClassroom && key === 'classroom') ||
+                  (isRobot && key === 'robot') ||
                   (isProjects && key === 'projects') ||
                   (isTasks && key === 'myTasks') ||
                   (isReminders && key === 'reminders')
@@ -470,6 +503,7 @@ export function Shell() {
                 }
                 aria-current={
                   (isClassroom && key === 'classroom') ||
+                  (isRobot && key === 'robot') ||
                   (isProjects && key === 'projects') ||
                   (isTasks && key === 'myTasks') ||
                   (isReminders && key === 'reminders')
@@ -584,7 +618,9 @@ export function Shell() {
               />
             </div>
           )}
-          {isSettings ? (
+          {isRobot ? (
+            <Robot />
+          ) : isSettings ? (
             <Suspense
               fallback={
                 <LoadingFallback>
@@ -679,7 +715,13 @@ export function Shell() {
                   <ChatHeaderActions
                     onMode={(mode) => changeMode(mode === 'world')}
                     onNotice={setNotice}
-                    onPanel={shell.togglePanel}
+                    onPanel={() => {
+                      // The panel opens on its home launcher; only a deep link
+                      // (?panel=… in the URL the app was loaded with) is honored once.
+                      if (shell.panelOpen) shell.togglePanel()
+                      else if (consumeDeepLinkPanel()) shell.togglePanel()
+                      else setPanel('home')
+                    }}
                     panelOpen={shell.panelOpen}
                   />
                 </header>

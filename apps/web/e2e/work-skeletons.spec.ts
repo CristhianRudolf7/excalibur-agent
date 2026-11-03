@@ -129,7 +129,7 @@ for (const width of [1440, 390]) {
           : shape === 'library'
             ? 'library'
             : 'document'
-      await page.goto(`/agents/excalibur?panel=${panel}&view=chat`)
+      await page.goto(`/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=${panel}&view=chat`)
       await page.getByRole('button', { name: /Alternar panel|Toggle panel/, exact: true }).click()
       if (['paper', 'slides', 'grid'].includes(shape))
         await page
@@ -296,7 +296,7 @@ for (const width of [1440, 390]) {
       await gate
       await route.fulfill({ body: Buffer.from(seedPDF()), contentType: 'application/pdf' })
     })
-    await page.goto('/agents/excalibur?panel=document&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
 
     await page.getByRole('button', { name: 'PDF', exact: true }).click()

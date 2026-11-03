@@ -52,11 +52,36 @@ func ModelCredentials(cfg config.ModelsConfig, resolve registry.SecretResolver) 
 	}
 }
 
+// ModelFallbackCredentials resolves the quota/rate-limit fallback key the
+// chat models already use, so voice survives an exhausted primary account.
+func ModelFallbackCredentials(cfg config.ModelsConfig, resolve registry.SecretResolver) Credentials {
+	return func(ctx context.Context) (string, string, error) {
+		s, err := models.ResolveModelSettings(cfg, nil)
+		if err != nil {
+			return "", "", errors.New("voice: credentials unavailable")
+		}
+		def := s.ProviderDef()
+		def.Kind = registry.KindOpenAI
+		key, _, err := registry.ResolveFallbackKey(ctx, def, resolve)
+		if err != nil || key == "" {
+			return "", "", errors.New("voice: no fallback credential")
+		}
+		base := s.BaseURL
+		if base == "" {
+			base = "https://api.openai.com/v1"
+		}
+		return base, key, nil
+	}
+}
+
 // Client bounds requests, response bodies and elapsed time, including injected transports.
 type Client struct {
 	Config      config.VoiceConfig
 	Credentials Credentials
-	HTTP        *http.Client
+	// FallbackCredentials, when set, is tried once after a quota, billing or
+	// authorization rejection (HTTP 401, 402 or 429) from the primary key.
+	FallbackCredentials Credentials
+	HTTP                *http.Client
 }
 
 func (c *Client) settings() config.VoiceConfig {
@@ -184,9 +209,20 @@ func (c *Client) request(ctx context.Context, path, contentType string, body []b
 	if err != nil {
 		return nil, err
 	}
+	data, status, err := c.send(ctx, base, key, path, contentType, body, limit)
+	if (status == http.StatusTooManyRequests || status == http.StatusPaymentRequired || status == http.StatusUnauthorized) && c.FallbackCredentials != nil {
+		if fbase, fkey, ferr := c.FallbackCredentials(ctx); ferr == nil && fkey != "" && fkey != key {
+			data, _, err = c.send(ctx, strings.TrimRight(fbase, "/"), fkey, path, contentType, body, limit)
+		}
+	}
+	return data, err
+}
+
+// send performs one attempt and reports the HTTP status for fallback decisions.
+func (c *Client) send(ctx context.Context, base, key, path, contentType string, body []byte, limit int64) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.New("voice: invalid endpoint")
+		return nil, 0, errors.New("voice: invalid endpoint")
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("Content-Type", contentType)
@@ -199,23 +235,23 @@ func (c *Client) request(ctx context.Context, path, contentType string, body []b
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, 0, ctx.Err()
 		}
-		return nil, errors.New("voice: audio request failed")
+		return nil, 0, errors.New("voice: audio request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("voice: audio provider returned HTTP %d", resp.StatusCode)
+		return nil, resp.StatusCode, fmt.Errorf("voice: audio provider returned HTTP %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, resp.StatusCode, ctx.Err()
 		}
-		return nil, errors.New("voice: audio response failed")
+		return nil, resp.StatusCode, errors.New("voice: audio response failed")
 	}
 	if len(data) == 0 || int64(len(data)) > limit {
-		return nil, errors.New("voice: invalid audio response size")
+		return nil, resp.StatusCode, errors.New("voice: invalid audio response size")
 	}
-	return data, nil
+	return data, resp.StatusCode, nil
 }

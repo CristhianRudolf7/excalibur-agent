@@ -56,10 +56,15 @@ for (const width of [1440, 390]) {
       path: `/home/cristhian/projects/ui-design/fc-shots/fe-card-${width}.png`,
       animations: 'disabled',
     })
+    // The chat shows only a one-line summary; diffs live in the panel.
+    await expect(page.locator('.chat-body .changes-list')).toHaveCount(0)
+    const openFromPanel = async (path: string) => {
+      await page.locator('.changes-line').first().click()
+      await expect(page).toHaveURL(/panel=changes/)
+      await page.getByRole('button', { name: `Abrir ${path} en Archivos`, exact: true }).click()
+    }
     for (const change of changes) {
-      await page
-        .getByRole('button', { name: `Abrir ${change.path} en Archivos`, exact: true })
-        .click()
+      await openFromPanel(change.path)
       await expect(page).toHaveURL(/panel=files/)
       await expect(
         page.getByRole('tab', { name: change.path.split('/').at(-1)!, exact: true }),
@@ -78,7 +83,7 @@ for (const width of [1440, 390]) {
       }
       if (width === 390) await page.getByRole('button', { name: 'Cerrar', exact: true }).click()
     }
-    await page.getByRole('button', { name: 'Abrir src/app.ts en Archivos', exact: true }).click()
+    await openFromPanel('src/app.ts')
     await page.screenshot({
       path: `/home/cristhian/projects/ui-design/fc-shots/fe-diff-${width}.png`,
       animations: 'disabled',
@@ -95,7 +100,7 @@ for (const width of [1440, 390]) {
     })
     await page.emulateMedia({ reducedMotion: 'reduce' })
     if (width === 390) await page.getByRole('button', { name: 'Cerrar', exact: true }).click()
-    await expect(page.locator('.changes-header')).toHaveCSS('animation-name', 'none')
+    await expect(page.locator('.changes-line').first()).toBeVisible()
   })
 }
 test('missing content shows hunks and a partial preview notice', async ({ page }) => {
@@ -103,6 +108,7 @@ test('missing content shows hunks and a partial preview notice', async ({ page }
     { text: 'Large update.', changes: [{ ...changes[0]!, content: undefined, truncated: true }] },
   ])
   await page.goto('/agents/excalibur?view=chat')
+  await page.locator('.changes-line').first().click()
   await page.getByRole('button', { name: 'Abrir src/app.ts en Archivos', exact: true }).click()
   await expect(
     page.getByText('El contenido es demasiado grande. Revisa los cambios disponibles.'),

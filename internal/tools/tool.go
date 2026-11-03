@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -110,12 +111,14 @@ type SessionReceipt struct {
 // Result is the normalized tool outcome. Large outputs are truncated to
 // the output budget with the remainder kept in BlobRef (Section 13.4).
 type Result struct {
-	Sessions  []SessionReceipt `json:"sessions,omitempty"`
-	Status    ResultStatus     `json:"status"`
-	Output    string           `json:"output"`
-	Truncated bool             `json:"truncated"`
-	BlobRef   string           `json:"blob_ref,omitempty"`
-	Transient bool             `json:"transient"`
+	// Images are model inputs, separate from visual artifacts for the user.
+	Images    []providers.ImageInput `json:"images,omitempty"`
+	Sessions  []SessionReceipt       `json:"sessions,omitempty"`
+	Status    ResultStatus           `json:"status"`
+	Output    string                 `json:"output"`
+	Truncated bool                   `json:"truncated"`
+	BlobRef   string                 `json:"blob_ref,omitempty"`
+	Transient bool                   `json:"transient"`
 	// ExitCode is the process exit status of an exec result (128+n when
 	// a signal ended the process). Nil for tools without an exit status
 	// and for sessions still running.

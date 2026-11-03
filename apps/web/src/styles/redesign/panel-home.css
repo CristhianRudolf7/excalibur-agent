@@ -397,6 +397,44 @@
     animation: none;
   }
 }
+
+/* Explorer toggle shares the row with the open file tabs. */
+.files-tabbar {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+}
+.files-tabbar .files-toolbar {
+  align-items: center;
+  padding: 0 4px 0 8px;
+  flex-shrink: 0;
+}
+.files-tabbar .file-tabs {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Launcher cards always fit the panel width and wrap their text. */
+.panel-launchers {
+  grid-template-columns: minmax(0, 1fr);
+}
+.panel-launcher {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.launcher-copy {
+  min-width: 0;
+  flex: 1;
+}
+.launcher-copy > span,
+.launcher-copy small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.panel-home {
+  overflow-x: hidden;
+}
 .artifact-card-items {
   display: grid;
   gap: 4px;

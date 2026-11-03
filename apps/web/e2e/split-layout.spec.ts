@@ -51,7 +51,7 @@ for (const viewport of [
     await page.setViewportSize(viewport)
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await page.goto('/agents/excalibur?panel=files&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=files&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     const initial = await splitBoxes(page)
     for (let i = 0; i < 3; i++) {
@@ -95,7 +95,7 @@ test('tablet chat stays visible and fits after mode round trips at 1000px', asyn
   const page = await context.newPage()
   await mockProfile(page)
   try {
-    await page.goto('/agents/excalibur?panel=files&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=files&view=chat')
     for (const shortcut of [false, true, false]) {
       await roundTrip(page, shortcut)
       await expect(page.locator('.chat-column')).toBeVisible()

@@ -15,6 +15,8 @@ import { useChat } from './store'
 import { Markdown } from '@/components/markdown/Markdown'
 import { Composer } from './Composer'
 import { MessageCopy } from './MessageCopy'
+import { MessageSpeak } from './MessageSpeak'
+import { ThinkingRow } from './ThinkingRow'
 import { ArrowUpRight } from 'lucide-react'
 import { connectConversation, loadHistory, sendMessage, liveChatEnabled } from './live'
 export function Chat({
@@ -184,7 +186,13 @@ export function Chat({
                       <ChangesCard changes={message.changes} onFile={onFile} />
                     )}
                     {message.sender === 'agent' && (
-                      <MessageCopy text={message.literal ? message.text : t(message.text)} />
+                      <div className="message-actions">
+                        <MessageCopy text={message.literal ? message.text : t(message.text)} />
+                        <MessageSpeak
+                          id={message.id}
+                          text={message.literal ? message.text : t(message.text)}
+                        />
+                      </div>
                     )}
                     {message.sender === 'user' && <time>{message.time}</time>}
                     {message.delivery === 'sending' && (
@@ -210,17 +218,8 @@ export function Chat({
               )
             })}
         </div>
+        {typing && <ThinkingRow agentId={agent.id} activity={activity} />}
       </div>
-      {typing && (
-        <div className="chat-activity" role="status">
-          <span className="thinking-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          {t(activity ?? 'chatThinking')}
-        </div>
-      )}
       <Composer
         key={agentId}
         agent={agent.name}

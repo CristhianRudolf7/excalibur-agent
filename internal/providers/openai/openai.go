@@ -121,7 +121,7 @@ func (a *Adapter) Chat(ctx context.Context, req providers.ChatRequest) (provider
 	}
 	if !a.useResp {
 		for _, m := range req.Messages {
-			if len(m.Images) > 0 {
+			if len(m.Images) > 0 || (m.ToolResult != nil && len(m.ToolResult.Images) > 0) {
 				return providers.ChatResponse{}, fmt.Errorf("openai: image input requires Responses")
 			}
 		}
@@ -139,7 +139,7 @@ func (a *Adapter) Stream(ctx context.Context, req providers.ChatRequest, emit fu
 	}
 	if !a.useResp {
 		for _, m := range req.Messages {
-			if len(m.Images) > 0 {
+			if len(m.Images) > 0 || (m.ToolResult != nil && len(m.ToolResult.Images) > 0) {
 				return fmt.Errorf("openai: image input requires Responses")
 			}
 		}

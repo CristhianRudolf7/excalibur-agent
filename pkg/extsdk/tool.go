@@ -56,13 +56,19 @@ type Invocation struct {
 	Timeout        time.Duration   `json:"timeout,omitempty"`
 }
 
+// ImageInput is a model-visible image URL or base64 data URL.
+type ImageInput struct {
+	URL string `json:"url"`
+}
+
 // Result is the normalized tool outcome.
 type Result struct {
-	Status    string `json:"status"`
-	Output    string `json:"output"`
-	Truncated bool   `json:"truncated"`
-	BlobRef   string `json:"blob_ref,omitempty"`
-	Transient bool   `json:"transient"`
+	Images    []ImageInput `json:"images,omitempty"`
+	Status    string       `json:"status"`
+	Output    string       `json:"output"`
+	Truncated bool         `json:"truncated"`
+	BlobRef   string       `json:"blob_ref,omitempty"`
+	Transient bool         `json:"transient"`
 }
 
 // Tool is the interface every extension tool implements, in Go or over

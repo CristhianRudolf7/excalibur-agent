@@ -6348,3 +6348,14 @@ skill. The switch does not change the fixed prefix, eval tool table or eval
 skill fingerprint. To roll back availability, set it to `off` and restart the
 daemon; persistent scenes and history remain in SQLite. See decision 0092 and
 `docs/development/whiteboard.md` for snapshot and replay behavior.
+
+## Supervised robot access
+
+`robot.enabled` (environment `EXCALIBUR_ROBOT__ENABLED`) defaults to true in
+the dev daemon. Boolean false removes the robot backend and model tool from
+the assistant and daemon catalogs after restart. It never changes embedded
+exec or the frozen eval profile. The bridge starts only on demand, enforces
+motion limits and explicit approval, and provides unconditional STOP.
+Rollback is disabling the switch and restarting. Configuration, transport,
+model image support, limits and backend evidence are documented in
+[robot-ur.md](robot-ur.md).

@@ -192,3 +192,27 @@ func TestModelCredentialsResolveAtBoundary(t *testing.T) {
 		t.Fatal("credentials were cached")
 	}
 }
+
+func TestSpeakFallsBackWhenPrimaryHasNoCredits(t *testing.T) {
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		if r.Header.Get("Authorization") == "Bearer primary" {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte("mp3-bytes"))
+	}))
+	defer srv.Close()
+	c := &Client{
+		Credentials:         func(context.Context) (string, string, error) { return srv.URL, "primary", nil },
+		FallbackCredentials: func(context.Context) (string, string, error) { return srv.URL, "backup", nil },
+	}
+	data, _, err := c.Speak(context.Background(), api.VoiceSpeakParams{Text: "hola", Format: "mp3"})
+	if err != nil || string(data) != "mp3-bytes" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if len(seen) != 2 || seen[1] != "Bearer backup" {
+		t.Fatalf("attempts %v", seen)
+	}
+}

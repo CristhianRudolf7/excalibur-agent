@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
@@ -187,14 +188,9 @@ func (b *DaemonBackend) ConversationSend(ctx context.Context, clientID, clientMs
 		return b.embed.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
 	}
 	// Duplicate probe first: the master dedupes, but flag it.
-	id, out, err := b.Master.Receive(ctx, clientID, clientMsgID, conversationID, text)
+	id, err := b.Master.ReceiveDeferred(ctx, clientID, clientMsgID, conversationID, text, nil, b.fastReply(ctx, conversationID))
 	if err != nil {
 		return "", false, err
-	}
-	if out.Handled && out.Reply != "" {
-		if _, err := b.Master.SendAssistant(ctx, conversationID, out.Reply, nil); err != nil {
-			return id, false, err
-		}
 	}
 	return id, false, nil
 }
@@ -319,9 +315,15 @@ func (b *DaemonBackend) ConversationSendContext(ctx context.Context, clientID, c
 		}
 		return b.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
 	}
-	id, out, err := b.Master.ReceiveWithContext(ctx, clientID, clientMsgID, conversationID, text, attachments, app)
-	if err == nil && out.Handled && out.Reply != "" {
-		_, err = b.Master.SendAssistant(ctx, conversationID, out.Reply, nil)
-	}
+	id, err := b.Master.ReceiveDeferredWithContext(ctx, clientID, clientMsgID, conversationID, text, attachments, app, b.fastReply(ctx, conversationID))
 	return id, false, err
+}
+
+// fastReply posts a fast-lane answer after the receipt has already returned.
+func (b *DaemonBackend) fastReply(ctx context.Context, conversationID string) func(string) {
+	return func(reply string) {
+		pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		_, _ = b.Master.SendAssistant(pctx, conversationID, reply, nil)
+	}
 }

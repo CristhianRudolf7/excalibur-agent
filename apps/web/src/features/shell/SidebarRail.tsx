@@ -1,6 +1,6 @@
 import { Tooltip } from 'radix-ui'
 import {
-  Swords,
+  Bot,
   ClipboardCheck,
   Bell,
   Folder,
@@ -54,12 +54,13 @@ export function SidebarRail({
     { key: 'projects', icon: Folder },
     { key: 'world', icon: Globe },
     { key: 'classroom', icon: GraduationCap },
+    { key: 'robot', icon: Bot },
   ]
   return (
     <Tooltip.Provider delayDuration={200}>
       <aside className="sidebar-rail" aria-label={t('sidebarRail')}>
         <span className="sidebar-rail-brand" title={t('workspace')}>
-          <Swords className="sidebar-rail-logo" role="img" aria-label={t('workspace')} />
+          <img className="sidebar-rail-logo" src="/paladin.svg" alt={t('workspace')} />
         </span>
         <nav className="sidebar-rail-agents" aria-label={t('agents')}>
           {agents.map((agent) => (

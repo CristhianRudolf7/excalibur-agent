@@ -257,6 +257,10 @@ func (d *Daemon) startServices(ctx context.Context) []<-chan struct{} {
 		return nil
 	}
 	var done []<-chan struct{}
+	if svc.Robot != nil {
+		svc.Robot.Start(ctx)
+		done = append(done, svc.Robot.Done())
+	}
 	if svc.Library != nil {
 		done = append(done, svc.Library.Done())
 	}
@@ -308,6 +312,9 @@ func (d *Daemon) Stop(ctx context.Context) error {
 		defer func() { _ = d.dep.Services.BrowserWeb.Close() }()
 	}
 	var first error
+	if d.dep.Services != nil && d.dep.Services.Robot != nil {
+		first = d.dep.Services.Robot.Close()
+	}
 	d.stopOnce.Do(func() { close(d.stop) })
 	if d.dep.Gate != nil {
 		drain, cancel := context.WithTimeout(ctx, 5*time.Second)

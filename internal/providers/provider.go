@@ -27,10 +27,11 @@ type ToolCall struct {
 
 // ToolResult is the executed outcome of one tool call.
 type ToolResult struct {
-	CallID  string `json:"call_id"`
-	Name    string `json:"name"`
-	Output  string `json:"output"`
-	IsError bool   `json:"is_error"`
+	Images  []ImageInput `json:"images,omitempty"`
+	CallID  string       `json:"call_id"`
+	Name    string       `json:"name"`
+	Output  string       `json:"output"`
+	IsError bool         `json:"is_error"`
 }
 
 // ImageInput is an image URL or base64 data URL for a multimodal turn.

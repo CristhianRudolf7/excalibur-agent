@@ -17,6 +17,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -384,6 +385,7 @@ type Services struct {
 	Whiteboard     *whiteboard.Service
 	Classroom      *classroom.Service
 	BrowserWeb     *wireengine.BrowserWeb
+	Robot          *robot.Service
 
 	Automations AutomationLifecycle
 	Agenda      *agenda.Agenda
@@ -425,6 +427,7 @@ type AssembleOptions struct {
 	ClassroomAgent classroom.AgentService
 	Whiteboard     *whiteboard.Service
 	Classroom      *classroom.Service
+	Robot          *robot.Service
 	// Media supplies optional real document backends.
 	Media *tools.MediaDeps
 	// BrowserWeb is supplied by production startup; nil preserves test fakes.
@@ -465,7 +468,7 @@ type AssembleOptions struct {
 // default registry, memory over its service, skills over the builtin
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
-	s := &Services{Bus: opts.Bus, Decider: opts.Decider}
+	s := &Services{Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
 	s.Classroom = opts.Classroom
 	if s.Classroom == nil {
 		s.Classroom = classroom.NewService(nil, opts.Bus)
@@ -530,6 +533,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	}
 	wiring := engineWiring{
 		Classroom: s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
+		Robot: s.Robot,
 		Vault: opts.Vault, Memory: opts.Memory, Skills: s.Skills,
 		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
 	}

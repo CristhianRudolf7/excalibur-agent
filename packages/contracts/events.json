@@ -2,6 +2,8 @@
   "version": 0,
   "description": "Excalibur typed bus events. Exported from internal/api EventTypes; do not edit by hand without updating the registry.",
   "events": [
+    {"type": "robot.state", "payload": "RobotStateEvent", "summary": "Robot state changed or connected heartbeat."},
+
     {"type": "artifact.created", "payload": "ArtifactCreatedEvent", "summary": "A visual artifact was persisted."},
     {"type": "artifact.ready", "payload": "ArtifactReadyEvent", "summary": "A turn finished with visual artifacts."},
     {"type": "activity.updated", "payload": "ActivityUpdatedEvent", "summary": "Conversation activity changed."},
@@ -46,6 +48,8 @@
     {"type": "automation.run", "payload": "AutomationRunEvent", "summary": "An automation run changed."}
   ],
   "$defs": {
+    "RobotStateEvent": {"type": "object", "required": ["state"], "properties": {"state": {"$ref": "methods.json#/$defs/RobotState"}}},
+
     "Artifact": {
       "type": "object",
       "required": [

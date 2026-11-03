@@ -118,7 +118,7 @@ test('long composer, keyboard sending, live reply and plan approval', async ({ p
 test('files panel opens a local Monaco editor, tabs and cursor', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
-  await page.goto('/agents/excalibur?panel=files')
+  await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=files')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   await expect(page).toHaveURL(/panel=files/)
   await expect(page.getByRole('tab', { name: 'auth.ts', exact: true })).toHaveAttribute(
@@ -138,7 +138,7 @@ test('files panel opens a local Monaco editor, tabs and cursor', async ({ page }
 test('spreadsheet recalculation, formula, undo, clipboard and independent sheets', async ({
   page,
 }) => {
-  await page.goto('/agents/atlas?panel=sheet')
+  await page.goto('/agents/atlas?panelDeepLink=1&panelDeepLink=1&panel=sheet')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   const cell = (address: string) =>
     page.getByRole('gridcell', { name: `Celda ${address}`, exact: true })
@@ -202,8 +202,8 @@ test('all pages fit mobile and desktop without console errors', async ({ page })
   for (const width of [390, 1024, 1920]) {
     await page.setViewportSize({ width, height: 844 })
     for (const path of [
-      '/agents/excalibur?panel=files',
-      '/agents/atlas?panel=sheet',
+      '/agents/excalibur?panelDeepLink=1&panel=files',
+      '/agents/atlas?panelDeepLink=1&panel=sheet',
       '/projects',
     ]) {
       await page.goto(path)
@@ -221,7 +221,7 @@ test('sheet range selection, TSV clipboard, clearing, cancel and column resizing
   context,
 }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
-  await page.goto('/agents/atlas?panel=sheet')
+  await page.goto('/agents/atlas?panelDeepLink=1&panelDeepLink=1&panel=sheet')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   const cell = (address: string) =>
     page.getByRole('gridcell', { name: `Celda ${address}`, exact: true })
@@ -280,7 +280,7 @@ test('real tasks, keyboard launchers and activity view', async ({ page }) => {
 
 test('mobile sheet keeps headers and close control visible', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/agents/atlas?panel=sheet')
+  await page.goto('/agents/atlas?panelDeepLink=1&panelDeepLink=1&panel=sheet')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   const close = page.getByRole('button', { name: 'Cerrar', exact: true })
   await expect(close).toBeInViewport()
@@ -312,7 +312,7 @@ for (const width of [1440, 390]) {
         json: { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Unavailable' } },
       })
     })
-    await page.goto('/agents/excalibur?panel=document&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     const surface = await page.evaluate(() => {
       const probe = document.createElement('div')
@@ -339,7 +339,7 @@ for (const width of [1440, 390]) {
       })
       await page.getByRole('button', { name: 'Volver al inicio del panel' }).click()
     }
-    await page.goto('/agents/excalibur?panel=document&view=chat')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=document&view=chat')
     await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(page.locator('.viewer-empty')).toHaveCSS('animation-name', 'none')

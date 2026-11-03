@@ -74,7 +74,10 @@ type EventTypeInfo struct {
 // EventTypes enumerates every typed event of the bus contract.
 const EventLibraryDocumentUpdated types.EventType = "library.document_updated"
 
+const EventRobotState types.EventType = "robot.state"
+
 var EventTypes = []EventTypeInfo{
+	{EventRobotState, "RobotStateEvent", "Robot state changed or connected heartbeat."},
 	{EventArtifactCreated, "ArtifactCreatedEvent", "A visual artifact was persisted."},
 	{EventArtifactReady, "ArtifactReadyEvent", "A turn finished with visual artifacts."},
 	{EventActivityUpdated, "ActivityUpdatedEvent", "Conversation activity changed."},

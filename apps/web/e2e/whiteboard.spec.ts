@@ -221,7 +221,7 @@ test('shows an honest offline state when the method is unavailable', async ({ pa
       json: { jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Unavailable' } },
     })
   })
-  await page.goto('/agents/excalibur?panel=whiteboard&view=chat')
+  await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=whiteboard&view=chat')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   await expect(
     page

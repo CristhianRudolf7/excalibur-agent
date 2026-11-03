@@ -412,7 +412,7 @@ func historyEventForTool(seq int64, tc providers.ToolCall, res tools.Result) ctx
 		Sessions: res.Sessions,
 		Seq:      seq, Role: providers.RoleTool,
 		Content:    res.Output,
-		ToolResult: &providers.ToolResult{CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: res.Status != tools.StatusOK},
+		ToolResult: &providers.ToolResult{Images: res.Images, CallID: tc.ID, Name: tc.Name, Output: res.Output, IsError: res.Status != tools.StatusOK},
 	}
 }
 

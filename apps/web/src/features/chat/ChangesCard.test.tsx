@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, expect, it } from 'vitest'
 import i18n from '@/lib/i18n'
 import type { FileChange } from '@/lib/rpc/contract'
-import { useFiles } from '@/features/files/store'
+import { registerPanelOpener } from '@/features/files/open'
 import { ChangesCard, diffRows } from './ChangesCard'
 import { changeBar } from './change-bar'
 const change: FileChange = {
@@ -14,28 +14,25 @@ const change: FileChange = {
   hunks: [],
 }
 afterEach(cleanup)
-it('renders totals, plural forms, status and opens the selected change', async () => {
+it('shows a one-line summary that opens the Changes panel', async () => {
   await i18n.changeLanguage('en')
-  const onFile = vi.fn()
-  const view = render(<ChangesCard changes={[change]} onFile={onFile} />)
-  expect(screen.getByText('1 file changed')).toBeVisible()
-  expect(screen.getByText('new', { exact: true })).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: `Open ${change.path} in Files` }))
-  await waitFor(() => expect(onFile).toHaveBeenCalledOnce())
-  expect(useFiles.getState().selected).toBe(change.path)
-  expect(useFiles.getState().changes[change.path]).toEqual(change)
-  view.rerender(
-    <ChangesCard changes={[change, { ...change, path: 'other.ts', added: 1 }]} onFile={onFile} />,
-  )
+  const opened: string[] = []
+  registerPanelOpener((view) => opened.push(view))
+  const view = render(<ChangesCard changes={[change, { ...change, path: 'other.ts', added: 1 }]} />)
   expect(screen.getByText('2 files changed')).toBeVisible()
   expect(screen.getByText('+9')).toBeVisible()
   expect(screen.getByText('−4')).toBeVisible()
-  await i18n.changeLanguage('es')
-  expect(screen.getByText('2 archivos modificados')).toBeVisible()
-  fireEvent.click(screen.getByRole('button', { name: /2 archivos modificados/ }))
+  // No inline dropdowns or diffs in the chat.
   expect(screen.queryByRole('list')).not.toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'View 2 changed files in the panel' }))
+  expect(opened).toEqual(['changes'])
+  await i18n.changeLanguage('es')
+  view.rerender(<ChangesCard changes={[change]} />)
+  expect(screen.getByText('1 archivo modificado')).toBeVisible()
+  registerPanelOpener(null)
 })
-it('shows inline diffs like an edit list and opens only the first when the set is large', () => {
+it('maps hunks to diff rows for the panel list', () => {
   const modified: FileChange = {
     path: 'src/app.ts',
     status: 'modified',
@@ -51,12 +48,6 @@ it('shows inline diffs like an edit list and opens only the first when the set i
     { kind: 'del', old: 4, text: 'old' },
     { kind: 'add', new: 4, text: 'new' },
   ])
-  const big = Array.from({ length: 5 }, (_, i) => ({ ...modified, path: `${i}.ts`, added: 40 }))
-  render(<ChangesCard changes={big} onFile={() => {}} />)
-  expect(screen.getAllByRole('table')).toHaveLength(1)
-  const second = screen.getAllByRole('button', { expanded: false })[0]!
-  fireEvent.click(second)
-  expect(screen.getAllByRole('table')).toHaveLength(2)
 })
 it('allocates five squares proportionally with both kinds represented', () => {
   expect(changeBar(0, 0)).toEqual(Array(5).fill('empty'))

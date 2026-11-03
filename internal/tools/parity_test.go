@@ -55,3 +55,23 @@ func TestExtSDKManifestParity(t *testing.T) {
 		t.Fatalf("internal manifest must convert back: %+v", back)
 	}
 }
+
+func TestExtSDKResultImageParity(t *testing.T) {
+	original := extsdk.Result{Status: "ok", Output: "state", Images: []extsdk.ImageInput{{URL: "data:image/png;base64,aA=="}}}
+	raw, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var internal Result
+	if err = json.Unmarshal(raw, &internal); err != nil || len(internal.Images) != 1 || internal.Images[0].URL != original.Images[0].URL {
+		t.Fatalf("%+v %v", internal, err)
+	}
+	raw, err = json.Marshal(internal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back extsdk.Result
+	if err = json.Unmarshal(raw, &back); err != nil || len(back.Images) != 1 || back.Images[0].URL != original.Images[0].URL {
+		t.Fatalf("%+v %v", back, err)
+	}
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Mic, PhoneOff, Volume2 } from 'lucide-react'
+import { Mic, Phone, PhoneOff, Volume2 } from 'lucide-react'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { PixelAvatar } from '@/components/shared'
@@ -134,22 +134,29 @@ export function CallOverlay({ onClose }: { onClose: () => void }) {
           >
             <Volume2 />
           </Button>
-          <Button
-            className="call-hangup"
-            aria-label={t('callHangup')}
-            onClick={() => {
-              call.current?.end()
-              onClose()
-            }}
-          >
-            <PhoneOff />
-          </Button>
+          {active ? (
+            <Button
+              className="call-hangup"
+              aria-label={t('callHangup')}
+              onClick={() => {
+                call.current?.end()
+                onClose()
+              }}
+            >
+              <PhoneOff />
+            </Button>
+          ) : (
+            <Button
+              className="call-start call-start-round"
+              aria-label={t('callStart')}
+              title={t('callStart')}
+              disabled={available !== true || starting}
+              onClick={start}
+            >
+              <Phone />
+            </Button>
+          )}
         </div>
-        {!active && (
-          <Button className="call-start" disabled={available !== true || starting} onClick={start}>
-            {t('callStart')}
-          </Button>
-        )}
       </div>
     </Dialog>
   )

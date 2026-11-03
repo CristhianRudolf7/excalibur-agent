@@ -1,0 +1,12 @@
+{"step": "simulator", "image": "universalrobots/ursim_e-series:5.25.0", "image_id": "sha256:e4e485bbf01ac4282ab1c037a4bbf5cf53d24759dd27538dd482d38dadd49d45", "version": "URSoftware 5.25.0.130258 (Dec 11 2025)", "remote_control": true}
+{"step": "simulator", "image": "universalrobots/ursim_e-series:5.25.0", "image_id": "sha256:e4e485bbf01ac4282ab1c037a4bbf5cf53d24759dd27538dd482d38dadd49d45", "version": "URSoftware 5.25.0.130258 (Dec 11 2025)", "remote_control": true}
+{"step": "dashboard_power_on", "reply": "Powering on"}
+{"step": "dashboard_brake_release", "reply": "Brake releasing"}
+{"step": "dashboard_running", "mode": "Robotmode: RUNNING", "safety": "Safetystatus: NORMAL", "remote": "true"}
+{"step": "rtde_state", "tcp_pose": [-0.15371739993778513, -0.6913999941558426, 0.6768499996344791, -3.2217431776861934e-10, 3.1415926533846887, 3.2216760011943753e-10], "joints": [-1.5411417282009543, -1.562861283749931, -1.5786976214926423, -1.5708300751359392, 1.5707963268008884, 0.029654598593942965], "digital_out": 0}
+{"step": "rtde_home", "joints": [-1.5707963267948966, -1.5707963267948966, -1.5707963267948966, -1.5707963267948966, 1.5707963267948966, 0.0], "tcp_pose": [-0.17415000007718057, -0.6913999999760952, 0.6768499999642809, -3.221754235863238e-10, 3.1415926533846896, 3.2217657772266055e-10]}
+{"step": "rtde_relative_2cm", "delta": [0.01999999999999974, 4.440892098500626e-16, -2.220446049250313e-16, 6.453100667695919e-16, -4.440892098500626e-16, 1.2790571646636775e-15]}
+{"step": "rtde_gripper_do1", "value": true, "digital_out": 2}
+{"step": "rtde_gripper_do1", "value": false, "digital_out": 0}
+{"step": "rtde_stop_during_motion", "before": [-0.15415000007718083, -0.6913999999760948, 0.6768499999642806, -3.22174778276257e-10, 3.141592653384689, 3.221778567798252e-10], "stopped": [-0.15373800022845574, -0.6913999947126674, 0.6768499996659699, -3.2217493359540105e-10, 3.141592653384689, 3.221785787104303e-10], "dashboard": "Stopped"}
+{"step": "not_tested", "checks": ["bridge HTTP contract", "bridge workspace rejection", "bridge approval and speed enforcement", "physical gripper sensors"]}

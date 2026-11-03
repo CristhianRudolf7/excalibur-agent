@@ -1,13 +1,13 @@
 import { automationPrefix, useAutomationContext } from '@/features/automations/context'
 import { Workflow, X } from 'lucide-react'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { libraryEnabled } from '@/features/library/api'
 import { AttachmentChips } from '@/features/library/Attachments'
 import { attachmentText } from '@/features/library/attachment-text'
 import { useAttachments } from '@/features/library/use-attachments'
 import { composerHeight, shouldSend } from './composer-logic'
 import { useTranslation } from 'react-i18next'
-import { Paperclip, Mic, ArrowUp, Square } from 'lucide-react'
+import { Plus, Mic, ArrowUp, Square } from 'lucide-react'
 import { IconButton } from '@/components/shared'
 export function Composer({
   agent,
@@ -24,6 +24,26 @@ export function Composer({
 }) {
   const { t, i18n } = useTranslation()
   const context = useAutomationContext()
+  const area = useRef<HTMLDivElement>(null)
+  // The composer floats over the conversation: reserve exactly its height below
+  // the messages and keep the newest message visible while it grows.
+  useEffect(() => {
+    const node = area.current
+    const body = node?.closest<HTMLElement>('.chat-body')
+    const messages = body?.querySelector<HTMLElement>('.messages')
+    if (!node || !body || typeof ResizeObserver === 'undefined') return
+    const update = () => {
+      const atBottom = messages
+        ? messages.scrollHeight - messages.scrollTop - messages.clientHeight < 40
+        : false
+      body.style.setProperty('--composer-h', `${Math.ceil(node.offsetHeight)}px`)
+      if (atBottom && messages) messages.scrollTop = messages.scrollHeight
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   const attachments = useAttachments()
   const ready = attachments.items.flatMap((item) =>
     item.document && ['ready', 'partial'].includes(item.document.status) ? [item.document] : [],
@@ -73,7 +93,7 @@ export function Composer({
     }
   }
   return (
-    <div className="composer-area">
+    <div className="composer-area" ref={area}>
       {notice && (
         <div className="composer-notice" role="status">
           {notice}
@@ -110,7 +130,7 @@ export function Composer({
             disabled={!libraryEnabled}
             onClick={() => file.current?.click()}
           >
-            <Paperclip />
+            <Plus />
           </IconButton>
           <input
             hidden
@@ -122,21 +142,7 @@ export function Composer({
               e.target.value = ''
             }}
           />
-          <IconButton
-            label="commands"
-            onClick={() => {
-              setText((value) => `${value}/`)
-              textarea.current?.focus()
-            }}
-          >
-            /
-          </IconButton>
           <span className="toolbar-spacer" />
-          {typing && (
-            <span className="typing-label" role="status">
-              {t('typing')}
-            </span>
-          )}
           <IconButton label="microphone" onClick={() => setNotice(t('unavailable'))}>
             <Mic />
           </IconButton>

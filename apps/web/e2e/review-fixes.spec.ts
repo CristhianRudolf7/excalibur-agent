@@ -5,7 +5,7 @@ test('budget fits A–H and reveals the active cell on load, navigation and resi
   page,
 }) => {
   await page.setViewportSize({ width: 1536, height: 1024 })
-  await page.goto('/agents/atlas?panel=sheet')
+  await page.goto('/agents/atlas?panelDeepLink=1&panelDeepLink=1&panel=sheet')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   const cell = (address: string) =>
     page.getByRole('gridcell', { name: `Celda ${address}`, exact: true })
@@ -45,7 +45,7 @@ test('budget fits A–H and reveals the active cell on load, navigation and resi
 test('live plan and question cards stay contained at 390 px', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const chat = await mockChat(page)
-  await page.goto('/agents/excalibur?panel=files')
+  await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=files')
   await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
   await expect(page.locator('.chat-connection')).toHaveCount(0)
   chat.emit('plan.approval_requested', {
@@ -69,7 +69,7 @@ test('live plan and question cards stay contained at 390 px', async ({ page }) =
 for (const width of [390, 1536]) {
   test(`sent unbroken messages wrap inside the bubble at ${width} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
-    await page.goto('/agents/excalibur?panel=files')
+    await page.goto('/agents/excalibur?panelDeepLink=1&panelDeepLink=1&panel=files')
     if (width >= 1024)
       await page.getByRole('button', { name: /Alternar panel|Toggle panel/ }).click()
     for (const text of ['x'.repeat(400), `https://example.com/${'long-path'.repeat(60)}`]) {

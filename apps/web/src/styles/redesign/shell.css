@@ -1383,3 +1383,68 @@ dialog::backdrop {
   width: 20px;
   height: 20px;
 }
+
+/* Brand: EXCALIBUR wordmark (sword "I") and the Paladin avatar. */
+.wordmark {
+  --wm-k: #0b1220;
+  --wm-b: #ffffff;
+  --wm-B: #bae6fd;
+  --wm-g: #38bdf8;
+  --wm-h: #0b1220;
+  display: inline-flex;
+  align-items: flex-end;
+  font-family: Inter, 'Inter Variable', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  color: var(--foreground);
+  white-space: nowrap;
+  user-select: none;
+}
+.dark .wordmark {
+  --wm-k: #38bdf8;
+  --wm-b: #ffffff;
+  --wm-B: #bae6fd;
+  --wm-g: #38bdf8;
+  --wm-h: #0b1220;
+}
+.wordmark-sword {
+  margin: 0 0.16em 0 0.02em;
+  transform: translateY(0.12em);
+  flex-shrink: 0;
+}
+.wordmark-sword .wm-k {
+  fill: var(--wm-k);
+}
+.wordmark-sword .wm-b {
+  fill: var(--wm-b);
+}
+.wordmark-sword .wm-B {
+  fill: var(--wm-B);
+}
+.wordmark-sword .wm-g {
+  fill: var(--wm-g);
+}
+.wordmark-sword .wm-h {
+  fill: var(--wm-h);
+}
+.sidebar .workspace-row {
+  height: 40px;
+  padding-left: 10px;
+}
+.brand-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--accent-tint);
+}
+.brand-avatar img {
+  width: 92%;
+  height: 92%;
+  object-fit: contain;
+  image-rendering: auto;
+}
+img.sidebar-rail-logo {
+  object-fit: contain;
+}

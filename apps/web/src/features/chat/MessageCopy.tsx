@@ -19,6 +19,7 @@ export function MessageCopy({ text }: { text: string }) {
       type="button"
       className="message-copy"
       aria-label={t('chatCopyMessage')}
+      title={t(feedback === 'copied' ? 'markdownCopied' : 'chatCopyMessage')}
       onClick={async () => {
         clearTimeout(timer.current)
         try {
@@ -33,7 +34,7 @@ export function MessageCopy({ text }: { text: string }) {
       }}
     >
       {feedback === 'copied' ? <Check size={14} /> : <Copy size={14} />}
-      <span aria-live="polite">
+      <span className="sr-only" aria-live="polite">
         {feedback === 'idle'
           ? t('markdownCopy')
           : t(feedback === 'copied' ? 'markdownCopied' : 'markdownCopyFailed')}

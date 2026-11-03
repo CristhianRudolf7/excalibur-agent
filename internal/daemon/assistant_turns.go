@@ -105,6 +105,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 			allow[name] = true
 		}
 	}
+	if a.services.Robot != nil {
+		allow["robot"] = true
+	}
 	if whiteboard.Enabled() {
 		allow["whiteboard"] = true
 	}

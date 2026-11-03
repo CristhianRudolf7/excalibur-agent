@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -270,6 +271,60 @@ func (m *Master) ReceiveWithContext(ctx context.Context, clientID, clientMsgID, 
 	}
 	m.turns.Deliver(conv, in)
 	return in.MsgID, Outcome{}, nil
+}
+
+// ReceiveDeferred is the transport entry point: it persists the message and
+// returns its id at once (the Section 5.3.1 millisecond receipt), then runs
+// triage, the fast lane and turn delivery in the background. A fast-lane
+// reply is handed to onReply. Duplicate client_msg_id returns the known id.
+func (m *Master) ReceiveDeferred(ctx context.Context, clientID, clientMsgID, conv, text string, attachments []string, onReply func(string)) (types.MessageID, error) {
+	return m.ReceiveDeferredWithContext(ctx, clientID, clientMsgID, conv, text, attachments, api.AppContextFrom(ctx), onReply)
+}
+
+// ReceiveDeferredWithContext preserves per-message app state through deferred
+// intake, including the content left after a fast-lane control operation.
+func (m *Master) ReceiveDeferredWithContext(ctx context.Context, clientID, clientMsgID, conv, text string, attachments []string, app *api.AppContext, onReply func(string)) (types.MessageID, error) {
+	if err := app.Validate(); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("master: empty message")
+	}
+	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
+		return id, nil
+	}
+	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
+	id, err := m.store.SaveMessage(ctx, conv, msg)
+	if err != nil {
+		return "", err
+	}
+	m.store.RecordClientMsg(clientID, clientMsgID, id)
+	now := time.Now()
+	safego.Go("master-intake", nil, func() {
+		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		defer cancel()
+		in, err := Intake(bg, msg, func(Normalized) (types.MessageID, error) { return id, nil }, m.lex, m.decider, now, m.loc)
+		if err != nil {
+			return
+		}
+		out := m.lane.Handle(bg, in)
+		if out.Handled && out.Rest == "" {
+			if out.Reply != "" && onReply != nil {
+				onReply(out.Reply)
+			}
+			return
+		}
+		if out.Handled {
+			if out.Reply != "" && onReply != nil {
+				onReply(out.Reply)
+			}
+			rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
+			m.turns.Deliver(conv, rest)
+			return
+		}
+		m.turns.Deliver(conv, in)
+	})
+	return id, nil
 }
 
 // SetTurnCaller installs production engine turns before accepting messages.

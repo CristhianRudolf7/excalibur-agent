@@ -7,6 +7,7 @@ import "time"
 // value, and later milestones overlay file, environment and flag
 // layers on top.
 type Config struct {
+	Robot         RobotConfig         `json:"robot" toml:"robot"`
 	Voice         VoiceConfig         `json:"voice" toml:"voice"`
 	Master        MasterConfig        `json:"master" toml:"master"`
 	Engine        EngineConfig        `json:"engine" toml:"engine"`
@@ -260,8 +261,14 @@ type ResourcesConfig struct {
 }
 
 // Default returns the Appendix B initial values.
+// RobotConfig gates physical robot access in the daemon assistant.
+type RobotConfig struct {
+	Enabled bool `json:"enabled" toml:"enabled"`
+}
+
 func Default() Config {
 	return Config{
+		Robot:   RobotConfig{Enabled: true},
 		Voice:   VoiceConfig{Provider: "openai", STTModel: "gpt-4o-mini-transcribe", TTSModel: "gpt-4o-mini-tts", Voice: "alloy"},
 		Browser: defaultBrowser(),
 		Search:  defaultSearch(),

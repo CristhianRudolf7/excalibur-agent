@@ -186,9 +186,11 @@ export async function sendMessage(
       text,
       attachments,
     }
-    const receipt = signal
-      ? await rpc.call('conversation.send', params, { signal })
-      : await rpc.call('conversation.send', params)
+    // The receipt is immediate, but slow links (tunnels) need headroom.
+    const receipt = await rpc.call('conversation.send', params, {
+      timeoutMs: 30_000,
+      ...(signal ? { signal } : {}),
+    })
     useChat
       .getState()
       .patch(agent, id, { id: receipt.msg_id, delivery: undefined, error: undefined })

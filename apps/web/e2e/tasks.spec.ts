@@ -51,7 +51,7 @@ test('chat panel has no duplicate tasks tab and mobile navigation reaches remind
 }) => {
   const state = await mockWork(page)
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/agents/excalibur?view=chat&panel=tasks')
+  await page.goto('/agents/excalibur?view=chat&panelDeepLink=1&panel=tasks')
   await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
   await expect(
     page.locator('.mobile-panel').getByRole('tab', { name: 'Tareas', exact: true }),

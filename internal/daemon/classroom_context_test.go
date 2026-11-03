@@ -16,6 +16,66 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 )
 
+type blockedClassroomDecider struct{ release <-chan struct{} }
+
+func (d blockedClassroomDecider) Classify(ctx context.Context, _ string, _ master.Preanalysis) master.Triage {
+	select {
+	case <-d.release:
+	case <-ctx.Done():
+	}
+	return master.Triage{Type: master.TriageConversation, Confidence: 1}
+}
+
+func TestClassroomContextSurvivesDeferredReceipt(t *testing.T) {
+	seen := make(chan bool, 1)
+	b, s := assistantTestWiring(t, false, func(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+		app := api.AppContextFrom(ctx)
+		hasNote, hasTool := false, false
+		for _, msg := range req.Messages {
+			hasNote = hasNote || strings.Contains(msg.Content, "Current app view")
+		}
+		for _, tool := range req.Tools {
+			hasTool = hasTool || tool.Name == "classroom"
+		}
+		seen <- app != nil && app.CourseID == "course" && app.TopicID == "topic" && hasNote && hasTool
+		return textReply("Answer"), nil
+	})
+	release := make(chan struct{})
+	b.Master = master.New(master.Config{}, nil, nil, blockedClassroomDecider{release}, nil, nil, nil)
+	WireAssistantTurns(b, s, s.engineOptions.Models, "test")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	app := &api.AppContext{App: "classroom", CourseID: "course", TopicID: "topic"}
+	id, _, err := b.ConversationSendContext(ctx, "client", "message", "conversation", "Explain this", []string{"document"}, app)
+	if err != nil || id == "" || ctx.Err() != nil {
+		close(release)
+		t.Fatal("receipt waited for blocked triage", id, err)
+	}
+	app.CourseID = "changed after receipt"
+	cancel()
+	close(release)
+	select {
+	case ok := <-seen:
+		if !ok {
+			t.Fatal("deferred classroom turn lost app context, prompt note or tool")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("deferred classroom turn did not run after receipt cancellation")
+	}
+	awaitAssistant(t, b, "conversation", 1)
+	rows := b.Master.TurnHistory("conversation", 0)
+	if rows[0].Context == nil || rows[0].Context.CourseID != "course" || len(rows[0].Attachments) != 1 {
+		t.Fatal("deferred persistence lost message metadata")
+	}
+	if _, _, err := b.ConversationSendContext(context.Background(), "client", "stop", "conversation", "/stop", nil, &api.AppContext{App: "classroom"}); err != nil {
+		t.Fatal(err)
+	}
+	history := awaitAssistant(t, b, "conversation", 2)
+	if !strings.Contains(history[len(history)-1].Text, "Interrupted the master turn") {
+		t.Fatal("contextual fast-lane reply was not persisted")
+	}
+}
+
 func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 	type observed struct {
 		prompt string
@@ -51,6 +111,13 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		response.Body.Close()
 		if err != nil || result.Error != nil {
 			t.Fatal(result, err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for !b.Master.Turns().Active("one-history") || b.Master.Turns().PendingCount("one-history") != i {
+			if time.Now().After(deadline) {
+				t.Fatal("deferred message was not delivered to the turn")
+			}
+			time.Sleep(time.Millisecond)
 		}
 	}
 	if b.Master.Turns().PendingCount("one-history") != 2 {

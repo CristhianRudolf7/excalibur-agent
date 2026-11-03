@@ -47,28 +47,30 @@ export function Files({ changes }: { changes?: FileChange[] } = {}) {
         <WorkspaceExplorer demo={<DemoExplorer />} fileChanges={changes} />
       </aside>
       <div className="editor-column">
-        <div className="files-toolbar">
-          <PanelToggle side="left" label="panelExplorer" open={treeOpen} onClick={toggleTree} />
-        </div>
-        <div role="tablist" aria-label={t('files')} className="file-tabs">
-          {state.open.map((path) => (
-            <div className="file-tab" key={path}>
-              <button
-                role="tab"
-                aria-selected={path === state.selected}
-                onClick={() => state.select(path)}
-              >
-                {t(path.split('/').at(-1)!, { defaultValue: path.split('/').at(-1)! })}
-                {state.changes[path] && <i className="changed-dot" />}
-              </button>
-              <button
-                aria-label={t('closeFile', { file: path.split('/').at(-1) })}
-                onClick={() => state.close(path)}
-              >
-                <X />
-              </button>
-            </div>
-          ))}
+        <div className="files-tabbar">
+          <div className="files-toolbar">
+            <PanelToggle side="left" label="panelExplorer" open={treeOpen} onClick={toggleTree} />
+          </div>
+          <div role="tablist" aria-label={t('files')} className="file-tabs">
+            {state.open.map((path) => (
+              <div className="file-tab" key={path}>
+                <button
+                  role="tab"
+                  aria-selected={path === state.selected}
+                  onClick={() => state.select(path)}
+                >
+                  {t(path.split('/').at(-1)!, { defaultValue: path.split('/').at(-1)! })}
+                  {state.changes[path] && <i className="changed-dot" />}
+                </button>
+                <button
+                  aria-label={t('closeFile', { file: path.split('/').at(-1) })}
+                  onClick={() => state.close(path)}
+                >
+                  <X />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="breadcrumb">
           <Folder />

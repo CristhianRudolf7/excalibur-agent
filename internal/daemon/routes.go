@@ -14,6 +14,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/robot"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
@@ -30,6 +31,7 @@ import (
 // embedded MemoryBackend behavior so embedded profiles and unit
 // tests never need the full stack.
 type BackendServices struct {
+	Robot     *robot.Service
 	FileBlobs gateway.BlobStore
 	// WorkspaceRoots supplies trusted conversation-specific roots.
 	WorkspaceRoots func(context.Context) []string
@@ -99,6 +101,12 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 // routes to its real backend when attached; unknown names still
 // answer CodeMethodNotFound.
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	if strings.HasPrefix(method, "robot.") {
+		if b.Services == nil {
+			return (*robot.Service)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Robot.Op(ctx, method, params)
+	}
 	if method == api.MethodArtifactsGet || method == api.MethodArtifactsList {
 		return b.artifactOp(ctx, method, params)
 	}
