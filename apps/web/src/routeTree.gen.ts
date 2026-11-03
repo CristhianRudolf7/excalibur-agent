@@ -22,7 +22,12 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
 import { Route as AutomationsIdRouteImport } from './routes/automations.$id'
 import { Route as ComingSoonPageRouteImport } from './routes/coming-soon.$page'
+import { Route as DataIndexRouteImport } from './routes/data.index'
+import { Route as DataCollectionIndexRouteImport } from './routes/data.$collection.index'
+import { Route as DataCollectionNewRouteImport } from './routes/data.$collection.new'
 import { Route as OauthGoogleCallbackRouteImport } from './routes/oauth.google.callback'
+import { Route as DataCollectionIdIndexRouteImport } from './routes/data.$collection.$id.index'
+import { Route as DataCollectionIdEditRouteImport } from './routes/data.$collection.$id.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -89,9 +94,34 @@ const ComingSoonPageRoute = ComingSoonPageRouteImport.update({
   path: '/coming-soon/$page',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DataIndexRoute = DataIndexRouteImport.update({
+  id: '/data/',
+  path: '/data/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataCollectionIndexRoute = DataCollectionIndexRouteImport.update({
+  id: '/data/$collection/',
+  path: '/data/$collection/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataCollectionNewRoute = DataCollectionNewRouteImport.update({
+  id: '/data/$collection/new',
+  path: '/data/$collection/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OauthGoogleCallbackRoute = OauthGoogleCallbackRouteImport.update({
   id: '/oauth/google/callback',
   path: '/oauth/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataCollectionIdIndexRoute = DataCollectionIdIndexRouteImport.update({
+  id: '/data/$collection/$id/',
+  path: '/data/$collection/$id/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DataCollectionIdEditRoute = DataCollectionIdEditRouteImport.update({
+  id: '/data/$collection/$id/edit',
+  path: '/data/$collection/$id/edit',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -109,7 +139,12 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/data/': typeof DataIndexRoute
+  '/data/$collection/new': typeof DataCollectionNewRoute
   '/oauth/google/callback': typeof OauthGoogleCallbackRoute
+  '/data/$collection/': typeof DataCollectionIndexRoute
+  '/data/$collection/$id/edit': typeof DataCollectionIdEditRoute
+  '/data/$collection/$id/': typeof DataCollectionIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -125,7 +160,12 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/data': typeof DataIndexRoute
+  '/data/$collection/new': typeof DataCollectionNewRoute
   '/oauth/google/callback': typeof OauthGoogleCallbackRoute
+  '/data/$collection': typeof DataCollectionIndexRoute
+  '/data/$collection/$id/edit': typeof DataCollectionIdEditRoute
+  '/data/$collection/$id': typeof DataCollectionIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -142,7 +182,12 @@ export interface FileRoutesById {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/data/': typeof DataIndexRoute
+  '/data/$collection/new': typeof DataCollectionNewRoute
   '/oauth/google/callback': typeof OauthGoogleCallbackRoute
+  '/data/$collection/': typeof DataCollectionIndexRoute
+  '/data/$collection/$id/edit': typeof DataCollectionIdEditRoute
+  '/data/$collection/$id/': typeof DataCollectionIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -160,7 +205,12 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/data/'
+    | '/data/$collection/new'
     | '/oauth/google/callback'
+    | '/data/$collection/'
+    | '/data/$collection/$id/edit'
+    | '/data/$collection/$id/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -176,7 +226,12 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/data'
+    | '/data/$collection/new'
     | '/oauth/google/callback'
+    | '/data/$collection'
+    | '/data/$collection/$id/edit'
+    | '/data/$collection/$id'
   id:
     | '__root__'
     | '/'
@@ -192,7 +247,12 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/data/'
+    | '/data/$collection/new'
     | '/oauth/google/callback'
+    | '/data/$collection/'
+    | '/data/$collection/$id/edit'
+    | '/data/$collection/$id/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -208,7 +268,12 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
   ComingSoonPageRoute: typeof ComingSoonPageRoute
+  DataIndexRoute: typeof DataIndexRoute
+  DataCollectionNewRoute: typeof DataCollectionNewRoute
   OauthGoogleCallbackRoute: typeof OauthGoogleCallbackRoute
+  DataCollectionIndexRoute: typeof DataCollectionIndexRoute
+  DataCollectionIdEditRoute: typeof DataCollectionIdEditRoute
+  DataCollectionIdIndexRoute: typeof DataCollectionIdIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -304,11 +369,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComingSoonPageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/data/': {
+      id: '/data/'
+      path: '/data'
+      fullPath: '/data/'
+      preLoaderRoute: typeof DataIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data/$collection/': {
+      id: '/data/$collection/'
+      path: '/data/$collection'
+      fullPath: '/data/$collection/'
+      preLoaderRoute: typeof DataCollectionIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data/$collection/new': {
+      id: '/data/$collection/new'
+      path: '/data/$collection/new'
+      fullPath: '/data/$collection/new'
+      preLoaderRoute: typeof DataCollectionNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/oauth/google/callback': {
       id: '/oauth/google/callback'
       path: '/oauth/google/callback'
       fullPath: '/oauth/google/callback'
       preLoaderRoute: typeof OauthGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data/$collection/$id/': {
+      id: '/data/$collection/$id/'
+      path: '/data/$collection/$id'
+      fullPath: '/data/$collection/$id/'
+      preLoaderRoute: typeof DataCollectionIdIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/data/$collection/$id/edit': {
+      id: '/data/$collection/$id/edit'
+      path: '/data/$collection/$id/edit'
+      fullPath: '/data/$collection/$id/edit'
+      preLoaderRoute: typeof DataCollectionIdEditRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -339,7 +439,12 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   AgentsAgentIdRoute: AgentsAgentIdRoute,
   ComingSoonPageRoute: ComingSoonPageRoute,
+  DataIndexRoute: DataIndexRoute,
+  DataCollectionNewRoute: DataCollectionNewRoute,
   OauthGoogleCallbackRoute: OauthGoogleCallbackRoute,
+  DataCollectionIndexRoute: DataCollectionIndexRoute,
+  DataCollectionIdEditRoute: DataCollectionIdEditRoute,
+  DataCollectionIdIndexRoute: DataCollectionIdIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

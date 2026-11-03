@@ -18,6 +18,11 @@ export const test = base.extend({
   page: async ({ page }, providePage) => {
     await mockProfile(page)
     await mockChat(page)
+    await page.route('**/rpc', async (route) => {
+      const request = route.request().postDataJSON()
+      if (request.method !== 'collections.list') return route.fallback()
+      await route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { collections: [] } } })
+    })
     await providePage(page)
   },
 })

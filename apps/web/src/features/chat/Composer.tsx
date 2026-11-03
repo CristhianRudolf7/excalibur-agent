@@ -1,3 +1,4 @@
+import { useDataAttachment } from '@/features/mydata/chat'
 import { useAgents } from '@/features/agents/store'
 import { automationPrefix, useAutomationContext } from '@/features/automations/context'
 import { Workflow, X } from 'lucide-react'
@@ -54,6 +55,9 @@ export function Composer({
     observer.observe(node)
     return () => observer.disconnect()
   }, [])
+  const dataAttachment = useDataAttachment((state) =>
+    state.pending?.agent === agentId ? state.pending : undefined,
+  )
   const attachments = useAttachments()
   const ready = attachments.items.flatMap((item) =>
     item.document && ['ready', 'partial'].includes(item.document.status) ? [item.document] : [],
@@ -94,7 +98,10 @@ export function Composer({
             t,
             i18n.language,
           ),
-          ready.map((document) => document.id),
+          [
+            ...ready.map((document) => document.id),
+            ...(dataAttachment ? [dataAttachment.digest] : []),
+          ],
         )
       else
         onSend(
@@ -108,6 +115,7 @@ export function Composer({
       dictation.stop()
       context.clear()
       attachments.clear()
+      if (dataAttachment) useDataAttachment.getState().set()
       setText('')
       textarea.current?.focus()
     }
@@ -126,6 +134,18 @@ export function Composer({
       {dictation.error && (
         <div className="composer-notice" role="alert">
           {t(dictation.error)}
+        </div>
+      )}
+      {dataAttachment && (
+        <div className="library-attachments">
+          <span>{dataAttachment.name}</span>
+          <button
+            type="button"
+            aria-label={t('dataRemoveFile')}
+            onClick={() => useDataAttachment.getState().set()}
+          >
+            ×
+          </button>
         </div>
       )}
       <AttachmentChips items={attachments.items} onRemove={attachments.remove} />

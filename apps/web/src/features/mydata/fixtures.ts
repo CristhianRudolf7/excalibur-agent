@@ -1,0 +1,52 @@
+import type { Collection, RecordRow } from '@/lib/rpc/contract'
+export const exampleCollection: Collection = {
+  id: 'grades',
+  name: 'University grades',
+  icon: '🎓',
+  description: 'A little progress, every semester.',
+  display_field: 'course',
+  record_count: 2,
+  version: 1,
+  created_at: '2026-11-01T12:00:00Z',
+  updated_at: '2026-11-03T12:00:00Z',
+  fields: [
+    { id: 'course', name: 'Course', type: 'text', required: true },
+    { id: 'grade', name: 'Grade', type: 'number', min: 0, max: 20 },
+    { id: 'credits', name: 'Credits', type: 'integer' },
+    { id: 'tuition', name: 'Tuition', type: 'money', currency: 'PEN' },
+    { id: 'exam', name: 'Exam date', type: 'date' },
+    { id: 'meeting', name: 'Meeting', type: 'datetime' },
+    { id: 'passed', name: 'Passed', type: 'boolean' },
+    { id: 'semester', name: 'Semester', type: 'select', options: ['2026-I', '2026-II'] },
+    { id: 'tags', name: 'Tags', type: 'multi_select', options: ['Core', 'Elective'] },
+    { id: 'notes', name: 'Notes', type: 'long_text' },
+    { id: 'teacher', name: 'Teacher email', type: 'email' },
+    { id: 'link', name: 'Course website', type: 'url' },
+    { id: 'file', name: 'Attachment', type: 'file' },
+    { id: 'prerequisite', name: 'Prerequisite', type: 'relation', target: 'grades' },
+  ],
+  summary: [{ id: 'avg', title: 'Average grade', kind: 'avg', field: 'grade', chart: 'bar' }],
+}
+export const exampleRecords: RecordRow[] = [
+  {
+    id: 'math',
+    values: {
+      course: 'Mathematics',
+      grade: 18,
+      credits: 4,
+      tuition: 500.5,
+      exam: '2026-11-10',
+      passed: true,
+      semester: '2026-II',
+      tags: ['Core'],
+    },
+    created_at: '2026-11-01T12:00:00Z',
+    updated_at: '2026-11-03T12:00:00Z',
+  },
+  {
+    id: 'physics',
+    values: { course: 'Physics', grade: 16, credits: 3, passed: true },
+    created_at: '2026-11-01T12:00:00Z',
+    updated_at: '2026-11-03T12:00:00Z',
+  },
+]

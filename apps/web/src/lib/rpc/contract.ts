@@ -186,6 +186,9 @@ export interface ConversationEvent {
   task_id?: string
   payload:
     | {
+        collection?: string
+        record_id?: string
+        kind?: string
         agent_id?: string
         unread?: number
         last_preview?: string
@@ -623,4 +626,196 @@ export interface RpcMethods {
     params: { points: RobotCalibrationPoint[]; table_z: number; image: RobotImageSize }
     result: RobotCalibrationStatus
   }
+}
+
+/** Personal collections: additive shared contract, implemented by the daemon worktree. */
+export type FieldType =
+  | 'text'
+  | 'long_text'
+  | 'number'
+  | 'integer'
+  | 'money'
+  | 'date'
+  | 'datetime'
+  | 'boolean'
+  | 'select'
+  | 'multi_select'
+  | 'relation'
+  | 'email'
+  | 'url'
+  | 'file'
+export type Field = {
+  id: string
+  name: string
+  type: FieldType
+  required?: boolean
+  unique?: boolean
+  options?: string[]
+  currency?: string
+  target?: string
+  min?: number
+  max?: number
+  description?: string
+}
+export type Filter = {
+  field: string
+  op: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte' | 'contains' | 'in' | 'is_empty' | 'not_empty'
+  value?: unknown
+}
+export type SummaryCard = {
+  id: string
+  title: string
+  kind: 'count' | 'sum' | 'avg' | 'min' | 'max' | 'weighted_avg'
+  field?: string
+  weight_field?: string
+  filter?: Filter[]
+  group_by?: string
+  chart?: 'none' | 'bar' | 'line' | 'pie'
+}
+export type Collection = {
+  id: string
+  name: string
+  icon?: string
+  description?: string
+  fields: Field[]
+  display_field: string
+  summary?: SummaryCard[]
+  record_count: number
+  created_at: string
+  updated_at: string
+  version: number
+}
+export type RecordRow = {
+  id: string
+  values: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+export type ImportReport = {
+  dry_run: boolean
+  total_rows: number
+  imported: number
+  skipped: number
+  updated: number
+  mapping: { column: string; field: string | null }[]
+  unknown_columns: string[]
+  conflicts: {
+    row: number
+    column: string
+    value: string
+    problem:
+      | 'invalid_type'
+      | 'required_missing'
+      | 'duplicate'
+      | 'unknown_option'
+      | 'out_of_range'
+      | 'ambiguous_date'
+      | 'relation_not_found'
+    suggestion?: string
+  }[]
+  fixes_applied: { row: number; column: string; from: string; to: string; rule: string }[]
+}
+export interface RpcMethods {
+  'collections.list': { params: Record<string, never>; result: { collections: Collection[] } }
+  'collections.get': { params: { id: string }; result: { collection: Collection } }
+  'collections.create': {
+    params: {
+      name: string
+      icon?: string
+      description?: string
+      fields: Field[]
+      display_field?: string
+      summary?: SummaryCard[]
+    }
+    result: { collection: Collection }
+  }
+  'collections.update': {
+    params: {
+      id: string
+      name?: string
+      icon?: string
+      description?: string
+      summary?: SummaryCard[]
+      display_field?: string
+    }
+    result: { collection: Collection }
+  }
+  'collections.fields': {
+    params: {
+      id: string
+      add?: Field[]
+      rename?: { field: string; name: string }[]
+      remove?: string[]
+      change_type?: { field: string; type: FieldType; options?: string[] }[]
+      dry_run?: boolean
+    }
+    result: {
+      collection: Collection
+      report?: {
+        field: string
+        converted: number
+        failed: { record_id: string; value: unknown }[]
+      }[]
+    }
+  }
+  'collections.delete': { params: { id: string }; result: { ok: boolean } }
+  'records.list': {
+    params: {
+      collection: string
+      query?: string
+      filters?: Filter[]
+      sort?: { field: string; dir: 'asc' | 'desc' }[]
+      limit?: number
+      cursor?: string
+    }
+    result: { records: RecordRow[]; total: number; next_cursor?: string }
+  }
+  'records.get': {
+    params: { collection: string; id: string }
+    result: {
+      record: RecordRow
+      related: { collection: string; field: string; records: RecordRow[] }[]
+    }
+  }
+  'records.create': {
+    params: { collection: string; values: Record<string, unknown> }
+    result: { record: RecordRow }
+  }
+  'records.update': {
+    params: { collection: string; id: string; values: Record<string, unknown> }
+    result: { record: RecordRow }
+  }
+  'records.delete': { params: { collection: string; id: string }; result: { ok: boolean } }
+  'collections.summary': {
+    params: { id: string }
+    result: {
+      cards: {
+        id: string
+        title: string
+        value: number
+        unit?: string
+        series?: { label: string; value: number }[]
+      }[]
+    }
+  }
+  'collections.import': {
+    params: {
+      collection?: string
+      blob_digest: string
+      sheet?: string
+      mapping?: { column: string; field: string | null }[]
+      create_schema?: boolean
+      upsert_key?: string
+      fixes?: 'auto' | 'none'
+      dry_run?: boolean
+    }
+    result: { collection?: Collection; report: ImportReport; proposed_fields?: Field[] }
+  }
+  'collections.export': {
+    params: { id: string; format: 'xlsx' | 'csv'; filters?: Filter[] }
+    result: { blob_digest: string; name: string; mime: string }
+  }
+}
+export interface RpcEvents {
+  'collections.changed': { collection: string; record_id?: string; kind: string }
 }

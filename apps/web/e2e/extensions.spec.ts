@@ -29,7 +29,17 @@ for (const mode of ['desktop', 'rail', 'mobile'] as const) {
           nodes.map((node) => node.getAttribute('aria-label') ?? node.textContent?.trim()),
         ),
       )
-      .toEqual(navigation)
+      .toEqual(
+        mode === 'rail'
+          ? [...navigation.slice(0, -1), 'Mis datos', 'Configuración']
+          : [
+              ...navigation.slice(0, -1),
+              'Mis datos',
+              'Ocultar colecciones',
+              'Pídele al agente que cree una colección',
+              'Configuración',
+            ],
+      )
     await expect(sidebar.getByRole('button', { name: 'Extensiones', exact: true })).toHaveAttribute(
       'aria-current',
       'page',

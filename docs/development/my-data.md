@@ -114,3 +114,125 @@ verify baseline chat/agent/settings flows; collection UI e2e belongs to that bra
 this Backend section when merging the web agent's section. No changes to the
 embedded/eval catalog, provider wiring, robot code, integrations or web contracts
 are required from this branch.
+
+# Personal collections
+
+## Web
+
+The section is named **My data** in English and **Mis datos** in Spanish.
+It uses the existing semantic theme tokens, shared controls, and sidebar groups.
+The sidebar entry follows Extensions and precedes Settings. The expanded sidebar
+lists collection names, icons and record counts, with collapsible children and an
+agent creation shortcut when empty. The compact rail keeps the same ordering.
+
+### Routes and interactions
+
+| Route                        | Behavior                                                                                      |
+| ---------------------------- | --------------------------------------------------------------------------------------------- |
+| `/data`                      | Collection cards, record counts, update dates, creation and spreadsheet import shortcuts      |
+| `/data/$collection`          | Search, typed filters, column selection, sorting, cursor pagination, summary cards and charts |
+| `/data/$collection/new`      | Schema-generated record creation                                                              |
+| `/data/$collection/$id`      | Formatted record detail, file preview, relation links and incoming related records            |
+| `/data/$collection/$id/edit` | Schema-generated editing with preserved values                                                |
+
+Deletion has no route. Its confirmation dialog shows the display value and warns
+when related records reference the selected record. Pending and failed requests
+remain visible; failures offer retries or retain the user's form values. Saves
+and deletes show transient, accessible status notices. Exports download CSV or
+XLSX blobs using the current structured filters.
+
+All fourteen shared field types have generated controls. Numeric inputs accept
+localized decimal commas; integer and range constraints are checked before RPC.
+Dates use native date controls; datetimes convert local input to ISO instants.
+Date-only display stays on the selected calendar day, while datetime display
+uses the principal's configured timezone. Selects and multi-select chips use the
+schema options. Relation controls search the target collection and retain a
+selected record outside the current search results. Files upload original bytes
+through the existing SHA-256 `/blobs` flow. Saving is disabled during uploads.
+Structured `-32602` `data.errors` responses appear beside their fields.
+
+TanStack Router guards navigation and browser unload while a form is dirty.
+The discard dialog allows users to stay or leave. Form contents remain stable
+when a background event refreshes collection metadata.
+
+### Agent handoff and API boundary
+
+The new-collection action opens an editable chat draft asking the agent to
+propose the structure and wait for confirmation. Spreadsheet import uploads the
+original Excel/CSV blob and opens a draft with the file attached, its digest,
+and instructions to propose the schema, dry-run imports, report normalization
+and ask about unresolved conflicts. The UI never creates a collection or commits
+an import implicitly. Schema changes and whole-collection deletion remain agent
+operations with the daemon's confirmation policy.
+
+The original spreadsheet is attached directly rather than sent through document
+text extraction. The composer sends its digest with the conversation attachment
+list; the draft also names the blob so the daemon-only `my_data` tool can import
+it. The attachment is addressed to the selected agent and can be removed before
+sending. No additional model endpoint or credentials are used.
+
+The additive client types and all fourteen RPC method shapes live in
+`apps/web/src/lib/rpc/contract.ts`. Import mapping is an array of
+`{ column, field: string | null }`, matching the backend's `ImportMapping`.
+The existing `clientMethods` inventory is unchanged, following the other
+feature-specific additive interfaces; the daemon worktree owns the shared JSON
+catalog and handlers. Merge both branches before using this UI with a daemon.
+
+Queries share the `mydata` prefix. A single shell-level subscription uses the
+existing `/ws` reconnect/replay transport for `collections.changed`. Events and
+reconnects invalidate collection lists, schemas, rows, related records, picker
+results and summary cards. Successful saves populate the detail cache from the
+canonical response, then invalidate lists and summaries. Pagination keeps the
+previous page visible until the requested cursor resolves. Pages request at
+most 25 rows; relation search requests at most 30.
+
+### Verification
+
+Unit coverage in `features/mydata/` exercises every generated field type,
+localized conversion, required/integer/range checks, RPC field errors, filter
+operators, sorting and cursor state, explicit deletion confirmation, collection
+navigation, signed summary charts, and live invalidation. The sidebar rail suite covers entry ordering.
+
+`e2e/mydata.spec.ts` runs against a stateful mocked JSON-RPC daemon and blob
+routes. It covers the complete overview/list/create/view/edit/delete journey,
+file uploads, filters, sorting, column selection, both export formats, unsaved
+changes, agent handoffs and live updates. Mobile checks visit every route at
+390 px in English, both themes and reduced motion, asserting no page overflow.
+The existing Extensions navigation suite covers the shared sidebar layouts.
+
+Set `EXCALIBUR_MYDATA_SCREENSHOT_DIR` to capture screenshots outside Playwright's
+ignored test output directory. Screenshots and command logs for this round are
+stored outside the repository in the round's
+`status/next/mydata-web-notes/` directory. The baseline Extensions screenshot
+comes from an isolated archive of commit `766dc51`. Final verification results
+and merge notes are recorded in `status/next/mydata-web.md`.
+
+### Verified results (2026-11-03)
+
+| Check                                   | Result                                                                      |
+| --------------------------------------- | --------------------------------------------------------------------------- |
+| Full Vitest suite                       | 123 files, 672 tests passed                                                 |
+| Latest feature unit checks              | 29 tests passed, including three additional signed-chart cases              |
+| Sidebar rail unit checks                | 8 tests passed                                                              |
+| Playwright feature and Extensions flows | 11 tests passed; all 6 feature flows passed again after visual fixes        |
+| Portable screenshot helper              | Fresh full CRUD flow passed with external screenshot destination            |
+| TypeScript                              | `tsc -b` and `tsc --noEmit -p .` passed                                     |
+| Web production build                    | Passed                                                                      |
+| Prettier and oxlint                     | Passed; existing unrelated lint and bundle-size warnings remain             |
+| Go formatting                           | No unformatted files                                                        |
+| Go builds                               | Linux, Darwin and Windows passed with `-p 2`                                |
+| Go vet                                  | Daemon and tools packages passed                                            |
+| Daemon race suite                       | Passed, including embedded/eval tool-surface and prefix pins                |
+| Tools race suite                        | Passed in an isolated run, including cancellation and deferred-prefix tests |
+| Forbidden-path audit                    | No changes in restricted paths                                              |
+
+The initial tools race run failed the existing `TestPipelineCancelModes` check;
+a subsequent run was terminated with `SIGTERM` before producing results. The
+isolated complete tools race run passed (153 seconds, exit 0). No Go source or
+tests were changed. Logs retain these earlier outcomes for the integration audit.
+
+The backend branch supplies the daemon handlers, agent tool, shared method/event
+catalogs and persistence. This branch verifies the browser boundary with mocks;
+a live daemon integration check remains a merge responsibility. When combining
+the documentation, retain both the backend branch's **Backend** section and this
+**Web** section.

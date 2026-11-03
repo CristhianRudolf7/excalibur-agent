@@ -1,5 +1,7 @@
+import { CollectionIcon } from '@/features/mydata/CollectionIcon'
+import type { Collection } from '@/lib/rpc/contract'
 import { Tooltip } from 'radix-ui'
-import { Puzzle, Settings } from 'lucide-react'
+import { Database, Puzzle, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
 import { IconButton } from '@/components/shared'
@@ -27,6 +29,7 @@ function RailTooltip({ label, children }: { label: string; children: ReactNode }
 }
 /** Shared navigation for World and a collapsed desktop sidebar. */
 export function SidebarRail({
+  collections = [],
   agents,
   selectedAgentId,
   activeItem,
@@ -34,6 +37,7 @@ export function SidebarRail({
   onAgent,
   onProfile,
 }: {
+  collections?: readonly Collection[]
   agents: readonly Agent[]
   selectedAgentId?: string
   activeItem?: string
@@ -119,6 +123,33 @@ export function SidebarRail({
                 )
               })}
           </div>
+        </nav>
+        <nav className="sidebar-rail-nav" aria-label={t('myData')}>
+          <RailTooltip label={t('myData')}>
+            <IconButton
+              label="myData"
+              title={undefined}
+              aria-pressed={activeItem === 'myData'}
+              aria-current={activeItem === 'myData' ? 'page' : undefined}
+              onClick={() => onNavigate('myData')}
+            >
+              <Database />
+            </IconButton>
+          </RailTooltip>
+          {collections.map((collection) => (
+            <RailTooltip
+              label={`${collection.name} (${collection.record_count})`}
+              key={collection.id}
+            >
+              <button
+                className="icon-button"
+                aria-label={`${collection.name} (${collection.record_count})`}
+                onClick={() => onNavigate(`data:${collection.id}`)}
+              >
+                <CollectionIcon name={collection.icon} size={16} />
+              </button>
+            </RailTooltip>
+          ))}
         </nav>
         <div className="sidebar-rail-bottom">
           <div className="sidebar-rail-divider" role="separator" />

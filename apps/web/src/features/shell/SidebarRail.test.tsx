@@ -54,6 +54,7 @@ it('routes every navigation and action through its supplied handler', () => {
     ['Extensiones', 'extensions'],
     ['Laboratorio robótico', 'lab_title'],
     ['Automatizaciones', 'automations'],
+    ['Mis datos', 'myData'],
     ['Configuración', 'settings'],
   ]) {
     fireEvent.click(screen.getByRole('button', { name: label }))
@@ -108,6 +109,7 @@ it('keeps agents, work, extensions and bottom settings in the specified order', 
     'Aula',
     'Laboratorio robótico',
     'Brazo robótico',
+    'Mis datos',
     'Configuración',
     'Perfil',
   ])

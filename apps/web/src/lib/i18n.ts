@@ -1,3 +1,4 @@
+import { myDataMessages } from '@/features/mydata/i18n'
 import { agentMessages } from '@/features/agents/i18n'
 import { credentialMessages } from '@/features/credentials/i18n'
 import { classroomMessages } from '@/features/classroom/i18n'
@@ -16,6 +17,7 @@ import { extensionMessages } from '@/features/extensions/i18n'
 import { initReactI18next } from 'react-i18next'
 
 const entries = {
+  ...myDataMessages,
   ...agentMessages,
   ...credentialMessages,
   ...classroomMessages,

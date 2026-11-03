@@ -1,3 +1,5 @@
+import { CollectionNav } from '@/features/mydata/CollectionNav'
+import { useCollections, useCollectionEvents } from '@/features/mydata/api'
 import { AgentSwitcher } from '@/features/agents/AgentSwitcher'
 import { AgentSidebar } from '@/features/agents/AgentSidebar'
 import { useAgents, useSelectedAgent } from '@/features/agents/store'
@@ -112,13 +114,17 @@ export function Shell() {
   const isRobot = location.pathname === '/robot'
   const isSettings = location.pathname === '/settings'
   const settingsItem = 'settings'
+  const collectionsQuery = useCollections()
+  useCollectionEvents()
+  const isData = location.pathname === '/data' || location.pathname.startsWith('/data/')
   const isExtensions = location.pathname === '/extensions'
   const installedExtensions = useExtensions((state) => state.installed)
   const isClassroom = location.pathname === '/classroom'
   const isTasks = location.pathname === '/tasks'
   const isReminders = location.pathname === '/reminders'
   const isAutomations = location.pathname.startsWith('/automations')
-  const isWorkPage = isTasks || isReminders || isAutomations || isClassroom || isExtensions
+  const isWorkPage =
+    isData || isTasks || isReminders || isAutomations || isClassroom || isExtensions
   const onAutomationDeleted = useCallback(
     (id: string) => {
       if (location.pathname === `/automations/${id}`) void navigate({ to: '/automations' })
@@ -284,6 +290,9 @@ export function Shell() {
     else if (path === 'classroom') void navigate({ to: '/classroom' })
     else if (path === 'lab' || path === 'lab_title') void navigate({ to: '/lab' })
     else if (path === 'robot') void navigate({ to: '/robot' })
+    else if (path === 'myData') void navigate({ to: '/data' })
+    else if (path.startsWith('data:'))
+      void navigate({ to: '/data/$collection', params: { collection: path.slice(5) } })
     else if (path === 'extensions') void navigate({ to: '/extensions' })
     else if (path === 'automations') void navigate({ to: '/automations' })
     else if (path === '/projects') void navigate({ to: '/projects' })
@@ -418,6 +427,7 @@ export function Shell() {
       >
         {railVisible && (
           <SidebarRail
+            collections={collectionsQuery.data?.collections ?? []}
             agents={agentsLoaded ? agents : []}
             selectedAgentId={
               !isLab && !isRobot && !isSettings && !isProjects && !isSoon && !isWorkPage
@@ -436,15 +446,17 @@ export function Shell() {
                       : isProjects
                         ? 'projects'
                         : isWorkPage
-                          ? isExtensions
-                            ? 'extensions'
-                            : isClassroom
-                              ? 'classroom'
-                              : isAutomations
-                                ? 'automations'
-                                : isTasks
-                                  ? 'myTasks'
-                                  : 'reminders'
+                          ? isData
+                            ? 'myData'
+                            : isExtensions
+                              ? 'extensions'
+                              : isClassroom
+                                ? 'classroom'
+                                : isAutomations
+                                  ? 'automations'
+                                  : isTasks
+                                    ? 'myTasks'
+                                    : 'reminders'
                           : isSoon
                             ? location.pathname.split('/')[2]
                             : undefined
@@ -557,6 +569,12 @@ export function Shell() {
                 })}
             </div>
           </nav>
+          <CollectionNav
+            collections={collectionsQuery.data?.collections ?? []}
+            active={location.pathname}
+            onNavigate={go}
+            onAsk={() => openAgentChat(t('dataPrompt'))}
+          />
           <div className="sidebar-bottom">
             <nav>
               {[{ key: 'settings', icon: Settings }].map(({ key, icon: Icon }) => (
@@ -685,6 +703,8 @@ export function Shell() {
             <Reminders />
           ) : isProjects ? (
             <Projects onNotice={setNotice} />
+          ) : isData ? (
+            <Outlet />
           ) : isExtensions ? (
             <ExtensionsPage />
           ) : isSoon ? (
