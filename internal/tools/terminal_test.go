@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -172,6 +173,10 @@ func TestPipeEnvAndShellDetection(t *testing.T) {
 		}
 	}
 	t.Setenv(NonInteractiveEnvSwitch, "0")
+	// The go command may export GIT_TERMINAL_PROMPT to test processes; the
+	// switch-off check is about what pipeEnv adds, not the inherited value.
+	t.Setenv("GIT_TERMINAL_PROMPT", "")
+	os.Unsetenv("GIT_TERMINAL_PROMPT")
 	off := map[string]string{}
 	for _, kv := range pipeEnv(nil) {
 		if k, v, ok := strings.Cut(kv, "="); ok {
