@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs'
 import { expect, expectTypeOf, it } from 'vitest'
-import type { ClassroomMethods, QuestionView } from './classroom'
+import type { Attempt, ClassroomMethods, QuestionView } from './classroom'
 import { classroomEventTypes } from './classroom'
 
 it('uses the classroom methods and events exported by the backend', () => {
@@ -48,4 +48,8 @@ it('excludes answer keys and explanations from every question view', () => {
   type Match = Extract<QuestionView, { kind: 'match' }>
   expectTypeOf<Extract<keyof Single, 'correct' | 'pairs' | 'explanation'>>().toEqualTypeOf<never>()
   expectTypeOf<Extract<keyof Match, 'correct' | 'pairs' | 'explanation'>>().toEqualTypeOf<never>()
+})
+
+it('keeps submitted answers out of browser attempt history', () => {
+  expectTypeOf<Extract<keyof Attempt, 'answers'>>().toEqualTypeOf<never>()
 })

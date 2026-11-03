@@ -67,7 +67,7 @@ type Question struct {
 	Left        []string `json:"left,omitempty"`        // match
 	Right       []string `json:"right,omitempty"`       // match
 	Pairs       []int    `json:"pairs,omitempty"`       // Pairs[i] = index in Right matching Left[i]
-	Explanation string   `json:"explanation,omitempty"` // shown after grading
+	Explanation string   `json:"explanation,omitempty"` // private reasoning for agent feedback
 }
 
 // Quiz is one generated set of questions for a topic or the final exam.

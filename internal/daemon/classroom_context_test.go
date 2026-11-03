@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 )
 
@@ -20,14 +22,19 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		app    *api.AppContext
 	}
 	seen := make(chan observed, 3)
+	release := make(chan struct{})
 	b, _ := assistantTestWiring(t, false, func(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
 		var text strings.Builder
 		for _, m := range req.Messages {
 			text.WriteString(m.Content)
 		}
 		seen <- observed{prompt: text.String(), app: api.AppContextFrom(ctx)}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
 		return textReply("Response"), nil
-	})
+	}, master.Config{Turns: master.TurnConfig{CancelWindow: time.Nanosecond}})
 	server := httptest.NewServer(gateway.New(gateway.Config{}, b, gateway.NewMemoryBlobs(), b.Bus))
 	defer server.Close()
 	inputs := []*api.AppContext{{App: "classroom", CourseID: "course-a", TopicID: "topic-a"}, {App: "classroom", CourseID: "course-b"}, nil}
@@ -45,10 +52,16 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		if err != nil || result.Error != nil {
 			t.Fatal(result, err)
 		}
-		history := awaitAssistant(t, b, "one-history", i+1)
-		if len(history) != (i+1)*2 {
-			t.Fatal("conversation history split", history)
-		}
+	}
+	if b.Master.Turns().PendingCount("one-history") != 2 {
+		t.Fatal("messages were not queued")
+	}
+	close(release)
+	history := awaitAssistant(t, b, "one-history", 3)
+	if len(history) != 6 {
+		t.Fatal("conversation history split", history)
+	}
+	for i, app := range inputs {
 		got := <-seen
 		if app == nil {
 			if got.app != nil || strings.Contains(got.prompt, "Current app view") {
@@ -69,7 +82,7 @@ func TestClassroomMessageContextFollowsQueuedTurn(t *testing.T) {
 		}
 	}
 	normalized := b.Master.TurnHistory("one-history", 0)
-	if normalized[0].Context == nil || normalized[0].Context.CourseID != "course-a" || normalized[2].Context.CourseID != "course-b" {
+	if normalized[0].Context == nil || normalized[0].Context.CourseID != "course-a" || normalized[1].Context == nil || normalized[1].Context.CourseID != "course-b" || normalized[2].Context != nil {
 		t.Fatal("context missing from queued envelope")
 	}
 }

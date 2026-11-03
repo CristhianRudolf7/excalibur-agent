@@ -2,8 +2,8 @@ package api
 
 import "time"
 
-// Classroom client models deliberately have no answer-key fields. Explanations
-// are exposed only in graded results, never alongside an unanswered question.
+// Classroom client models deliberately have no answer-key fields. Private
+// question explanations stay behind the trusted boundary after grading too.
 type ClassroomQuestionView struct {
 	ID      string   `json:"id"`
 	Kind    string   `json:"kind"`
