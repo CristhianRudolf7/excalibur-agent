@@ -24,7 +24,6 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
-	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
 
 // WireAssistantTurns binds bounded conversational turns to the shared engine
@@ -109,7 +108,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if whiteboard.Enabled() {
 		allow["whiteboard"] = true
 	}
-	activation := wireengine.SuggestTools(a.services.Catalog, a.services.Skills, msg.Text, a.modelID, "default")
+	activation := a.services.chatToolActivation(msg.Text, a.modelID, msg.Context)
 	for _, def := range activation.Definitions {
 		allow[def.Name] = true
 	}
@@ -119,7 +118,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }}
 	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
-		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text))
+		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context)
 	}
 	var defs []providers.ToolDefinition
 	var names []string

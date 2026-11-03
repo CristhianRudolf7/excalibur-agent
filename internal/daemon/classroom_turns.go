@@ -159,6 +159,7 @@ func (b *DaemonBackend) handleClassroomEvent(ctx context.Context, ev types.Event
 	case "feedback":
 		instruction = fmt.Sprintf("Classroom attempt %q in course %q was graded. Load course-creation, read classroom get_course, and write targeted feedback with classroom write_feedback. Never reveal correct options, indexes or matching pairs.", e.AttemptID, e.CourseID)
 	}
+	ctx = api.WithAppContext(ctx, api.AppContext{App: "classroom", CourseID: e.CourseID, TopicID: e.TopicID})
 	if _, err := b.Master.ReceiveSystem(ctx, "classroom:"+ev.ID, ClassroomConversation, instruction); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
@@ -47,7 +48,8 @@ func (d *chatDelegations) stop() {
 	d.wg.Wait()
 }
 
-func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool) {
+func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext) {
+	app = api.CloneAppContext(app)
 	d.mu.Lock()
 	if d.stopped || d.jobs[id] {
 		d.mu.Unlock()
@@ -60,14 +62,17 @@ func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage,
 		defer d.wg.Done()
 		d.finish(conv, id, types.RunFailed, fmt.Sprintf("Subagent failed: %v", recovered))
 	}, func() {
-		d.run(conv, inheritedDir, args, id, spanish)
+		d.run(conv, inheritedDir, args, id, spanish, app)
 		d.wg.Done()
 	})
 }
 
-func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool) {
+func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext) {
 	ctx, cancel := context.WithTimeout(whiteboard.WithConversation(d.ctx, conv), 30*time.Minute)
 	defer cancel()
+	if app != nil {
+		ctx = api.WithAppContext(ctx, *app)
+	}
 	var input struct {
 		Card struct {
 			Goal        string    `json:"goal"`
@@ -161,11 +166,11 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	}
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: dt.Exec, reg: dt.Registry, artifacts: &artifactTurn{store: d.owner.backend.artifacts, conversation: conv, run: id}}, allowed: map[string]bool{}, runID: id, root: agent.ID}
 	defer d.owner.finishArtifacts(ctx, runner.artifacts)
-	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish) }
+	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish, app) }
 	for _, name := range allowed {
 		runner.allowed[name] = true
 	}
-	activation := wireengine.SuggestTools(dt.Catalog, s.Skills, input.Card.Goal, d.owner.modelID, "default")
+	activation := s.chatToolActivation(input.Card.Goal, d.owner.modelID, app)
 	// An explicit card grant remains authoritative. Otherwise matching deferred
 	// tools extend the role's normal on-demand discovery surface for this run.
 	if len(input.Card.Tools) == 0 {
@@ -192,6 +197,9 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	}
 	prompt += "\nAnswer in " + language + "."
 	snap := ctxcompiler.Snapshot{Task: ctxcompiler.TaskView{SuggestedSkills: activation.Skills}, Role: "child", AgentProfile: "Answer in " + language + ". Complete the delegated work with the available tools. Verify the done criteria and report the result.", Activity: []ctxcompiler.ActivityEvent{{Role: providers.RoleUser, Content: prompt}}}
+	if note := d.owner.appContextNote(ctx, app); note != "" {
+		snap.Activity = append(snap.Activity, ctxcompiler.ActivityEvent{Role: providers.RoleSystem, Content: note})
+	}
 	capture := &automationEndpoint{ModelEndpoint: d.owner.endpoint}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: d.owner.modelID, Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) {
 		for _, message := range s.Store.PendingMessages(agent.ID) {

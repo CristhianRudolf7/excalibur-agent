@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -24,7 +25,11 @@ func (m *Master) ReceiveSystem(ctx context.Context, eventID, conv, text string) 
 		m.mu.Unlock()
 		return id, nil
 	}
-	msg := Normalized{Role: "system", Text: text, Channel: "system"}
+	msg := Normalized{Role: "system", Text: text, Channel: "system", Context: api.AppContextFrom(ctx)}
+	if err := msg.Context.Validate(); err != nil {
+		m.mu.Unlock()
+		return "", err
+	}
 	id, err := m.store.SaveMessage(ctx, conv, msg)
 	if err == nil {
 		m.store.RecordClientMsg("system", eventID, id)

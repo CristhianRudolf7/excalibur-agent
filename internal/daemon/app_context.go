@@ -3,9 +3,37 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
+
+// App tools are selected from the message envelope, independently of lexical
+// intent ranking. Study intent uses the same selection without app context.
+func (s *Services) chatToolActivation(request, model string, app *api.AppContext) wireengine.ToolActivation {
+	activation := wireengine.SuggestTools(s.Catalog, s.Skills, request, model, "default")
+	if (app == nil || app.App != "classroom") && !slices.Contains(activation.Names, "classroom") {
+		return activation
+	}
+	for _, name := range []string{"classroom", "whiteboard"} {
+		if slices.Contains(activation.Names, name) || name == "whiteboard" && !whiteboard.Enabled() {
+			continue
+		}
+		if tool, err := s.Tools.Get(name); err == nil {
+			activation.Names = append(activation.Names, name)
+			activation.Definitions = append(activation.Definitions, tool.Definition())
+		}
+	}
+	if s.Skills != nil {
+		if _, ok := s.Skills.Get("course-creation"); ok && !slices.ContainsFunc(activation.Skills, func(h ctxcompiler.SkillView) bool { return h.Name == "course-creation" }) {
+			activation.Skills = append(activation.Skills, ctxcompiler.SkillView{Name: "course-creation", Why: "Create courses and prepare classroom lessons, quizzes and feedback."})
+		}
+	}
+	return activation
+}
 
 func (a *assistantTurns) appContextNote(ctx context.Context, app *api.AppContext) string {
 	if app == nil || app.App != "classroom" {

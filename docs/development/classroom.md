@@ -85,3 +85,40 @@ the JSON exports. Daemon tests exercise every classroom RPC through HTTP and
 WebSocket and verify service injection. A scripted conversational turn verifies
 that per-message classroom context reaches the model and tool context, survives
 queueing, and does not leak into a later ordinary message in the same history.
+
+`TestDaemonClassroomContextThroughModelHTTP` in `cmd/excalibur` starts the real
+daemon command in a subprocess with an isolated config and SQLite data directory.
+A local HTTP model endpoint checks the offered tool list and issues
+`classroom.create_course` through the `classroom` tool. The test sends a message
+with classroom context and no study keywords, then verifies the saved course
+through `classroom.list`. It covers production provider encoding and model
+wiring as well as intake and chat execution, without calling a paid API.
+
+Daemon tests also check that study intent offers teaching tools without app
+context, classroom system turns preserve their course/topic envelope, and a
+delegated worker inherits that envelope and executes against the shared service.
+Context does not expand an explicit delegation tool grant or carry into a later
+ordinary message.
+
+## Live daemon verification
+
+On 2026-11-03, one live run used `openai`, `gpt-6-luna`, low reasoning effort
+and the default service tier. The binary was built from `cmd/excalibur`; its
+daemon used an isolated temporary data directory and an ephemeral loopback port.
+The credential was read into the subprocess environment without printing it.
+
+| Step | Observed result |
+| --- | --- |
+| `conversation.send` with `context.app=classroom` | Accepted a beginner Git course request. |
+| `classroom.list` | Returned one newly created course with a complete two-topic syllabus. |
+| `classroom.open_topic` and class wait | Stored a chat lesson containing 2,845 characters of markdown. |
+| `classroom.request_quiz` and quiz wait | Generated a six-question quiz. |
+| `classroom.get_quiz` | Returned questions without answer keys or private explanations. |
+| `classroom.submit` with no answers | Graded the deliberately incomplete submission as failed. |
+| `classroom.attempts` and feedback wait | Returned the failed attempt with 526 characters of generated feedback. |
+| `classroom.request_quiz` after failure | Generated a different quiz ID with changed question prompts. |
+| Shutdown | Sent SIGTERM to the daemon PID and observed exit code zero. |
+
+This exercised the actual model gateway, master conversation turn, trusted
+classroom tool and event-triggered lesson, quiz and feedback turns. No second
+live run was needed. The frozen eval profile and tool-surface pins did not move.

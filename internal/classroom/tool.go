@@ -80,7 +80,7 @@ func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, 
 		return fail(tools.StatusInputError, err)
 	}
 	if t.Service == nil {
-		return fail(tools.StatusToolError, fmt.Errorf("classroom service unavailable"))
+		return fail(tools.StatusToolError, fmt.Errorf("classroom requires the daemon; start it with excalibur daemon start and use the classroom chat"))
 	}
 	out, err := t.execute(ctx, a)
 	if err != nil {

@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/models"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
@@ -24,7 +27,7 @@ func TestClassroomStudyIntentExposesToolAndSkill(t *testing.T) {
 				for _, def := range req.Tools {
 					names = append(names, def.Name)
 				}
-				if !slices.Contains(names, "classroom") || !slices.Contains(names, "load_skill") {
+				if !slices.Contains(names, "classroom") || !slices.Contains(names, "whiteboard") || !slices.Contains(names, "load_skill") {
 					t.Fatalf("missing classroom or skill loader: %v", names)
 				}
 				if calls == 1 {
@@ -63,8 +66,16 @@ func TestClassroomGenerationEventsExecuteTrustedTool(t *testing.T) {
 	} {
 		t.Run(tc.want, func(t *testing.T) {
 			calls := 0
-			b, s := assistantTestWiring(t, false, func(_ context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+			b, s := assistantTestWiring(t, false, func(ctx context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
 				calls++
+				if app := api.AppContextFrom(ctx); app == nil || app.App != "classroom" || app.CourseID != "c" || app.TopicID != "t" {
+					t.Errorf("system turn context lost: %+v", app)
+				}
+				for _, name := range []string{"classroom", "whiteboard", "load_skill"} {
+					if !slices.ContainsFunc(req.Tools, func(def providers.ToolDefinition) bool { return def.Name == name }) {
+						t.Errorf("system turn did not offer %s", name)
+					}
+				}
 				if calls == 1 {
 					system := false
 					for _, msg := range req.Messages {
@@ -116,6 +127,60 @@ func TestClassroomGenerationEventsExecuteTrustedTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassroomToolSelectionFollowsOnlyCurrentContext(t *testing.T) {
+	_, s := assistantTestWiring(t, false, nil)
+	for _, app := range []*api.AppContext{{App: "classroom"}, nil, {App: "future"}} {
+		activation := s.chatToolActivation("Go ahead with the agreed plan", "test", app)
+		if got, want := slices.Contains(activation.Names, "classroom"), app != nil && app.App == "classroom"; got != want {
+			t.Fatalf("context %+v: tools %v", app, activation.Names)
+		}
+	}
+}
+
+type classroomDelegationModel struct {
+	t *testing.T
+}
+
+func (m classroomDelegationModel) Chat(ctx context.Context, role types.ModelRole, req providers.ChatRequest) (providers.ChatResponse, models.CallMeta, error) {
+	for _, name := range []string{"classroom", "whiteboard", "load_skill"} {
+		if !slices.ContainsFunc(req.Tools, func(def providers.ToolDefinition) bool { return def.Name == name }) {
+			m.t.Errorf("role %s did not offer %s", role, name)
+		}
+	}
+	app := api.AppContextFrom(ctx)
+	if app == nil || app.App != "classroom" || app.CourseID != "c" || app.TopicID != "t" {
+		m.t.Errorf("role %s lost context: %+v", role, app)
+	}
+	if role == types.RoleInterlocutor {
+		args, _ := json.Marshal(map[string]any{"action": "spawn", "card": map[string]any{"name": "teacher", "description": "Prepare next step", "profile": agents.ProfileImplementer, "scope": "general", "goal": "Continue the agreed plan", "deliverable": "next step", "done_criteria": []string{"prepared"}, "report_contract": "summary"}})
+		return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: "spawn", Name: "subagent", Arguments: args}}}}, models.CallMeta{}, nil
+	}
+	for _, msg := range req.Messages {
+		if msg.ToolResult != nil {
+			if msg.ToolResult.IsError || !strings.Contains(msg.ToolResult.Output, "Algebra") {
+				m.t.Errorf("child did not use shared classroom service: %+v", msg.ToolResult)
+			}
+			return textReply("Prepared."), models.CallMeta{}, nil
+		}
+	}
+	return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: "read", Name: "classroom", Arguments: json.RawMessage(`{"action":"get_course","course_id":"c"}`)}}}}, models.CallMeta{}, nil
+}
+
+func TestClassroomDelegationInheritsMessageContextAndService(t *testing.T) {
+	b, _ := assistantTestWiring(t, false, nil)
+	model := classroomDelegationModel{t: t}
+	s, err := Assemble(AssembleOptions{Models: model, ClassroomAgent: contextService()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	WireAssistantTurns(b, s, model, "test")
+	defer s.delegations.stop()
+	if _, _, err := b.Master.ReceiveWithContext(context.Background(), "test", "delegate", ClassroomConversation, "Continue the agreed plan", nil, &api.AppContext{App: "classroom", CourseID: "c", TopicID: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	awaitAssistant(t, b, ClassroomConversation, 2)
 }
 func TestClassroomAssembleUsesInjectedService(t *testing.T) {
 	agent := contextService()

@@ -15,6 +15,13 @@ import (
 func fixture() *fake.Agent {
 	return &fake.Agent{Courses: map[string]classroom.AgentCourse{"c": {Course: classroom.Course{ID: "c", Title: "Algebra", FinalExam: classroom.ExamState{Unlocked: true}, Units: []classroom.Unit{{ID: "u", Topics: []classroom.Topic{{ID: "t", Title: "Equations", Status: "completed"}}}}}}}}
 }
+
+func TestToolWithoutServiceExplainsDaemonRequirement(t *testing.T) {
+	r, err := (&classroom.Tool{}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"list_courses"}`)})
+	if err != nil || r.Status != tools.StatusToolError || !strings.Contains(r.Output, "excalibur daemon start") {
+		t.Fatalf("missing daemon guidance: %+v, %v", r, err)
+	}
+}
 func question() classroom.Question {
 	return classroom.Question{Kind: "single", Prompt: "Which?", Options: []string{"A", "B"}, Correct: []int{0}, Explanation: "Reason"}
 }
