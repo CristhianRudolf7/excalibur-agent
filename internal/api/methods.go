@@ -6,6 +6,15 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
+// Camera calibration methods are additive robot RPCs.
+const (
+	MethodRobotCalibrationStatus    = "robot.calibration.status"
+	MethodRobotCalibrationAddPoint  = "robot.calibration.add_point"
+	MethodRobotCalibrationSetTableZ = "robot.calibration.set_table_z"
+	MethodRobotCalibrationClear     = "robot.calibration.clear"
+	MethodRobotCalibrationSet       = "robot.calibration.set"
+)
+
 // Method name constants for every method family of Section 3.5, plus
 // the task delegation family of Section 3.6. The Methods registry below
 // enumerates them for schema export and conformance tests.
@@ -149,6 +158,11 @@ var Methods = []MethodInfo{
 	{MethodRobotDisconnect, "robot", "Disconnect the robot."},
 	{MethodRobotStop, "robot", "Stop robot motion without approval."},
 	{MethodRobotFrame, "robot", "Set the latest camera frame blob."},
+	{MethodRobotCalibrationStatus, "robot", "Read camera to base calibration."},
+	{MethodRobotCalibrationAddPoint, "robot", "Pair a pixel with current TCP XY."},
+	{MethodRobotCalibrationSetTableZ, "robot", "Set table height in the base frame."},
+	{MethodRobotCalibrationClear, "robot", "Clear camera calibration."},
+	{MethodRobotCalibrationSet, "robot", "Set camera calibration correspondences."},
 	{MethodArtifactsGet, "artifacts", "Fetch a visual artifact and its source in a conversation run."},
 	{MethodArtifactsList, "artifacts", "List retained visual artifacts in a conversation."},
 	{"robotlab.status", "robotlab", "Robot Lab status."},

@@ -3,6 +3,7 @@ import type { CredentialMethods, CredentialEvents } from './credentials'
 import type { ClassroomMethods, ClassroomContext } from './classroom'
 import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
 import type { WhiteboardMethods } from '@/features/whiteboard/types'
+import type { RobotState } from '@/features/robot/types'
 /** Wire types mirror internal/api and packages/contracts; only connected methods belong here. */
 export interface Principal {
   id: string
@@ -557,4 +558,41 @@ export interface WorkspaceFile {
 }
 export interface RpcMethods {
   'files.open': { params: { path: string; project_id?: string }; result: WorkspaceFile }
+}
+
+/** Camera pixels to robot base XY; mirrors internal/api/robot.go. */
+export interface RobotCalibrationPoint {
+  pixel: [number, number]
+  base: [number, number]
+}
+export interface RobotImageSize {
+  width: number
+  height: number
+}
+export interface RobotCalibrationStatus {
+  calibrated: boolean
+  points: RobotCalibrationPoint[]
+  table_z: number
+  image: RobotImageSize
+  reprojection_error_px: number
+  error?: string
+}
+export interface RpcEvents {
+  'robot.state': { state: RobotState; calibration?: RobotCalibrationStatus }
+}
+export interface RpcMethods {
+  'robot.calibration.status': { params: undefined; result: RobotCalibrationStatus }
+  'robot.calibration.add_point': {
+    params: { pixel: [number, number] }
+    result: RobotCalibrationStatus
+  }
+  'robot.calibration.set_table_z': {
+    params: { z: number; use_current?: false } | { use_current: true; z?: never }
+    result: RobotCalibrationStatus
+  }
+  'robot.calibration.clear': { params: undefined; result: RobotCalibrationStatus }
+  'robot.calibration.set': {
+    params: { points: RobotCalibrationPoint[]; table_z: number; image: RobotImageSize }
+    result: RobotCalibrationStatus
+  }
 }

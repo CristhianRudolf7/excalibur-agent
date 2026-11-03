@@ -15,6 +15,11 @@
     {"name": "robot.disconnect", "family": "robot", "summary": "Disconnect the robot."},
     {"name": "robot.stop", "family": "robot", "summary": "Stop robot motion without approval."},
     {"name": "robot.frame", "family": "robot", "summary": "Set the latest camera frame blob."},
+    {"name": "robot.calibration.status", "family": "robot", "summary": "Read camera to base calibration."},
+    {"name": "robot.calibration.add_point", "family": "robot", "summary": "Pair a pixel with current TCP XY."},
+    {"name": "robot.calibration.set_table_z", "family": "robot", "summary": "Set table height in the base frame."},
+    {"name": "robot.calibration.clear", "family": "robot", "summary": "Clear camera calibration."},
+    {"name": "robot.calibration.set", "family": "robot", "summary": "Set camera calibration correspondences."},
 
     {"name": "artifacts.get", "family": "artifacts", "summary": "Fetch a visual artifact and its source in a conversation run."},
     {"name": "artifacts.list", "family": "artifacts", "summary": "List retained visual artifacts in a conversation."},

@@ -1,0 +1,61 @@
+export const extensionMessages = {
+  extensions: ['Extensiones', 'Extensions'],
+  extensionsRobotArm: ['Brazo robótico', 'Robot arm'],
+  extensionsSubtitle: [
+    'Un espacio para aprender, experimentar y hacer más.',
+    'A space to learn, experiment, and do more.',
+  ],
+  extensionsFeatured: ['Extensión destacada', 'Featured extension'],
+  extensionsHeroTitle: ['Dale espacio a tu curiosidad.', 'Make room for curiosity.'],
+  extensionsHeroDescription: [
+    'Convierte ideas en aprendizaje con Aula: una pizarra, nuevas preguntas y todo por descubrir.',
+    'Turn ideas into learning with Classroom: a whiteboard, new questions, and room to explore.',
+  ],
+  extensionsClassroomDescription: [
+    'Aprende y enseña con una pizarra interactiva y conversaciones que dan vida a tus ideas.',
+    'Learn and teach with an interactive whiteboard and conversations that bring ideas to life.',
+  ],
+  extensionsLabDescription: [
+    'Investiga, simula y experimenta con robótica en un laboratorio de posibilidades.',
+    'Research, simulate, and experiment with robotics in a lab full of possibilities.',
+  ],
+  extensionsRobotDescription: [
+    'Controla tu brazo robótico y explora el movimiento con precisión.',
+    'Control your robot arm and explore precise movement.',
+  ],
+  extensionsSearch: ['Buscar extensiones', 'Search extensions'],
+  extensionsSearchPlaceholder: ['Busca tu próxima posibilidad…', 'Find your next possibility…'],
+  extensionsCategories: ['Categorías de extensiones', 'Extension categories'],
+  extensionsAll: ['Todas', 'All'],
+  extensionsCategory_education: ['Educación', 'Education'],
+  extensionsCategory_robotics: ['Robótica', 'Robotics'],
+  extensionsCategory_productivity: ['Productividad', 'Productivity'],
+  extensionsViews: ['Catálogo de extensiones', 'Extension catalog'],
+  extensionsInstalled: ['Instaladas', 'Installed'],
+  extensionsAvailable: ['Disponibles', 'Available'],
+  extensionsBuiltin: ['Integrada', 'Built-in'],
+  extensionsOpen: ['Abrir', 'Open'],
+  extensionsInstall: ['Instalar', 'Install'],
+  extensionsUninstall: ['Desinstalar', 'Uninstall'],
+  extensionsInstalledNotice: ['Se instaló {{name}}.', '{{name}} installed.'],
+  extensionsUninstalledNotice: ['Se desinstaló {{name}}.', '{{name}} uninstalled.'],
+  extensionsEmptyTitle: [
+    'Tu siguiente posibilidad está por llegar',
+    'Your next possibility is on its way',
+  ],
+  extensionsEmptyDescription: [
+    'Las nuevas extensiones se crean con el kit de extensiones y un manifiesto excalibur-extension.yaml. Consulta docs/development/extending.md para empezar.',
+    'New extensions are built with the extension kit and an excalibur-extension.yaml manifest. See docs/development/extending.md to get started.',
+  ],
+  extensionsNoResults: ['No encontramos extensiones', 'No extensions found'],
+  extensionsNoResultsDescription: [
+    'Prueba otra búsqueda o categoría para explorar el catálogo.',
+    'Try a different search or category to explore the catalog.',
+  ],
+  extensionsNoInstalled: ['Haz espacio para tus ideas', 'Make space for your ideas'],
+  extensionsNoInstalledDescription: [
+    'Explora Disponibles e instala las extensiones que quieras tener a mano.',
+    'Explore Available and install the extensions you want close at hand.',
+  ],
+  extensionsClearFilters: ['Limpiar filtros', 'Clear filters'],
+} satisfies Record<string, [string, string]>

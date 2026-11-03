@@ -43,6 +43,7 @@ class Fake:
     def getActualDigitalInputBits(self): return self.inputs
     def getActualDigitalOutputBits(self): return self.outputs
     def getSpeedScaling(self): return .5
+    def getTargetSpeedFraction(self): return .5
     def getForwardKinematics(self, q): return self.fk_pose
     def isJointsWithinSafetyLimits(self, q): return self.accept
     def isPoseWithinSafetyLimits(self, pose): return self.accept
@@ -173,6 +174,11 @@ class ControllerTest(unittest.TestCase):
         self.assertEqual(self.fake.calls[-1], ("gripper", 1, True))
         self.fake.inputs = 6
         self.assertEqual(self.controller.state()["gripper"], "unknown")
+        # No sensor wired: report the commanded output and say so.
+        self.fake.inputs = 0
+        state = self.controller.state()
+        self.assertEqual(state["gripper_source"], "command")
+        self.assertIn(state["gripper"], ("open", "closed"))
 
     def test_poses_durable_delete_and_bad_names(self):
         self.controller.call("/poses", {"name": "home"})
@@ -278,7 +284,7 @@ class RTDEBindingsTest(unittest.TestCase):
         except ImportError:
             self.skipTest("ur_rtde is optional for ordinary fake tests")
         for cls, methods in (
-            (rtde_receive.RTDEReceiveInterface, ("getRobotStatus", "getRobotMode", "getSafetyMode", "getActualTCPPose", "getActualQ", "getActualDigitalInputBits", "getActualDigitalOutputBits", "getActualTCPSpeed", "getActualQd", "getSpeedScaling", "isConnected", "disconnect")),
+            (rtde_receive.RTDEReceiveInterface, ("getRobotStatus", "getRobotMode", "getSafetyMode", "getActualTCPPose", "getActualQ", "getActualDigitalInputBits", "getActualDigitalOutputBits", "getActualTCPSpeed", "getActualQd", "getSpeedScaling", "getTargetSpeedFraction", "isConnected", "disconnect")),
             (rtde_control.RTDEControlInterface, ("moveL", "moveJ", "getAsyncOperationProgressEx", "getForwardKinematics", "isJointsWithinSafetyLimits", "isPoseWithinSafetyLimits", "freedriveMode", "endFreedriveMode", "disconnect")),
             (rtde_io.RTDEIOInterface, ("setStandardDigitalOut", "disconnect")),
         ):

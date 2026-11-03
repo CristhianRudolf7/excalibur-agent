@@ -265,6 +265,7 @@ func TestToolInvalidAndBridgeFailure(t *testing.T) {
 func TestCanceledMoveSendsIndependentStop(t *testing.T) {
 	entered := make(chan struct{})
 	stopped := make(chan struct{})
+	var stopOnce sync.Once
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health":
@@ -277,7 +278,7 @@ func TestCanceledMoveSendsIndependentStop(t *testing.T) {
 			case <-time.After(time.Second):
 			}
 		case "/stop":
-			close(stopped)
+			stopOnce.Do(func() { close(stopped) })
 			fmt.Fprint(w, `{"ok":true}`)
 		default:
 			fmt.Fprint(w, `{"connected":false}`)

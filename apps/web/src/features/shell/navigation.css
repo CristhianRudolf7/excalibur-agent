@@ -1,0 +1,57 @@
+/* Keep the same grouping in the desktop sidebar, mobile drawer, and compact rail. */
+.sidebar .primary-nav {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+}
+.sidebar .agent-nav + .primary-nav {
+  border-top-color: color-mix(in srgb, var(--border) 45%, transparent);
+}
+.sidebar-agent-divider {
+  opacity: 0.45;
+}
+.sidebar .extensions-nav {
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.extensions-nav-heading {
+  font-weight: 600;
+}
+.installed-extension-nav {
+  display: grid;
+  gap: 4px;
+  margin-left: 14px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+.sidebar .installed-extension-nav button {
+  height: auto;
+  min-height: 36px;
+  text-align: left;
+}
+.sidebar .installed-extension-nav .sidebar-label {
+  white-space: normal;
+  line-height: 1.35;
+}
+.sidebar .sidebar-bottom {
+  padding-top: 16px;
+}
+.sidebar .sidebar-bottom nav {
+  border-top: 1px solid var(--border);
+}
+.sidebar-rail-installed {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}
+.sidebar-rail-installed .icon-button > svg {
+  width: 17px;
+  height: 17px;
+}
+.sidebar-rail > nav,
+.sidebar-rail > .sidebar-rail-divider,
+.sidebar-rail > .sidebar-rail-bottom {
+  flex-shrink: 0;
+}

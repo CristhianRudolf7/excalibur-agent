@@ -16,6 +16,7 @@ type Tool struct{ Service *Service }
 
 type arguments struct {
 	Action   string    `json:"action"`
+	Pixel    []float64 `json:"pixel,omitempty"`
 	Approved bool      `json:"approved,omitempty"`
 	Name     string    `json:"name,omitempty"`
 	Pose     []float64 `json:"pose,omitempty"`
@@ -39,8 +40,8 @@ type delta struct {
 // Definition keeps this physical-control tool out of the eval catalog.
 func (*Tool) Definition() tools.Definition {
 	return tools.Definition{
-		Name: "robot", Description: "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan small steps in meters/radians. Before EACH motion, gripper change or freedrive entry, ask the user to explicitly approve that exact action with direction, distance and speed (for example: I will move the gripper 5 cm left at 0.1 m/s). Set approved:true ONLY after that explicit approval in this conversation. Never infer approval from a general goal. Always offer STOP; stop needs no approval. Look sends the latest camera image and robot state to you. Home is the named TCP pose home. Camera frames may be stale: check updated_at. Workspace, speed, step and mode limits are enforced by the bridge.",
-		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","look","move_named","move_relative","move_pose","move_joints","gripper","home","stop","list_poses","save_pose","freedrive"]},"approved":{"type":"boolean","default":false},"name":{"type":"string","pattern":"^[A-Za-z0-9_-]{1,64}$"},"pose":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"joints":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"delta":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"dx":{"type":"number"},"dy":{"type":"number"},"dz":{"type":"number"},"drx":{"type":"number"},"dry":{"type":"number"},"drz":{"type":"number"}}},"frame":{"type":"string","enum":["base","tool"]},"speed":{"type":"number","exclusiveMinimum":0},"accel":{"type":"number","exclusiveMinimum":0},"gripper":{"type":"string","enum":["open","close"]},"on":{"type":"boolean"}}}`),
+		Name: "robot", Description: "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan small steps in meters/radians. Before EACH motion, gripper change or freedrive entry, ask the user to explicitly approve that exact action with direction, distance and speed (for example: I will move the gripper 5 cm left at 0.1 m/s). Set approved:true ONLY after that explicit approval in this conversation. Never infer approval from a general goal. Always offer STOP; stop needs no approval. Pick and place: look -> locate the object pixel -> ask approval for EACH step: open gripper, move_pose to approach above, move_pose down to grasp height, close gripper, lift, move_named to the named destination (such as entrega or caja), open gripper. Locate computes base coordinates without moving and needs no approval. Look sends the latest camera image with a labeled pixel grid, image size, calibration and robot state directly to you. Home is the named TCP pose home. Camera frames may be stale: check updated_at. Workspace, speed, step and mode limits are enforced by the bridge.",
+		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","look","locate","move_named","move_relative","move_pose","move_joints","gripper","home","stop","list_poses","save_pose","freedrive"]},"pixel":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"approved":{"type":"boolean","default":false},"name":{"type":"string","pattern":"^[A-Za-z0-9_-]{1,64}$"},"pose":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"joints":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"delta":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"dx":{"type":"number"},"dy":{"type":"number"},"dz":{"type":"number"},"drx":{"type":"number"},"dry":{"type":"number"},"drz":{"type":"number"}}},"frame":{"type":"string","enum":["base","tool"]},"speed":{"type":"number","exclusiveMinimum":0},"accel":{"type":"number","exclusiveMinimum":0},"gripper":{"type":"string","enum":["open","close"]},"on":{"type":"boolean"}}}`),
 		Effect:      types.EffectWriteExternal, Idempotency: types.IdemNonIdempotent, Cancel: types.CancelImmediate,
 		Timeout: 40 * time.Second, OutputBudget: 16384, Platforms: []string{"linux"}, Profiles: []string{"default"}, Group: "robot", Tags: []string{"robot", "camera", "gripper", "UR10e"}, Keywords: []string{"arm", "move", "stop", "look", "home"},
 	}
@@ -75,6 +76,11 @@ func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, 
 		}
 		output, _ := json.Marshal(status)
 		return tools.Result{Status: tools.StatusOK, Output: string(output), Images: images}, nil
+	case "locate":
+		if len(p.Pixel) != 2 {
+			return fail(tools.StatusInputError, fmt.Errorf("locate requires pixel:[u,v]"))
+		}
+		value, err = t.Service.Locate(ctx, p.Pixel)
 	case "stop":
 		raw, err = t.Service.Stop(ctx)
 	case "list_poses":

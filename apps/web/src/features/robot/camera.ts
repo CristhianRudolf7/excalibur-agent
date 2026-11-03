@@ -1,4 +1,5 @@
 import { rpc } from '@/lib/rpc/client'
+import type { RobotImageSize } from '@/lib/rpc/contract'
 
 export function cameraErrorKey(error: unknown): string {
   const name = error && typeof error === 'object' && 'name' in error ? error.name : ''
@@ -52,7 +53,7 @@ export async function sendFrame(
 /** Owns media and the non-overlapping frame loop, including pending permission requests. */
 export class RobotCamera {
   private readonly events: {
-    sent: (at: number) => void
+    sent: (at: number, image: RobotImageSize) => void
     error: (key: string) => void
     ended: () => void
   }
@@ -121,7 +122,8 @@ export class RobotCamera {
     this.busy = true
     try {
       if (await sendFrame(this.video, this.canvas, signal)) {
-        if (!signal.aborted) this.events.sent(Date.now())
+        if (!signal.aborted)
+          this.events.sent(Date.now(), { width: this.canvas.width, height: this.canvas.height })
       }
     } catch {
       if (!signal.aborted) this.events.error('robotFrameFailure')

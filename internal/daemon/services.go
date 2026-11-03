@@ -477,6 +477,11 @@ type AssembleOptions struct {
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
 	s := &Services{Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
+	if s.Robot != nil {
+		if err := s.Robot.BindDataDir(opts.DataDir); err != nil {
+			return nil, err
+		}
+	}
 	s.Credentials.vault = opts.Vault
 	if err := s.Credentials.recoverEphemeral(context.Background()); err != nil {
 		return nil, err

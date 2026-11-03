@@ -12,6 +12,7 @@ import { whiteboardMessages } from '@/features/whiteboard/i18n'
 import i18n from 'i18next'
 import { settingsMessages } from '@/features/settings/i18n'
 import { libraryMessages } from '@/features/library/i18n'
+import { extensionMessages } from '@/features/extensions/i18n'
 import { initReactI18next } from 'react-i18next'
 
 const entries = {
@@ -28,6 +29,7 @@ const entries = {
   ...whiteboardMessages,
   ...libraryMessages,
   ...settingsMessages,
+  ...extensionMessages,
   sidebarRail: ['Navegación compacta', 'Compact navigation'],
   expandSidebar: ['Expandir barra lateral', 'Expand sidebar'],
   navigation: ['Navegación', 'Navigation'],

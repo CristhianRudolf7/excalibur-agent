@@ -5,7 +5,11 @@ import { useAgentsConnection, markAgentRead } from '@/features/agents/api'
 import { useOpenAgentChat } from '@/features/agents/navigation'
 import '@/features/agents/agents.css'
 import { CredentialConversation } from '@/features/credentials/CredentialConversation'
-import { ToolStore } from '@/features/robotlab/ToolStore'
+import { ExtensionsPage } from '@/features/extensions/ExtensionsPage'
+import { extensionCatalog } from '@/features/extensions/catalog'
+import { useExtensions } from '@/features/extensions/store'
+import { primaryNavigation } from './navigation'
+import './navigation.css'
 import { FocusConnection } from '@/features/robotlab/FocusConnection'
 import { Classroom } from '@/features/classroom/Classroom'
 import { Robot } from '@/features/robot/Robot'
@@ -25,19 +29,7 @@ import { conversationId } from '@/features/chat/live'
 import { Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import {
-  Bot,
-  ClipboardCheck,
-  Bell,
-  Folder,
-  Globe,
-  GraduationCap,
-  Store,
-  Wrench,
-  Workflow,
-  Settings,
-  X,
-} from 'lucide-react'
+import { Folder, Puzzle, Workflow, Settings, X } from 'lucide-react'
 import { IconButton, PageHeader, EmptyState } from '@/components/shared'
 import { Dialog } from '@/components/ui/dialog'
 import type { AgentId } from './mock-data'
@@ -120,13 +112,13 @@ export function Shell() {
   const isRobot = location.pathname === '/robot'
   const isSettings = location.pathname === '/settings'
   const settingsItem = 'settings'
-  const soonPage = location.pathname.split('/')[2] ?? ''
-  const soonTitle = ['stores', 'tools'].includes(soonPage) ? soonPage : 'soon'
+  const isExtensions = location.pathname === '/extensions'
+  const installedExtensions = useExtensions((state) => state.installed)
   const isClassroom = location.pathname === '/classroom'
   const isTasks = location.pathname === '/tasks'
   const isReminders = location.pathname === '/reminders'
   const isAutomations = location.pathname.startsWith('/automations')
-  const isWorkPage = isTasks || isReminders || isAutomations || isClassroom
+  const isWorkPage = isTasks || isReminders || isAutomations || isClassroom || isExtensions
   const onAutomationDeleted = useCallback(
     (id: string) => {
       if (location.pathname === `/automations/${id}`) void navigate({ to: '/automations' })
@@ -292,6 +284,7 @@ export function Shell() {
     else if (path === 'classroom') void navigate({ to: '/classroom' })
     else if (path === 'lab' || path === 'lab_title') void navigate({ to: '/lab' })
     else if (path === 'robot') void navigate({ to: '/robot' })
+    else if (path === 'extensions') void navigate({ to: '/extensions' })
     else if (path === 'automations') void navigate({ to: '/automations' })
     else if (path === '/projects') void navigate({ to: '/projects' })
     else void navigate({ to: '/coming-soon/$page', params: { page: path } })
@@ -337,7 +330,7 @@ export function Shell() {
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [isSettings, isProjects, isSoon, isWorld, isWorkPage])
+  }, [agentsLoaded, isLab, isRobot, isSettings, isProjects, isSoon, isWorld, isWorkPage])
   useEffect(() => {
     if (!overlayPanel || (!shell.drawer && !shell.panelOpen)) return
     const previous = document.activeElement
@@ -443,13 +436,15 @@ export function Shell() {
                       : isProjects
                         ? 'projects'
                         : isWorkPage
-                          ? isClassroom
-                            ? 'classroom'
-                            : isAutomations
-                              ? 'automations'
-                              : isTasks
-                                ? 'myTasks'
-                                : 'reminders'
+                          ? isExtensions
+                            ? 'extensions'
+                            : isClassroom
+                              ? 'classroom'
+                              : isAutomations
+                                ? 'automations'
+                                : isTasks
+                                  ? 'myTasks'
+                                  : 'reminders'
                           : isSoon
                             ? location.pathname.split('/')[2]
                             : undefined
@@ -504,86 +499,63 @@ export function Shell() {
               <button onClick={() => void agentsQuery.refetch()}>{t('agentRetry')}</button>
             </p>
           )}
-          <nav className="primary-nav">
-            {[
-              { key: 'myTasks', icon: ClipboardCheck },
-              { key: 'reminders', icon: Bell },
-              { key: 'projects', icon: Folder },
-              { key: 'world', icon: Globe },
-              { key: 'classroom', icon: GraduationCap },
-              { key: 'robot', icon: Bot },
-            ].map(({ key, icon: Icon }) => (
-              <button
-                key={key}
-                className={
-                  (isClassroom && key === 'classroom') ||
-                  (isRobot && key === 'robot') ||
-                  (isProjects && key === 'projects') ||
-                  (isTasks && key === 'myTasks') ||
-                  (isReminders && key === 'reminders')
-                    ? 'selected'
-                    : ''
-                }
-                aria-current={
-                  (isClassroom && key === 'classroom') ||
-                  (isRobot && key === 'robot') ||
-                  (isProjects && key === 'projects') ||
-                  (isTasks && key === 'myTasks') ||
-                  (isReminders && key === 'reminders')
-                    ? 'page'
-                    : undefined
-                }
-                onClick={() =>
-                  key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
-                }
-              >
-                <Icon />
-                <span className="sidebar-label">{t(key)}</span>
-              </button>
-            ))}
+          <nav className="primary-nav" aria-label={t('navigation')}>
+            {primaryNavigation.map(({ key, icon: Icon }) => {
+              const active =
+                (isProjects && key === 'projects') ||
+                (isTasks && key === 'myTasks') ||
+                (isReminders && key === 'reminders') ||
+                (isAutomations && key === 'automations') ||
+                (isWorld && key === 'world')
+              return (
+                <button
+                  key={key}
+                  className={active ? 'selected' : ''}
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() =>
+                    key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
+                  }
+                >
+                  <Icon />
+                  <span className="sidebar-label">{t(key)}</span>
+                </button>
+              )
+            })}
           </nav>
-          <nav className="secondary-nav">
-            {[
-              { key: 'stores', icon: Store },
-              { key: 'tools', icon: Wrench },
-              { key: 'automations', icon: Workflow },
-            ].map(({ key, icon: Icon }) => (
-              <button
-                key={key}
-                className={
-                  (
-                    key === 'automations'
-                      ? isAutomations
-                      : location.pathname === `/coming-soon/${key}`
-                  )
-                    ? 'selected'
-                    : ''
-                }
-                aria-current={
-                  (
-                    key === 'automations'
-                      ? isAutomations
-                      : location.pathname === `/coming-soon/${key}`
-                  )
-                    ? 'page'
-                    : undefined
-                }
-                onClick={() => go(key)}
-              >
-                <Icon />
-                <span className="sidebar-label">{t(key)}</span>
-              </button>
-            ))}
-          </nav>
-          <nav className="secondary-nav lab-nav">
+          <nav className="secondary-nav extensions-nav" aria-label={t('extensions')}>
             <button
-              className={isLab ? 'selected' : ''}
-              aria-current={isLab ? 'page' : undefined}
-              onClick={() => go('lab')}
+              className={
+                isExtensions ? 'selected extensions-nav-heading' : 'extensions-nav-heading'
+              }
+              aria-current={isExtensions ? 'page' : undefined}
+              onClick={() => go('extensions')}
             >
-              <Bot />
-              <span className="sidebar-label">{t('lab_title')}</span>
+              <Puzzle />
+              <span className="sidebar-label">{t('extensions')}</span>
             </button>
+            <div
+              className="installed-extension-nav"
+              role="group"
+              aria-label={t('extensionsInstalled')}
+            >
+              {extensionCatalog
+                .filter(({ id }) => installedExtensions.includes(id))
+                .map((extension) => {
+                  const Icon = extension.icon
+                  const active = location.pathname === extension.route
+                  return (
+                    <button
+                      key={extension.id}
+                      className={active ? 'selected' : ''}
+                      aria-current={active ? 'page' : undefined}
+                      onClick={() => go(extension.navigationKey)}
+                    >
+                      <Icon />
+                      <span className="sidebar-label">{t(extension.nameKey)}</span>
+                    </button>
+                  )
+                })}
+            </div>
           </nav>
           <div className="sidebar-bottom">
             <nav>
@@ -713,22 +685,12 @@ export function Shell() {
             <Reminders />
           ) : isProjects ? (
             <Projects onNotice={setNotice} />
-          ) : isSoon && (soonPage === 'tools' || soonPage === 'stores') ? (
-            <ToolStore />
+          ) : isExtensions ? (
+            <ExtensionsPage />
           ) : isSoon ? (
             <div className="coming-soon-page">
-              <PageHeader eyebrow="workspace" title={soonTitle} subtitle="soonDetail" />
-              <EmptyState
-                icon={
-                  location.pathname.endsWith('stores')
-                    ? Store
-                    : location.pathname.endsWith('tools')
-                      ? Wrench
-                      : Workflow
-                }
-                title="soon"
-                description="soonDetail"
-              />
+              <PageHeader eyebrow="workspace" title="soon" subtitle="soonDetail" />
+              <EmptyState icon={Workflow} title="soon" description="soonDetail" />
             </div>
           ) : (
             <div className="split-layout" ref={split}>

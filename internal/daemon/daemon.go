@@ -161,6 +161,11 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("daemon: mkdir data: %w", err)
 		}
 	}
+	if d.dep.Services != nil && d.dep.Services.Robot != nil {
+		if err := d.dep.Services.Robot.BindDataDir(d.cfg.DataDir); err != nil {
+			return "", err
+		}
+	}
 	d.checkCrashHistory(time.Now())
 	now := time.Now()
 	cl := d.crashLog()

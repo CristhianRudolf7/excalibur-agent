@@ -9,13 +9,13 @@ for (const viewport of [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
 ]) {
-  test(`electric blue shell, placeholders and profile fit at ${viewport.width}px`, async ({
+  test(`electric blue shell, extensions and profile fit at ${viewport.width}px`, async ({
     page,
   }, testInfo) => {
     await page.setViewportSize(viewport)
     await page.emulateMedia({ colorScheme: 'light' })
     await page.goto('/coming-soon/stores')
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Extensiones')
     await expect(page.getByRole('heading', { name: 'Laboratorio robótico' })).toBeVisible()
     await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(255, 255, 255)')
     const mobile = viewport.width < 1024
@@ -23,7 +23,7 @@ for (const viewport of [
     if (mobile) await toggle.click()
     const sidebar = page.locator('.sidebar')
     await expect(sidebar).toHaveCSS('background-color', 'rgb(255, 255, 255)')
-    const stores = sidebar.getByRole('button', { name: 'Tiendas', exact: true })
+    const stores = sidebar.getByRole('button', { name: 'Extensiones', exact: true })
     await expect(stores).toHaveAttribute('aria-current', 'page')
     await expect(stores).toHaveCSS('height', '36px')
     await expect
@@ -34,9 +34,6 @@ for (const viewport of [
       })
       .toBeLessThan(1)
     await page.screenshot({ path: testInfo.outputPath('shell-light.png') })
-    await sidebar.getByRole('button', { name: 'Herramientas', exact: true }).click()
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
-    if (mobile) await toggle.click()
     await sidebar.getByRole('button', { name: 'Automatizaciones', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Automatizaciones', exact: true })).toBeVisible()
     await expect(page).toHaveURL(/\/automations$/)
@@ -65,8 +62,12 @@ test('shell respects reduced motion and dark surface tokens', async ({ page }, t
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/coming-soon/tools')
   await page.evaluate(() => document.documentElement.classList.add('dark'))
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Herramientas')
-  await expect(page.locator('.lab-store')).toHaveCSS('animation-name', 'none')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Extensiones')
+  expect(
+    await page
+      .locator('.extensions-hero')
+      .evaluate((node) => getComputedStyle(node, '::before').animationName),
+  ).toBe('none')
   await expect(page.locator('.sidebar-active-bar')).toHaveCSS('transition-duration', '0s')
   expect(
     await page.locator('.main-panel').evaluate((node) => {

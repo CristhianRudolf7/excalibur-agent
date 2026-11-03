@@ -11,6 +11,8 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,7 +33,7 @@ func TestRobotGatewayAndAssistantImageRoundTrip(t *testing.T) {
 	defer cancel()
 	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/state" || r.URL.Path == "/connect" {
-			fmt.Fprint(w, `{"connected":true,"host":"127.0.0.1","robot_mode":"RUNNING","safety_mode":"NORMAL"}`)
+			fmt.Fprint(w, `{"connected":true,"host":"127.0.0.1","robot_mode":"RUNNING","safety_mode":"NORMAL","tcp_pose":[0.1,0.2,0.3,0.4,0.5,0.6]}`)
 		} else {
 			fmt.Fprint(w, `{"ok":true,"version":"test"}`)
 		}
@@ -137,6 +139,33 @@ func TestRobotGatewayAndAssistantImageRoundTrip(t *testing.T) {
 	if out := rpc(api.MethodRobotFrame, api.RobotFrameParams{Blob: ref, Width: 2, Height: 3}); out.Error != nil {
 		t.Fatal(out.Error)
 	}
+	for _, call := range []struct {
+		method string
+		params any
+	}{
+		{api.MethodRobotCalibrationStatus, struct{}{}},
+		{api.MethodRobotCalibrationSetTableZ, map[string]bool{"use_current": true}},
+		{api.MethodRobotCalibrationAddPoint, api.RobotCalibrationAddPointParams{Pixel: []float64{0, 0}}},
+		{api.MethodRobotCalibrationClear, struct{}{}},
+		{api.MethodRobotCalibrationSet, api.RobotCalibrationSetParams{
+			TableZ: func() *float64 { z := .12; return &z }(), Image: api.RobotImageSize{Width: 2, Height: 3},
+			Points: []api.RobotCalibrationPoint{
+				{Pixel: []float64{0, 0}, Base: []float64{.1, .2}},
+				{Pixel: []float64{1, 0}, Base: []float64{.2, .2}},
+				{Pixel: []float64{1, 2}, Base: []float64{.2, .4}},
+				{Pixel: []float64{0, 2}, Base: []float64{.1, .4}},
+			},
+		}},
+	} {
+		if out := rpc(call.method, call.params); out.Error != nil {
+			t.Fatalf("%s: %+v", call.method, out.Error)
+		}
+	}
+	out := rpc(api.MethodRobotCalibrationStatus, struct{}{})
+	var calibration api.RobotCalibrationStatus
+	if err := json.Unmarshal(out.Result, &calibration); err != nil || !calibration.Calibrated {
+		t.Fatalf("calibration gateway round trip: %+v %v", out, err)
+	}
 	if out := rpc(api.MethodRobotConnect, map[string]string{"host": "invalid"}); out.Error == nil || out.Error.Code != api.CodeInvalidParams {
 		t.Fatalf("invalid connect: %+v", out)
 	}
@@ -169,9 +198,16 @@ func TestRobotSupervisorJoinsDaemonLifecycle(t *testing.T) {
 	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{"ok":true,"version":"test"}`) }))
 	defer bridge.Close()
 	service := robot.New(robot.Options{URL: bridge.URL, External: true})
-	d := New(Config{}, Deps{Services: &Services{Robot: service}})
+	data := t.TempDir()
+	d := New(Config{DataDir: data}, Deps{Services: &Services{Robot: service}})
 	if _, err := d.Start(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := service.Op(context.Background(), api.MethodRobotCalibrationSetTableZ, json.RawMessage(`{"z":0.12}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "robot", "calibration.json")); err != nil {
+		t.Fatalf("daemon did not bind calibration storage: %v", err)
 	}
 	select {
 	case <-service.Done():

@@ -88,9 +88,20 @@ class Controller:
                 "program_running": bool(self.receive.getRobotStatus() & 2),
                 "tcp_pose": list(self.receive.getActualTCPPose()), "joints": list(self.receive.getActualQ()),
                 "digital_out": outputs, "digital_in": inputs,
-                "speed_scaling": self.receive.getSpeedScaling(),
-                "gripper": "closed" if inputs[1] and not inputs[2] else "open" if inputs[2] and not inputs[1] else "unknown",
+                # The pendant speed slider. RTDE's trajectory speed scaling reads 0 whenever
+                # no program runs, which looks like "cannot move" while the arm is idle.
+                "speed_scaling": self.receive.getTargetSpeedFraction(),
+                **self.gripper_state(inputs, outputs),
                 "updated_at": datetime.now(timezone.utc).isoformat()}
+
+    def gripper_state(self, inputs, outputs):
+        """Sensor feedback when DI1/DI2 report it; otherwise the commanded output, labelled as such."""
+        if inputs[1] != inputs[2]:
+            return {"gripper": "closed" if inputs[1] else "open", "gripper_source": "sensor"}
+        if inputs[1] and inputs[2]:
+            return {"gripper": "unknown", "gripper_source": "sensor"}  # contradictory sensors
+        commanded = outputs[self.safety.gripper_do] == bool(self.safety.close_value)
+        return {"gripper": "closed" if commanded else "open", "gripper_source": "command"}
 
     def ready(self, body):
         self.safety.approved(body)
@@ -233,7 +244,11 @@ class Controller:
             value = self.safety.close_value if action == "close" else not self.safety.close_value
             if not self.io.setStandardDigitalOut(self.safety.gripper_do, value):
                 raise Rejected("controller rejected gripper output")
-            return {"ok": True, "gripper": self.state()["gripper"]}
+            state = self.state()
+            if state.get("gripper_source") == "command":
+                # Output bits lag the write by a cycle; without sensors the command is the truth.
+                return {"ok": True, "gripper": "closed" if action == "close" else "open", "gripper_source": "command"}
+            return {"ok": True, "gripper": state["gripper"], "gripper_source": "sensor"}
         if path == "/freedrive":
             if type(body.get("on")) is not bool:
                 raise Rejected("freedrive on must be boolean")

@@ -107,6 +107,7 @@ describe('camera lifetime and frame loop', () => {
     })
     expect(video.srcObject).toBe(stream)
     expect(events.sent).toHaveBeenCalledTimes(1)
+    expect(events.sent).toHaveBeenLastCalledWith(expect.any(Number), { width: 1280, height: 720 })
     await vi.advanceTimersByTimeAsync(2000)
     expect(events.sent).toHaveBeenCalledTimes(2)
     camera.setInterval(5000)

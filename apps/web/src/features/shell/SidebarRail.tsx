@@ -1,23 +1,16 @@
 import { Tooltip } from 'radix-ui'
-import {
-  Bot,
-  ClipboardCheck,
-  Bell,
-  Folder,
-  Globe,
-  GraduationCap,
-  Store,
-  Wrench,
-  Workflow,
-  Settings,
-} from 'lucide-react'
+import { Puzzle, Settings } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Fragment, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { IconButton } from '@/components/shared'
 import { ProfileButton } from '@/features/profile/Profile'
 import type { Agent } from '@/features/agents/types'
 import { AgentAvatar } from '@/components/AgentAvatar'
 import { orderAgents } from '@/features/agents/store'
+import { extensionCatalog } from '@/features/extensions/catalog'
+import { useExtensions } from '@/features/extensions/store'
+import { primaryNavigation } from './navigation'
+import './navigation.css'
 
 function RailTooltip({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -49,14 +42,7 @@ export function SidebarRail({
   onProfile: () => void
 }) {
   const { t } = useTranslation()
-  const nav = [
-    { key: 'myTasks', icon: ClipboardCheck },
-    { key: 'reminders', icon: Bell },
-    { key: 'projects', icon: Folder },
-    { key: 'world', icon: Globe },
-    { key: 'classroom', icon: GraduationCap },
-    { key: 'robot', icon: Bot },
-  ]
+  const installed = useExtensions((state) => state.installed)
   return (
     <Tooltip.Provider delayDuration={200}>
       <aside className="sidebar-rail" aria-label={t('sidebarRail')}>
@@ -80,9 +66,9 @@ export function SidebarRail({
             </RailTooltip>
           ))}
         </nav>
-        <div className="sidebar-rail-divider" />
+        <div className="sidebar-rail-divider sidebar-agent-divider" role="separator" />
         <nav className="sidebar-rail-nav" aria-label={t('navigation')}>
-          {nav.map(({ key, icon: Icon }) => (
+          {primaryNavigation.map(({ key, icon: Icon }) => (
             <RailTooltip label={t(key)} key={key}>
               <IconButton
                 label={key}
@@ -96,29 +82,59 @@ export function SidebarRail({
             </RailTooltip>
           ))}
         </nav>
+        <div className="sidebar-rail-divider" role="separator" />
+        <nav className="sidebar-rail-nav sidebar-rail-extensions" aria-label={t('extensions')}>
+          <RailTooltip label={t('extensions')}>
+            <IconButton
+              label="extensions"
+              title={undefined}
+              aria-pressed={activeItem === 'extensions'}
+              aria-current={activeItem === 'extensions' ? 'page' : undefined}
+              onClick={() => onNavigate('extensions')}
+            >
+              <Puzzle />
+            </IconButton>
+          </RailTooltip>
+          <div
+            className="sidebar-rail-installed"
+            role="group"
+            aria-label={t('extensionsInstalled')}
+          >
+            {extensionCatalog
+              .filter(({ id }) => installed.includes(id))
+              .map((extension) => {
+                const Icon = extension.icon
+                return (
+                  <RailTooltip label={t(extension.nameKey)} key={extension.id}>
+                    <IconButton
+                      label={extension.nameKey}
+                      title={undefined}
+                      aria-pressed={activeItem === extension.navigationKey}
+                      aria-current={activeItem === extension.navigationKey ? 'page' : undefined}
+                      onClick={() => onNavigate(extension.navigationKey)}
+                    >
+                      <Icon />
+                    </IconButton>
+                  </RailTooltip>
+                )
+              })}
+          </div>
+        </nav>
         <div className="sidebar-rail-bottom">
-          {[
-            { key: 'stores', icon: Store },
-            { key: 'tools', icon: Wrench },
-            { key: 'automations', icon: Workflow },
-            { key: 'lab_title', icon: Bot },
-            { key: 'settings', icon: Settings },
-          ].map(({ key, icon: Icon }) => (
-            <Fragment key={key}>
-              {key === 'lab_title' && <div className="sidebar-rail-divider" />}
-              <RailTooltip label={t(key)}>
-                <IconButton
-                  label={key}
-                  title={undefined}
-                  aria-pressed={activeItem === key}
-                  aria-current={activeItem === key ? 'page' : undefined}
-                  onClick={() => onNavigate(key)}
-                >
-                  <Icon />
-                </IconButton>
-              </RailTooltip>
-            </Fragment>
-          ))}
+          <div className="sidebar-rail-divider" role="separator" />
+          <nav className="sidebar-rail-nav" aria-label={t('settings')}>
+            <RailTooltip label={t('settings')}>
+              <IconButton
+                label="settings"
+                title={undefined}
+                aria-pressed={activeItem === 'settings'}
+                aria-current={activeItem === 'settings' ? 'page' : undefined}
+                onClick={() => onNavigate('settings')}
+              >
+                <Settings />
+              </IconButton>
+            </RailTooltip>
+          </nav>
           <RailTooltip label={t('profileTitle')}>
             <ProfileButton avatarOnly onClick={onProfile} />
           </RailTooltip>

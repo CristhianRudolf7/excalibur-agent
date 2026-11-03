@@ -55,9 +55,9 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
     'Proyectos',
     'Mundo 2D',
     'Aula',
-    'Robot',
-    'Tiendas',
-    'Herramientas',
+    'Brazo robótico',
+    'Extensiones',
+    'Laboratorio robótico',
     'Automatizaciones',
     'Configuración',
   ])
@@ -124,7 +124,7 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
   )
   for (const [label, path] of [
     ['Aula', '/classroom'],
-    ['Robot', '/robot'],
+    ['Brazo robótico', '/robot'],
   ]) {
     await rail.getByRole('button', { name: label, exact: true }).click()
     await expect(page).toHaveURL(new RegExp(`${path}$`))

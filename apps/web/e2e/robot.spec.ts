@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { test, expect, type Page } from './fixtures'
 import { mockEvents } from './event-fixture'
 import type { RobotState } from '../src/features/robot/types'
+import type { RobotCalibrationStatus } from '../src/lib/rpc/contract'
 
 test.use({
   launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
@@ -25,10 +26,56 @@ async function mockRobot(page: Page) {
   let state = { ...initialState }
   let stopError = false
   let connectError = false
+  let tableSet = false
+  let calibrationFailure: string | null = null
+  let calibration: RobotCalibrationStatus = {
+    calibrated: false,
+    points: [],
+    table_z: 0,
+    image: { width: 0, height: 0 },
+    reprojection_error_px: 0,
+  }
   await page.route('**/rpc', async (route) => {
     const request = route.request().postDataJSON()
     if (!request.method.startsWith('robot.')) return route.fallback()
     calls.push(request)
+    if (request.method.startsWith('robot.calibration.')) {
+      if (request.method === calibrationFailure) {
+        calibrationFailure = null
+        return route.fulfill({
+          json: {
+            jsonrpc: '2.0',
+            id: request.id,
+            error: { code: -32000, message: 'TCP unavailable; reconnect the arm' },
+          },
+        })
+      }
+      if (request.method === 'robot.calibration.add_point') {
+        const frame = frames.at(-1)!
+        calibration = {
+          ...calibration,
+          image: { width: frame.width, height: frame.height },
+          points: [
+            ...calibration.points,
+            { pixel: request.params.pixel, base: [state.tcp_pose![0], state.tcp_pose![1]] },
+          ],
+        }
+      }
+      if (request.method === 'robot.calibration.set_table_z') {
+        tableSet = true
+        calibration = { ...calibration, table_z: state.tcp_pose![2] }
+      }
+      if (request.method === 'robot.calibration.clear') {
+        tableSet = false
+        calibration = { ...calibration, points: [], table_z: 0, image: { width: 0, height: 0 } }
+      }
+      calibration = {
+        ...calibration,
+        calibrated: calibration.points.length >= 4 && tableSet,
+        reprojection_error_px: calibration.points.length >= 4 ? 0.24 : 0,
+      }
+      return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: calibration } })
+    }
     if (request.method === 'robot.connect' && connectError)
       return route.fulfill({
         json: {
@@ -91,8 +138,112 @@ async function mockRobot(page: Page) {
     failConnect: () => {
       connectError = true
     },
+    failCalibrationOnce: (method: string) => {
+      calibrationFailure = method
+    },
   }
 }
+
+for (const split of [false, true]) {
+  test(`camera calibration captures original frame pixels and clears ${split ? 'with chat' : 'full width'}`, async ({
+    page,
+  }) => {
+    const robot = await mockRobot(page)
+    await page.setViewportSize({ width: 1600, height: 1000 })
+    await page.goto('/robot')
+    const card = page.getByRole('region', { name: 'Calibración de cámara' })
+    const mark = card.getByRole('button', { name: 'Marcar punto', exact: true })
+    await expect(mark).toBeDisabled()
+    await page.getByRole('textbox', { name: 'Dirección IP del brazo' }).fill('192.168.1.10')
+    await page.getByRole('button', { name: 'Conectar', exact: true }).click()
+    await expect(page.locator('.robot-status')).toHaveText('Conectado')
+    if (split) await page.getByRole('button', { name: 'Abrir chat', exact: true }).click()
+    await expect(mark).toBeDisabled()
+    await page.getByRole('button', { name: 'Iniciar cámara', exact: true }).click()
+    await expect.poll(() => robot.frames.length).toBeGreaterThan(0)
+    await expect(mark).toBeEnabled()
+    await card.getByRole('button', { name: 'Usar altura actual como mesa' }).click()
+    await expect(card).toContainText('0.450 m')
+    expect(
+      robot.calls.find((call) => call.method === 'robot.calibration.set_table_z')?.params,
+    ).toEqual({ use_current: true })
+    await mark.click()
+    const preview = page.getByRole('button', {
+      name: 'Añadir punto en la cámara (teclado: centro)',
+    })
+    await expect(preview).toBeInViewport()
+    const frame = robot.frames.at(-1)!
+    const marks = [
+      [0.25, 0.25],
+      [0.75, 0.25],
+      [0.75, 0.75],
+      [0.25, 0.75],
+    ] as const
+    for (const [index, [u, v]] of marks.entries()) {
+      robot.emit({ tcp_pose: [0.32 + u / 10, -0.18 + v / 10, 0.45, 0, 0, 0] })
+      await expect(preview).toBeEnabled()
+      const rect = await page.locator('.robot-preview video').boundingBox()
+      const scale = Math.min(rect!.width / frame.width, rect!.height / frame.height)
+      const left = rect!.x + (rect!.width - frame.width * scale) / 2
+      const top = rect!.y + (rect!.height - frame.height * scale) / 2
+      // MouseEvent client coordinates are integer CSS pixels in Chromium.
+      const x = Math.round(left + u * frame.width * scale)
+      const y = Math.round(top + v * frame.height * scale)
+      await page.mouse.click(x, y)
+      await expect(card).toContainText(`${index + 1} · mínimo 4`)
+      const point = robot.calls.filter((call) => call.method === 'robot.calibration.add_point')[
+        index
+      ]!
+      const pixel = point.params.pixel as [number, number]
+      expect(pixel[0]).toBeCloseTo((x - left) / scale, 5)
+      expect(pixel[1]).toBeCloseTo((y - top) / scale, 5)
+      await expect(page.locator('.robot-calibration-markers text')).toHaveCount(index + 1)
+    }
+    await expect(card.getByText('Calibrada', { exact: true })).toBeVisible()
+    await expect(card).toContainText('0.24 px')
+    await expect(card).toContainText('(0.345, -0.155) m')
+    await page.keyboard.press('Escape')
+    await expect(preview).toHaveCount(0)
+    await expect(mark).toHaveAttribute('aria-pressed', 'false')
+    await card.getByRole('button', { name: 'Borrar calibración', exact: true }).click()
+    expect(robot.calls.filter((call) => call.method === 'robot.calibration.clear')).toHaveLength(0)
+    await card.getByRole('button', { name: 'Cancelar', exact: true }).click()
+    await expect(card.getByText('Calibrada', { exact: true })).toBeVisible()
+    await card.getByRole('button', { name: 'Borrar calibración', exact: true }).click()
+    await card.getByRole('button', { name: 'Confirmar borrado', exact: true }).click()
+    await expect(card.getByText('Sin calibrar', { exact: true })).toBeVisible()
+    await expect(card).toContainText('0 · mínimo 4')
+    expect(robot.calls.filter((call) => call.method === 'robot.calibration.clear')).toHaveLength(1)
+    await expect(page.locator('.robot-calibration-points')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'STOP', exact: true })).toBeInViewport()
+    expect(
+      await page
+        .locator('.robot-workspace')
+        .evaluate((node) => node.scrollWidth <= node.clientWidth),
+    ).toBe(true)
+  })
+}
+
+test('calibration RPC failures remain visible and allow another point', async ({ page }) => {
+  const robot = await mockRobot(page)
+  await page.goto('/robot')
+  await page.getByRole('textbox', { name: 'Dirección IP del brazo' }).fill('192.168.1.10')
+  await page.getByRole('button', { name: 'Conectar', exact: true }).click()
+  await page.getByRole('button', { name: 'Iniciar cámara', exact: true }).click()
+  await expect.poll(() => robot.frames.length).toBeGreaterThan(0)
+  await page.getByRole('button', { name: 'Marcar punto', exact: true }).click()
+  robot.failCalibrationOnce('robot.calibration.add_point')
+  const preview = page.getByRole('button', { name: 'Añadir punto en la cámara (teclado: centro)' })
+  await preview.click()
+  await expect(page.getByRole('alert')).toContainText('TCP unavailable')
+  await expect(page.getByRole('button', { name: 'STOP', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Actualizar estado', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await preview.click()
+  await expect(page.getByRole('region', { name: 'Calibración de cámara' })).toContainText(
+    '1 · mínimo 4',
+  )
+})
 
 test('Robot navigation, remembered IP, connect, live readouts and disconnect in sidebar and rail', async ({
   page,

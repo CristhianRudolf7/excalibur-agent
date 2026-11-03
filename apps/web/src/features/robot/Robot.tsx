@@ -285,7 +285,7 @@ export function Robot() {
                 </div>
               )}
             </section>
-            <CameraCard />
+            <CameraCard connected={connected} />
           </div>
         </div>
       </div>

@@ -6,17 +6,21 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 )
 
-// Op dispatches the five additive daemon RPCs.
+// Op dispatches robot and camera calibration RPCs.
 func (s *Service) Op(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	if s == nil {
 		return nil, &api.Error{Code: api.CodeInternal, Message: "robot disabled or unavailable"}
 	}
 	invalid := func(err error) (any, error) {
 		return nil, &api.Error{Code: api.CodeInvalidParams, Message: err.Error()}
+	}
+	if strings.HasPrefix(method, "robot.calibration.") {
+		return s.calibrationOp(ctx, method, raw)
 	}
 	switch method {
 	case api.MethodRobotConnect:

@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
@@ -63,6 +64,9 @@ type Service struct {
 	camera      *Camera
 	nextStart   time.Time
 	backoff     time.Duration
+	calMu       sync.Mutex
+	calPath     string
+	calibration calibrationData
 }
 
 // New allocates no goroutines and never starts Python.
@@ -483,11 +487,23 @@ func (s *Service) Frame(blob string, width, height int) error {
 	return nil
 }
 
-// Look returns the original image for the current model; no second model call.
-func (s *Service) Look(ctx context.Context) (Status, []providers.ImageInput, error) {
-	status := s.Status(ctx)
+type LookResult struct {
+	Status
+	Calibration api.RobotCalibrationStatus `json:"calibration"`
+	Image       api.RobotImageSize         `json:"image"`
+	Instruction string                     `json:"instruction"`
+}
+
+// Look overlays pixel coordinates for the current language model directly.
+func (s *Service) Look(ctx context.Context) (LookResult, []providers.ImageInput, error) {
+	status := LookResult{Status: s.Status(ctx), Calibration: s.CalibrationStatus(), Instruction: "Estimate the pixel center of objects in this image and call locate with pixel:[u,v]. Origin is top-left; u increases right, v increases down. Grid spacing is 100 px. locate returns table-plane coordinates; account for object height and gripper offset before requesting approval for each motion. STOP is always available."}
 	s.mu.Lock()
 	ref := s.frame
+	if s.camera != nil {
+		camera := *s.camera
+		status.Camera = &camera
+		status.Image = api.RobotImageSize{Width: camera.Width, Height: camera.Height}
+	}
 	s.mu.Unlock()
 	if ref == "" {
 		return status, nil, errors.New("no camera frame; share a camera first")
@@ -504,8 +520,15 @@ func (s *Service) Look(ctx context.Context) (Status, []providers.ImageInput, err
 	if err != nil {
 		return status, nil, err
 	}
-	mime := http.DetectContentType(data)
-	return status, []providers.ImageInput{{URL: "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)}}, nil
+	src, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return status, nil, fmt.Errorf("decode camera frame: %w", err)
+	}
+	var overlay bytes.Buffer
+	if err = png.Encode(&overlay, pixelGrid(src)); err != nil {
+		return status, nil, err
+	}
+	return status, []providers.ImageInput{{URL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(overlay.Bytes())}}, nil
 }
 
 func strictDecode(raw json.RawMessage, target any) error {

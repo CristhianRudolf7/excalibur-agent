@@ -64,6 +64,158 @@
 .robot-camera-card {
   animation-delay: 35ms;
 }
+.robot-calibration-card {
+  grid-column: 1 / -1;
+}
+.robot-calibration-status {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--muted);
+}
+.robot-calibration-status > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.robot-calibration-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.robot-calibration-status.is-calibrated > span {
+  color: var(--robot-accent-foreground);
+}
+.robot-calibration-status dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 32px;
+  margin: 16px 0 0;
+}
+.robot-calibration-status dt {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.robot-calibration-status dd {
+  margin: 5px 0 0;
+  font-size: 13px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+.robot-calibration-steps {
+  padding-left: 24px;
+  margin: 20px 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.8;
+  list-style: decimal;
+}
+.robot-calibration-steps li {
+  padding-left: 5px;
+  margin-bottom: 8px;
+}
+.robot-calibration-steps li::marker {
+  color: var(--robot-accent-foreground);
+  font-weight: 650;
+}
+.robot-calibration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.robot-calibration-hint,
+.robot-calibration-preview-hint {
+  color: var(--robot-accent-foreground);
+  font-size: 11px;
+  line-height: 1.7;
+  margin-top: 12px;
+}
+.robot-calibration-preview-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.robot-calibration-confirm,
+.robot-calibration-failure {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.robot-calibration-confirm p,
+.robot-calibration-failure p {
+  margin-bottom: 10px;
+}
+.robot-calibration-confirm button + button {
+  margin-left: 8px;
+}
+.robot-calibration-points {
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.robot-calibration-points h3 {
+  margin: 0 0 12px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 550;
+}
+.robot-calibration-points ol {
+  list-style: decimal;
+  padding-left: 26px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.robot-calibration-points li {
+  padding: 7px 0;
+  overflow-wrap: anywhere;
+}
+.robot-calibration-points li > span {
+  margin-right: 12px;
+  color: var(--muted-foreground);
+}
+.robot-calibration-points strong {
+  font-weight: 550;
+}
+.robot-calibration-capture,
+.robot-calibration-markers {
+  position: absolute;
+  inset: 1px;
+  width: calc(100% - 2px);
+  height: calc(100% - 2px);
+}
+.robot-calibration-capture {
+  border: 0;
+  background: transparent;
+  cursor: crosshair;
+}
+.robot-calibration-capture:disabled {
+  cursor: progress;
+}
+.robot-preview.is-marking {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.robot-calibration-markers {
+  pointer-events: none;
+  overflow: hidden;
+}
+.robot-calibration-markers circle {
+  fill: var(--primary-strong);
+  stroke: var(--primary-foreground);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+.robot-calibration-markers text {
+  fill: var(--primary-foreground);
+  font-weight: 650;
+}
 .robot-card-heading {
   display: flex;
   gap: 12px;
