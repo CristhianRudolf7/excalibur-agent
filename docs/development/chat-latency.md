@@ -74,3 +74,88 @@ status-style candidates (no control intent other than `status`, no task or run
 reference) while no run is active. With nothing running, the fast lane has no
 status to serve, so phrases such as "what is" in ordinary questions go straight
 to the conversational turn. Set it to `0` to classify them anyway.
+
+## Turn
+
+The daemon's chat and voice profile answers greetings, small talk and general
+knowledge directly. Tools remain available for missing information and actions.
+Clear commands should execute directly; independent tool calls should share one
+step. Delegation, untrusted-document handling, exact citation markers and a final
+text answer retain their existing instructions.
+
+`EXCALIBUR_CHAT_TOOL_ECONOMY` defaults ON. Set it to `0`, `false` or `off`
+(case insensitive, surrounding whitespace ignored) to restore the exact previous
+base profile string. `TestAssistantToolEconomyProfile` checks both profiles and
+all retained instructions.
+
+`EXCALIBUR_ROBOT_TOOL_ECONOMY` also defaults ON with the same OFF values.
+Its description directs explicit moves/home/gripper commands to execute directly;
+look/locate remain appropriate for vision and pick and place. The tool still
+checks approval internally, fails closed on missing policy and requires explicit
+approval of each exact action when enabled. A denied action tells the model to
+ask for direction, distance and speed approval before retrying with
+`approved:true`. STOP, freedrive approval and all bridge safety limits are
+unchanged. Successful move/gripper results preserve the bridge fields and append
+`state` from the state refresh already performed by `Service.Call`, saving a
+follow-up model/tool round trip. If that refresh fails, `state` is null and
+`state_error` explains why; stale state is not presented as a fresh observation.
+OFF restores the old description, refusal text and result payload.
+`TestToolEconomyDescription`, `TestToolApprovalRefusalExplainsNextStep` and
+`TestToolActionResultIncludesPostActionState` cover these changes with simulated
+bridges; the existing approval, STOP and cancellation tests still apply.
+
+`EXCALIBUR_CHAT_TURN_TIMING` defaults ON with the same OFF values. Each
+`CompleteTurn` invocation emits one structured `slog.Info("turn timing", ...)`
+record, including canceled, failed, disabled and unconfigured turns. Fields are
+`model_calls`, `model_ms`, `tool_calls`, `tool_ms`, `total_ms` and `tool_names`.
+Model counters measure real endpoint invocations (including failed calls), not
+the synthetic subagent acknowledgement or provider retries inside the gateway.
+Tool counters measure calls to the assistant runner, including failed/denied
+attempts and browser calls. Tool names are sorted with one entry per call;
+unavailable names are replaced with `unavailable` to avoid logging arbitrary
+model text. Durations are summed before converting to whole milliseconds.
+Parallel tool durations can sum to more than total wall time. Total time includes
+snapshot construction and turn cleanup, but excludes intake classification and
+queueing before `CompleteTurn`. No prompts, arguments, results, provider errors
+or credentials are logged by this record. OFF skips collection and logging.
+
+`TestAssistantTurnTiming` runs fake model/tool turns, including parallel calls,
+failures and early returns, and verifies one record, counts, elapsed sums and
+content exclusion. `TestAssistantTimingDurationSums` verifies exact fractional
+duration sums and stable tool-name order. `TestAssistantTimingSyntheticReplyAndFailedCalls`
+checks interactive lane selection, canceled calls, synthetic acknowledgements
+and safe accounting of an unavailable tool.
+
+Eval isolation was checked by reading the separate snapshot builder in
+`internal/cli/exec_engine.go`: `exec --profile eval` uses a child-role snapshot
+with no `AgentProfile` assignment. Its `engine.DefaultBuilder` consumes that
+snapshot, never `assistantTurns.snapshot`. The chat profile is assigned only in
+`internal/daemon/assistant_turns.go`; robot definitions are default-profile only
+and excluded from the eval catalog. Read-only checks:
+
+```sh
+rg -n 'snap :=|Role: "child"|Snapshot: snap|AgentProfile' internal/cli/exec_engine.go
+rg -n 'conversational assistant|CHAT_TOOL_ECONOMY' internal/daemon/assistant_turns.go
+git diff b23789c -- internal/cli internal/engine internal/ctxcompiler internal/agents internal/models internal/providers internal/wireengine internal/tools internal/eval cmd/excalibur integrations packages/contracts apps/web extensions
+```
+
+Research basis: [SMART](https://arxiv.org/abs/2502.11435) reports 24% fewer tool
+uses with improved accuracy; [OTC v1](https://arxiv.org/abs/2504.14870v1) reports
+up to 73.1% fewer calls at comparable accuracy (the revised paper is titled
+*Acting Less is Reasoning More* and reports 68.3%).
+[LLMCompiler](https://arxiv.org/abs/2312.04511) motivates grouping independent
+calls. These training and orchestration results motivate the prompt guidance;
+they are not measurements of this change. The existing shared engine in
+`internal/engine/batches.go` already executes compatible calls in parallel and
+preserves resource serialization; it is unchanged.
+
+Verified on 2026-11-03 with Go 1.27.3: formatting and whitespace checks, vet and
+staticcheck for `internal/daemon` and `internal/robot`, race tests for
+`internal/daemon/...`, `internal/robot/...` and `internal/master/...`, and
+`go build -p 2 ./...` for Linux, Darwin and Windows all passed. Go commands ran
+with `nice -n 19` and package parallelism 2; tests ran in a user systemd scope
+with `MemoryMax=6G`. The daemon suite also passed its existing pinned embedded
+tool-prefix and eval-profile hash checks. `git diff --stat b23789c` contains only
+the two assigned source files, their test files and this document; every
+forbidden path is unchanged. No live model or physical robot checks were run,
+so prompt adherence and end-to-end latency gains remain unmeasured.

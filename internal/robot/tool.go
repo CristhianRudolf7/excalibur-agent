@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -39,8 +41,12 @@ type delta struct {
 
 // Definition keeps this physical-control tool out of the eval catalog.
 func (*Tool) Definition() tools.Definition {
+	description := "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan the steps in meters/radians. Confirmation policy comes from status/look state.approval_required: when it is false the operator has disabled confirmations, so carry out the whole requested task end to end (every motion and gripper step) without asking for approval and report what you did; when it is true or missing, before EACH motion, gripper change or freedrive entry ask the user to approve that exact action with direction, distance and speed, and set approved:true ONLY after that explicit approval in this conversation. STOP is always available and needs no approval. Pick and place: look -> locate the object pixel -> open gripper, move_pose to the approach pose above, move_pose down to grasp height, close gripper, lift, move_named to the named destination (such as entrega or caja), open gripper, lift clear. Locate computes base coordinates without moving. Look sends the latest camera image with a labeled pixel grid, image size, calibration and robot state directly to you. Home is the named TCP pose home. Camera frames may be stale: check updated_at. Workspace, speed, step and mode limits are enforced by the bridge."
+	if robotToolEconomyEnabled() {
+		description = strings.Replace(description, "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan the steps in meters/radians. Confirmation policy comes from status/look state.approval_required: when it is false the operator has disabled confirmations, so carry out the whole requested task end to end (every motion and gripper step) without asking for approval and report what you did; when it is true or missing, before EACH motion, gripper change or freedrive entry ask the user to approve that exact action with direction, distance and speed, and set approved:true ONLY after that explicit approval in this conversation.", "Control the supervised UR10e arm and pneumatic gripper. Use look/locate when the task needs to see or find something, such as pick and place or describing what you see; plan those steps in meters/radians. Execute explicit moves (relative moves, go home, open the gripper) directly without preliminary status/look/list calls unless the command needs information only they provide. The tool checks state.approval_required internally and fails closed: only explicit false waives confirmations. Leave approved:false unless that exact action has already been explicitly approved in this conversation. If the result says approval is required, before EACH motion, gripper change or freedrive entry ask the user to approve that exact action with direction, distance and speed, and set approved:true ONLY after that explicit approval in this conversation. When confirmations are disabled, carry out the whole requested task end to end (every motion and gripper step) without asking for approval and report what you did. Successful move and gripper results include post-action state, so no follow-up status call is needed.", 1)
+	}
 	return tools.Definition{
-		Name: "robot", Description: "Control the supervised UR10e arm and pneumatic gripper. First call look, describe what you see, and plan the steps in meters/radians. Confirmation policy comes from status/look state.approval_required: when it is false the operator has disabled confirmations, so carry out the whole requested task end to end (every motion and gripper step) without asking for approval and report what you did; when it is true or missing, before EACH motion, gripper change or freedrive entry ask the user to approve that exact action with direction, distance and speed, and set approved:true ONLY after that explicit approval in this conversation. STOP is always available and needs no approval. Pick and place: look -> locate the object pixel -> open gripper, move_pose to the approach pose above, move_pose down to grasp height, close gripper, lift, move_named to the named destination (such as entrega or caja), open gripper, lift clear. Locate computes base coordinates without moving. Look sends the latest camera image with a labeled pixel grid, image size, calibration and robot state directly to you. Home is the named TCP pose home. Camera frames may be stale: check updated_at. Workspace, speed, step and mode limits are enforced by the bridge.",
+		Name: "robot", Description: description,
 		InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["action"],"properties":{"action":{"type":"string","enum":["status","look","locate","move_named","move_relative","move_pose","move_joints","gripper","home","stop","list_poses","save_pose","freedrive"]},"pixel":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},"approved":{"type":"boolean","default":false},"name":{"type":"string","pattern":"^[A-Za-z0-9_-]{1,64}$"},"pose":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"joints":{"type":"array","items":{"type":"number"},"minItems":6,"maxItems":6},"delta":{"type":"object","additionalProperties":false,"minProperties":1,"properties":{"dx":{"type":"number"},"dy":{"type":"number"},"dz":{"type":"number"},"drx":{"type":"number"},"dry":{"type":"number"},"drz":{"type":"number"}}},"frame":{"type":"string","enum":["base","tool"]},"speed":{"type":"number","exclusiveMinimum":0},"accel":{"type":"number","exclusiveMinimum":0},"gripper":{"type":"string","enum":["open","close"]},"on":{"type":"boolean"}}}`),
 		Effect:      types.EffectWriteExternal, Idempotency: types.IdemNonIdempotent, Cancel: types.CancelImmediate,
 		Timeout: 90 * time.Second, OutputBudget: 16384, Platforms: []string{"linux"}, Profiles: []string{"default"}, Group: "robot", Tags: []string{"robot", "camera", "gripper", "UR10e"}, Keywords: []string{"arm", "move", "stop", "look", "home"},
@@ -94,6 +100,9 @@ func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, 
 		entering := p.Action != "freedrive" || p.On == nil || *p.On
 		if entering && !p.Approved {
 			if t.approvalRequired(ctx) {
+				if robotToolEconomyEnabled() {
+					return fail(tools.StatusDenied, fmt.Errorf("explicit user approval is required for %s. Ask the user to approve this exact action with direction, distance and speed; retry with approved:true only after their explicit approval in this conversation", p.Action))
+				}
 				return fail(tools.StatusDenied, fmt.Errorf("explicit user approval required; approved:true only after approval of this exact action"))
 			}
 			// The operator disabled confirmations in robot.json; the bridge enforces the same setting.
@@ -155,6 +164,24 @@ func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, 
 			body["on"] = *p.On
 		}
 		raw, err = t.Service.Call(ctx, http.MethodPost, path, body)
+		if err == nil && robotToolEconomyEnabled() && p.Action != "freedrive" {
+			// Call already polls state after the action. Reuse that observation
+			// rather than adding another bridge or model round trip.
+			var result map[string]json.RawMessage
+			if json.Unmarshal(raw, &result) == nil && result != nil {
+				t.Service.mu.Lock()
+				if t.Service.bridge == "error" {
+					// A successful action can be followed by a failed state poll.
+					// Preserve success but do not present cached state as fresh.
+					result["state"] = json.RawMessage("null")
+					result["state_error"], _ = json.Marshal(t.Service.lastErr)
+				} else {
+					result["state"], _ = json.Marshal(t.Service.state)
+				}
+				t.Service.mu.Unlock()
+				raw, err = json.Marshal(result)
+			}
+		}
 	default:
 		return fail(tools.StatusInputError, fmt.Errorf("unknown robot action %q", p.Action))
 	}
@@ -182,4 +209,14 @@ func (t *Tool) approvalRequired(ctx context.Context) bool {
 	}
 	state := t.Service.Status(ctx).State
 	return state == nil || state.ApprovalRequired == nil || *state.ApprovalRequired
+}
+
+// robotToolEconomyEnabled changes guidance and result detail, never approval enforcement.
+func robotToolEconomyEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("EXCALIBUR_ROBOT_TOOL_ECONOMY"))) {
+	case "0", "false", "off":
+		return false
+	default:
+		return true
+	}
 }
