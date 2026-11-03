@@ -149,8 +149,6 @@ func runDaemonStart(args []string) error {
 		}
 	}
 	decider := daemon.NewModelDecider(choiceDec, []string{"general"})
-	m := master.New(master.Config{Turns: master.DefaultTurnConfig()}, master.NewMemStore(), master.NewLexicon(), decider, ctrls, nil, notifier)
-	backend := daemon.NewDaemonBackend(m, ctrls, bus)
 
 	// Durable handles: main database with the memory and agenda
 	// tables, journal over the porter.
@@ -171,6 +169,13 @@ func runDaemonStart(args []string) error {
 			return fmt.Errorf("daemon start: agenda schema: %w", err)
 		}
 	}
+
+	personalAgents, conversations, err := daemon.OpenAgentConversations(ctx, db, os.Getenv("EXCALIBUR_ASSISTANT_NAME"), bus)
+	if err != nil {
+		return fmt.Errorf("daemon start: personal agents: %w", err)
+	}
+	m := master.New(master.Config{Turns: master.DefaultTurnConfig()}, conversations, master.NewLexicon(), decider, ctrls, nil, notifier)
+	backend := daemon.NewDaemonBackend(m, ctrls, bus)
 
 	var usageStore *telemetry.SQLStore
 	if data != "" {
@@ -276,6 +281,7 @@ func runDaemonStart(args []string) error {
 	if err != nil {
 		return err
 	}
+	launcher.BindChat(backend)
 	ag := agenda.NewAgenda(agendaStore, reminderStore, launcher)
 	reminderService := &agenda.ReminderService{Store: reminderStore, Agenda: ag, DB: db, Bus: bus}
 	reminderService.WireTool(svc.Tools)
@@ -321,7 +327,7 @@ func runDaemonStart(args []string) error {
 			language = p.Language
 		}
 	}
-	automationService := newAutomationService(db, filepath.Join(data, "automations"), language, &daemon.AutomationAgentRunner{Services: svc, Endpoint: endpoint, ModelID: modelSettings.Model}, &daemon.AutomationToolInvoker{Registry: svc.Tools, Executor: svc.Exec}, &daemon.AutomationNotifier{Master: m})
+	automationService := newAutomationService(db, filepath.Join(data, "automations"), language, &daemon.AutomationAgentRunner{Services: svc, Endpoint: endpoint, ModelID: modelSettings.Model}, &daemon.AutomationToolInvoker{Registry: svc.Tools, Executor: svc.Exec}, &daemon.AutomationNotifier{Master: m, Backend: backend})
 	if err := automations.WireTool(svc.Tools, automationService); err != nil {
 		return err
 	}
@@ -335,7 +341,8 @@ func runDaemonStart(args []string) error {
 	}
 	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
-		Robot: robotService,
+		Agents: personalAgents,
+		Robot:  robotService,
 		WorkspaceRoots: func(context.Context) []string {
 			if workspaceRoot == "" {
 				return nil

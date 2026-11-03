@@ -20,23 +20,13 @@ func (m *Master) ReceiveSystem(ctx context.Context, eventID, conv, text string) 
 	if !presentSystem(eventID, conv, text) {
 		return "", fmt.Errorf("master: system turn needs event, conversation and instruction")
 	}
-	m.mu.Lock()
-	if id, ok := m.store.LookupClientMsg("system", eventID); ok {
-		m.mu.Unlock()
-		return id, nil
-	}
-	msg := Normalized{Role: "system", Text: text, Channel: "system", Context: api.AppContextFrom(ctx)}
+	msg := Normalized{Role: "system", Text: text, Channel: "system", Context: api.AppContextFrom(ctx), CreatedAt: time.Now().UTC()}
 	if err := msg.Context.Validate(); err != nil {
-		m.mu.Unlock()
 		return "", err
 	}
-	id, err := m.store.SaveMessage(ctx, conv, msg)
-	if err == nil {
-		m.store.RecordClientMsg("system", eventID, id)
-	}
-	m.mu.Unlock()
-	if err != nil {
-		return "", err
+	id, duplicate, err := m.saveClientMessage(ctx, conv, msg, "system", eventID)
+	if err != nil || duplicate {
+		return id, err
 	}
 	m.turns.Deliver(conv, IntakeResult{Msg: msg, MsgID: id, SentAt: time.Now()})
 	return id, nil

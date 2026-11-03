@@ -100,8 +100,9 @@ type ClassroomCourseParams struct {
 	CourseID string `json:"course_id"`
 }
 type ClassroomTopicParams struct {
-	CourseID string `json:"course_id"`
-	TopicID  string `json:"topic_id"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	CourseID       string `json:"course_id"`
+	TopicID        string `json:"topic_id"`
 }
 type ClassroomSyllabusTopic struct {
 	ID      string `json:"id,omitempty"`
@@ -118,16 +119,18 @@ type ClassroomUpdateSyllabusParams struct {
 	Units    []ClassroomSyllabusUnit `json:"units"`
 }
 type ClassroomRequestQuizParams struct {
-	CourseID string `json:"course_id"`
-	TopicID  string `json:"topic_id,omitempty"`
-	Final    bool   `json:"final,omitempty"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	CourseID       string `json:"course_id"`
+	TopicID        string `json:"topic_id,omitempty"`
+	Final          bool   `json:"final,omitempty"`
 }
 type ClassroomGetQuizParams struct {
 	QuizID string `json:"quiz_id"`
 }
 type ClassroomSubmitParams struct {
-	QuizID  string            `json:"quiz_id"`
-	Answers []ClassroomAnswer `json:"answers"`
+	ConversationID string            `json:"conversation_id,omitempty"`
+	QuizID         string            `json:"quiz_id"`
+	Answers        []ClassroomAnswer `json:"answers"`
 }
 type ClassroomAttemptsParams struct {
 	CourseID string `json:"course_id"`

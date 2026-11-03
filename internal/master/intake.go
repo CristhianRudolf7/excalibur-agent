@@ -14,6 +14,8 @@ import (
 // plain text, voice transcripts with end-of-turn marks, attachments
 // as blob references, reply links and the detected language.
 type Normalized struct {
+	RelayedBy   string
+	CreatedAt   time.Time
 	Context     *api.AppContext
 	Role        string
 	Changes     []api.FileChange

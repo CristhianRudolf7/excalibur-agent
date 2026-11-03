@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
@@ -32,6 +33,7 @@ import (
 // embedded MemoryBackend behavior so embedded profiles and unit
 // tests never need the full stack.
 type BackendServices struct {
+	Agents    *agents.Registry
 	Robot     *robot.Service
 	RobotLab  *robotlab.Service
 	FileBlobs gateway.BlobStore
@@ -103,6 +105,9 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 // routes to its real backend when attached; unknown names still
 // answer CodeMethodNotFound.
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	if strings.HasPrefix(method, "agents.") {
+		return b.agentsOp(ctx, method, params)
+	}
 	if strings.HasPrefix(method, "robot.") {
 		if b.Services == nil {
 			return (*robot.Service)(nil).Op(ctx, method, params)
@@ -174,7 +179,7 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 		if b.Services == nil {
 			return (*classroom.Service)(nil).Op(ctx, method, params)
 		}
-		return b.Services.Classroom.Op(ctx, method, params)
+		return b.classroomOp(ctx, method, params)
 	}
 	if strings.HasPrefix(method, "robotlab.") {
 		if b.Services == nil {

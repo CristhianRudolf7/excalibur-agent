@@ -7,21 +7,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
-// ClassroomConversation is the existing local-user chat, shared by app views.
-const ClassroomConversation = "cnv_web_excalibur"
+// ClassroomConversation is the legacy default, retained for existing clients.
+const ClassroomConversation = agents.DefaultConversation
 
 // classroomTurnEvent consumes only identifiers from backend events. Private
 // answer fields, lesson bodies and client-supplied prose never become instructions.
 type classroomTurnEvent struct {
-	CourseID  string `json:"course_id"`
-	TopicID   string `json:"topic_id"`
-	AttemptID string `json:"attempt_id"`
-	Final     bool   `json:"final"`
+	ConversationID string `json:"conversation_id,omitempty"`
+	CourseID       string `json:"course_id"`
+	TopicID        string `json:"topic_id"`
+	AttemptID      string `json:"attempt_id"`
+	Final          bool   `json:"final"`
 }
 type classroomTurns struct {
 	once    sync.Once
@@ -29,6 +31,7 @@ type classroomTurns struct {
 	seen    map[string]bool
 	order   []string
 	pending map[string]time.Time
+	origins map[string]string
 }
 
 // StartClassroomTurns subscribes before returning and stops with the daemon.
@@ -126,6 +129,10 @@ func (b *DaemonBackend) handleClassroomEvent(ctx context.Context, ev types.Event
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := classroomRequestKey(e, kind)
+	if e.ConversationID == "" {
+		e.ConversationID = c.origins[ev.ID]
+	}
+	delete(c.origins, ev.ID)
 	if ev.ID == "" || len(ev.ID) > 256 || c.seen[ev.ID] {
 		return nil
 	}
@@ -160,7 +167,13 @@ func (b *DaemonBackend) handleClassroomEvent(ctx context.Context, ev types.Event
 		instruction = fmt.Sprintf("Classroom attempt %q in course %q was graded. Load course-creation, read classroom get_course, and write targeted feedback with classroom write_feedback. Never reveal correct options, indexes or matching pairs.", e.AttemptID, e.CourseID)
 	}
 	ctx = api.WithAppContext(ctx, api.AppContext{App: "classroom", CourseID: e.CourseID, TopicID: e.TopicID})
-	if _, err := b.Master.ReceiveSystem(ctx, "classroom:"+ev.ID, ClassroomConversation, instruction); err != nil {
+	// Bus sequence IDs restart with the daemon, while message receipts persist.
+	// The event timestamp distinguishes new requests without changing replay keys.
+	receipt := "classroom:" + ev.ID
+	if !ev.At.IsZero() {
+		receipt += ":" + ev.At.UTC().Format(time.RFC3339Nano)
+	}
+	if _, err := b.Master.ReceiveSystem(ctx, receipt, b.SystemConversation(e.ConversationID), instruction); err != nil {
 		return err
 	}
 	c.pending[key] = now.Add(10 * time.Minute)
@@ -175,4 +188,54 @@ func (c *classroomTurns) remember(id string) {
 		delete(c.seen, c.order[0])
 		c.order = c.order[1:]
 	}
+}
+
+// classroomOp associates each emitted request event with its originating chat.
+// Holding the turn lock until publication is mapped prevents the subscriber from
+// consuming an event before its origin is recorded. Failed and cached requests
+// leave no origin behind for subsequent requests.
+func (b *DaemonBackend) classroomOp(ctx context.Context, method string, params json.RawMessage) (any, error) {
+	var p struct {
+		ConversationID string `json:"conversation_id"`
+	}
+	if json.Unmarshal(params, &p) != nil || p.ConversationID == "" || b.Bus == nil || b.Services.Classroom == nil {
+		return b.Services.Classroom.Op(ctx, method, params)
+	}
+	if err := b.checkAgentConversation(p.ConversationID); err != nil {
+		return nil, err
+	}
+	eventType := types.EventType("")
+	switch method {
+	case api.MethodClassroomOpenTopic:
+		eventType = "classroom.class_requested"
+	case api.MethodClassroomRequestQuiz:
+		eventType = "classroom.quiz_requested"
+	case api.MethodClassroomSubmit:
+		eventType = "classroom.attempt_graded"
+	default:
+		return b.Services.Classroom.Op(ctx, method, params)
+	}
+	c := &b.classroomTurns
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.origins) >= 128 {
+		return nil, &api.Error{Code: api.CodeConflict, Message: "classroom origin queue is full"}
+	}
+	cursor := types.Cursor{}
+	for _, ev := range b.Bus.Replay(cursor) {
+		cursor.Seq = ev.Seq
+	}
+	result, err := b.Services.Classroom.Op(ctx, method, params)
+	if err != nil {
+		return result, err
+	}
+	for _, ev := range b.Bus.Replay(cursor) {
+		if ev.Type == eventType {
+			if c.origins == nil {
+				c.origins = map[string]string{}
+			}
+			c.origins[ev.ID] = p.ConversationID
+		}
+	}
+	return result, nil
 }

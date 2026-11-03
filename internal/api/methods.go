@@ -132,6 +132,15 @@ type MethodInfo struct {
 // reject unknown methods with CodeMethodNotFound and the contracts
 // export test requires every entry to appear in packages/contracts.
 var Methods = []MethodInfo{
+	{MethodAgentsList, "agents", "List personal agents."},
+	{MethodAgentsGet, "agents", "Read one personal agent."},
+	{MethodAgentsCreate, "agents", "Create a personal agent and conversation."},
+	{MethodAgentsUpdate, "agents", "Update a personal agent persona or avatar."},
+	{MethodAgentsArchive, "agents", "Archive an agent, preserving history."},
+	{MethodAgentsRestore, "agents", "Restore an archived agent."},
+	{MethodAgentsSetFavorite, "agents", "Choose the default personal agent."},
+	{MethodAgentsMarkRead, "agents", "Reset an agent unread count."},
+
 	{MethodRobotStatus, "robot", "Read robot bridge, arm and camera status."},
 	{MethodRobotConnect, "robot", "Connect to a robot by IP."},
 	{MethodRobotDisconnect, "robot", "Disconnect the robot."},

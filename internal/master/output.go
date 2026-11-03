@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -49,11 +50,12 @@ func (m *Master) SendAssistant(ctx context.Context, conv, text string, tree []st
 	if output.Changes != nil {
 		changes = output.Changes(tree)
 	}
-	id, err := m.store.SaveMessage(ctx, conv, Normalized{Role: "assistant", Text: text, Sources: cloneSources(sources), Changes: api.CloneChanges(changes)})
+	now := time.Now().UTC()
+	id, err := m.store.SaveMessage(ctx, conv, Normalized{CreatedAt: now, Role: "assistant", Text: text, Sources: cloneSources(sources), Changes: api.CloneChanges(changes)})
 	if err != nil {
 		return api.MessageEvent{}, err
 	}
-	ev := api.MessageEvent{MessageID: id, ConversationID: types.ConversationID(conv), Role: "assistant", Text: text, Sources: sources, Changes: changes}
+	ev := api.MessageEvent{CreatedAt: now, MessageID: id, ConversationID: types.ConversationID(conv), Role: "assistant", Text: text, Sources: sources, Changes: changes}
 	if output.Dropped != nil && len(dropped) > 0 {
 		output.Dropped(len(dropped))
 	}

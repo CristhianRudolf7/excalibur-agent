@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -10,6 +12,8 @@ import (
 
 // MessageEvent notifies subscribers of a new persisted message.
 type MessageEvent struct {
+	RelayedBy      string               `json:"relayed_by,omitempty"`
+	CreatedAt      time.Time            `json:"created_at,omitempty"`
 	MessageID      types.MessageID      `json:"message_id"`
 	ConversationID types.ConversationID `json:"conversation_id"`
 	Role           string               `json:"role"`
@@ -77,6 +81,13 @@ const EventLibraryDocumentUpdated types.EventType = "library.document_updated"
 const EventRobotState types.EventType = "robot.state"
 
 var EventTypes = []EventTypeInfo{
+	{EventAgentsCreated, "Agent", "A personal agent was created."},
+	{EventAgentsUpdated, "Agent", "A personal agent changed."},
+	{EventAgentsArchived, "Agent", "A personal agent was archived."},
+	{EventAgentsRestored, "Agent", "A personal agent was restored."},
+	{EventAgentsFavoriteChanged, "AgentsFavoriteResult", "The default agent changed."},
+	{EventAgentsUnread, "AgentsUnreadEvent", "Agent unread count or latest message changed."},
+
 	{EventRobotState, "RobotStateEvent", "Robot state changed or connected heartbeat."},
 	{EventArtifactCreated, "ArtifactCreatedEvent", "A visual artifact was persisted."},
 	{EventArtifactReady, "ArtifactReadyEvent", "A turn finished with visual artifacts."},

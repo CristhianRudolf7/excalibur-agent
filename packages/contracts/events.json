@@ -2,6 +2,12 @@
   "version": 0,
   "description": "Excalibur typed bus events. Exported from internal/api EventTypes; do not edit by hand without updating the registry.",
   "events": [
+    {"type": "agents.created", "payload": "Agent", "summary": "A personal agent was created."},
+    {"type": "agents.updated", "payload": "Agent", "summary": "A personal agent changed."},
+    {"type": "agents.archived", "payload": "Agent", "summary": "A personal agent was archived."},
+    {"type": "agents.restored", "payload": "Agent", "summary": "A personal agent was restored."},
+    {"type": "agents.favorite_changed", "payload": "AgentsFavoriteResult", "summary": "The default agent changed."},
+    {"type": "agents.unread", "payload": "AgentsUnreadEvent", "summary": "Agent unread count or latest message changed."},
     {"type": "robot.state", "payload": "RobotStateEvent", "summary": "Robot state changed or connected heartbeat."},
 
     {"type": "artifact.created", "payload": "ArtifactCreatedEvent", "summary": "A visual artifact was persisted."},
@@ -189,21 +195,10 @@
     "WhiteboardSnapshotRequestedEvent": {"type":"object","required":["conversation_id","board_id","request_id"],"properties":{"conversation_id":{"type":"string"},"board_id":{"type":"string"},"request_id":{"type":"string"},"version":{"type":"integer"}}},
 
     "WhiteboardEvent": {"type":"object","required":["conversation_id","board_id"],"properties":{"conversation_id":{"type":"string"},"board_id":{"type":"string"}}},
-    "MessageEvent": {
-      "type": "object",
-      "required": ["message_id", "conversation_id", "role", "text"],
-      "properties": {
-        "message_id": {"type": "string"},
-        "conversation_id": {"type": "string"},
-        "role": {"type": "string"},
-        "text": {"type": "string"},
-        "sources": {"type": "array", "items": {"$ref": "#/$defs/SourceRef"}},
-        "changes": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/FileChange"}}
-      }
-    },
+    "MessageEvent": {"type": "object", "required": ["message_id", "conversation_id", "role", "text"], "properties": {"message_id": {"type": "string"}, "conversation_id": {"type": "string"}, "role": {"type": "string"}, "text": {"type": "string"}, "sources": {"type": "array", "items": {"$ref": "#/$defs/SourceRef"}}, "changes": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/FileChange"}}, "relayed_by": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}},
     "FileChange": {"type": "object", "required": ["path", "status", "added", "removed", "hunks"], "properties": {"path": {"type": "string"}, "status": {"enum": ["added", "modified", "deleted"]}, "added": {"type": "integer", "minimum": 0}, "removed": {"type": "integer", "minimum": 0}, "hunks": {"type": "array", "maxItems": 40, "items": {"$ref": "#/$defs/FileHunk"}}, "content": {"type": "string"}, "truncated": {"type": "boolean"}, "binary": {"type": "boolean"}}},
     "FileHunk": {"type": "object", "required": ["old_start", "old_lines", "new_start", "new_lines", "lines"], "properties": {"old_start": {"type": "integer", "minimum": 0}, "old_lines": {"type": "integer", "minimum": 0}, "new_start": {"type": "integer", "minimum": 0}, "new_lines": {"type": "integer", "minimum": 0}, "lines": {"type": "array", "items": {"type": "string", "pattern": "^[ +\\-]"}}}},
-    "ConversationMessage": {"type": "object", "required": ["id", "conversation_id", "role", "text"], "properties": {"id": {"type": "string"}, "conversation_id": {"type": "string"}, "role": {"type": "string"}, "text": {"type": "string"}, "sources": {"type": "array", "items": {"$ref": "#/$defs/SourceRef"}}, "changes": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/FileChange"}}}},
+    "ConversationMessage": {"type": "object", "required": ["id", "conversation_id", "role", "text"], "properties": {"id": {"type": "string"}, "conversation_id": {"type": "string"}, "role": {"type": "string"}, "text": {"type": "string"}, "sources": {"type": "array", "items": {"$ref": "#/$defs/SourceRef"}}, "changes": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/FileChange"}}, "relayed_by": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}},
     "SourceRef": {
       "type": "object",
       "required": ["n", "kind", "title"],
@@ -249,13 +244,13 @@
     "ClassroomAnswerResult": {"additionalProperties":false,"properties":{"correct":{"type":"boolean"},"explanation":{"type":"string"},"question_id":{"type":"string"}},"required":["question_id","correct"],"type":"object"},
     "ClassroomAttemptView": {"additionalProperties":false,"properties":{"created_at":{"format":"date-time","type":"string"},"feedback":{"type":"string"},"id":{"type":"string"},"passed":{"type":"boolean"},"quiz_id":{"type":"string"},"results":{"items":{"$ref":"#/$defs/ClassroomAnswerResult"},"type":"array"}},"required":["id","quiz_id","results","passed","created_at"],"type":"object"},
     "ClassroomCourseParams": {"additionalProperties":false,"properties":{"course_id":{"type":"string"}},"required":["course_id"],"type":"object"},
-    "ClassroomTopicParams": {"additionalProperties":false,"properties":{"course_id":{"type":"string"},"topic_id":{"type":"string"}},"required":["course_id","topic_id"],"type":"object"},
+    "ClassroomTopicParams": {"additionalProperties":false,"properties":{"conversation_id":{"type":"string"},"course_id":{"type":"string"},"topic_id":{"type":"string"}},"required":["course_id","topic_id"],"type":"object"},
     "ClassroomSyllabusTopic": {"additionalProperties":false,"properties":{"id":{"type":"string"},"summary":{"type":"string"},"title":{"type":"string"}},"required":["title","summary"],"type":"object"},
     "ClassroomSyllabusUnit": {"additionalProperties":false,"properties":{"id":{"type":"string"},"title":{"type":"string"},"topics":{"items":{"$ref":"#/$defs/ClassroomSyllabusTopic"},"type":"array"}},"required":["title","topics"],"type":"object"},
     "ClassroomUpdateSyllabusParams": {"additionalProperties":false,"properties":{"course_id":{"type":"string"},"units":{"items":{"$ref":"#/$defs/ClassroomSyllabusUnit"},"type":"array"}},"required":["course_id","units"],"type":"object"},
-    "ClassroomRequestQuizParams": {"additionalProperties":false,"properties":{"course_id":{"type":"string"},"final":{"type":"boolean"},"topic_id":{"type":"string"}},"required":["course_id"],"type":"object"},
+    "ClassroomRequestQuizParams": {"additionalProperties":false,"properties":{"conversation_id":{"type":"string"},"course_id":{"type":"string"},"final":{"type":"boolean"},"topic_id":{"type":"string"}},"required":["course_id"],"type":"object"},
     "ClassroomGetQuizParams": {"additionalProperties":false,"properties":{"quiz_id":{"type":"string"}},"required":["quiz_id"],"type":"object"},
-    "ClassroomSubmitParams": {"additionalProperties":false,"properties":{"answers":{"items":{"$ref":"#/$defs/ClassroomAnswer"},"type":"array"},"quiz_id":{"type":"string"}},"required":["quiz_id","answers"],"type":"object"},
+    "ClassroomSubmitParams": {"additionalProperties":false,"properties":{"answers":{"items":{"$ref":"#/$defs/ClassroomAnswer"},"type":"array"},"conversation_id":{"type":"string"},"quiz_id":{"type":"string"}},"required":["quiz_id","answers"],"type":"object"},
     "ClassroomAttemptsParams": {"additionalProperties":false,"properties":{"course_id":{"type":"string"},"topic_id":{"type":"string"}},"required":["course_id"],"type":"object"},
     "ClassroomListResult": {"additionalProperties":false,"properties":{"courses":{"items":{"$ref":"#/$defs/ClassroomCourseSummary"},"type":"array"}},"required":["courses"],"type":"object"},
     "ClassroomOpenTopicResult": {"additionalProperties":false,"properties":{"class":{"$ref":"#/$defs/ClassroomClass"},"topic":{"$ref":"#/$defs/ClassroomTopicView"}},"required":["topic"],"type":"object"},
@@ -270,6 +265,16 @@
     "ClassroomFeedbackReadyEvent": {"additionalProperties":false,"properties":{"attempt_id":{"type":"string"},"course_id":{"type":"string"},"feedback":{"type":"string"},"final":{"type":"boolean"},"quiz_id":{"type":"string"},"topic_id":{"type":"string"}},"required":["course_id","feedback"],"type":"object"},
     "ClassroomTopicCompletedEvent": {"additionalProperties":false,"properties":{"attempt_id":{"type":"string"},"course_id":{"type":"string"},"final":{"type":"boolean"},"progress":{"type":"integer"},"quiz_id":{"type":"string"},"topic":{"$ref":"#/$defs/ClassroomTopicView"},"topic_id":{"type":"string"}},"required":["course_id","topic","progress"],"type":"object"},
     "AppContext": {"additionalProperties":false,"properties":{"app":{"type":"string"},"course_id":{"type":"string"},"topic_id":{"type":"string"}},"required":["app"],"type":"object"},
-    "ConversationSendParams": {"additionalProperties":false,"properties":{"attachments":{"items":{"type":"string"},"type":"array"},"client_msg_id":{"type":"string"},"context":{"$ref":"#/$defs/AppContext"},"conversation_id":{"type":"string"},"reply_to":{"type":"string"},"text":{"type":"string"}},"required":["conversation_id","client_msg_id","text"],"type":"object"}
+    "ConversationSendParams": {"additionalProperties":false,"properties":{"attachments":{"items":{"type":"string"},"type":"array"},"client_msg_id":{"type":"string"},"context":{"$ref":"#/$defs/AppContext"},"conversation_id":{"type":"string"},"reply_to":{"type":"string"},"text":{"type":"string"}},"required":["conversation_id","client_msg_id","text"],"type":"object"},
+    "Agent": {"additionalProperties":false,"properties":{"archived":{"type":"boolean"},"avatar":{"$ref":"#/$defs/AvatarSpec"},"conversation_id":{"type":"string"},"created_at":{"format":"date-time","type":"string"},"description":{"type":"string"},"favorite":{"type":"boolean"},"id":{"type":"string"},"last_message_at":{"format":"date-time","type":["string","null"]},"last_preview":{"type":"string"},"name":{"type":"string"},"personality":{"type":"string"},"title":{"type":"string"},"unread":{"minimum":0,"type":"integer"},"updated_at":{"format":"date-time","type":"string"}},"required":["id","name","title","description","personality","avatar","favorite","archived","conversation_id","created_at","updated_at","last_message_at","unread","last_preview"],"type":"object"},
+    "AgentsUpdateParams": {"additionalProperties":false,"properties":{"avatar":{"$ref":"#/$defs/AvatarSpec"},"description":{"type":"string"},"id":{"type":"string"},"name":{"type":"string"},"personality":{"type":"string"},"title":{"type":"string"}},"required":["id"],"type":"object"},
+    "AgentsListParams": {"additionalProperties":false,"properties":{"include_archived":{"type":"boolean"}},"required":[],"type":"object"},
+    "AgentIDParams": {"additionalProperties":false,"properties":{"id":{"type":"string"}},"required":["id"],"type":"object"},
+    "AgentsUnreadEvent": {"additionalProperties":false,"properties":{"agent_id":{"type":"string"},"last_message_at":{"format":"date-time","type":["string","null"]},"last_preview":{"type":"string"},"unread":{"minimum":0,"type":"integer"}},"required":["agent_id","unread","last_preview","last_message_at"],"type":"object"},
+    "AvatarSpec": {"additionalProperties":false,"properties":{"accent":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"accessory":{"enum":["none","glasses","sunglasses","earring","scarf","star"]},"background":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"hair":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"highlight":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"outfit":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"tone":{"pattern":"^#[0-9a-fA-F]{6}$","type":"string"},"variant":{"enum":["hood","long-hair","cap","bow","beard","headphones"]}},"required":["variant","tone","hair","highlight","outfit","accent","accessory","background"],"type":"object"},
+    "AgentsCreateParams": {"additionalProperties":false,"properties":{"avatar":{"$ref":"#/$defs/AvatarSpec"},"description":{"type":"string"},"name":{"type":"string"},"personality":{"type":"string"},"title":{"type":"string"}},"required":["name"],"type":"object"},
+    "AgentsFavoriteResult": {"additionalProperties":false,"properties":{"favorite_id":{"type":"string"}},"required":["favorite_id"],"type":"object"},
+    "AgentsListResult": {"additionalProperties":false,"properties":{"agents":{"items":{"$ref":"#/$defs/Agent"},"type":"array"},"favorite_id":{"type":"string"}},"required":["agents","favorite_id"],"type":"object"},
+    "AgentsMarkReadResult": {"additionalProperties":false,"properties":{"unread":{"type":"integer"}},"required":["unread"],"type":"object"}
   }
 }

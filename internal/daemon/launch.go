@@ -21,6 +21,7 @@ import (
 // post a Section 5.4 notice (grouped, once per channel) and spawn a
 // follow-up run only when they link a task.
 type OrchestratorLauncher struct {
+	chat     *DaemonBackend
 	orch     *orchestrator.Orchestrator
 	notify   *master.Notifier
 	parent   types.AgentID
@@ -97,12 +98,20 @@ func (l *OrchestratorLauncher) LaunchReminder(ctx context.Context, r agenda.Remi
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	conv := ClassroomConversation
+	if l.chat != nil {
+		conv = l.chat.SystemConversation("")
+		if _, err := l.chat.Master.SendAssistant(ctx, conv, r.Text, nil); err != nil {
+			return err
+		}
+	}
 	if l.notify != nil {
 		l.notify.Post(master.Notice{
-			ID:        "reminder-" + r.ID,
-			Class:     types.NoticeNormal,
-			Content:   r.Text,
-			CreatedAt: l.now().UTC(),
+			ConversationID: conv,
+			ID:             "reminder-" + r.ID,
+			Class:          types.NoticeNormal,
+			Content:        r.Text,
+			CreatedAt:      l.now().UTC(),
 		})
 	}
 	if strings.TrimSpace(r.TaskID) == "" {
@@ -298,3 +307,6 @@ func (l *DaemonTriggerLauncher) StartSession(ctx context.Context, target string,
 	_, _, err := l.orch.Spawn(l.parent, card)
 	return err
 }
+
+// BindChat routes reminder output through the current favorite conversation.
+func (l *OrchestratorLauncher) BindChat(b *DaemonBackend) { l.chat = b }

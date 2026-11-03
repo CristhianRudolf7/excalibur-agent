@@ -51,6 +51,9 @@ func (m *MemStore) SaveMessage(_ context.Context, conv string, msg Normalized) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := types.NewMessageID()
+	if msg.CreatedAt.IsZero() {
+		msg.CreatedAt = time.Now().UTC()
+	}
 	msg.Context = api.CloneAppContext(msg.Context)
 	msg.Changes = api.CloneChanges(msg.Changes)
 	m.msgs[conv] = append(m.msgs[conv], msg)
@@ -181,6 +184,8 @@ func New(cfg Config, store ConversationStore, lex *Lexicon, dec Decider, control
 // History returns one conversation's persisted messages oldest first
 // for the gate conversation.history family, including validated assistant output.
 type HistoryMessage struct {
+	RelayedBy      string
+	CreatedAt      time.Time
 	ID             types.MessageID
 	ConversationID string
 	Role           string
@@ -192,8 +197,16 @@ type HistoryMessage struct {
 // History implements the gate history read over the conversation
 // store. A nil limit returns everything.
 func (m *Master) History(conv string, limit int) []HistoryMessage {
-	rows := m.store.History(conv, limit)
-	ids := m.store.MessageIDs(conv, limit)
+	var rows []Normalized
+	var ids []types.MessageID
+	if paired, ok := m.store.(interface {
+		HistoryWithIDs(string, int) ([]Normalized, []types.MessageID)
+	}); ok {
+		rows, ids = paired.HistoryWithIDs(conv, limit)
+	} else {
+		rows = m.store.History(conv, limit)
+		ids = m.store.MessageIDs(conv, limit)
+	}
 	out := make([]HistoryMessage, 0, len(rows))
 	for i, n := range rows {
 		var id types.MessageID
@@ -204,7 +217,7 @@ func (m *Master) History(conv string, limit int) []HistoryMessage {
 		if role == "" {
 			role = "user"
 		}
-		out = append(out, HistoryMessage{ID: id, ConversationID: conv, Role: role, Text: n.Text, Sources: cloneSources(n.Sources), Changes: api.CloneChanges(n.Changes)})
+		out = append(out, HistoryMessage{RelayedBy: n.RelayedBy, CreatedAt: n.CreatedAt, ID: id, ConversationID: conv, Role: role, Text: n.Text, Sources: cloneSources(n.Sources), Changes: api.CloneChanges(n.Changes)})
 	}
 	return out
 }
@@ -290,15 +303,11 @@ func (m *Master) ReceiveDeferredWithContext(ctx context.Context, clientID, clien
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("master: empty message")
 	}
-	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
-		return id, nil
+	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en", CreatedAt: time.Now().UTC()}
+	id, duplicate, err := m.saveClientMessage(ctx, conv, msg, clientID, clientMsgID)
+	if err != nil || duplicate {
+		return id, err
 	}
-	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
-	id, err := m.store.SaveMessage(ctx, conv, msg)
-	if err != nil {
-		return "", err
-	}
-	m.store.RecordClientMsg(clientID, clientMsgID, id)
 	now := time.Now()
 	safego.Go("master-intake", nil, func() {
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)

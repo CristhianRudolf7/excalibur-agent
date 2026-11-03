@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
@@ -15,6 +16,25 @@ import (
 // intent ranking. Study intent uses the same selection without app context.
 func (s *Services) chatToolActivation(request, model string, app *api.AppContext) wireengine.ToolActivation {
 	activation := wireengine.SuggestTools(s.Catalog, s.Skills, request, model, "default")
+	// Personal-agent actions must remain discoverable even when broad words
+	// such as "create" rank unrelated deferred tools ahead of them.
+	for _, name := range []string{"manage_agents", "send_to_agent", "search_agent_chats", "design_avatar"} {
+		if slices.Contains(activation.Names, name) {
+			continue
+		}
+		tool, err := s.Tools.Get(name)
+		if err != nil {
+			continue
+		}
+		def := tool.Definition()
+		for _, keyword := range def.Keywords {
+			if strings.Contains(strings.ToLower(request), strings.ToLower(keyword)) {
+				activation.Names = append(activation.Names, name)
+				activation.Definitions = append(activation.Definitions, def)
+				break
+			}
+		}
+	}
 	if (app == nil || app.App != "classroom") && !slices.Contains(activation.Names, "classroom") {
 		return activation
 	}

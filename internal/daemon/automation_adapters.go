@@ -151,12 +151,19 @@ func (a *automationEndpoint) Chat(ctx context.Context, role types.ModelRole, req
 }
 
 // AutomationNotifier persists and publishes into the primary Excalibur chat.
-type AutomationNotifier struct{ Master *master.Master }
+type AutomationNotifier struct {
+	Master  *master.Master
+	Backend *DaemonBackend
+}
 
 func (a *AutomationNotifier) Notify(ctx context.Context, text string) error {
 	if a == nil || a.Master == nil {
 		return fmt.Errorf("automation chat not available")
 	}
-	_, e := a.Master.SendAssistant(ctx, "cnv_web_excalibur", text, nil)
+	conv := ClassroomConversation
+	if a.Backend != nil {
+		conv = a.Backend.SystemConversation("")
+	}
+	_, e := a.Master.SendAssistant(ctx, conv, text, nil)
 	return e
 }

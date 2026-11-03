@@ -1,0 +1,348 @@
+{
+  "$defs": {
+    "Agent": {
+      "additionalProperties": false,
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "avatar": {
+          "$ref": "#/$defs/AvatarSpec"
+        },
+        "conversation_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "favorite": {
+          "type": "boolean"
+        },
+        "id": {
+          "type": "string"
+        },
+        "last_message_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_preview": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "unread": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "title",
+        "description",
+        "personality",
+        "avatar",
+        "favorite",
+        "archived",
+        "conversation_id",
+        "created_at",
+        "updated_at",
+        "last_message_at",
+        "unread",
+        "last_preview"
+      ],
+      "type": "object"
+    },
+    "AgentIDParams": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "AgentsCreateParams": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar": {
+          "$ref": "#/$defs/AvatarSpec"
+        },
+        "description": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "AgentsFavoriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "favorite_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "favorite_id"
+      ],
+      "type": "object"
+    },
+    "AgentsListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "include_archived": {
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "AgentsListResult": {
+      "additionalProperties": false,
+      "properties": {
+        "agents": {
+          "items": {
+            "$ref": "#/$defs/Agent"
+          },
+          "type": "array"
+        },
+        "favorite_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agents",
+        "favorite_id"
+      ],
+      "type": "object"
+    },
+    "AgentsMarkReadResult": {
+      "additionalProperties": false,
+      "properties": {
+        "unread": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "unread"
+      ],
+      "type": "object"
+    },
+    "AgentsUnreadEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "last_message_at": {
+          "format": "date-time",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_preview": {
+          "type": "string"
+        },
+        "unread": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agent_id",
+        "unread",
+        "last_preview",
+        "last_message_at"
+      ],
+      "type": "object"
+    },
+    "AgentsUpdateParams": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar": {
+          "$ref": "#/$defs/AvatarSpec"
+        },
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "personality": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "AvatarSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "accent": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "accessory": {
+          "enum": [
+            "none",
+            "glasses",
+            "sunglasses",
+            "earring",
+            "scarf",
+            "star"
+          ]
+        },
+        "background": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "hair": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "highlight": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "outfit": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "tone": {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "variant": {
+          "enum": [
+            "hood",
+            "long-hair",
+            "cap",
+            "bow",
+            "beard",
+            "headphones"
+          ]
+        }
+      },
+      "required": [
+        "variant",
+        "tone",
+        "hair",
+        "highlight",
+        "outfit",
+        "accent",
+        "accessory",
+        "background"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "agents.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "agents.archive": {
+      "params": {
+        "$ref": "#/$defs/AgentIDParams"
+      },
+      "result": {
+        "$ref": "#/$defs/AgentsFavoriteResult"
+      }
+    },
+    "agents.create": {
+      "params": {
+        "$ref": "#/$defs/AgentsCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Agent"
+      }
+    },
+    "agents.get": {
+      "params": {
+        "$ref": "#/$defs/AgentIDParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Agent"
+      }
+    },
+    "agents.list": {
+      "params": {
+        "$ref": "#/$defs/AgentsListParams"
+      },
+      "result": {
+        "$ref": "#/$defs/AgentsListResult"
+      }
+    },
+    "agents.mark_read": {
+      "params": {
+        "$ref": "#/$defs/AgentIDParams"
+      },
+      "result": {
+        "$ref": "#/$defs/AgentsMarkReadResult"
+      }
+    },
+    "agents.restore": {
+      "params": {
+        "$ref": "#/$defs/AgentIDParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Agent"
+      }
+    },
+    "agents.set_favorite": {
+      "params": {
+        "$ref": "#/$defs/AgentIDParams"
+      },
+      "result": {
+        "$ref": "#/$defs/AgentsFavoriteResult"
+      }
+    },
+    "agents.update": {
+      "params": {
+        "$ref": "#/$defs/AgentsUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/Agent"
+      }
+    }
+  }
+}

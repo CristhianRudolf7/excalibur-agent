@@ -77,6 +77,7 @@ func Main() *Registry {
 	_ = r.Register(store.Migration{Version: 8, Name: "whiteboards", Up: upV8})
 	_ = r.Register(store.Migration{Version: 9, Name: "automations", Up: upV9})
 	_ = r.Register(store.Migration{Version: 10, Name: "classroom", Up: upV10})
+	_ = r.Register(store.Migration{Version: 11, Name: "personal-agents", Up: upV11})
 	return r
 }
 

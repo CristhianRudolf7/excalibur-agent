@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
@@ -45,6 +46,8 @@ type ConversationContextBackend interface {
 
 // StoredMessage is one persisted conversation message.
 type StoredMessage struct {
+	RelayedBy      string               `json:"relayed_by,omitempty"`
+	CreatedAt      time.Time            `json:"created_at,omitempty"`
 	ID             types.MessageID      `json:"id"`
 	ConversationID types.ConversationID `json:"conversation_id"`
 	Role           string               `json:"role"`

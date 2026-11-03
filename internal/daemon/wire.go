@@ -187,6 +187,9 @@ func (b *DaemonBackend) ConversationSend(ctx context.Context, clientID, clientMs
 	if b.Master == nil {
 		return b.embed.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
 	}
+	if err := b.checkAgentConversation(conversationID); err != nil {
+		return "", false, err
+	}
 	// Duplicate probe first: the master dedupes, but flag it.
 	id, err := b.Master.ReceiveDeferred(ctx, clientID, clientMsgID, conversationID, text, nil, b.fastReply(ctx, conversationID))
 	if err != nil {
@@ -207,7 +210,7 @@ func (b *DaemonBackend) ConversationHistory(_ context.Context, conversationID st
 			}
 			out = append(out, gateway.StoredMessage{
 				ID: h.ID, ConversationID: types.ConversationID(conversationID),
-				Role: h.Role, Text: h.Text, Sources: h.Sources, Changes: h.Changes,
+				RelayedBy: h.RelayedBy, CreatedAt: h.CreatedAt, Role: h.Role, Text: h.Text, Sources: h.Sources, Changes: h.Changes,
 			})
 		}
 		if limit > 0 && len(out) > limit {
@@ -314,6 +317,9 @@ func (b *DaemonBackend) ConversationSendContext(ctx context.Context, clientID, c
 			return "", false, &api.Error{Code: api.CodeInvalidParams, Message: "app context requires the daemon master"}
 		}
 		return b.ConversationSend(ctx, clientID, clientMsgID, conversationID, text)
+	}
+	if err := b.checkAgentConversation(conversationID); err != nil {
+		return "", false, err
 	}
 	id, err := b.Master.ReceiveDeferredWithContext(ctx, clientID, clientMsgID, conversationID, text, attachments, app, b.fastReply(ctx, conversationID))
 	return id, false, err
