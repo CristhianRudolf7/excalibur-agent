@@ -596,6 +596,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 			line := input.lines[i]
 			values := map[string]any{}
 			columns := map[string]string{}
+			rawValues := map[string]string{}
 			bad := false
 			for col, m := range mapping {
 				if m.Field == nil {
@@ -609,6 +610,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				value, fixes, conflict := importValue(f, raw, p.Fixes != "none", line, m.Column)
 				out.Report.FixesApplied = append(out.Report.FixesApplied, fixes...)
 				columns[f.ID] = m.Column
+				rawValues[f.ID] = raw
 				values[f.ID] = value
 				if conflict != nil {
 					out.Report.Conflicts = append(out.Report.Conflicts, *conflict)
@@ -618,10 +620,6 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 			for _, f := range c.Fields {
 				if _, ok := values[f.ID]; !ok {
 					values[f.ID] = nil
-					if f.Required {
-						out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: f.Name, Problem: "required_missing", Suggestion: "Map a source column or provide a value"})
-						bad = true
-					}
 				}
 			}
 			if bad {
@@ -680,11 +678,21 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 					if strings.Contains(v.Message, "relation") {
 						problem = "relation_not_found"
 					}
+					if strings.Contains(v.Message, "required") {
+						problem = "required_missing"
+					}
+					if strings.Contains(v.Message, "option") {
+						problem = "unknown_option"
+					}
+					if strings.Contains(v.Message, "range") {
+						problem = "out_of_range"
+					}
 					column := columns[v.Field]
 					if column == "" {
-						column = v.Field
+						field, _ := fieldByID(c, v.Field)
+						column = field.Name
 					}
-					out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: column, Value: fmt.Sprint(values[v.Field]), Problem: problem, Suggestion: v.Message})
+					out.Report.Conflicts = append(out.Report.Conflicts, api.ImportConflict{Row: line, Column: column, Value: rawValues[v.Field], Problem: problem, Suggestion: v.Message})
 				}
 				out.Report.Skipped++
 				continue

@@ -34,11 +34,12 @@ import (
 // embedded MemoryBackend behavior so embedded profiles and unit
 // tests never need the full stack.
 type BackendServices struct {
-	Google    googleapi.TokenProvider
-	Agents    *agents.Registry
-	Robot     *robot.Service
-	RobotLab  *robotlab.Service
-	FileBlobs gateway.BlobStore
+	Collections *CollectionRoutes
+	Google      googleapi.TokenProvider
+	Agents      *agents.Registry
+	Robot       *robot.Service
+	RobotLab    *robotlab.Service
+	FileBlobs   gateway.BlobStore
 	// WorkspaceRoots supplies trusted conversation-specific roots.
 	WorkspaceRoots func(context.Context) []string
 	Voice          *VoiceRoutes
@@ -188,6 +189,13 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 			}
 			return out, nil
 		}
+	}
+
+	if strings.HasPrefix(method, "collections.") || strings.HasPrefix(method, "records.") {
+		if b.Services == nil {
+			return (*CollectionRoutes)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Collections.Op(ctx, method, params)
 	}
 
 	if strings.HasPrefix(method, "classroom.") {

@@ -367,7 +367,8 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 			return nil, asAPIError(err)
 		}
 		return res, nil
-	case api.MethodGoogleStatus, api.MethodGoogleConnectStart, api.MethodGoogleConnectComplete, api.MethodGoogleDisconnect,
+	case api.MethodCollectionsList, api.MethodCollectionsGet, api.MethodCollectionsCreate, api.MethodCollectionsUpdate, api.MethodCollectionsFields, api.MethodCollectionsDelete, api.MethodCollectionsSummary, api.MethodCollectionsImport, api.MethodCollectionsExport, api.MethodRecordsList, api.MethodRecordsGet, api.MethodRecordsCreate, api.MethodRecordsUpdate, api.MethodRecordsDelete,
+		api.MethodGoogleStatus, api.MethodGoogleConnectStart, api.MethodGoogleConnectComplete, api.MethodGoogleDisconnect,
 		api.MethodPrincipalGet, api.MethodPrincipalUpdate:
 		if len(params) > 0 && !json.Valid(params) {
 			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad " + method + " params"}

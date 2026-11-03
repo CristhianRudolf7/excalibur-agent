@@ -52,6 +52,11 @@ func WireAssistantTurns(b *DaemonBackend, s *Services, endpoint engine.ModelEndp
 			b.credentials.vault = b.Services.Vault
 		}
 	}
+	if err := wireCollectionTool(b, s); err != nil {
+		a.disabled = true
+		a.notice("", "My data tool could not be registered")
+	}
+
 	if err := wireGoogleTools(b, s); err != nil {
 		a.disabled = true
 		a.notice("", "Google tools could not be registered")
@@ -143,7 +148,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 			allow[name] = true
 		}
 	}
-	for _, name := range []string{"gmail", "drive", "docs"} {
+	for _, name := range []string{"gmail", "drive", "docs", "my_data"} {
 		allow[name] = true
 	}
 	if a.services.Robot != nil {

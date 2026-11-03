@@ -1,0 +1,367 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Field"
+      }
+    },
+    "display_field": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SummaryCard"
+      }
+    },
+    "id": {
+      "type": "string",
+      "description": "Collection ID for collection operations; record ID for update/delete_record."
+    },
+    "add": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Field"
+      }
+    },
+    "rename": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "name"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "remove": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "change_type": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/$defs/FieldType"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "field",
+          "type"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "collection": {
+      "type": "string",
+      "description": "Parent collection ID for records and imports."
+    },
+    "query": {
+      "type": "string"
+    },
+    "filters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Filter"
+      }
+    },
+    "sort": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "dir": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "dir"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "values": {
+      "type": "object"
+    },
+    "blob_digest": {
+      "type": "string"
+    },
+    "sheet": {
+      "type": "string"
+    },
+    "mapping": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ImportMapping"
+      }
+    },
+    "create_schema": {
+      "type": "boolean"
+    },
+    "upsert_key": {
+      "type": "string"
+    },
+    "fixes": {
+      "enum": [
+        "auto",
+        "none"
+      ]
+    },
+    "format": {
+      "enum": [
+        "xlsx",
+        "csv"
+      ]
+    },
+    "action": {
+      "enum": [
+        "list",
+        "describe",
+        "propose",
+        "create",
+        "alter_fields",
+        "delete_collection",
+        "insert",
+        "update",
+        "delete_record",
+        "query",
+        "summary",
+        "import",
+        "export",
+        "restore"
+      ]
+    },
+    "confirmed": {
+      "type": "boolean"
+    },
+    "commit": {
+      "type": "boolean"
+    },
+    "include_trash": {
+      "type": "boolean"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "FieldType": {
+      "enum": [
+        "text",
+        "long_text",
+        "number",
+        "integer",
+        "money",
+        "date",
+        "datetime",
+        "boolean",
+        "select",
+        "multi_select",
+        "relation",
+        "email",
+        "url",
+        "file"
+      ]
+    },
+    "Field": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/FieldType"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "unique": {
+          "type": "boolean"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "currency": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "Filter": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "neq",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "contains",
+            "in",
+            "is_empty",
+            "not_empty"
+          ]
+        },
+        "value": {}
+      },
+      "required": [
+        "field",
+        "op"
+      ],
+      "additionalProperties": false
+    },
+    "SummaryCard": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "count",
+            "sum",
+            "avg",
+            "min",
+            "max",
+            "weighted_avg"
+          ]
+        },
+        "field": {
+          "type": "string"
+        },
+        "weight_field": {
+          "type": "string"
+        },
+        "filter": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Filter"
+          }
+        },
+        "group_by": {
+          "type": "string"
+        },
+        "chart": {
+          "enum": [
+            "none",
+            "bar",
+            "line",
+            "pie"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "ImportMapping": {
+      "type": "object",
+      "properties": {
+        "column": {
+          "type": "string"
+        },
+        "field": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "column",
+        "field"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

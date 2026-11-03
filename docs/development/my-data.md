@@ -48,4 +48,38 @@ mixed date conflicts, duplicate/upsert behavior, relation conflicts, dry runs,
 automatic fix logs, sheet selection, rows beyond preview limits, Excel serial dates,
 and CSV/XLSX typed round trips.
 
-Daemon RPC and tool integration are in progress.
+The daemon opens the collections store during production startup, passes its blob
+adapter to imports/exports, and closes it after draining turns during shutdown.
+All fourteen shared JSON-RPC methods route through the gateway to CollectionRoutes.
+Validation returns `-32602` and `data.errors`; missing targets return `-32001`.
+Mutation events publish `collections.changed` over the existing WebSocket feed.
+Failed writes and dry runs do not publish events. JSON schema exports live in
+`packages/contracts/collections.json`; Go/schema parity tests cover every shape.
+
+`internal/daemon/collections_test.go` exercises all RPC methods through HTTP,
+validation payloads, invalid parameter handling, mutation counts and a real
+WebSocket subscription. The pinned embedded/eval hash test passes unchanged.
+
+The `my_data` tool is registered only by daemon assistant wiring, deferred in the
+catalog and restricted to the `default` profile. It is explicitly allowed in chat.
+Its description teaches proposal-first creation, direct record changes, spreadsheet
+attachment offers, import conflict handling, and localized navigation notices.
+`propose` returns a readable schema table and three clearly fictional examples
+without writing data. Creation/deletion and destructive schema operations require
+`confirmed:true`; conversion previews do not. Imports default to dry runs and need
+`commit:true` to write; creating an inferred schema also requires confirmation.
+Schema snapshot restoration requires confirmation because it replaces records.
+Trashed collections restore without overwriting active data. Exports include blob
+URLs. Tool notices include English and Spanish; agent explanations follow the
+conversation language.
+
+`internal/daemon/collections_tool_test.go` exercises every action, confirmation
+rejections, proposal purity, dry-run defaults, trash/schema restoration, deferred
+registration and real chat execution with fake model responses. No model API calls
+are used. Follow-up engine tests cover stale relations on trash restoration and
+preserving unmapped required fields during upserts.
+
+### Verification
+
+Final checks are in progress. The web agent owns collection UI flows and TypeScript
+contract additions; this backend worktree contains no UI changes.

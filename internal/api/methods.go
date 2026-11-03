@@ -142,6 +142,21 @@ type MethodInfo struct {
 // reject unknown methods with CodeMethodNotFound and the contracts
 // export test requires every entry to appear in packages/contracts.
 var Methods = []MethodInfo{
+	{MethodCollectionsList, "collections", "List personal collections."},
+	{MethodCollectionsGet, "collections", "Read a personal collection."},
+	{MethodCollectionsCreate, "collections", "Create a personal collection."},
+	{MethodCollectionsUpdate, "collections", "Update personal collection metadata."},
+	{MethodCollectionsFields, "collections", "Alter personal collection fields."},
+	{MethodCollectionsDelete, "collections", "Move a personal collection to trash."},
+	{MethodRecordsList, "records", "Query personal collection records."},
+	{MethodRecordsGet, "records", "Read a record and related records."},
+	{MethodRecordsCreate, "records", "Create a personal collection record."},
+	{MethodRecordsUpdate, "records", "Update a personal collection record."},
+	{MethodRecordsDelete, "records", "Delete a personal collection record."},
+	{MethodCollectionsSummary, "collections", "Compute personal collection summary cards."},
+	{MethodCollectionsImport, "collections", "Import spreadsheet rows with conflict reports."},
+	{MethodCollectionsExport, "collections", "Export personal collection records to a blob."},
+
 	{MethodAgentsList, "agents", "List personal agents."},
 	{MethodAgentsGet, "agents", "Read one personal agent."},
 	{MethodAgentsCreate, "agents", "Create a personal agent and conversation."},

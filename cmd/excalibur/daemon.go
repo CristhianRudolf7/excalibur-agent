@@ -261,6 +261,13 @@ func runDaemonStart(args []string) error {
 		return fmt.Errorf("daemon start: %w", err)
 	}
 
+	collectionRoutes, err := daemon.NewCollectionRoutes(data, audioBlobs, bus)
+	if err != nil {
+		return fmt.Errorf("daemon collections: %w", err)
+	}
+	defer collectionRoutes.Close()
+	svc.Collections = collectionRoutes
+
 	if db != nil && memSvc != nil && library.Enabled() {
 		if err := svc.ConfigureLibrary(daemon.LibraryOptions{DB: db, Memory: memSvc, Media: media, Notices: notifier, Bus: bus}); err != nil {
 			return fmt.Errorf("daemon start: %w", err)
@@ -351,9 +358,10 @@ func runDaemonStart(args []string) error {
 	}
 	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
-		Google: googleAccount,
-		Agents: personalAgents,
-		Robot:  robotService,
+		Collections: collectionRoutes,
+		Google:      googleAccount,
+		Agents:      personalAgents,
+		Robot:       robotService,
 		WorkspaceRoots: func(context.Context) []string {
 			if workspaceRoot == "" {
 				return nil

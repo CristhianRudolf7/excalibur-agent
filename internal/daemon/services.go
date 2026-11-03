@@ -379,6 +379,7 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
+	Collections    *CollectionRoutes
 	Google         googleapi.TokenProvider
 	Credentials    *CredentialRegistry
 	RobotLab       *robotlab.Service

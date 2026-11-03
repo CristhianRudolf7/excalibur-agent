@@ -81,6 +81,7 @@ const EventLibraryDocumentUpdated types.EventType = "library.document_updated"
 const EventRobotState types.EventType = "robot.state"
 
 var EventTypes = []EventTypeInfo{
+	{EventCollectionsChanged, "CollectionsChangedEvent", "A personal collection or record changed."},
 	{EventAgentsCreated, "Agent", "A personal agent was created."},
 	{EventAgentsUpdated, "Agent", "A personal agent changed."},
 	{EventAgentsArchived, "Agent", "A personal agent was archived."},

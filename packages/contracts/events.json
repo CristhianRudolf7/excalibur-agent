@@ -2,6 +2,7 @@
   "version": 0,
   "description": "Excalibur typed bus events. Exported from internal/api EventTypes; do not edit by hand without updating the registry.",
   "events": [
+    {"type":"collections.changed","payload":"CollectionsChangedEvent","summary":"A personal collection or record changed.","payload_schema":{"$ref":"collections.json#/$defs/Changed"}},
     {"type": "agents.created", "payload": "Agent", "summary": "A personal agent was created."},
     {"type": "agents.updated", "payload": "Agent", "summary": "A personal agent changed."},
     {"type": "agents.archived", "payload": "Agent", "summary": "A personal agent was archived."},

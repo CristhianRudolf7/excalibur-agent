@@ -632,6 +632,16 @@ func (e *Engine) Restore(ctx context.Context, id string, version int) (Collectio
 		if err = e.validateTargets(ctx, tx, c); err != nil {
 			return err
 		}
+		records, readErr := readRecords(ctx, tx, c, "", nil, "id", 0, 0)
+		if readErr != nil {
+			return readErr
+		}
+		for _, r := range records {
+			if _, validationErr := validateValues(ctx, tx, c, r.Values, r.ID); validationErr != nil {
+				return validationErr
+			}
+		}
+
 		_, err = tx.ExecContext(ctx, `UPDATE collection_meta SET deleted_at=NULL WHERE id=?`, id)
 		return err
 	})

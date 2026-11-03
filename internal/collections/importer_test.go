@@ -242,3 +242,18 @@ func TestExcelSerialDates(t *testing.T) {
 		t.Fatal(out, err)
 	}
 }
+
+func TestUpsertPreservesUnmappedRequiredFields(t *testing.T) {
+	e := testEngine(t)
+	b := gateway.NewMemoryBlobs()
+	c := createTest(t, e, Field{ID: "key", Name: "Key", Type: "text", Unique: true}, Field{ID: "name", Name: "Name", Type: "text", Required: true}, Field{ID: "amount", Name: "Amount", Type: "number"})
+	r := insertTest(t, e, c, map[string]any{"key": "one", "name": "Ana", "amount": 15})
+	out, err := e.Import(ctx, b, api.CollectionsImportParams{Collection: c.ID, BlobDigest: blob(t, b, []byte("Key,Amount\none,20\ntwo,30\n")), UpsertKey: "key"})
+	if err != nil || out.Report.Updated != 1 || out.Report.Skipped != 1 || out.Report.Conflicts[0].Problem != "required_missing" {
+		t.Fatal(out, err)
+	}
+	got, err := e.Record(ctx, api.RecordsIDParams{Collection: c.ID, ID: r.ID})
+	if err != nil || got.Record.Values["name"] != "Ana" || got.Record.Values["amount"] != float64(20) {
+		t.Fatal(got, err)
+	}
+}

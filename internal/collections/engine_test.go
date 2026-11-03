@@ -3,7 +3,6 @@ package collections
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -112,9 +111,6 @@ func TestCRUDValidationAndPersistence(t *testing.T) {
 	got, err := e.Get(ctx, c.ID)
 	if err != nil || got.RecordCount != 1 {
 		t.Fatal(got, err)
-	}
-	if filepath.Base(dir) == "" {
-		t.Fatal("invalid path")
 	}
 	if err = e.DeleteRecord(ctx, api.RecordsIDParams{Collection: c.ID, ID: r.ID}); err != nil {
 		t.Fatal(err)
@@ -318,5 +314,22 @@ func TestSchemaValidation(t *testing.T) {
 	list, _ := e.List(ctx)
 	if len(list) != 0 {
 		t.Fatal("proposal persisted")
+	}
+}
+
+func TestRestoreRechecksRelations(t *testing.T) {
+	e := testEngine(t)
+	parent := createTest(t, e, Field{ID: "name", Name: "Name", Type: "text"})
+	record := insertTest(t, e, parent, map[string]any{"name": "University"})
+	child := createTest(t, e, Field{ID: "parent", Name: "Parent", Type: "relation", Target: parent.ID})
+	insertTest(t, e, child, map[string]any{"parent": record.ID})
+	if err := e.Delete(ctx, child.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.DeleteRecord(ctx, api.RecordsIDParams{Collection: parent.ID, ID: record.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Restore(ctx, child.ID, 0); err == nil {
+		t.Fatal("restored dangling relation")
 	}
 }
