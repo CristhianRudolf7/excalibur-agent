@@ -21,7 +21,15 @@ export function AgentAvatar({
   frame = 0,
   label,
 }: AgentAvatarProps) {
-  const sprite = avatarSprite(normalizeAvatarSpec(spec))
+  const normalized = normalizeAvatarSpec(spec)
+  if (normalized.preset === 'paladin') {
+    return (
+      <span className="pixel-avatar brand-avatar" style={{ width: size, height: size }}>
+        <img src="/paladin.svg" alt={label ?? ''} />
+      </span>
+    )
+  }
+  const sprite = avatarSprite(normalized)
   const Renderer = form === 'sprite' ? PixelSprite : PixelPortrait
   return <Renderer sprite={sprite} size={size} frame={frame} label={label} />
 }

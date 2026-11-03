@@ -49,7 +49,7 @@ for (const language of ['en', 'es']) {
     await fixture.bus.ready('agents.unread')
     fixture.unread('sam', 5, 'A new response')
     await expect(sidebar.getByRole('button', { name: 'Sam', exact: true })).toContainText('5')
-    await expect(sidebar).toContainText('A new response')
+    await expect(sidebar).not.toContainText('A new response')
     await sidebar.getByRole('button', { name: 'Sam', exact: true }).click()
     await expect(page.locator('.message-history')).toContainText('Sam private history')
     await expect(page.locator('.message-history')).not.toContainText('Ada private history')

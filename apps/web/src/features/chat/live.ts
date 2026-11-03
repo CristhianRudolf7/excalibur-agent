@@ -30,6 +30,19 @@ export function fromWire(message: ConversationMessage): Message {
     changes: message.changes,
   }
 }
+/** Abortable backoff: transient failures keep the initial skeleton in place. */
+function historyBackoff(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    signal?.addEventListener('abort', finish, { once: true })
+    if (signal?.aborted) finish()
+  })
+}
 export async function loadHistory(
   agent: string,
   before?: string,
@@ -37,27 +50,72 @@ export async function loadHistory(
   target?: string,
 ) {
   const stateKey = chatStateKey(agent, target)
+  const previous = useChat.getState()
+  const anchor = before ? undefined : previous.historyCursor[stateKey]
+  const rows: ConversationMessage[] = []
+  let cursor = before
+  let latest: string | undefined
+  let next: string | undefined
+  useChat.getState().startHistory(stateKey, before)
   try {
-    const { messages } = await rpc.call(
-      'conversation.history',
-      {
-        conversation_id: target ?? conversationId(agent),
-        limit: pageSize,
-        ...(before ? { before } : {}),
-      },
-      { signal },
-    )
-    if (signal?.aborted) return
-    const rows = messages ?? []
-    useChat.getState().merge(stateKey, rows.map(fromWire), true)
-    useChat.getState().page(stateKey, rows.length === pageSize ? rows[0]?.id : undefined)
+    do {
+      let messages: ConversationMessage[] = []
+      for (let attempt = 0; ; attempt++) {
+        if (signal?.aborted) return
+        try {
+          const result = await rpc.call(
+            'conversation.history',
+            {
+              conversation_id: target ?? conversationId(agent),
+              limit: pageSize,
+              ...(cursor ? { before: cursor } : {}),
+            },
+            { signal },
+          )
+          messages = result.messages ?? []
+          break
+        } catch (error) {
+          if (signal?.aborted) return
+          if (unavailable(error)) useChat.getState().connection(stateKey, false)
+          if (attempt === 2) throw error
+          await historyBackoff(500 * 2 ** attempt, signal)
+        }
+      }
+      if (signal?.aborted) return
+      latest ??= messages.at(-1)?.id
+      rows.unshift(...messages)
+      next = messages.length === pageSize ? messages[0]?.id : undefined
+      // History only supports a `before` cursor. Walk backwards to the last
+      // successful snapshot so long outages cannot leave a gap beyond 50 rows.
+      if (!anchor || messages.some((message) => message.id === anchor) || !next || next === cursor)
+        break
+      cursor = next
+    } while (!before)
+    useChat
+      .getState()
+      .merge(
+        stateKey,
+        rows.map(fromWire),
+        before || !previous.historyLoaded[stateKey] ? true : 'latest',
+      )
+    useChat
+      .getState()
+      .page(
+        stateKey,
+        !before && previous.historyLoaded[stateKey] ? useChat.getState().older[stateKey] : next,
+        undefined,
+        before ? undefined : latest,
+      )
     return true
   } catch (error) {
     if (signal?.aborted) return
     useChat
       .getState()
-      .page(stateKey, before, error instanceof Error ? error.message : i18n.t('chatHistoryError'))
-    if (unavailable(error)) useChat.getState().connection(stateKey, false)
+      .page(
+        stateKey,
+        before ?? previous.older[stateKey],
+        error instanceof Error ? error.message : i18n.t('chatHistoryError'),
+      )
     return false
   }
 }
@@ -150,14 +208,44 @@ export function connectConversation(agent: string, target?: string) {
   if (!liveChatEnabled) return () => {}
   const controller = new AbortController()
   let loading = false
+  let requested = false
   let socketReady = false
+  let handshakes = 0
   useChat.getState().connection(stateKey, false)
   const refresh = async () => {
-    if (loading || controller.signal.aborted) return
+    if (controller.signal.aborted) return
+    requested = true
+    if (loading) return
     loading = true
-    const ok = await loadHistory(agent, undefined, controller.signal, target)
-    if (!controller.signal.aborted)
-      useChat.getState().connection(stateKey, ok === true && socketReady)
+    while (requested && !controller.signal.aborted) {
+      requested = false
+      if (socketReady) {
+        // Only transport failures are retried automatically. Each retry keeps
+        // its client_msg_id, including sends accepted before a receipt was lost.
+        const queued = (useChat.getState().live[stateKey] ?? []).filter(
+          (message) => message.retryOnReconnect && message.delivery === 'failed',
+        )
+        for (const message of queued) {
+          if (controller.signal.aborted || !socketReady) break
+          await sendMessage(
+            agent,
+            message.text,
+            message.attachments,
+            message,
+            controller.signal,
+            message.context,
+            target,
+          )
+        }
+      }
+      const ok = await loadHistory(agent, undefined, controller.signal, target)
+      if (!controller.signal.aborted && !requested) {
+        const queued = (useChat.getState().live[stateKey] ?? []).some(
+          (message) => message.retryOnReconnect && message.delivery === 'failed',
+        )
+        useChat.getState().connection(stateKey, ok === true && socketReady && !queued)
+      }
+    }
     loading = false
   }
   void refresh()
@@ -165,7 +253,8 @@ export function connectConversation(agent: string, target?: string) {
     event: (event) => receiveEvent(agent, event, target),
     ready: () => {
       socketReady = true
-      void refresh()
+      handshakes++
+      if (handshakes > 1 || !loading) void refresh()
     },
     offline: () => {
       socketReady = false
@@ -204,6 +293,7 @@ export async function sendMessage(
     time: '',
     literal: true,
     delivery: 'sending',
+    retryOnReconnect: undefined,
   }
   useChat.getState().merge(stateKey, [message])
   useChat.getState().setTyping(stateKey, true)
@@ -227,6 +317,8 @@ export async function sendMessage(
   } catch (error) {
     useChat.getState().patch(stateKey, id, {
       delivery: 'failed',
+      retryOnReconnect:
+        (error instanceof TransportError && error.kind !== 'aborted') || retry?.retryOnReconnect,
       error: error instanceof Error ? error.message : i18n.t('chatSendError'),
     })
     useChat.getState().setTyping(stateKey, false)

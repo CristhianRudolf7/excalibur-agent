@@ -2,6 +2,7 @@ import { expect, type Page, type WebSocketRoute } from '@playwright/test'
 
 function createEventBus() {
   const subscriptions = new Map<WebSocketRoute, string[]>()
+  const paused = new Set<string>()
   let sequence = 0
   return {
     connect(socket: WebSocketRoute) {
@@ -9,6 +10,10 @@ function createEventBus() {
       socket.onMessage((data) => {
         const request = JSON.parse(String(data))
         if (request.method !== 'conversation.subscribe') return
+        if (request.params.types.some((type: string) => paused.has(type))) {
+          socket.close({ code: 1012, reason: 'Daemon unavailable' })
+          return
+        }
         subscriptions.set(socket, request.params.types)
         socket.send(
           JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { events: [], cursor: '' } }),
@@ -32,6 +37,13 @@ function createEventBus() {
       await expect
         .poll(() => [...subscriptions.values()].some((types) => types.includes(type)))
         .toBe(true)
+    },
+    pause(type: string) {
+      paused.add(type)
+      this.disconnect(type)
+    },
+    resume(type: string) {
+      paused.delete(type)
     },
     disconnect(type: string) {
       for (const [socket, types] of subscriptions) {

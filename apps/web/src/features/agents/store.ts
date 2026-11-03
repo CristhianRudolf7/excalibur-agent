@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { paladinAvatar } from '@/components/avatar-spec'
+import { agentAvatar } from './avatar'
 import type { Agent, AgentList, AgentUnread } from './types'
 
 // Keep the existing installation reachable while the agent list is loading.
@@ -7,16 +9,7 @@ export const defaultAgent: Agent = {
   name: 'Excalibur',
   title: '',
   description: '',
-  avatar: {
-    variant: 'hood',
-    tone: '#C99871',
-    hair: '#302A38',
-    highlight: '#9D8DDF',
-    outfit: '#504378',
-    accent: '#E6C56B',
-    accessory: 'none',
-    background: '#262135',
-  },
+  avatar: paladinAvatar,
   favorite: true,
   archived: false,
   conversation_id: 'cnv_web_excalibur',
@@ -55,7 +48,11 @@ export const useAgents = create<AgentsState>((set) => ({
   apply: (list) =>
     set((state) => ({
       ...list,
-      agents: list.agents.map((agent) => ({ ...agent, favorite: agent.id === list.favorite_id })),
+      agents: list.agents.map((agent) => ({
+        ...agent,
+        avatar: agentAvatar(agent),
+        favorite: agent.id === list.favorite_id,
+      })),
       loaded: true,
       selectedId: list.agents.some((agent) => agent.id === state.selectedId && !agent.archived)
         ? state.selectedId

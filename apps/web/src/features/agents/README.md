@@ -28,7 +28,17 @@ agent. Shared user resources remain accessible through the existing interfaces.
 
 `types.ts` follows the Go registry RPC and event contracts. `AgentAvatar`
 renders normalized palettes and accessories through the shared pixel sprite
-renderer. Agent persistence, tools and avatar design run in the daemon.
+renderer, or `/paladin.svg` for the web Paladin preset. The fallback Excalibur
+uses Paladin. Registry ingestion replaces the built-in identity's two known
+legacy default specs with that preset, using its stable legacy conversation ID
+even when its agent ID changes. Custom specs remain intact: Settings avatar
+requests replace the stored spec through the daemon, with no separate choice
+flag. Agent persistence, tools and avatar design run in the daemon.
+
+Sidebar rows keep only the avatar, truncated name, subtle favorite marker,
+timestamp and unread count on one line. Previews remain in event state but are
+not rendered in the list. Only the list container scrolls, with a thin scrollbar;
+large lists use fixed 48px virtual slots around the 44px rows.
 
 Unit coverage exercises ordering, badges, prefill isolation, keyboard switching,
 settings mutations and errors, event refreshes, conversation isolation, relay

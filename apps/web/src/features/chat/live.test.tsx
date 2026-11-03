@@ -54,8 +54,12 @@ beforeEach(() => {
   useChat.setState({
     live: {},
     online: {},
+    connectedOnce: {},
+    historyBefore: {},
     older: {},
     historyError: {},
+    historyLoaded: {},
+    historyCursor: {},
     typing: {},
   })
   FakeSocket.peers = []
@@ -144,44 +148,58 @@ it('renders event sources and forwards library updates; global notices/progress 
   })
   expect(useChat.getState().typing.excalibur).toBe(false)
 })
-it('shows an offline state when unavailable, reconnects to real history, and sends from the UI', async () => {
-  if (!liveChatEnabled) return
-  const call = vi.spyOn(rpc, 'call').mockRejectedValueOnce(new TransportError('Offline', 'network'))
-  render(<Chat agentId="byte" onFile={() => {}} />)
-  expect(screen.queryByText('Sin conexión · Reconectando…')).not.toBeInTheDocument()
-  await act(async () => FakeSocket.peers[0]!.ack())
-  expect(await screen.findByText('Sin conexión · Reconectando…')).toBeInTheDocument()
-  call.mockResolvedValueOnce({ messages: [wire('msg-live', 'Real history')] })
-  await act(async () => FakeSocket.peers[0]!.ack())
-  await waitFor(() =>
-    expect(screen.queryByText('Sin conexión · Reconectando…')).not.toBeInTheDocument(),
-  )
-  expect(screen.getByText('Real history')).toBeInTheDocument()
-  call.mockResolvedValueOnce({ msg_id: 'msg-sent' })
-  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hello daemon' } })
-  fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
-  await waitFor(() =>
-    expect(call).toHaveBeenCalledWith(
-      'conversation.send',
-      expect.objectContaining({ text: 'Hello daemon', attachments: [] }),
-      expect.objectContaining({ timeoutMs: 30_000 }),
-    ),
-  )
-})
-it('recovers missing history methods via a bounded offline probe and cancels on unmount', async () => {
+it('keeps the first-load skeleton through transient failures and sends after recovery', async () => {
   if (!liveChatEnabled) return
   vi.useFakeTimers()
-  const call = vi.spyOn(rpc, 'call').mockRejectedValueOnce(new RpcError(-32601, 'Missing method'))
-  const stop = connectConversation('byte')
-  FakeSocket.peers[0]!.ack()
-  await vi.advanceTimersByTimeAsync(0)
-  expect(useChat.getState().online.byte).toBe(false)
-  call.mockResolvedValueOnce({ messages: [] })
-  await vi.advanceTimersByTimeAsync(10000)
+  const call = vi
+    .spyOn(rpc, 'call')
+    .mockRejectedValueOnce(new TransportError('Offline', 'network'))
+    .mockRejectedValueOnce(new TransportError('Offline', 'network'))
+    .mockResolvedValueOnce({ messages: [wire('msg-live', 'Real history')] })
+  render(<Chat agentId="byte" onFile={() => {}} />)
+  await act(async () => {
+    FakeSocket.peers[0]!.ack()
+    await vi.advanceTimersByTimeAsync(200)
+  })
+  expect(screen.getByRole('status', { name: 'Cargando mensajes' })).toBeVisible()
+  expect(screen.queryByText('Reconectando…')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  await act(async () => vi.advanceTimersByTimeAsync(1400))
+  expect(screen.getByText('Real history')).toBeInTheDocument()
   expect(useChat.getState().online.byte).toBe(true)
-  stop()
+  call.mockResolvedValueOnce({ msg_id: 'msg-sent' })
+  fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Hello daemon' } })
+  await act(async () => fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' }))
+  expect(call).toHaveBeenCalledWith(
+    'conversation.send',
+    expect.objectContaining({ text: 'Hello daemon', attachments: [] }),
+    expect.objectContaining({ timeoutMs: 30_000 }),
+  )
+})
+it('reports history errors only after retries, preserves messages, and recovers via the bounded probe', async () => {
+  if (!liveChatEnabled) return
+  vi.useFakeTimers()
+  const call = vi.spyOn(rpc, 'call').mockRejectedValue(new RpcError(-32601, 'Missing method'))
+  render(<Chat agentId="byte" onFile={() => {}} />)
+  await act(async () => {
+    FakeSocket.peers[0]!.ack()
+    await vi.advanceTimersByTimeAsync(1500)
+  })
+  expect(call).toHaveBeenCalledTimes(3)
+  expect(screen.getByRole('alert')).toHaveTextContent('No se pudo cargar el historial.')
+  expect(screen.getByRole('button', { name: 'Reintentar' })).toBeVisible()
+  expect(screen.queryByText('Reconectando…')).not.toBeInTheDocument()
+  call.mockResolvedValue({ messages: [wire('kept', 'Known history')] })
+  await act(async () => vi.advanceTimersByTimeAsync(8500))
+  expect(screen.getByText('Known history')).toBeVisible()
+  expect(useChat.getState().online.byte).toBe(true)
+  await act(async () => FakeSocket.peers[0]!.onclose?.())
+  expect(screen.getByText('Known history')).toBeVisible()
+  expect(screen.getByText('Reconectando…')).toBeVisible()
+  cleanup()
+  const calls = call.mock.calls.length
   await vi.advanceTimersByTimeAsync(60000)
-  expect(call).toHaveBeenCalledTimes(2)
+  expect(call).toHaveBeenCalledTimes(calls)
 })
 
 it('honors the chat switch without opening a socket when disabled', () => {
@@ -193,9 +211,12 @@ it('honors the chat switch without opening a socket when disabled', () => {
 })
 
 it('keeps pagination retryable after a server error', async () => {
-  vi.spyOn(rpc, 'call').mockRejectedValueOnce(new RpcError(-32099, 'History busy'))
+  vi.useFakeTimers()
+  vi.spyOn(rpc, 'call').mockRejectedValue(new RpcError(-32099, 'History busy'))
   useChat.getState().connection('byte', true)
-  await loadHistory('byte', 'msg-050')
+  const loading = loadHistory('byte', 'msg-050')
+  await vi.advanceTimersByTimeAsync(1500)
+  await loading
   expect(useChat.getState().older.byte).toBe('msg-050')
   expect(useChat.getState().historyError.byte).toBe('History busy')
   expect(useChat.getState().online.byte).toBe(true)
@@ -336,4 +357,112 @@ it('keeps classroom context on the single conversation and preserves it on retry
     }),
     { timeoutMs: 30_000 },
   )
+})
+
+it('catches up across history pages after reconnect without clearing or reordering cached rows', async () => {
+  vi.useFakeTimers()
+  const initial = Array.from({ length: 50 }, (_, i) => wire(`m-${i}`))
+  const missed = Array.from({ length: 70 }, (_, i) => wire(`m-${i + 50}`))
+  const call = vi.spyOn(rpc, 'call').mockResolvedValue({ messages: initial })
+  const stop = connectConversation('byte')
+  FakeSocket.peers[0]!.ack()
+  await vi.advanceTimersByTimeAsync(0)
+  call.mockResolvedValueOnce({ messages: [wire('m-older')] })
+  await loadHistory('byte', 'm-0')
+  const cached = useChat.getState().live.byte
+  FakeSocket.peers[0]!.onclose?.()
+  expect(useChat.getState().live.byte).toBe(cached)
+  await vi.advanceTimersByTimeAsync(1000)
+  let release!: (value: { messages: ConversationMessage[] }) => void
+  call.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve
+      }) as never,
+  )
+  // Replay may already include the newest row, but catch-up must still reach
+  // the history cursor from before the outage rather than stopping at replay.
+  FakeSocket.peers[1]!.ack([event(missed.at(-1)!)])
+  expect(useChat.getState().online.byte).toBe(false)
+  expect(useChat.getState().live.byte?.slice(0, 51)).toEqual(cached)
+  call.mockResolvedValueOnce({ messages: [...initial.slice(20), ...missed.slice(0, 20)] })
+  release({ messages: missed.slice(20) })
+  await vi.advanceTimersByTimeAsync(0)
+  expect(useChat.getState().live.byte?.map((row) => row.id)).toEqual([
+    'm-older',
+    ...initial.map((row) => row.id),
+    ...missed.map((row) => row.id),
+  ])
+  expect(call).toHaveBeenLastCalledWith(
+    'conversation.history',
+    { conversation_id: conversationId('byte'), limit: 50, before: 'm-70' },
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  )
+  expect(useChat.getState().online.byte).toBe(true)
+  expect(useChat.getState().older.byte).toBeUndefined()
+  stop()
+})
+
+it('automatically retries offline sends with the same client ID when the stream reconnects', async () => {
+  vi.useFakeTimers()
+  const call = vi.spyOn(rpc, 'call').mockResolvedValue({ messages: [wire('known')] })
+  const stop = connectConversation('byte')
+  FakeSocket.peers[0]!.ack()
+  await vi.advanceTimersByTimeAsync(0)
+  FakeSocket.peers[0]!.onclose?.()
+  call.mockRejectedValueOnce(new TransportError('Offline', 'network'))
+  await sendMessage('byte', 'Queued question')
+  const failed = useChat.getState().live.byte!.at(-1)!
+  expect(failed.retryOnReconnect).toBe(true)
+  await vi.advanceTimersByTimeAsync(1000)
+  call.mockResolvedValueOnce({ msg_id: 'queued-receipt' })
+  FakeSocket.peers[1]!.ack()
+  await vi.advanceTimersByTimeAsync(0)
+  const sends = call.mock.calls.filter(([method]) => method === 'conversation.send')
+  expect(sends).toHaveLength(2)
+  expect(sends[1]![1]).toEqual(sends[0]![1])
+  expect(useChat.getState().live.byte?.filter((row) => row.text === 'Queued question')).toEqual([
+    expect.objectContaining({ id: 'queued-receipt', delivery: undefined }),
+  ])
+  stop()
+})
+
+it('cancels history retry backoff when the conversation closes', async () => {
+  vi.useFakeTimers()
+  const call = vi.spyOn(rpc, 'call').mockRejectedValue(new TransportError('Offline', 'network'))
+  const stop = connectConversation('byte')
+  await vi.advanceTimersByTimeAsync(0)
+  stop()
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(call).toHaveBeenCalledOnce()
+  expect(useChat.getState().historyError.byte).toBeUndefined()
+})
+
+it('keeps an empty first history in a skeleton until the stream is ready', async () => {
+  vi.useFakeTimers()
+  vi.spyOn(rpc, 'call').mockResolvedValue({ messages: [] })
+  render(<Chat agentId="byte" onFile={() => {}} />)
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+  expect(screen.getByRole('status', { name: 'Cargando mensajes' })).toBeVisible()
+  expect(screen.queryByText('Reconectando…')).not.toBeInTheDocument()
+  await act(async () => FakeSocket.peers[0]!.ack())
+  expect(screen.queryByRole('status', { name: 'Cargando mensajes' })).not.toBeInTheDocument()
+})
+
+it('renders live messages as soon as they arrive while initial history is still pending', async () => {
+  vi.useFakeTimers()
+  let release!: (value: { messages: ConversationMessage[] }) => void
+  vi.spyOn(rpc, 'call').mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve
+      }) as never,
+  )
+  render(<Chat agentId="byte" onFile={() => {}} />)
+  await act(async () => vi.advanceTimersByTimeAsync(200))
+  await act(async () => receiveEvent('byte', event(wire('newest', 'Live while loading'))))
+  expect(screen.getByText('Live while loading')).toBeVisible()
+  expect(screen.queryByRole('status', { name: 'Cargando mensajes' })).not.toBeInTheDocument()
+  await act(async () => release({ messages: [wire('older', 'Earlier history')] }))
+  expect(useChat.getState().live.byte?.map((row) => row.id)).toEqual(['older', 'newest'])
 })

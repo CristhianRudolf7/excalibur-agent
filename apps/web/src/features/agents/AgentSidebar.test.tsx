@@ -44,12 +44,17 @@ it('orders active agents with the favorite first, then recent chats without muta
   expect(agents[0]!.id).toBe('recent')
   expect(screen.getByLabelText('Favorite')).toBeInTheDocument()
   expect(screen.getByLabelText('3 unread')).toBeInTheDocument()
-  expect(screen.getByText('Your draft is ready')).toBeInTheDocument()
+  expect(screen.queryByText('Your draft is ready')).toBeNull()
+  expect(screen.queryByText('Ready to help')).toBeNull()
+  expect(document.querySelector('.agent-chat-preview')).toBeNull()
+  const star = screen.getByRole('img', { name: 'Favorite' })
+  expect(star).toHaveAttribute('title', 'Favorite')
+  expect(star.querySelector('svg')).toHaveAttribute('width', '10')
   expect(document.querySelectorAll('time')).toHaveLength(2)
   fireEvent.click(rows[1]!)
   expect(select).toHaveBeenCalledWith('recent')
 })
-it('updates unread badges and previews after a live unread event', () => {
+it('updates unread badges and time without showing previews after a live unread event', () => {
   useAgents.setState({ agents: [recent] })
   function LiveSidebar() {
     const agents = useAgents((state) => state.agents)
@@ -68,7 +73,8 @@ it('updates unread badges and previews after a live unread event', () => {
   render(<button onClick={update}>Update</button>)
   fireEvent.click(screen.getByRole('button', { name: 'Update' }))
   expect(screen.getByLabelText('8 unread')).toBeInTheDocument()
-  expect(screen.getByText('New answer')).toBeInTheDocument()
+  expect(screen.queryByText('New answer')).toBeNull()
+  expect(document.querySelector('time')).toHaveAttribute('dateTime', '2026-11-03T12:01:00Z')
 })
 it.each(['en', 'es'])(
   'prefills and focuses the favorite composer without sending in %s',

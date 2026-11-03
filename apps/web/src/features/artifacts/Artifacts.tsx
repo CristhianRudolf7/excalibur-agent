@@ -41,13 +41,14 @@ export function ArtifactPreview({ artifact, session }: { artifact: Artifact; ses
       {query.data && url && (
         <ArtifactActions artifact={artifact} data={query.data} url={url} session={session} />
       )}
-      {query.isError ? (
+      {query.isError && (
         <p role="alert">
           {t('artifactError')}{' '}
           <button onClick={() => void query.refetch()}>{t('panelRetry')}</button>
         </p>
-      ) : !url ? (
-        <p role="status">{t('artifactLoading')}</p>
+      )}
+      {!url ? (
+        !query.isError && <p role="status">{t('artifactLoading')}</p>
       ) : artifact.format === 'pdf' ? (
         <>
           <nav className="viewer-toolbar" aria-label={artifact.title}>

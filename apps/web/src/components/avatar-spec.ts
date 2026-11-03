@@ -12,6 +12,8 @@ export const avatarAccessories = [
 
 /** Matches the personal-agent AvatarSpec contract. Tone always means skin. */
 export interface AvatarSpec {
+  /** Web presentation preset; generated avatars retain the daemon's palette contract. */
+  preset?: 'paladin'
   variant: (typeof avatarVariants)[number]
   tone: string
   hair: string
@@ -31,6 +33,11 @@ export const fallbackAvatar: Readonly<AvatarSpec> = Object.freeze({
   accent: '#F4C76B',
   accessory: 'none',
   background: '#E6ECF8',
+})
+
+export const paladinAvatar: Readonly<AvatarSpec> = Object.freeze({
+  ...fallbackAvatar,
+  preset: 'paladin',
 })
 
 const colorFields = ['tone', 'hair', 'highlight', 'outfit', 'accent', 'background'] as const
@@ -62,6 +69,7 @@ export function normalizeAvatarSpec(value: unknown): AvatarSpec {
   }
   const spec = {
     ...fallbackAvatar,
+    ...(data.preset === 'paladin' ? { preset: 'paladin' as const } : {}),
     variant: data.variant as AvatarSpec['variant'],
     accessory: data.accessory as AvatarSpec['accessory'],
   }

@@ -2,10 +2,41 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { AgentAvatar } from './AgentAvatar'
 import { AgentAvatarGallery } from './AgentAvatar.gallery'
-import { avatarAccessories, avatarVariants, avatarSprite, fallbackAvatar } from './avatar-spec'
+import {
+  avatarAccessories,
+  avatarVariants,
+  avatarSprite,
+  fallbackAvatar,
+  paladinAvatar,
+  normalizeAvatarSpec,
+} from './avatar-spec'
 import { portraitPixels, spritePixels } from './pixel-sprites'
 
 afterEach(cleanup)
+
+it.each(['portrait', 'sprite'] as const)(
+  'renders the Paladin preset as a brand image in %s form',
+  (form) => {
+    render(
+      <AgentAvatar
+        spec={normalizeAvatarSpec(paladinAvatar)}
+        form={form}
+        size={56}
+        label="Excalibur"
+      />,
+    )
+    const image = screen.getByRole('img', { name: 'Excalibur' })
+    expect(image).toHaveAttribute('src', '/paladin.svg')
+    expect(image.parentElement).toHaveStyle({ width: '56px', height: '56px' })
+    expect(image.parentElement?.querySelector('svg')).toBeNull()
+  },
+)
+
+it('keeps unlabeled Paladin avatars decorative', () => {
+  const { container } = render(<AgentAvatar spec={paladinAvatar} />)
+  expect(container.querySelector('img')).toHaveAttribute('alt', '')
+  expect(screen.queryByRole('img')).toBeNull()
+})
 
 it('renders a gallery of every variant and accessory in both forms', () => {
   render(<AgentAvatarGallery sizes={[40]} />)

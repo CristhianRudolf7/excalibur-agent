@@ -40,7 +40,7 @@ export const chatMessages = {
   chatCopyMessage: ['Copiar mensaje', 'Copy message'],
   chatConnected: ['En línea', 'Connected'],
   chatSendError: ['No se pudo enviar el mensaje.', 'Could not send message.'],
-  chatReconnecting: ['Sin conexión · Reconectando…', 'Offline · Reconnecting…'],
+  chatReconnecting: ['Reconectando…', 'Reconnecting…'],
   chatLoadingMessages: ['Cargando mensajes', 'Loading messages'],
   chatOlder: ['Cargar mensajes anteriores', 'Load older messages'],
   chatHistoryError: ['No se pudo cargar el historial.', 'Could not load history.'],

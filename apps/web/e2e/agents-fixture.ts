@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 import type { Agent, AgentList } from '../src/features/agents/types'
 import type { ConversationMessage } from '../src/lib/rpc/contract'
 import { defaultAgent } from '../src/features/agents/store'
+import { fallbackAvatar } from '../src/components/avatar-spec'
 import { mockEvents } from './event-fixture'
 
 export async function mockAgents(page: Page) {
@@ -10,6 +11,7 @@ export async function mockAgents(page: Page) {
     {
       ...defaultAgent,
       id: 'sam',
+      avatar: { ...fallbackAvatar, variant: 'cap' },
       name: 'Sam',
       favorite: false,
       conversation_id: 'cnv_agent_sam',
@@ -20,6 +22,7 @@ export async function mockAgents(page: Page) {
     {
       ...defaultAgent,
       id: 'ada',
+      avatar: { ...fallbackAvatar, variant: 'long-hair' },
       name: 'Ada',
       favorite: true,
       last_preview: 'Ada private history',
@@ -27,6 +30,7 @@ export async function mockAgents(page: Page) {
     {
       ...defaultAgent,
       id: 'old',
+      avatar: fallbackAvatar,
       name: 'Archived',
       favorite: false,
       archived: true,

@@ -48,9 +48,6 @@ export function Chat({
   const agents = useAgents((state) => state.agents)
   const [readError, setReadError] = useState(false)
   const stateKey = chatStateKey(agentId, targetConversation)
-  const initialHistory = useChat((s) => s.live[stateKey])
-  const initialError = useChat((s) => s.historyError[stateKey])
-  const loading = useLoading(liveChatEnabled && !initialHistory && !initialError)
   const [paging, setPaging] = useState(false)
   const pageLoading = useLoading(paging)
   const activity = useChat((s) => s.activity[stateKey])
@@ -58,6 +55,11 @@ export function Chat({
   const live = useChat((s) => s.live[stateKey])
   const older = useChat((s) => s.older[stateKey])
   const historyError = useChat((s) => s.historyError[stateKey])
+  const historyLoaded = useChat((s) => s.historyLoaded[stateKey] ?? false)
+  const connectedOnce = useChat((s) => s.connectedOnce[stateKey] ?? false)
+  const historyBefore = useChat((s) => s.historyBefore[stateKey])
+  const known = (historyLoaded && connectedOnce) || !!live?.length
+  const loading = useLoading(liveChatEnabled && !known && !historyError)
   const typing = useChat((s) => s.typing[stateKey] ?? false)
   const setTyping = useChat((s) => s.setTyping)
   const parent = useRef<HTMLDivElement>(null)
@@ -111,7 +113,7 @@ export function Chat({
           {t('agentReadError')}
         </p>
       )}
-      {!online && !loading.busy && (
+      {liveChatEnabled && known && !online && !historyError && (
         <div className="chat-connection" role="status">
           <span className="chat-connection-dot" aria-hidden="true" />
           {t('chatReconnecting')}
@@ -137,7 +139,9 @@ export function Chat({
       {historyError && (
         <div className="chat-connection" role="alert">
           {t('chatHistoryError')}{' '}
-          <Button onClick={() => void loadHistory(agentId, older, undefined, targetConversation)}>
+          <Button
+            onClick={() => void loadHistory(agentId, historyBefore, undefined, targetConversation)}
+          >
             {t('chatRetry')}
           </Button>
         </div>
@@ -150,9 +154,9 @@ export function Chat({
           if (node) atBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100
         }}
       >
-        {loading.visible && <ChatHistorySkeleton />}
+        {!known && loading.visible && <ChatHistorySkeleton />}
         {pageLoading.visible && <ChatHistorySkeleton compact />}
-        {showWelcome && online && live && conversation.length === 0 && !typing && (
+        {showWelcome && known && historyLoaded && conversation.length === 0 && !typing && (
           <div className="chat-empty">
             <span className="chat-empty-icon" aria-hidden="true">
               <PixelAvatar id={agent.id} size={56} />
@@ -170,7 +174,7 @@ export function Chat({
             </div>
           </div>
         )}
-        {!loading.busy && conversation.length > 0 && (
+        {conversation.length > 0 && (
           <div className="date-separator">
             <span />
             {t('today')}
@@ -181,95 +185,94 @@ export function Chat({
           className="message-history"
           style={{ height: virtual.getTotalSize(), position: 'relative' }}
         >
-          {!loading.busy &&
-            virtual.getVirtualItems().map((item) => {
-              const message = conversation[item.index]!
-              return (
-                <article
-                  key={message.id}
-                  data-index={item.index}
-                  ref={virtual.measureElement}
-                  className={`message message-${message.sender}`}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${item.start}px)`,
-                  }}
-                >
-                  {message.sender === 'agent' && <PixelAvatar id={agent.id} size={32} />}
-                  <div className="message-content">
-                    {message.relayedBy && (
-                      <small className="agent-relayed">
-                        {t('agentRelayed', {
-                          name:
-                            agents.find((item) => item.id === message.relayedBy)?.name ??
-                            t('agentRelayedUnknown'),
-                        })}
-                      </small>
-                    )}
-                    {message.sender === 'agent' && (
-                      <div className="message-author">
-                        <strong>{agent.name}</strong>
-                        <time>{message.time}</time>
-                      </div>
-                    )}
-                    {message.sender === 'agent' ? (
-                      <Markdown sources={message.sources}>
-                        {message.literal ? message.text : t(message.text)}
-                      </Markdown>
-                    ) : (
-                      <p>
-                        {visibleAutomationMessage(
-                          message.literal ? message.text : t(message.text),
-                          t,
-                        )}
-                      </p>
-                    )}
-                    {message.sender === 'agent' && !!message.changes?.length && (
-                      <ChangesCard changes={message.changes} onFile={onFile} />
-                    )}
-                    {message.sender === 'agent' && (
-                      <div className="message-actions">
-                        <MessageCopy text={message.literal ? message.text : t(message.text)} />
-                        <MessageSpeak
-                          id={message.id}
-                          text={message.literal ? message.text : t(message.text)}
-                        />
-                      </div>
-                    )}
-                    {message.sender === 'user' && <time>{message.time}</time>}
-                    {message.delivery === 'sending' && (
-                      <small role="status">{t('chatSending')}</small>
-                    )}
-                    {message.delivery === 'failed' && (
-                      <div role="alert">
-                        {message.error}
-                        <Button
-                          onClick={() =>
-                            void sendMessage(
-                              agentId,
-                              message.text,
-                              message.attachments,
-                              message,
-                              undefined,
-                              context,
-                              targetConversation,
-                            )
-                          }
-                        >
-                          {t('chatRetry')}
-                        </Button>
-                      </div>
-                    )}
-                    {message.interaction && (
-                      <InlineInteraction message={message} agentId={stateKey} />
-                    )}
-                  </div>
-                </article>
-              )
-            })}
+          {virtual.getVirtualItems().map((item) => {
+            const message = conversation[item.index]!
+            return (
+              <article
+                key={message.id}
+                data-index={item.index}
+                ref={virtual.measureElement}
+                className={`message message-${message.sender}`}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${item.start}px)`,
+                }}
+              >
+                {message.sender === 'agent' && <PixelAvatar id={agent.id} size={32} />}
+                <div className="message-content">
+                  {message.relayedBy && (
+                    <small className="agent-relayed">
+                      {t('agentRelayed', {
+                        name:
+                          agents.find((item) => item.id === message.relayedBy)?.name ??
+                          t('agentRelayedUnknown'),
+                      })}
+                    </small>
+                  )}
+                  {message.sender === 'agent' && (
+                    <div className="message-author">
+                      <strong>{agent.name}</strong>
+                      <time>{message.time}</time>
+                    </div>
+                  )}
+                  {message.sender === 'agent' ? (
+                    <Markdown sources={message.sources}>
+                      {message.literal ? message.text : t(message.text)}
+                    </Markdown>
+                  ) : (
+                    <p>
+                      {visibleAutomationMessage(
+                        message.literal ? message.text : t(message.text),
+                        t,
+                      )}
+                    </p>
+                  )}
+                  {message.sender === 'agent' && !!message.changes?.length && (
+                    <ChangesCard changes={message.changes} onFile={onFile} />
+                  )}
+                  {message.sender === 'agent' && (
+                    <div className="message-actions">
+                      <MessageCopy text={message.literal ? message.text : t(message.text)} />
+                      <MessageSpeak
+                        id={message.id}
+                        text={message.literal ? message.text : t(message.text)}
+                      />
+                    </div>
+                  )}
+                  {message.sender === 'user' && <time>{message.time}</time>}
+                  {message.delivery === 'sending' && (
+                    <small role="status">{t('chatSending')}</small>
+                  )}
+                  {message.delivery === 'failed' && (
+                    <div role="alert">
+                      {message.error}
+                      <Button
+                        onClick={() =>
+                          void sendMessage(
+                            agentId,
+                            message.text,
+                            message.attachments,
+                            message,
+                            undefined,
+                            context,
+                            targetConversation,
+                          )
+                        }
+                      >
+                        {t('chatRetry')}
+                      </Button>
+                    </div>
+                  )}
+                  {message.interaction && (
+                    <InlineInteraction message={message} agentId={stateKey} />
+                  )}
+                </div>
+              </article>
+            )
+          })}
         </div>
         <CredentialRequests
           conversationId={targetConversation ?? conversationId(agentId)}

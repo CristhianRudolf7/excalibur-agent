@@ -1,49 +1,58 @@
 .agent-sidebar-scroll {
   max-height: 36vh;
   overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--strong-border) transparent;
   flex-shrink: 0;
 }
-.personal-agent-nav button {
-  min-height: 70px;
+.agent-sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.agent-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--strong-border);
+  border-radius: 4px;
+}
+.personal-agent-nav .agent-chat-row {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
   width: 100%;
   gap: 9px;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .personal-agent-nav .pixel-avatar {
   flex-shrink: 0;
 }
-.agent-chat-summary {
+.agent-chat-name {
   min-width: 0;
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   text-align: left;
-}
-.agent-chat-name {
-  display: flex;
-  align-items: center;
-  gap: 5px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.agent-chat-name svg {
-  color: var(--primary);
+.agent-chat-favorite {
+  display: inline-flex;
   flex-shrink: 0;
+  color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
 }
-.agent-chat-preview {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--muted-foreground);
-  font-weight: 400;
+.agent-chat-favorite svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
 }
 .agent-chat-meta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
+  flex-shrink: 0;
   gap: 6px;
+}
+.agent-chat-meta .unread {
+  margin-left: 0;
 }
 .agent-chat-meta time {
   font-size: 10px;

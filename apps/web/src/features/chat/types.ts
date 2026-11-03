@@ -7,6 +7,7 @@ export interface Message {
   clientMsgId?: string
   attachments?: string[]
   delivery?: 'sending' | 'failed'
+  retryOnReconnect?: boolean
   error?: string
   relayedBy?: string
   sender: 'user' | 'agent'

@@ -1,4 +1,12 @@
 /* Keep the same grouping in the desktop sidebar, mobile drawer, and compact rail. */
+.sidebar nav.personal-agent-nav .agent-chat-row {
+  height: 44px;
+  min-height: 44px;
+  overflow: hidden;
+}
+.sidebar-rail-agent {
+  overflow: visible;
+}
 .sidebar .primary-nav {
   margin-top: 12px;
   padding-top: 12px;

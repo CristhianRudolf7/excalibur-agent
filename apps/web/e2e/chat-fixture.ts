@@ -51,5 +51,7 @@ export async function mockChat(page: Page, initial: Partial<ConversationMessage>
     connected: () => events.connected('message.created'),
     messages,
     disconnect: () => events.disconnect('message.created'),
+    pause: () => events.pause('message.created'),
+    resume: () => events.resume('message.created'),
   }
 }

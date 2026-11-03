@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import i18n from '@/lib/i18n'
@@ -43,11 +43,9 @@ afterEach(() => {
   vi.restoreAllMocks()
   useArtifacts.setState({ conversations: {} })
 })
-const renderView = () =>
+const renderView = (client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) =>
   render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={client}>
       <Artifacts session="active" />
     </QueryClientProvider>,
   )
@@ -112,4 +110,22 @@ it('reports RPC failures and retries the selected artifact', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the diagram.')
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await waitFor(() => expect(screen.getByRole('img', { name: 'System overview' })).toBeVisible())
+})
+
+it('keeps the cached preview visible when a reconnect refetch fails', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  receiveArtifactEvent(
+    {
+      type: 'artifact.ready',
+      payload: { session_id: 'active', turn_id: 'one', artifacts: [overview] },
+    },
+    'active',
+  )
+  renderView(client)
+  const preview = await screen.findByRole('img', { name: 'System overview' })
+  vi.mocked(rpc.call).mockRejectedValueOnce(new Error('Connection dropped'))
+  await act(async () => client.refetchQueries({ queryKey: ['artifact', overview.id] }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not load the diagram.')
+  expect(preview).toBeVisible()
+  expect(preview).toHaveAttribute('src', 'blob:diagram')
 })

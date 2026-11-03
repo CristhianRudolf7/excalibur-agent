@@ -27,7 +27,7 @@ export function AgentSidebar({
   const virtual = useVirtualizer({
     count: virtualized ? ordered.length : 0,
     getScrollElement: () => parent.current,
-    estimateSize: () => 72,
+    estimateSize: () => 48,
     overscan: 4,
   })
   const row = (agent: Agent) => {
@@ -36,20 +36,26 @@ export function AgentSidebar({
       <button
         type="button"
         key={agent.id}
-        className={selectedId === agent.id ? 'selected' : ''}
+        className={`agent-chat-row ${selectedId === agent.id ? 'selected' : ''}`}
         aria-label={agent.name}
         disabled={disabled}
         aria-current={selectedId === agent.id ? 'page' : undefined}
         onClick={() => onSelect(agent.id)}
       >
-        <AgentAvatar spec={agent.avatar} size={38} />
-        <span className="agent-chat-summary">
-          <span className="agent-chat-name">
-            {agent.name}
-            {agent.favorite && <Star size={12} aria-label={t('agentFavorite')} />}
-          </span>
-          <span className="agent-chat-preview">{agent.last_preview || t('agentNoPreview')}</span>
+        <AgentAvatar spec={agent.avatar} size={30} />
+        <span className="agent-chat-name" title={agent.name}>
+          {agent.name}
         </span>
+        {agent.favorite && (
+          <span
+            className="agent-chat-favorite"
+            role="img"
+            aria-label={t('agentFavorite')}
+            title={t('agentFavorite')}
+          >
+            <Star size={10} aria-hidden="true" />
+          </span>
+        )}
         <span className="agent-chat-meta">
           {Number.isFinite(date.getTime()) && (
             <time dateTime={agent.last_message_at ?? undefined}>
@@ -80,6 +86,7 @@ export function AgentSidebar({
                   style={{
                     position: 'absolute',
                     width: '100%',
+                    height: item.size,
                     transform: `translateY(${item.start}px)`,
                   }}
                 >
