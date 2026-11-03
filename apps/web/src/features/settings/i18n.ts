@@ -112,6 +112,14 @@ export const settingsMessages = {
     'Solo cambia el idioma de esta interfaz.',
     'Only changes the language of this interface.',
   ],
+  settingsAutoOpenNote: [
+    'Muestra los diagramas generados junto a la conversación.',
+    'Show generated diagrams alongside your conversation.',
+  ],
+  settingsThemeNote: [
+    'Elige cómo se ve tu espacio de trabajo.',
+    'Choose how your workspace looks.',
+  ],
   settingsTheme: ['Apariencia', 'Appearance'],
   settingsLight: ['Claro', 'Light'],
   settingsDark: ['Oscuro', 'Dark'],

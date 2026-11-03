@@ -114,6 +114,9 @@ async function mock(page: Page, failState = false, failDelete = false) {
         skills = skills.filter((s) => s.name !== request.params.name)
         result = { name: request.params.name, deleted: true }
         break
+      case 'vault.list_metadata':
+        result = { locked: true, entries: [] }
+        break
       case 'usage.summary':
         result = {
           totals: {
@@ -632,4 +635,168 @@ test('source and status listboxes support keyboard selection and combined filter
   await page.getByRole('option', { name: 'Desactivada', exact: true }).click()
   await expect(page.getByRole('button', { name: /daily-notes Keep/ })).toHaveCount(0)
   await expect(page.locator('.settings-content')).toContainText('Todavía no hay datos.')
+})
+
+for (const width of [1440, 390]) {
+  for (const theme of ['light', 'dark']) {
+    test(`all Settings sections fit ${width}px in ${theme} theme`, async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await page.addInitScript((theme) => {
+        localStorage.setItem('excalibur-ui-language', 'en')
+        localStorage.setItem('excalibur-ui-theme', theme)
+      }, theme)
+      await mock(page)
+      await page.goto('/settings')
+      const nav = page.getByRole('navigation', { name: 'Settings' })
+      for (const name of ['General', 'Profile', 'Agents', 'Usage', 'Skills', 'Passwords']) {
+        const button = nav.getByRole('button', { name, exact: true })
+        await button.click()
+        await expect(button).toHaveAttribute('aria-current', 'page')
+        const content = page.getByRole('region', { name, exact: true })
+        await expect(content).toBeVisible()
+        if (name === 'General') {
+          await expect(content.getByRole('switch').first()).toBeVisible()
+          const contrast = await page
+            .locator('.settings-segmented')
+            .first()
+            .evaluate((element) => {
+              const foreground = getComputedStyle(
+                element.querySelector('[aria-pressed="true"]')!,
+              ).color
+              const background = getComputedStyle(
+                element.querySelector('.settings-segment-indicator')!,
+              ).backgroundColor
+              const luminance = (color: string) => {
+                const [r, g, b] = color
+                  .match(/[\d.]+/g)!
+                  .slice(0, 3)
+                  .map((value) => {
+                    const channel = Number(value) / 255
+                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+                  })
+                return 0.2126 * r + 0.7152 * g + 0.0722 * b
+              }
+              const values = [luminance(foreground), luminance(background)]
+              return (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05)
+            })
+          expect(contrast).toBeGreaterThanOrEqual(4.5)
+        }
+        if (name === 'Profile')
+          await expect(content.getByRole('textbox')).toHaveValue('Ana Example')
+        if (name === 'Agents') await expect(content.locator('.agent-settings-card')).toBeVisible()
+        if (name === 'Usage')
+          await expect(
+            content.getByRole('img', { name: 'Token activity' }).locator('svg'),
+          ).toBeVisible()
+        if (name === 'Skills')
+          await expect(content.getByText('review-code', { exact: true })).toBeVisible()
+        if (name === 'Passwords')
+          await expect(content.getByText('Vault locked', { exact: true })).toBeVisible()
+        await expect
+          .poll(() =>
+            page
+              .locator('.settings-page')
+              .evaluate((element) => element.scrollWidth <= element.clientWidth),
+          )
+          .toBe(true)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        )
+        // The indicator must follow even the offscreen mobile pills after scrolling.
+        const indicator = nav.locator('.settings-nav-indicator')
+        await expect(indicator).toBeVisible()
+        await expect
+          .poll(async () => {
+            const active = await button.boundingBox()
+            const thumb = await indicator.boundingBox()
+            return active && thumb
+              ? Math.abs(active.x - thumb.x) + Math.abs(active.y - thumb.y)
+              : 100
+          })
+          .toBeLessThan(2)
+      }
+    })
+  }
+}
+test('Settings keyboard switch persists and reduced motion disables transitions', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.addInitScript(() => localStorage.setItem('excalibur-ui-language', 'en'))
+  await mock(page)
+  await page.goto('/settings')
+  const toggle = page.getByRole('switch', {
+    name: 'Automatically open diagrams when each turn finishes',
+  })
+  await toggle.focus()
+  await page.keyboard.press('Space')
+  await expect(toggle).not.toBeChecked()
+  await page.reload()
+  await expect(toggle).not.toBeChecked()
+  const nav = page.getByRole('navigation', { name: 'Settings' })
+  await nav.getByRole('button', { name: 'General' }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(nav.getByRole('button', { name: 'Profile' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/section=profile/)
+  expect(
+    await nav
+      .locator('.settings-nav-indicator')
+      .evaluate((element) => getComputedStyle(element).transitionDuration),
+  ).toBe('0s')
+  expect(
+    await page
+      .locator('.settings-content')
+      .evaluate((element) => getComputedStyle(element).animationName),
+  ).toBe('none')
+})
+
+test('profile loading reserves the card height and keeps navigation stable', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.addInitScript(() => localStorage.setItem('excalibur-ui-language', 'en'))
+  await mock(page)
+  let release: () => void = () => {}
+  const pending = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/rpc', async (route) => {
+    if (route.request().postDataJSON().method !== 'principal.get') return route.fallback()
+    await pending
+    return route.fallback()
+  })
+  await page.goto('/settings?section=profile')
+  await expect(
+    page.locator('.settings-profile').getByRole('status', { name: 'Loading…' }),
+  ).toBeVisible()
+  const before = await page.locator('.settings-profile').boundingBox()
+  release()
+  await expect(page.getByLabel('Name · Read only')).toHaveValue('Ana Example')
+  const after = await page.locator('.settings-profile').boundingBox()
+  expect(after!.height).toBeCloseTo(before!.height, 1)
+  expect(after!.y).toBeCloseTo(before!.y, 1)
+})
+
+test('direct section links reveal the selected mobile pill after loading and resizing', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('excalibur-ui-language', 'en'))
+  await mock(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/settings?section=passwords')
+  const nav = page.getByRole('navigation', { name: 'Settings' })
+  const current = nav.getByRole('button', { name: 'Passwords' })
+  const isInside = async () => {
+    const container = await nav.boundingBox()
+    const button = await current.boundingBox()
+    return (
+      !!container &&
+      !!button &&
+      button.x >= container.x &&
+      button.x + button.width <= container.x + container.width
+    )
+  }
+  await expect.poll(isInside).toBe(true)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(isInside).toBe(true)
 })

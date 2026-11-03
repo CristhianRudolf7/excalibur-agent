@@ -1,0 +1,329 @@
+/* Keep the shared card and connection hooks available to account integrations.
+   Scoped selectors also take precedence over the older global redesign sheet. */
+.settings-page.settings-page {
+  --settings-active: var(--primary-strong);
+  padding: 40px clamp(20px, 3vw, 48px);
+  scrollbar-gutter: stable;
+}
+.dark .settings-page {
+  --settings-active: var(--foreground);
+}
+.settings-page .settings-header {
+  max-width: 1400px;
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+}
+.settings-page .settings-eyebrow {
+  color: var(--settings-active);
+}
+.settings-page .settings-layout {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+}
+.settings-page .settings-nav {
+  display: block;
+  position: sticky;
+  top: 0;
+  width: 100%;
+  padding: 6px;
+  margin: 0;
+  border-radius: 18px;
+  background: var(--muted);
+  box-shadow: none;
+}
+.settings-page .settings-nav-track {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  isolation: isolate;
+}
+.settings-page .settings-nav button {
+  height: 42px;
+  min-width: 0;
+  padding: 10px 12px;
+  justify-content: start;
+  border-radius: 12px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.settings-page .settings-nav button:hover {
+  background: var(--accent-tint);
+}
+.settings-page .settings-nav button[aria-current] {
+  background: transparent;
+  color: var(--settings-active);
+}
+.settings-page .settings-nav-indicator {
+  display: block;
+  inset: 0 0 auto;
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--strong-border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px var(--shadow);
+  transform: translateY(calc(var(--section) * 48px));
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.settings-page .settings-nav-indicator::before {
+  display: none;
+}
+.settings-page .settings-content {
+  min-height: 480px;
+}
+.settings-page .settings-content > h2 {
+  margin: 6px 0 20px;
+}
+.settings-page .settings-card {
+  min-width: 0;
+  border-radius: 18px;
+  box-shadow: 0 2px 8px var(--shadow);
+  transition:
+    border-color var(--dur-fast),
+    box-shadow var(--dur-base);
+}
+.settings-page .settings-card:focus-within {
+  border-color: var(--strong-border);
+}
+.settings-page .settings-general {
+  max-width: 900px;
+  padding: 0 28px;
+  gap: 0;
+}
+.settings-page .settings-preference,
+.settings-page .settings-time-zone {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 24px 0;
+  border: 0;
+}
+.settings-page .settings-general > * + * {
+  border-top: 1px solid var(--border);
+}
+.settings-page .settings-preference h3,
+.settings-page .settings-time-zone h3 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.settings-page .settings-preference p,
+.settings-page .settings-time-zone > p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+.settings-page .settings-preference-toggle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+}
+.settings-page .settings-segmented {
+  width: min(100%, 320px);
+  background: var(--muted);
+  border-radius: 12px;
+}
+.settings-page .settings-segmented button {
+  min-height: 36px;
+  border-radius: 9px;
+}
+.settings-page .settings-segmented button[aria-pressed='true'] {
+  color: var(--settings-active);
+}
+.settings-page .settings-segment-indicator {
+  background: var(--surface);
+  border: 1px solid var(--strong-border);
+  border-radius: 9px;
+}
+.settings-page .settings-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 42px;
+  height: 26px;
+  padding: 3px;
+  border: 1px solid var(--muted-foreground);
+  border-radius: 999px;
+  background: var(--muted);
+  transition:
+    background-color var(--dur-fast),
+    box-shadow var(--dur-fast);
+}
+.settings-page .settings-switch span {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+  box-shadow: 0 1px 3px var(--shadow);
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.settings-page .settings-switch[aria-checked='true'] {
+  background: var(--primary-strong);
+  border-color: var(--primary);
+}
+.settings-page .settings-switch[aria-checked='true'] span {
+  background: var(--primary-foreground);
+  transform: translateX(16px);
+}
+.settings-page .settings-switch:hover {
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+.settings-page .settings-switch::before {
+  content: '';
+  position: absolute;
+  inset: -9px -3px;
+}
+.settings-page .settings-switch {
+  position: relative;
+}
+.settings-page .settings-time-zone-trigger {
+  max-width: 440px;
+  min-height: 42px;
+}
+.settings-page .settings-time-zone-clock {
+  min-height: 21px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.settings-page .settings-connection {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.settings-page .settings-connection :is(h3, p) {
+  margin: 0;
+  line-height: 1.6;
+}
+.settings-page .settings-connection :is(button, a) {
+  max-width: 100%;
+}
+.settings-page :is(.skill-group, .skill-state, .settings-table th) {
+  color: var(--muted-foreground);
+}
+.settings-page .skill-switch[aria-checked='true'] {
+  background: var(--primary-strong);
+}
+.settings-page .sk-settings-nav {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 6px;
+}
+.settings-page .sk-settings-nav > * {
+  height: 42px;
+  width: 100%;
+}
+.settings-page :is(button, input, select, summary, a):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.settings-page .settings-nav button:focus-visible {
+  outline-offset: -2px;
+}
+@media (max-width: 1100px) {
+  .settings-page .settings-layout {
+    grid-template-columns: 156px minmax(0, 1fr);
+    gap: 24px;
+  }
+}
+@media (max-width: 700px) {
+  .settings-page.settings-page {
+    padding: 60px 18px 24px;
+    scrollbar-gutter: auto;
+  }
+  .settings-page .settings-layout {
+    display: block;
+  }
+  .settings-page .settings-nav {
+    position: relative;
+    overflow-x: auto;
+    margin-bottom: 24px;
+    border-radius: 999px;
+    scrollbar-width: thin;
+  }
+  .settings-page .settings-nav-track {
+    grid-template-columns: repeat(var(--sections), 116px);
+    gap: 0;
+    width: max-content;
+  }
+  .settings-page .settings-nav button {
+    justify-content: center;
+    padding-inline: 8px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .settings-page .settings-nav button svg {
+    display: block;
+  }
+  .settings-page .settings-nav-indicator {
+    width: 116px;
+    border-radius: 999px;
+    transform: translateX(calc(var(--section) * 116px));
+  }
+  .settings-page .settings-general {
+    padding-inline: 18px;
+  }
+  .settings-page .settings-preference,
+  .settings-page .settings-time-zone {
+    padding-block: 20px;
+  }
+  .settings-page .settings-preference-toggle {
+    gap: 16px;
+  }
+  .settings-page .usage-toolbar .settings-segmented {
+    width: 100%;
+  }
+  .settings-page .sk-settings-nav {
+    display: flex;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+  .settings-page .sk-settings-nav > * {
+    flex: 0 0 116px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-page *,
+  .settings-page *::before {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.settings-page .settings-profile {
+  min-height: 136px;
+}
+.settings-page .settings-profile-skeleton,
+.settings-page .settings-passwords-skeleton {
+  display: grid;
+  gap: 16px;
+}
+.settings-page .settings-profile-skeleton .sk-field {
+  width: 100%;
+  height: 38px;
+}
+.settings-page .settings-time-zone {
+  min-height: 252px;
+}
+.settings-page .settings-time-zone .settings-fields-skeleton {
+  padding: 0;
+}
+
+/* Small metadata uses the same AA-readable secondary text as body copy. */
+.settings-page.settings-page {
+  --tertiary: var(--muted-foreground);
+}
+.dark .settings-page :is(.skill-categories, .skill-category-more, .skill-open, .skills-summary) {
+  --primary-strong: var(--foreground);
+}
+.dark .settings-filter-popover,
+.dark .settings-category-popover {
+  --primary-strong: var(--foreground);
+}
+.settings-filter-popover,
+.settings-category-popover {
+  --tertiary: var(--muted-foreground);
+}

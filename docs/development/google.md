@@ -147,3 +147,53 @@ API references: [Gmail REST](https://developers.google.com/workspace/gmail/api/r
 [Gmail threading](https://developers.google.com/workspace/gmail/api/guides/threads),
 [Drive REST](https://developers.google.com/workspace/drive/api/reference/rest/v3),
 [Docs batch requests](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request).
+
+# Google connection round
+
+## Settings visual modernization (settingsui)
+
+Baseline browser audit completed at 1440 × 900 and 390 × 844, in light
+and dark themes, using fake RPC responses. Screenshots are kept outside
+the repository in the settingsui status notes directory. The existing
+mobile page did not overflow, but its tabs disabled the active indicator.
+The General checkbox appeared above its text, redundant dividers created
+excess spacing, and active text had weak contrast in dark mode.
+
+The implementation restores desktop sidebar navigation and adds mobile pill
+tabs with an animated indicator in both layouts. Direct links and viewport
+changes reveal the selected mobile pill automatically. Keyboard arrows, Home
+and End move focus; Enter activates the focused section. General uses
+consistent preference rows, dividers, a labeled artifact switch, and
+segmented language/theme controls with a sliding thumb. Both themes use
+semantic tokens, visible focus rings, readable active text, and reduced
+motion support. Profile reserves its loading height; Passwords displays
+metadata skeletons. Existing section transitions and Usage/Skills
+skeletons remain in place.
+
+The sections array and section routing remain the integration points for
+the oauth agent's Connections section. Shared `.settings-card` and
+`.settings-connection` classes style account integrations without changes
+to GoogleConnect files. Styles live in `features/settings/modern.css` and
+use scoped selectors to override the older global redesign sheet.
+
+Verification evidence:
+
+- `gofmt -l .` produced no paths; `git diff --check` passed.
+- Web TypeScript project checks, production build, oxlint and repository-wide
+  Prettier check passed. Existing lint and bundle-size warnings remain.
+- Full Vitest run: 119 files, 631 tests passed. The Settings suite includes
+  switch semantics and persistence, keyboard navigation, translated controls,
+  and named profile loading skeleton coverage.
+- Browser checks cover every section at 1440 × 900 and 390 × 844 in both
+  themes, horizontal overflow, animated indicator alignment, active control
+  text contrast (at least 4.5:1), reduced motion and stable loading height.
+  The final direct-link and resize check is being verified.
+- Linux, Darwin and Windows `go build -p 2 ./...` passed. Go vet passed for
+  daemon, tools, CLI and skills; `internal/wireengine` race tests passed.
+  The remaining daemon/tools/CLI/skills race suite is in progress.
+
+All Go commands use low priority and two package workers. Tests use fake
+services; no Google credentials or live Google APIs are involved. There
+are no changes to Go sources, contracts, eval/embedded wiring or any other
+forbidden paths. Before/after screenshots and command logs remain outside
+git in the settingsui status notes directory.

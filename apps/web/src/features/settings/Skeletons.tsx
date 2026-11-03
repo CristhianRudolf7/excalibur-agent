@@ -101,7 +101,7 @@ export function SettingsSkeleton() {
       </div>
       <div className="settings-layout">
         <div className="sk-settings-nav">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2, 3, 4, 5].map((i) => (
             <Skeleton className="sk-field" key={i} />
           ))}
         </div>

@@ -1,6 +1,6 @@
 # Settings
 
-`/settings?section=general|profile|usage|skills` uses the typed JSON-RPC
+`/settings?section=general|profile|agents|usage|skills|passwords` uses the typed JSON-RPC
 client and TanStack Query. Language and theme preferences are local to this
 browser; profile information remains read-only. The sidebar Settings and
 Metrics entries open this route.
@@ -25,8 +25,17 @@ Markdown, editing/diagnostics, builtin overrides/disable, deletion, rollback,
 empty/offline states and a 390px viewport. No production data is mocked.
 The optional search/browser settings section is omitted.
 
-The emerald redesign lives in `src/styles/redesign/settings.css`, which imports
-legacy settings rules first to keep the cascade consistent in production.
+Shared analytics and catalog rules live in `src/styles/redesign/settings.css`.
+`features/settings/modern.css` provides the scoped Settings layout and controls
+using the app's semantic blue palette, surfaces, radii and motion tokens.
+Desktop uses a section sidebar; mobile uses horizontally scrollable pills.
+Both layouts retain the animated indicator. Arrow keys, Home and End move
+navigation focus, and Enter opens the focused section. The sections array
+remains the hook for adding account connections; `.settings-card` and
+`.settings-connection` provide shared styling for connection cards.
+Artifact auto-open and automatic time zone detection use labeled switches.
+Profile reserves space for its loading skeleton, and Passwords renders metadata
+skeletons while loading. English and Spanish descriptions accompany controls.
 Language, appearance and usage ranges use keyboard-accessible segmented buttons.
 The navigation indicator slides between sections. Usage renders stacked token
 bars, a model donut, tool proportions and an ink cost card; ECharts reads CSS
@@ -40,3 +49,10 @@ Virtual rows contain two cards on desktop and one on smaller screens. Action
 menus are available on hover, keyboard focus and touch; direct edit/delete
 preserves diagnostics, override warnings and confirmation. Browser tests also
 capture light screenshots at 1440×900 and 390×844 and verify dark chart updates.
+
+`Settings.test.tsx` covers switch semantics, keyboard operation, preference
+persistence, translated labels and profile loading. Playwright checks every
+section at 1440 × 900 and 390 × 844 in both themes, page overflow, mobile and
+desktop indicator alignment, active text contrast, reduced motion and stable
+profile loading height. Before/after audit screenshots live outside git in the
+settingsui status notes directory.

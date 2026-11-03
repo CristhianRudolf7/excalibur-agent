@@ -35,7 +35,7 @@ export function TimeZone() {
             <button
               type="button"
               role="switch"
-              className="skill-switch"
+              className="settings-switch"
               aria-label={t('settingsTimeZoneAuto')}
               aria-checked={automatic}
               aria-disabled={update.isPending}

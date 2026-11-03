@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { LockKeyhole, ShieldCheck } from 'lucide-react'
 import { rpc } from '@/lib/rpc/client'
 import type { VaultMetadata } from '@/lib/rpc/credentials'
+import { LoadingStatus, Skeleton } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { UnlockVault } from '@/features/credentials/UnlockVault'
@@ -108,7 +109,15 @@ export function Passwords() {
           <Button onClick={() => void query.refetch()}>{t('credentialRetry')}</Button>
         </div>
       )}
-      {query.isPending && <p role="status">{t('passwordsLoading')}</p>}
+      {query.isPending && (
+        <LoadingStatus
+          label={t('passwordsLoading')}
+          className="settings-card settings-passwords-skeleton"
+        >
+          <Skeleton className="sk-title" />
+          <Skeleton className="sk-field" />
+        </LoadingStatus>
+      )}
       {query.isSuccess && entries.length === 0 && <p>{t('passwordsEmpty')}</p>}
       <ul className="grid gap-3">
         {entries.map((entry) => (
