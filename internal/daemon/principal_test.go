@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -62,7 +63,7 @@ func TestPrincipalSeedsOnceAcrossConcurrentStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != (api.PrincipalGetResult{ID: "local", Name: "Ana Prueba", Timezone: "Europe/Madrid", Language: "es"}) {
+	if got != (api.PrincipalGetResult{ID: "local", Name: "Ana Prueba", Timezone: "UTC", Language: "es", TimezoneSource: "default"}) {
 		t.Fatalf("profile: %+v", got)
 	}
 	if err := first.ReadInteractive(context.Background(), func(ctx context.Context, q store.Queryer) error {
@@ -330,5 +331,49 @@ func TestPrincipalNameFallbackChain(t *testing.T) {
 				t.Fatalf("name=%q error=%v, want %q", name, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestPrincipalUpdateRPC(t *testing.T) {
+	t.Setenv("EXCALIBUR_PRINCIPAL_ENABLED", "1")
+	db := principalDB(t, filepath.Join(t.TempDir(), "profile.db"))
+	svc, _ := NewPrincipalService(context.Background(), db)
+	b := NewDaemonBackend(nil, nil, nil)
+	b.AttachServices(BackendServices{Principal: svc})
+	server := gateway.New(gateway.DefaultConfig(), b, nil, nil)
+	for _, tc := range []struct {
+		params       string
+		code         int
+		zone, source string
+	}{
+		{`{"timezone":"America/Lima","timezone_source":"manual"}`, 0, "America/Lima", "manual"},
+		{`{"timezone":"Asia/Tokyo","timezone_source":"auto"}`, 0, "America/Lima", "manual"},
+		{`{"timezone":"Asia/Tokyo","timezone_source":"auto","enable_auto":true}`, 0, "Asia/Tokyo", "auto"},
+		{`{"timezone":"not-a-zone","timezone_source":"manual"}`, api.CodeInvalidParams, "", ""},
+		{`{}`, api.CodeInvalidParams, "", ""},
+		{`null`, api.CodeInvalidParams, "", ""},
+		{`[]`, api.CodeInvalidParams, "", ""},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/rpc", strings.NewReader(`{"jsonrpc":"2.0","id":"tz","method":"principal.update","params":`+tc.params+`}`))
+		req.RemoteAddr = "127.0.0.1:12345"
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, req)
+		var response api.Response
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if tc.code != 0 {
+			if response.Error == nil || response.Error.Code != tc.code {
+				t.Fatalf("%s: %+v", tc.params, response)
+			}
+			continue
+		}
+		if response.Error != nil {
+			t.Fatal(response.Error)
+		}
+		var got api.PrincipalGetResult
+		if err := json.Unmarshal(response.Result, &got); err != nil || got.Timezone != tc.zone || got.TimezoneSource != tc.source {
+			t.Fatalf("%s: %s %v", tc.params, response.Result, err)
+		}
 	}
 }

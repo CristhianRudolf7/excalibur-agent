@@ -140,17 +140,18 @@ type Config struct {
 // file, terminal, navigation or research jobs spawn orchestrator runs
 // (Sections 5.3.2, 15.3).
 type Master struct {
-	cfg      Config
-	store    ConversationStore
-	lex      *Lexicon
-	decider  Decider
-	lane     *FastLane
-	turns    *TurnManager
-	notifier *Notifier
-	events   []TurnEvent
-	mu       sync.Mutex
-	loc      *time.Location
-	output   AssistantOutput
+	cfg          Config
+	store        ConversationStore
+	lex          *Lexicon
+	decider      Decider
+	lane         *FastLane
+	turns        *TurnManager
+	notifier     *Notifier
+	events       []TurnEvent
+	mu           sync.Mutex
+	zoneResolver func(context.Context) (string, error)
+	loc          *time.Location
+	output       AssistantOutput
 }
 
 // New returns a master over its seams.
@@ -268,11 +269,12 @@ func (m *Master) ReceiveWithContext(ctx context.Context, clientID, clientMsgID, 
 	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
 		return id, Outcome{}, nil
 	}
-	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
+	loc := m.userLocation(ctx)
+	msg := Normalized{UserTimezone: loc.String(), Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
 	persist := func(n Normalized) (types.MessageID, error) {
 		return m.store.SaveMessage(ctx, conv, n)
 	}
-	in, err := Intake(ctx, msg, persist, m.lex, m.decider, time.Now(), m.loc)
+	in, err := Intake(ctx, msg, persist, m.lex, m.decider, time.Now(), loc)
 	if err != nil {
 		return "", Outcome{}, err
 	}
@@ -281,7 +283,7 @@ func (m *Master) ReceiveWithContext(ctx context.Context, clientID, clientMsgID, 
 		return in.MsgID, out, nil
 	} else if out.Handled {
 		// Mixed: control ran; the rest joins the turn.
-		rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
+		rest := IntakeResult{Msg: Normalized{UserTimezone: loc.String(), Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), loc), MsgID: in.MsgID, SentAt: time.Now()}
 		m.turns.Deliver(conv, rest)
 		return in.MsgID, out, nil
 	}
@@ -306,7 +308,8 @@ func (m *Master) ReceiveDeferredWithContext(ctx context.Context, clientID, clien
 	if strings.TrimSpace(text) == "" {
 		return "", fmt.Errorf("master: empty message")
 	}
-	msg := Normalized{Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en", CreatedAt: time.Now().UTC()}
+	loc := m.userLocation(ctx)
+	msg := Normalized{UserTimezone: loc.String(), Context: api.CloneAppContext(app), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en", CreatedAt: time.Now().UTC()}
 	id, duplicate, err := m.saveClientMessage(ctx, conv, msg, clientID, clientMsgID)
 	if err != nil || duplicate {
 		return id, err
@@ -315,7 +318,7 @@ func (m *Master) ReceiveDeferredWithContext(ctx context.Context, clientID, clien
 	safego.Go("master-intake", nil, func() {
 		bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
-		in, err := Intake(bg, msg, func(Normalized) (types.MessageID, error) { return id, nil }, m.lex, m.decider, now, m.loc)
+		in, err := Intake(bg, msg, func(Normalized) (types.MessageID, error) { return id, nil }, m.lex, m.decider, now, loc)
 		if err != nil {
 			return
 		}
@@ -330,13 +333,35 @@ func (m *Master) ReceiveDeferredWithContext(ctx context.Context, clientID, clien
 			if out.Reply != "" && onReply != nil {
 				onReply(out.Reply)
 			}
-			rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
+			rest := IntakeResult{Msg: Normalized{UserTimezone: loc.String(), Text: out.Rest, Channel: msg.Channel, Context: api.CloneAppContext(msg.Context), Attachments: append([]string(nil), msg.Attachments...)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), loc), MsgID: in.MsgID, SentAt: time.Now()}
 			m.turns.Deliver(conv, rest)
 			return
 		}
 		m.turns.Deliver(conv, in)
 	})
 	return id, nil
+}
+
+// SetUserZoneResolver installs the daemon profile source. Resolve once per
+// receipt so persistence and deferred temporal analysis share the same zone.
+func (m *Master) SetUserZoneResolver(resolve func(context.Context) (string, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.zoneResolver = resolve
+}
+
+func (m *Master) userLocation(ctx context.Context) *time.Location {
+	m.mu.Lock()
+	resolve, fallback := m.zoneResolver, m.loc
+	m.mu.Unlock()
+	if resolve != nil {
+		if zone, err := resolve(ctx); err == nil {
+			if loc, err := time.LoadLocation(zone); err == nil && zone != "" && zone != "Local" {
+				return loc
+			}
+		}
+	}
+	return fallback
 }
 
 // SetTurnCaller installs production engine turns before accepting messages.

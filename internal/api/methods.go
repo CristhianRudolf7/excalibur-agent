@@ -53,7 +53,8 @@ const (
 	MethodRemindersDelete   = "reminders.delete"
 
 	// Principal family: local user profile.
-	MethodPrincipalGet = "principal.get"
+	MethodPrincipalGet    = "principal.get"
+	MethodPrincipalUpdate = "principal.update"
 
 	// Conversation family: send, subscribe, history.
 	MethodConversationSend      = "conversation.send"
@@ -228,6 +229,7 @@ var Methods = []MethodInfo{
 	{MethodLibraryCancel, "library", "Cancel library documents."},
 
 	{MethodPrincipalGet, "principal", "Read the local user's profile."},
+	{MethodPrincipalUpdate, "principal", "Update the local user's time zone."},
 	{MethodConversationSend, "conversation", "Send a message; idempotent on client_msg_id."},
 	{MethodConversationSubscribe, "conversation", "Subscribe to typed events from a cursor."},
 	{MethodConversationHistory, "conversation", "Read message history with pagination."},
@@ -480,12 +482,21 @@ type ConfigSetParams struct {
 	Values map[string]any `json:"values"`
 }
 
-// PrincipalGetResult is the local user's read-only profile.
+// PrincipalGetResult is the local user's persisted profile.
 type PrincipalGetResult struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Timezone string `json:"timezone"`
-	Language string `json:"language"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Timezone       string `json:"timezone"`
+	Language       string `json:"language"`
+	TimezoneSource string `json:"timezone_source"`
+}
+
+// PrincipalUpdateParams changes the local time zone. EnableAuto is used only
+// when the user explicitly turns detection on, never for startup reports.
+type PrincipalUpdateParams struct {
+	Timezone       string `json:"timezone"`
+	TimezoneSource string `json:"timezone_source"`
+	EnableAuto     bool   `json:"enable_auto,omitempty"`
 }
 
 // Whiteboard methods are additive conversation drawing operations.

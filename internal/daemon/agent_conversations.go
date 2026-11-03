@@ -10,6 +10,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agents"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/store"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
@@ -50,6 +51,14 @@ func (s *agentConversationStore) SaveClientMessage(ctx context.Context, conv str
 	if msg.CreatedAt.IsZero() {
 		msg.CreatedAt = time.Now().UTC()
 	}
+	if msg.UserTimezone == "" {
+		msg.UserTimezone = "UTC"
+		if s.db != nil {
+			if p, err := memory.NewPrincipalService(s.db).Get(ctx); err == nil {
+				msg.UserTimezone = p.Timezone
+			}
+		}
+	}
 	var id types.MessageID
 	if s.db == nil {
 		var err error
@@ -83,7 +92,7 @@ func (s *agentConversationStore) SaveClientMessage(ctx context.Context, conv str
 					return err
 				}
 			}
-			_, err := ex.Exec(ctx, `INSERT INTO messages(id,conversation_id,role,text,attachments_json,language,sent_at_ms,normalized_json) VALUES(?,?,?,?,?,?,?,?)`, string(id), conv, msg.Role, msg.Text, string(attachments), msg.Language, msg.CreatedAt.UnixMilli(), string(raw))
+			_, err := ex.Exec(ctx, `INSERT INTO messages(id,conversation_id,role,text,attachments_json,language,sent_at_ms,normalized_json,user_tz) VALUES(?,?,?,?,?,?,?,?,?)`, string(id), conv, msg.Role, msg.Text, string(attachments), msg.Language, msg.CreatedAt.UnixMilli(), string(raw), msg.UserTimezone)
 			return err
 		})
 		if err != nil {

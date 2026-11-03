@@ -18,18 +18,19 @@ import (
 // plain text, voice transcripts with end-of-turn marks, attachments
 // as blob references, reply links and the detected language.
 type Normalized struct {
-	RelayedBy   string
-	CreatedAt   time.Time
-	Context     *api.AppContext
-	Role        string
-	Changes     []api.FileChange
-	Sources     []api.SourceRef
-	Text        string
-	Attachments []string
-	ReplyTo     string
-	Language    string
-	Channel     string
-	Sender      string
+	UserTimezone string
+	RelayedBy    string
+	CreatedAt    time.Time
+	Context      *api.AppContext
+	Role         string
+	Changes      []api.FileChange
+	Sources      []api.SourceRef
+	Text         string
+	Attachments  []string
+	ReplyTo      string
+	Language     string
+	Channel      string
+	Sender       string
 }
 
 // Preanalysis is the deterministic scan of intake step 3: slash

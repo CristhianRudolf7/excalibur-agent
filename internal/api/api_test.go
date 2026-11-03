@@ -197,11 +197,11 @@ func TestPrincipalContract(t *testing.T) {
 	if err := request.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := json.Marshal(PrincipalGetResult{ID: "local", Name: "Ana", Timezone: "UTC", Language: "en"})
+	raw, err := json.Marshal(PrincipalGetResult{ID: "local", Name: "Ana", Timezone: "UTC", Language: "en", TimezoneSource: "default"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != `{"id":"local","name":"Ana","timezone":"UTC","language":"en"}` {
+	if string(raw) != `{"id":"local","name":"Ana","timezone":"UTC","language":"en","timezone_source":"default"}` {
 		t.Fatalf("wire shape: %s", raw)
 	}
 }

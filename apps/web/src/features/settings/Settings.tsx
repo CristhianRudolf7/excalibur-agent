@@ -15,6 +15,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
+import { TimeZone } from './TimeZone'
 import { Segmented } from './Segmented'
 import { Skills } from './Skills'
 import { Passwords } from './Passwords'
@@ -62,6 +63,7 @@ function General() {
         />
         {t('artifactAutoOpen')}
       </label>
+      <TimeZone />
       <label>{t('settingsTheme')}</label>
       <Segmented
         label={t('settingsTheme')}

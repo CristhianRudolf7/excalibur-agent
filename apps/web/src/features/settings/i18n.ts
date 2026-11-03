@@ -1,4 +1,17 @@
 export const settingsMessages = {
+  settingsTimeZone: ['Zona horaria', 'Time zone'],
+  settingsTimeZoneNote: [
+    'Se usa para interpretar fechas y recordatorios nuevos.',
+    'Used to interpret dates and new reminders.',
+  ],
+  settingsTimeZoneAuto: ['Detectar automáticamente', 'Detect automatically'],
+  settingsTimeZoneSearch: ['Buscar zona horaria', 'Search time zones'],
+  settingsTimeZoneNow: ['Hora local actual', 'Current local time'],
+  settingsTimeZoneNoMatches: ['No se encontraron zonas horarias.', 'No time zones found.'],
+  settingsTimeZoneSaveError: [
+    'No se pudo guardar la zona horaria. Vuelve a intentarlo.',
+    'Could not save the time zone. Try again.',
+  ],
   settingsMoreCategories: ['+{{count}} más', '+{{count}} more'],
   settingsSearchCategories: ['Buscar categorías', 'Search categories'],
   settingsNoCategories: ['No se encontraron categorías.', 'No categories found.'],

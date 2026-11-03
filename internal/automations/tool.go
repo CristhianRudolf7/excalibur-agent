@@ -32,8 +32,10 @@ func WireTool(reg *tools.MapRegistry, service Service) error {
 		raw, err := json.Marshal(out)
 		return tools.Result{Status: tools.StatusOK, Output: string(raw)}, err
 	}}
+	provider.Def.Description += "\nPresent times to the user in local time using at_local (or next_run_at_local for recurring schedules)."
 	if existing, err := reg.Get("automations"); err == nil {
 		if stub, ok := existing.(*tools.StubTool); ok {
+			stub.Def = provider.Def
 			stub.Provider = provider.Provider
 			return nil
 		}
@@ -88,13 +90,18 @@ func toolAction(ctx context.Context, s Service, raw json.RawMessage) (any, error
 		if a == nil {
 			a = []Automation{}
 		}
-		return map[string]any{"automations": a}, e
+		views := make([]automationToolView, 0, len(a))
+		now := time.Now()
+		for _, item := range a {
+			views = append(views, localAutomation(item, now))
+		}
+		return map[string]any{"automations": views}, e
 	case "get":
 		a, v, e := s.Get(ctx, p.ID)
 		if v == nil {
 			v = []Version{}
 		}
-		return map[string]any{"automation": a, "versions": v}, e
+		return map[string]any{"automation": localAutomation(a, time.Now()), "versions": v}, e
 	case "history":
 		if p.Limit <= 0 {
 			p.Limit = 20
@@ -129,7 +136,8 @@ func toolAction(ctx context.Context, s Service, raw json.RawMessage) (any, error
 		if p.Version < 1 {
 			return nil, fmt.Errorf("version must be positive")
 		}
-		return s.RestoreVersion(ctx, p.ID, p.Version)
+		a, err := s.RestoreVersion(ctx, p.ID, p.Version)
+		return localAutomation(a, time.Now()), err
 	default:
 		return nil, fmt.Errorf("unknown automations action")
 	}
@@ -139,6 +147,10 @@ func toolAction(ctx context.Context, s Service, raw json.RawMessage) (any, error
 // automation is deliberately omitted: models re-issued create calls when the
 // answer was a large JSON document instead of an explicit confirmation.
 func savedResult(action string, a Automation) map[string]any {
+	return savedResultAt(action, a, time.Now())
+}
+
+func savedResultAt(action string, a Automation, now time.Time) map[string]any {
 	done := map[string]string{"create": "created", "update": "updated", "pause": "paused", "resume": "resumed"}[action]
 	out := map[string]any{
 		"ok":      true,
@@ -150,8 +162,49 @@ func savedResult(action string, a Automation) map[string]any {
 		"steps":   len(a.Steps),
 		"note":    "Done. Do not repeat this call; tell the user it is " + done + ".",
 	}
+	out["timezone"] = a.Schedule.Timezone
+	out["now_local"] = renderLocal(now, a.Schedule.Timezone)
+	if a.Schedule.At != nil {
+		out["at"] = a.Schedule.At.Format(time.RFC3339)
+		out["at_local"] = renderLocal(*a.Schedule.At, a.Schedule.Timezone)
+	}
 	if a.NextRunAt != nil {
+		out["next_run_at_local"] = renderLocal(*a.NextRunAt, a.Schedule.Timezone)
 		out["next_run_at"] = a.NextRunAt.Format(time.RFC3339)
 	}
 	return out
+}
+
+// Tool-only projections preserve RPC and stored schedules unchanged.
+type scheduleToolView struct {
+	Schedule
+	AtLocal  string `json:"at_local,omitempty"`
+	NowLocal string `json:"now_local"`
+}
+
+type automationToolView struct {
+	Automation
+	Schedule       scheduleToolView `json:"schedule"`
+	NextRunAtLocal string           `json:"next_run_at_local,omitempty"`
+	NowLocal       string           `json:"now_local"`
+}
+
+func localAutomation(a Automation, now time.Time) automationToolView {
+	view := automationToolView{Automation: a, Schedule: scheduleToolView{Schedule: a.Schedule, NowLocal: renderLocal(now, a.Schedule.Timezone)}, NowLocal: renderLocal(now, a.Schedule.Timezone)}
+	if a.Schedule.At != nil {
+		view.Schedule.AtLocal = renderLocal(*a.Schedule.At, a.Schedule.Timezone)
+	}
+	if a.NextRunAt != nil {
+		view.NextRunAtLocal = renderLocal(*a.NextRunAt, a.Schedule.Timezone)
+	}
+	return view
+}
+
+func renderLocal(at time.Time, zone string) string {
+	loc, err := time.LoadLocation(zone)
+	if err != nil || zone == "" {
+		return ""
+	}
+	local := at.In(loc)
+	return local.Format("Mon 2006-01-02 15:04") + " " + zone + " (UTC" + local.Format("-07:00") + ")"
 }

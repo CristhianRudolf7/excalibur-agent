@@ -443,3 +443,37 @@ dialog:has(.skill-detail) {
 dialog .skill-detail {
   width: 100%;
 }
+
+.settings-time-zone {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding-block: 16px;
+  border-block: 1px solid var(--border);
+}
+.settings-time-zone h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.settings-time-zone-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-time-zone-trigger {
+  justify-content: space-between;
+  width: 100%;
+}
+.settings-time-zone-popover {
+  width: min(360px, calc(100vw - 32px));
+}
+.settings-time-zone-clock {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.settings-time-zone [aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: wait;
+}

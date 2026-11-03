@@ -1,4 +1,5 @@
 import '@/features/settings/preferences'
+import { BrowserTimeZoneDetection } from '@/features/settings/time-zone-api'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRouter, RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
@@ -37,6 +38,7 @@ if (!root) throw new Error('missing #root element')
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
+      <BrowserTimeZoneDetection />
       <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,

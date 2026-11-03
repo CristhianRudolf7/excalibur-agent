@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"log/slog"
 	"os"
 	"strings"
@@ -50,13 +52,10 @@ func newPrincipalService(ctx context.Context, db principalStore, lookup func() (
 		return s, nil
 	}
 	name, _ := principalName(os.Getenv, lookup)
-	zone, err := platform.LocalTimezone()
-	if err != nil || zone == "" {
-		zone = "UTC"
-	}
+	zone := "UTC"
 	language := principalLanguage(os.Getenv)
 	// The conditional insert remains atomic even when another start seeded after the read.
-	err = db.Write(ctx, store.PriorityInteractive, func(ctx context.Context, ex store.Execer) error {
+	err := db.Write(ctx, store.PriorityInteractive, func(ctx context.Context, ex store.Execer) error {
 		_, err := ex.Exec(ctx, `INSERT INTO principals(id,name,timezone,language) SELECT 'local',?,?,? WHERE NOT EXISTS (SELECT 1 FROM principals) ON CONFLICT DO NOTHING`, name, zone, language)
 		return err
 	})
@@ -104,11 +103,29 @@ func (s *PrincipalService) Get(ctx context.Context) (api.PrincipalGetResult, err
 	if s.db == nil {
 		return result, &api.Error{Code: api.CodeInternal, Message: "could not read local profile"}
 	}
-	err := s.db.ReadInteractive(ctx, func(ctx context.Context, q store.Queryer) error {
-		return q.QueryRow(ctx, `SELECT id,name,timezone,language FROM principals ORDER BY (id='local') DESC,id LIMIT 1`).Scan(&result.ID, &result.Name, &result.Timezone, &result.Language)
-	})
+	p, err := memory.NewPrincipalService(s.db).Get(ctx)
 	if err != nil {
 		return result, &api.Error{Code: api.CodeInternal, Message: "could not read local profile"}
 	}
-	return result, nil
+	return principalResult(p), nil
+}
+
+func principalResult(p memory.Principal) api.PrincipalGetResult {
+	return api.PrincipalGetResult{ID: p.ID, Name: p.Name, Timezone: p.Timezone, Language: p.Language, TimezoneSource: p.TimezoneSource}
+}
+
+// Update applies validated preferences; startup reports cannot replace manual zones.
+func (s *PrincipalService) Update(ctx context.Context, params api.PrincipalUpdateParams) (api.PrincipalGetResult, error) {
+	if s == nil || s.db == nil || !s.enabled {
+		_, err := s.Get(ctx)
+		return api.PrincipalGetResult{}, err
+	}
+	p, err := memory.NewPrincipalService(s.db).Update(ctx, memory.PrincipalTimezoneUpdate{Timezone: params.Timezone, TimezoneSource: params.TimezoneSource, EnableAuto: params.EnableAuto})
+	if errors.Is(err, memory.ErrInvalidPrincipalTimezone) {
+		return api.PrincipalGetResult{}, &api.Error{Code: api.CodeInvalidParams, Message: err.Error()}
+	}
+	if err != nil {
+		return api.PrincipalGetResult{}, &api.Error{Code: api.CodeInternal, Message: "could not update local profile"}
+	}
+	return principalResult(p), nil
 }

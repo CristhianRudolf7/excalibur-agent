@@ -80,6 +80,7 @@
     { "name": "library.delete", "family": "library", "summary": "Delete library documents." },
     { "name": "library.cancel", "family": "library", "summary": "Cancel library documents." },
     { "name": "principal.get", "family": "principal", "summary": "Read the local user's profile." },
+    { "name": "principal.update", "family": "principal", "summary": "Update the local user's time zone." },
     { "name": "conversation.send", "family": "conversation", "summary": "Send a message; idempotent on client_msg_id." },
     { "name": "conversation.subscribe", "family": "conversation", "summary": "Subscribe to typed events from a cursor." },
     { "name": "conversation.history", "family": "conversation", "summary": "Read message history with pagination." },

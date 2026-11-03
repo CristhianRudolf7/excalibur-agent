@@ -367,9 +367,9 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 			return nil, asAPIError(err)
 		}
 		return res, nil
-	case api.MethodPrincipalGet:
+	case api.MethodPrincipalGet, api.MethodPrincipalUpdate:
 		if len(params) > 0 && !json.Valid(params) {
-			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad principal.get params"}
+			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad " + method + " params"}
 		}
 		res, err := s.backend.Passthrough(ctx, method, params)
 		if err != nil {

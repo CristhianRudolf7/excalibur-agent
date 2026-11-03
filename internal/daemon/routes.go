@@ -48,7 +48,7 @@ type BackendServices struct {
 	Classroom      *classroom.Service
 	Library        *LibraryRoutes
 
-	// Principal serves the read-only local profile.
+	// Principal serves the persisted local profile.
 	Principal *PrincipalService
 	// Tasks serves task.* through orchestrator runs (Section 3.6).
 	Tasks *TaskService
@@ -75,6 +75,12 @@ type BackendServices struct {
 // AttachServices installs the real backends on a DaemonBackend.
 func (b *DaemonBackend) AttachServices(s BackendServices) {
 	b.Services = (*daemonServices)(&s)
+	if b.Master != nil && s.Principal != nil {
+		b.Master.SetUserZoneResolver(func(ctx context.Context) (string, error) {
+			p, err := s.Principal.Get(ctx)
+			return p.Timezone, err
+		})
+	}
 	if b.credentials == nil {
 		b.credentials = newCredentialRegistry(b.Bus)
 		b.credentials.vault = s.Vault
@@ -219,6 +225,15 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 			return nil, &api.Error{Code: api.CodeInternal, Message: "profile store unavailable"}
 		}
 		return svc.Principal.Get(ctx)
+	case api.MethodPrincipalUpdate:
+		var p api.PrincipalUpdateParams
+		if len(params) == 0 || json.Unmarshal(params, &p) != nil {
+			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "bad principal.update params"}
+		}
+		if svc.Principal == nil {
+			return nil, &api.Error{Code: api.CodeInternal, Message: "profile store unavailable"}
+		}
+		return svc.Principal.Update(ctx, p)
 	case api.MethodProjectList, api.MethodProjectRegister, api.MethodProjectGet:
 		if svc.Projects != nil {
 			return ProjectOp(svc.Projects, method, params)

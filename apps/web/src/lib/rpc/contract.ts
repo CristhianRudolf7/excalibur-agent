@@ -9,6 +9,7 @@ export interface Principal {
   id: string
   name: string
   timezone: string
+  timezone_source: 'default' | 'auto' | 'manual'
   language: string
 }
 export const clientMethods = [
@@ -37,6 +38,7 @@ export const clientMethods = [
   'conversation.history',
   'conversation.subscribe',
   'principal.get',
+  'principal.update',
   'voice.status',
   'voice.transcribe',
   'voice.speak',
@@ -270,6 +272,14 @@ export interface RpcMethods
     result: { events: ConversationEvent[] | null; cursor: string }
   }
   'principal.get': { params: undefined; result: Principal }
+  'principal.update': {
+    params: {
+      timezone: string
+      timezone_source: Principal['timezone_source']
+      enable_auto?: boolean
+    }
+    result: Principal
+  }
   'library.ingest': {
     params: { blob_digest: string; name: string; mime: string; title?: string; scope_id?: string }
     result: { document: DocumentInfo; existing: boolean }
