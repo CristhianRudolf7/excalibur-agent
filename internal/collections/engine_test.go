@@ -382,3 +382,16 @@ func TestDateAndTextExtremaSummary(t *testing.T) {
 		t.Fatal(out, err)
 	}
 }
+
+func TestTrashReportsCurrentRecordCount(t *testing.T) {
+	e := testEngine(t)
+	c := createTest(t, e, Field{ID: "name", Name: "Name", Type: "text"})
+	insertTest(t, e, c, map[string]any{"name": "Ana"})
+	if err := e.Delete(ctx, c.ID); err != nil {
+		t.Fatal(err)
+	}
+	trash, err := e.Trash(ctx)
+	if err != nil || len(trash) != 1 || trash[0].RecordCount != 1 {
+		t.Fatal(trash, err)
+	}
+}

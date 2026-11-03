@@ -133,7 +133,14 @@ func getCollection(ctx context.Context, q queryer, id string, trash bool) (Colle
 	return c, err
 }
 func listCollections(ctx context.Context, q queryer) ([]Collection, error) {
-	rows, err := q.QueryContext(ctx, `SELECT schema_json FROM collection_meta WHERE deleted_at IS NULL ORDER BY id`)
+	return listCollectionState(ctx, q, false)
+}
+func listCollectionState(ctx context.Context, q queryer, trash bool) ([]Collection, error) {
+	condition := "IS NULL"
+	if trash {
+		condition = "IS NOT NULL"
+	}
+	rows, err := q.QueryContext(ctx, `SELECT schema_json FROM collection_meta WHERE deleted_at `+condition+` ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -723,25 +730,9 @@ func (e *Engine) Restore(ctx context.Context, id string, version int) (Collectio
 func (e *Engine) Trash(ctx context.Context) ([]Collection, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	rows, err := e.db.QueryContext(ctx, `SELECT schema_json FROM collection_meta WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []Collection{}
-	for rows.Next() {
-		var s string
-		if err = rows.Scan(&s); err != nil {
-			return nil, err
-		}
-		var c Collection
-		if err = json.Unmarshal([]byte(s), &c); err != nil {
-			return nil, err
-		}
-		out = append(out, c)
-	}
-	return out, rows.Err()
+	return listCollectionState(ctx, e.db, true)
 }
+
 func (e *Engine) purge(ctx context.Context) error {
 	return e.transaction(ctx, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx, `SELECT id FROM collection_meta WHERE deleted_at<?`, time.Now().UTC().Add(-TrashRetention).Format(time.RFC3339Nano))

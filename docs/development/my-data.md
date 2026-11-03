@@ -7,8 +7,8 @@ independently of the harness database. Collection and field metadata, ten retain
 schema snapshots (including records), and one typed table per collection persist
 through restarts. Renaming a field changes metadata only. Schema alterations are
 atomic and support conversion dry runs. Invalid conversions block the entire edit.
-Required field additions to nonempty collections require first supplying values;
-values are never invented. Collection deletion retains data for thirty days;
+Required field additions to nonempty collections are rejected; use optional
+fields or migrate records into a new schema. Values are never invented. Collection deletion retains data for thirty days;
 expired trash is purged at database open. Record and collection deletion report
 incoming relation references instead of silently cascading.
 
@@ -17,7 +17,8 @@ dates and Spanish day/month/year dates. Queries support field filters, text sear
 validated sort columns and opaque cursors bound to their query and schema version.
 Pagination uses a deterministic ID tie breaker; concurrent inserts/deletions can
 shift offset pages. Summary cards use SQL aggregates, including weighted averages
-that exclude missing values and return null for zero total weight.
+that exclude missing values and return null for zero total weight. SQL min/max
+also support date and text fields.
 
 Engine coverage: `internal/collections/engine_test.go` exercises all field types,
 required/unique/range checks, persistence, conversion failure and rollback, schema
@@ -80,16 +81,27 @@ rejections, proposal purity, dry-run defaults, trash/schema restoration, deferre
 registration and real chat execution with fake model responses. No model API calls
 are used. Follow-up engine tests cover stale relations on trash restoration and
 preserving unmapped required fields during upserts, per-record unique conversion
-failures, and refusing unsupported future database migrations.
+failures, date/text extrema, current record counts in trash, and refusing
+unsupported future database migrations.
 
 ### Verification
 
 Completed checks:
 
 - `gofmt -l .` and `scripts/check-no-bare-go.sh` are clean.
-- Touched-package vet and whole-repository Linux/Darwin/Windows builds pass.
-- Collection engine race tests, RPC/WS/tool/chat tests, contract parity and pinned
-  embedded/eval hashes pass. Full daemon/tools race suites are still running.
+- Touched-package vet/staticcheck and whole-repository Linux/Darwin/Windows builds
+  pass. Whole-repository staticcheck reports five existing `ST1005` style warnings
+  in `internal/googleapi/tools.go` at lines 193, 216 and 218. That package is outside
+  this round's permitted scope and has not been changed.
+- Race tests pass for `internal/collections`, `internal/api`, `internal/gateway`,
+  `internal/daemon/...`, and `internal/tools/...`. This includes all RPC/WS/tool/chat
+  tests, contract parity, and pinned embedded/eval hashes. Both full daemon race
+  runs passed; the latest engine edge cases and daemon integration checks also pass.
+- The full tools race suite passes after stabilizing its existing compiler-exit
+  progress test. The command now waits for an explicit release file, replacing a
+  scheduling-sensitive 400 ms sleep that failed twice in full-suite race runs.
+  Five repetitions of the synchronized test and the full-suite retry pass. Runtime
+  terminal code and tool definitions are unchanged.
 - Web `npx tsc --noEmit -p .` and `npx tsc -b --pretty false` pass from `apps/web`.
 - All web Vitest tests pass: 121 files, 646 tests (`--maxWorkers 2`).
 - Existing Playwright chat/agent/settings smoke tests pass: 32 tests using owned
@@ -97,7 +109,8 @@ Completed checks:
 - `git diff --name-only 766dc51` contains no forbidden paths.
 
 The web agent owns collection UI flows and TypeScript contract additions; this
-backend worktree contains no UI changes. The documentation file is shared: retain
+backend worktree contains no UI changes. The existing Playwright smoke suites
+verify baseline chat/agent/settings flows; collection UI e2e belongs to that branch. The documentation file is shared: retain
 this Backend section when merging the web agent's section. No changes to the
 embedded/eval catalog, provider wiring, robot code, integrations or web contracts
 are required from this branch.
