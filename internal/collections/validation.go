@@ -105,7 +105,10 @@ func validateSchema(c Collection) error {
 		}
 		if s.Kind != "count" {
 			f, e := fieldByID(c, s.Field)
-			if e != nil || !numeric(f) {
+			if e != nil {
+				return e
+			}
+			if s.Kind != "min" && s.Kind != "max" && !numeric(f) {
 				return invalid(s.ID, "summary needs numeric field")
 			}
 		}

@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,11 +64,17 @@ func TestJobOutputPaths(t *testing.T) {
 func TestSessionCompletionReportsCompilerExit(t *testing.T) {
 	tool := execTestTool(t)
 	defer closeSessions(tool.Sessions)
-	first := callTool(t, tool, map[string]any{"command": "sleep 0.4; exit 7", "yield_ms": 250})
+	dir := t.TempDir()
+	// Hold the command until the initial receipt is observed. A fixed sleep can
+	// finish before the yield timer is scheduled under race instrumentation.
+	first := callTool(t, tool, map[string]any{"command": "while [ ! -f release ]; do sleep 0.01; done; exit 7", "workdir": dir, "yield_ms": 250})
 	if !strings.Contains(first.Output, "STILL RUNNING") {
 		t.Fatal(first.Output)
 	}
 	session := tool.Sessions.List("")[0]
+	if err := os.WriteFile(filepath.Join(dir, "release"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
 	<-session.done
 	io := &ExecIOTool{Sessions: tool.Sessions}
 	res := callTool(t, io, map[string]any{"action": "read", "session": string(session.ID)})

@@ -367,3 +367,18 @@ func TestDatabaseMigrationRejectsFutureVersion(t *testing.T) {
 		t.Fatal("future database version was silently downgraded")
 	}
 }
+
+func TestDateAndTextExtremaSummary(t *testing.T) {
+	e := testEngine(t)
+	c := createTest(t, e, Field{ID: "date", Name: "Date", Type: "date"}, Field{ID: "name", Name: "Name", Type: "text"})
+	insertTest(t, e, c, map[string]any{"date": "2026-12-31", "name": "Zed"})
+	insertTest(t, e, c, map[string]any{"date": "2026-01-01", "name": "Ana"})
+	cards := []api.SummaryCard{{ID: "first", Title: "First date", Kind: "min", Field: "date"}, {ID: "last", Title: "Last name", Kind: "max", Field: "name"}}
+	if _, err := e.Update(ctx, api.CollectionsUpdateParams{ID: c.ID, Summary: &cards}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := e.Summary(ctx, c.ID)
+	if err != nil || out[0].Value != "2026-01-01" || out[1].Value != "Zed" {
+		t.Fatal(out, err)
+	}
+}
