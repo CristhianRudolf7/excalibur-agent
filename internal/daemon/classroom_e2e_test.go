@@ -164,6 +164,15 @@ func TestClassroomLearningFlowThroughAgentAndRPC(t *testing.T) {
 	question := func(prompt string) any {
 		return map[string]any{"kind": "single", "prompt": prompt, "options": []string{"Same operation", "Different operations"}, "correct": []int{0}, "explanation": "PRIVATE_ANSWER_EXPLANATION"}
 	}
+	optionIndex := func(options []string, text string) int {
+		for i, o := range options {
+			if o == text {
+				return i
+			}
+		}
+		t.Fatalf("option %q not found in %v", text, options)
+		return -1
+	}
 	quizAction := func(prompt string) func(string) any {
 		return fixed(map[string]any{"action": "create_quiz", "course_id": courseID, "topic_id": topicID, "questions": []any{question(prompt)}})
 	}
@@ -199,7 +208,7 @@ func TestClassroomLearningFlowThroughAgentAndRPC(t *testing.T) {
 	}
 	queue("write_feedback", feedback)
 	var wrong api.ClassroomSubmitResult
-	raw = rpc(api.MethodClassroomSubmit, api.ClassroomSubmitParams{QuizID: first.ID, Answers: []api.ClassroomAnswer{{QuestionID: first.Questions[0].ID, Selected: []int{1}}}}, &wrong)
+	raw = rpc(api.MethodClassroomSubmit, api.ClassroomSubmitParams{QuizID: first.ID, Answers: []api.ClassroomAnswer{{QuestionID: first.Questions[0].ID, Selected: []int{optionIndex(first.Questions[0].Options, "Different operations")}}}}, &wrong)
 	if wrong.Passed || len(wrong.Results) != 1 || wrong.Results[0].Correct || bytes.Contains(raw, []byte("PRIVATE_ANSWER")) || bytes.Contains(raw, []byte(`"selected"`)) {
 		t.Fatal("unsafe or incorrect failed result", string(raw))
 	}
@@ -228,7 +237,7 @@ func TestClassroomLearningFlowThroughAgentAndRPC(t *testing.T) {
 	}
 	queue("write_feedback", feedback)
 	var right api.ClassroomSubmitResult
-	rpc(api.MethodClassroomSubmit, api.ClassroomSubmitParams{QuizID: second.ID, Answers: []api.ClassroomAnswer{{QuestionID: second.Questions[0].ID, Selected: []int{0}}}}, &right)
+	rpc(api.MethodClassroomSubmit, api.ClassroomSubmitParams{QuizID: second.ID, Answers: []api.ClassroomAnswer{{QuestionID: second.Questions[0].ID, Selected: []int{optionIndex(second.Questions[0].Options, "Same operation")}}}}, &right)
 	if !right.Passed {
 		t.Fatal(right)
 	}

@@ -3,6 +3,7 @@ package classroom
 import (
 	"context"
 	"encoding/json"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"time"
@@ -349,10 +350,12 @@ func (s *Service) CreateQuiz(ctx context.Context, courseID, topicID string, fina
 	if err := validateQuestions(questions); err != nil {
 		return Quiz{}, err
 	}
+	shuffler := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	for i := range questions {
 		if questions[i].ID == "" {
 			questions[i].ID = newID()
 		}
+		shuffleQuestion(&questions[i], shuffler)
 	}
 	quiz := Quiz{ID: newID(), CourseID: courseID, TopicID: topicID, Final: final, Questions: questions, CreatedAt: time.Now().UTC()}
 	_, err := s.Store.mutate(ctx, courseID, false, func(r *courseRecord) error {

@@ -179,11 +179,11 @@ func TestGradingEveryKindAndQuizReuse(t *testing.T) {
 			answers := correctAnswers(q)
 			switch kind {
 			case "single":
-				answers[0].Selected = []int{0}
+				answers[0].Selected = []int{(q.Questions[0].Correct[0] + 1) % len(q.Questions[0].Options)}
 			case "multiple":
-				answers[1].Selected = []int{0}
+				answers[1].Selected = []int{q.Questions[1].Correct[0]}
 			case "match":
-				answers[2].Pairs = []int{0, 1}
+				answers[2].Pairs = []int{q.Questions[2].Pairs[1], q.Questions[2].Pairs[0]}
 			case "missing":
 				answers = answers[:2]
 			}
@@ -212,7 +212,7 @@ func TestGradingEveryKindAndQuizReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	answers := correctAnswers(q)
-	answers[1].Selected = []int{2, 0} // Order does not affect a multiple-choice set.
+	answers[1].Selected = []int{q.Questions[1].Correct[1], q.Questions[1].Correct[0]} // Order does not affect a multiple-choice set.
 	result, err := s.Submit(testContext, q.ID, answers)
 	if err != nil || !result.Passed {
 		t.Fatal(result, err)
