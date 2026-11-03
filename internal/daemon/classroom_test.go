@@ -101,6 +101,21 @@ func TestClassroomAssemblySharesProvidedService(t *testing.T) {
 	if s.Classroom != service {
 		t.Fatal("assembly replaced provided classroom service")
 	}
+	tool, err := s.Tools.Get("classroom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, ok := tool.(*classroom.Tool).Service.(classroom.AgentAdapter)
+	if !ok || adapter.Service != service {
+		t.Fatal("tool does not share the RPC service")
+	}
+	course, err := adapter.CreateCourse(context.Background(), classroom.Course{Title: "Shared", Units: []classroom.Unit{{Topics: []classroom.Topic{{Title: "Topic"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.GetCourse(context.Background(), course.ID); err != nil {
+		t.Fatal(err)
+	}
 	defaults, err := Assemble(AssembleOptions{})
 	if err != nil || defaults.Classroom == nil {
 		t.Fatal(defaults, err)

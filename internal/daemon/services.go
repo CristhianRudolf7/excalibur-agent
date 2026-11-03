@@ -471,6 +471,9 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Classroom = classroom.NewService(nil, opts.Bus)
 	}
 	s.ClassroomAgent = opts.ClassroomAgent
+	if s.ClassroomAgent == nil {
+		s.ClassroomAgent = classroom.AgentAdapter{Service: s.Classroom}
+	}
 	s.Whiteboard = opts.Whiteboard
 	if s.Whiteboard == nil {
 		s.Whiteboard = whiteboard.NewService(nil, opts.Bus)

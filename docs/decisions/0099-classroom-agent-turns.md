@@ -5,8 +5,9 @@ persistent store. Its seven methods are the complete agent-facing surface.
 `GetCourse` returns `AgentCourse`, including private quiz answers and attempts;
 this value must never be returned from the browser-facing `classroom.get` RPC.
 The backend service can implement this interface directly or through an adapter.
-`AssembleOptions.Classroom` supplies the implementation to the daemon and its
-embedded tool registry. A missing service reports unavailable explicitly.
+`AssembleOptions.Classroom` supplies the real service. `classroom.AgentAdapter`
+connects its trusted history and write methods to the embedded tool registry.
+`AssembleOptions.ClassroomAgent` optionally overrides that adapter in tests.
 
 The `classroom` tool is deferred and fast on the default conversational surface.
 It is absent from eval. Adding its name deliberately updates the default surface
