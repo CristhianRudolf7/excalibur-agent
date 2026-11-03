@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,13 +22,9 @@ type ChoiceDecider interface {
 	Ask(ctx context.Context, q models.Question) (models.Answer, error)
 }
 
-// ModelDecider answers master triage through the calibrated decision
-// model at the Table 2.1 intake row (Section 19.4): type, scope,
-// durable-instruction and clarify questions. Rules decide when they
-// suffice (explicit commands and resolved control orders); the model
-// is the first option for the rest, and a failing model degrades to
-// the deterministic triage instead of blocking intake (6.1 cost
-// rule: intake never waits on an LLM).
+// ModelDecider classifies potential fast-lane messages through the decision
+// model (Section 19.4). By default only the request type needs a question;
+// unused metadata is deterministic. Model failures use deterministic triage.
 type ModelDecider struct {
 	Dec      ChoiceDecider
 	Thresh   models.Thresholds
@@ -58,20 +56,25 @@ func (d *ModelDecider) Classify(ctx context.Context, text string, pre master.Pre
 	if models.Decide(typeAns.Prob, d.Thresh) == models.OutcomeAlternative {
 		tri.Type = master.TriageConversation
 	}
-	scopeAns, err := d.Dec.Ask(ctx, qs[1])
-	if err == nil && scopeAns.Choice != "" {
-		if models.Decide(scopeAns.Prob, d.Thresh) != models.OutcomeAlternative {
+	single := singleQuestionIntake()
+	if single && len(scopeOpts) == 1 {
+		tri.Scopes = scopeOpts
+	} else {
+		scopeAns, err := d.Dec.Ask(ctx, qs[1])
+		if err == nil && scopeAns.Choice != "" && models.Decide(scopeAns.Prob, d.Thresh) != models.OutcomeAlternative {
 			tri.Scopes = []string{scopeAns.Choice}
 		}
 	}
-	durableAns, err := d.Dec.Ask(ctx, qs[2])
-	if err == nil && models.Decide(durableAns.Prob, d.Thresh) == models.OutcomeAct {
-		tri.DurableFrag = []string{text}
-	}
-	clarifyAns, err := d.Dec.Ask(ctx, qs[3])
 	clarifyProb := 0.0
-	if err == nil {
-		clarifyProb = clarifyAns.Prob
+	if !single {
+		durableAns, err := d.Dec.Ask(ctx, qs[2])
+		if err == nil && models.Decide(durableAns.Prob, d.Thresh) == models.OutcomeAct {
+			tri.DurableFrag = []string{text}
+		}
+		clarifyAns, err := d.Dec.Ask(ctx, qs[3])
+		if err == nil {
+			clarifyProb = clarifyAns.Prob
+		}
 	}
 	mandatoryMissing := pre.ControlIntent != "" && strings.TrimSpace(pre.ControlTarget) == ""
 	irreversible := pre.ControlIntent == "cancel"
@@ -84,6 +87,11 @@ func (d *ModelDecider) Classify(ctx context.Context, text string, pre master.Pre
 	return tri
 }
 
+func singleQuestionIntake() bool {
+	enabled, err := strconv.ParseBool(os.Getenv("EXCALIBUR_INTAKE_SINGLE_QUESTION"))
+	return err != nil || enabled
+}
+
 // mapTriageType maps the decider request-type vocabulary to the
 // master triage types.
 func mapTriageType(choice string) master.TriageType {
@@ -91,7 +99,7 @@ func mapTriageType(choice string) master.TriageType {
 	case "status_query":
 		return master.TriageStatusQuery
 	case "quick_action":
-		return master.TriageStatusQuery
+		return master.TriageQuickAction
 	case "task":
 		return master.TriageTask
 	case "correction_or_redirect":
@@ -133,34 +141,7 @@ func triageContext(pre master.Preanalysis) string {
 // row: explicit commands and resolved control orders classify without
 // any model call.
 func deterministicTriage(text string, pre master.Preanalysis) master.Triage {
-	lower := strings.ToLower(strings.TrimSpace(text))
-	tri := master.Triage{Type: master.TriageConversation, Confidence: 1}
-	switch {
-	case pre.IsCommand:
-		tri.Type = master.TriageStatusQuery
-	case pre.ControlIntent == "status":
-		tri.Type = master.TriageStatusQuery
-	case pre.ControlIntent == "pause" || pre.ControlIntent == "resume" ||
-		pre.ControlIntent == "cancel" || pre.ControlIntent == "redirect" ||
-		pre.ControlIntent == "stop" || pre.ControlIntent == "approve" ||
-		pre.ControlIntent == "deny":
-		tri.Type = master.TriageStatusQuery
-		tri.CorrectionTarget = strings.TrimSpace(pre.ControlTarget)
-		if pre.ControlIntent == "redirect" {
-			tri.Type = master.TriageCorrection
-		}
-		if strings.TrimSpace(pre.ControlTarget) == "" {
-			tri.NeedsClarify = true
-		}
-	case pre.HasMandate || strings.Contains(lower, "remember") || strings.Contains(lower, "remind"):
-		tri.Type = master.TriageSchedule
-		if pre.HasMandate {
-			tri.DurableFrag = []string{text}
-		}
-	case len(pre.TaskRefs) > 0 || len(pre.Paths) > 0 || len(pre.URLs) > 0:
-		tri.Type = master.TriageTask
-	}
-	return tri
+	return master.DeterministicTriage(text, pre)
 }
 
 // MemoryJudge answers the Table 2.1 memory-admission row through the

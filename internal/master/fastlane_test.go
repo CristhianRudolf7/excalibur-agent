@@ -135,3 +135,84 @@ func TestLooksLikeStatusQuery(t *testing.T) {
 		}
 	}
 }
+
+func TestFastLaneDoesNotTreatWorldActionAsRunStatus(t *testing.T) {
+	// Force the risky high-confidence model labels independently of the
+	// intake gate, so either classification path remains safe.
+	for _, kind := range []TriageType{TriageStatusQuery, TriageQuickAction} {
+		for _, text := range []string{"baja la pinza 5 cm", "move the gripper down 5 cm", "dime el estado del brazo"} {
+			t.Run(string(kind)+"/"+text, func(t *testing.T) {
+				t.Setenv("EXCALIBUR_INTAKE_GATED_TRIAGE", "false")
+				t.Setenv("EXCALIBUR_INTAKE_FAST_LANE_GUARD", "true")
+				controls := newFakeControls()
+				controls.seed("run_1", "worker", types.RunRunning)
+				// A world command may mention an agent name, but that alone
+				// does not make it a request about that agent's run.
+				lex := NewLexicon()
+				for _, name := range []string{"pinza", "gripper", "brazo"} {
+					lex.AddAgent(name, "worker")
+				}
+				dec := &FakeDecider{Fn: func(string, Preanalysis) Triage { return Triage{Type: kind, Confidence: .99} }}
+				in := fastIntake(text, lex, dec)
+				lane := &FastLane{Controls: controls, HasDecider: true}
+				if out := lane.Handle(context.Background(), in); out.Handled {
+					t.Fatalf("world command became run status: %+v", out)
+				}
+			})
+		}
+	}
+}
+
+func TestFastLaneGuardSwitch(t *testing.T) {
+	for _, enabled := range []string{"true", "false"} {
+		t.Run(enabled, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INTAKE_FAST_LANE_GUARD", enabled)
+			controls := newFakeControls()
+			controls.seed("run_1", "worker", types.RunRunning)
+			in := IntakeResult{Msg: Normalized{Text: "estado"}, Triage: Triage{Type: TriageStatusQuery, Confidence: .99}, Decided: true}
+			lane := &FastLane{Controls: controls, HasDecider: true}
+			if got := lane.Handle(context.Background(), in); got.Handled != (enabled == "false") {
+				t.Fatalf("switch=%s: %+v", enabled, got)
+			}
+		})
+	}
+}
+
+func TestIntakeKeepsControlAndStatusRouting(t *testing.T) {
+	for _, tc := range []struct {
+		text    string
+		handled bool
+		rest    string
+		paused  int
+	}{
+		{"pausa T2", false, "", 0}, // Unresolved task control still reaches the master.
+		{"¿cómo va R3?", true, "", 0},
+		{"cancel everything", false, "", 0}, // Unresolved collective control still reaches the master.
+		{"cancela todo", false, "", 0},
+		{"/status run_1", true, "", 0},
+		{"/status", false, "", 0}, // Existing targetless slash behavior is unchanged.
+		{"/stop", true, "", 0},
+		{"STOP", true, "", 0},
+		{"pause run_1 and explain the result", true, "explain the result", 1},
+		{"detén run_1 y explica el resultado", true, "explica el resultado", 1},
+	} {
+		t.Run(tc.text, func(t *testing.T) {
+			controls := newFakeControls()
+			controls.seed("run_1", "worker", types.RunRunning)
+			dec := &FakeDecider{Fn: func(string, Preanalysis) Triage { return Triage{Type: TriageQuickAction, Confidence: .95} }}
+			in := fastIntake(tc.text, nil, dec)
+			lane := &FastLane{Controls: controls, HasDecider: true}
+			out := lane.Handle(context.Background(), in)
+			if out.Handled != tc.handled || out.Rest != tc.rest || len(controls.Paused) != tc.paused {
+				t.Fatalf("routing: %+v, paused=%v", out, controls.Paused)
+			}
+			wantCalls := 1
+			if in.Pre.IsCommand {
+				wantCalls = 0
+			}
+			if dec.Calls != wantCalls {
+				t.Fatalf("decider calls=%d, want %d", dec.Calls, wantCalls)
+			}
+		})
+	}
+}

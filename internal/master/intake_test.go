@@ -2,6 +2,7 @@ package master
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,9 +97,8 @@ func TestPreanalysisCorpus(t *testing.T) {
 	}
 }
 
-// Section 6.7: triage never adds an LLM call. Intake uses the decider
-// (or defers to the master turn) and the fast lane calls no model.
-func TestTriageAddsNoLLMCall(t *testing.T) {
+// Ordinary work defers classification to the master turn.
+func TestOrdinaryWorkSkipsTriage(t *testing.T) {
 	lex := NewLexicon()
 	dec := &FakeDecider{Fn: func(text string, pre Preanalysis) Triage {
 		return Triage{Type: TriageTask, Confidence: 0.9}
@@ -111,10 +111,127 @@ func TestTriageAddsNoLLMCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !in.Decided || dec.Calls != 1 {
-		t.Fatalf("decider must run exactly once, calls=%d", dec.Calls)
+	if in.Decided || dec.Calls != 0 || in.Triage.Type != TriageConversation {
+		t.Fatalf("ordinary work must skip the decider: %+v, calls=%d", in, dec.Calls)
 	}
 	if model.Calls != 0 {
 		t.Fatalf("intake must not call the model, calls=%d", model.Calls)
+	}
+}
+
+func TestIntakeCandidateVocabulary(t *testing.T) {
+	t.Setenv("EXCALIBUR_INTAKE_GATED_TRIAGE", "true")
+	var candidates []string
+	// Exercise every existing English and Spanish control/status spelling.
+	for _, verb := range controlVerbs {
+		for _, word := range verb.words {
+			candidates = append(candidates, strings.TrimSpace(word)+" lena")
+		}
+	}
+	candidates = append(candidates, statusWords...)
+	candidates = append(candidates, "pausa T2", "¿cómo va R3?", "cancel everything", "cancela todo", "T12", "R3", "tsk_01ARZ3NDEKTSV4RRFFQ69G5FAV", "run_01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	for _, text := range candidates {
+		t.Run(text, func(t *testing.T) {
+			dec := &FakeDecider{}
+			in := fastIntake(text, nil, dec)
+			if in.Pre.IsCommand {
+				if in.Decided || dec.Calls != 0 {
+					t.Fatalf("slash command classified: %+v", in)
+				}
+			} else if !in.Decided || dec.Calls != 1 {
+				t.Fatalf("candidate skipped classification: %+v, calls=%d", in, dec.Calls)
+			}
+		})
+	}
+}
+
+func TestIntakeGateSwitch(t *testing.T) {
+	for _, value := range []string{"", "true", "false", "0", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INTAKE_GATED_TRIAGE", value)
+			dec := &FakeDecider{}
+			in := fastIntake("Hello", nil, dec)
+			want := value == "false" || value == "0"
+			if in.Decided != want || (dec.Calls == 1) != want {
+				t.Fatalf("switch=%q: %+v calls=%d", value, in, dec.Calls)
+			}
+		})
+	}
+}
+
+// Deliberately ignore context to verify that intake enforces its own bound.
+type uncooperativeIntakeDecider struct {
+	release  <-chan struct{}
+	finished chan<- struct{}
+}
+
+func (d uncooperativeIntakeDecider) Classify(context.Context, string, Preanalysis) Triage {
+	<-d.release
+	close(d.finished)
+	return Triage{Type: TriageQuickAction, Confidence: 1}
+}
+
+func TestIntakeTimeoutFallsBackWithoutLateControls(t *testing.T) {
+	t.Setenv("EXCALIBUR_INTAKE_DECIDER_TIMEOUT", "20ms")
+	release, finished := make(chan struct{}), make(chan struct{})
+	dec := uncooperativeIntakeDecider{release, finished}
+	start := time.Now()
+	in := fastIntake("pause run_1", nil, dec)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("intake waited %s", elapsed)
+	}
+	if in.Decided || in.Triage.Type != TriageStatusQuery {
+		t.Fatalf("timeout did not use deterministic fallback: %+v", in)
+	}
+	controls := newFakeControls()
+	controls.seed("run_1", "worker", types.RunRunning)
+	lane := &FastLane{Controls: controls, HasDecider: true}
+	if out := lane.Handle(context.Background(), in); out.Handled {
+		t.Fatalf("timeout must reach master: %+v", out)
+	}
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("late decider could not finish")
+	}
+	if len(controls.Paused) != 0 {
+		t.Fatal("late result executed a control")
+	}
+}
+
+func TestIntakeDeciderTimeoutSetting(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 2500 * time.Millisecond}, {"invalid", 2500 * time.Millisecond}, {"-1s", 2500 * time.Millisecond},
+		{"0", 0}, {"20ms", 20 * time.Millisecond}, {"1s", time.Second},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INTAKE_DECIDER_TIMEOUT", tc.value)
+			if got := intakeDeciderTimeout(); got != tc.want {
+				t.Fatalf("timeout=%s want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIntakeCanceledContextSkipsDecider(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	dec := &FakeDecider{}
+	tri, decided := classifyIntake(ctx, dec, "pause R3", Preanalysis{ControlIntent: "pause", ControlTarget: "R3"})
+	if decided || dec.Calls != 0 || tri.Type != TriageStatusQuery {
+		t.Fatalf("canceled intake classified: %+v, calls=%d", tri, dec.Calls)
+	}
+}
+
+func TestIntakeTimeoutDisabled(t *testing.T) {
+	t.Setenv("EXCALIBUR_INTAKE_DECIDER_TIMEOUT", "0")
+	dec := &FakeDecider{}
+	in := fastIntake("pause R3", nil, dec)
+	if !in.Decided || dec.Calls != 1 {
+		t.Fatalf("disabled deadline: %+v, calls=%d", in, dec.Calls)
 	}
 }

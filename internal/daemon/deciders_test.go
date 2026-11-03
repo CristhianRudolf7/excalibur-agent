@@ -2,6 +2,11 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
@@ -74,5 +79,87 @@ func TestRerankToolsOrder(t *testing.T) {
 	}
 	if got2 := RerankTools(ctx, nil, "q", []string{"a", "b"}); len(got2) != 2 {
 		t.Fatalf("nil rerank changed the set: %v", got2)
+	}
+}
+
+type intakeChoiceRecorder struct {
+	questions []models.Question
+	answer    models.Answer
+	err       error
+}
+
+func (r *intakeChoiceRecorder) Ask(_ context.Context, q models.Question) (models.Answer, error) {
+	r.questions = append(r.questions, q)
+	return r.answer, r.err
+}
+
+func TestIntakeSingleQuestion(t *testing.T) {
+	for _, scopes := range [][]string{nil, {"general"}, {"general", "project:p1"}} {
+		t.Run(fmt.Sprint(scopes), func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INTAKE_SINGLE_QUESTION", "true")
+			dec := &intakeChoiceRecorder{answer: models.Answer{Choice: "quick_action", Prob: .95}}
+			d := NewModelDecider(dec, scopes)
+			pre := master.Preanalyze("pause R3", nil, time.Now(), time.UTC)
+			tri := d.Classify(context.Background(), "pause R3", pre)
+			want := 1
+			if len(scopes) > 1 {
+				want = 2
+			}
+			if len(dec.questions) != want || dec.questions[0].Prompt != "request type of the message" {
+				t.Fatalf("questions=%+v, want %d", dec.questions, want)
+			}
+			if tri.Confidence != .95 || len(tri.DurableFrag) != 0 || tri.NeedsClarify {
+				t.Fatalf("triage=%+v", tri)
+			}
+		})
+	}
+}
+
+func TestIntakeSingleQuestionSwitch(t *testing.T) {
+	for _, value := range []string{"", "true", "false", "invalid"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("EXCALIBUR_INTAKE_SINGLE_QUESTION", value)
+			dec := &intakeChoiceRecorder{answer: models.Answer{Choice: "conversation", Prob: .95}}
+			tri := NewModelDecider(dec, nil).Classify(context.Background(), "Hello", master.Preanalysis{})
+			want := 1
+			if value == "false" {
+				want = 4
+			}
+			if len(dec.questions) != want {
+				t.Fatalf("got %d questions, want %d", len(dec.questions), want)
+			}
+			if value != "false" && (tri.NeedsClarify || len(tri.DurableFrag) != 0) {
+				t.Fatalf("unused model metadata populated: %+v", tri)
+			}
+		})
+	}
+}
+
+func TestIntakeClarificationUsesDeterministicSignals(t *testing.T) {
+	t.Setenv("EXCALIBUR_INTAKE_SINGLE_QUESTION", "true")
+	for _, text := range []string{"pause", "cancel R3"} {
+		dec := &intakeChoiceRecorder{answer: models.Answer{Choice: "quick_action", Prob: .95}}
+		pre := master.Preanalyze(text, nil, time.Now(), time.UTC)
+		tri := NewModelDecider(dec, nil).Classify(context.Background(), text, pre)
+		if !tri.NeedsClarify || len(dec.questions) != 1 {
+			t.Fatalf("%s: %+v, questions=%d", text, tri, len(dec.questions))
+		}
+	}
+}
+
+func TestIntakeDeciderErrorUsesDeterministicTriage(t *testing.T) {
+	dec := &intakeChoiceRecorder{err: errors.New("unavailable")}
+	pre := master.Preanalysis{ControlIntent: "pause", ControlTarget: "R3"}
+	tri := NewModelDecider(dec, nil).Classify(context.Background(), "pause R3", pre)
+	if tri.Type != master.TriageStatusQuery || tri.Confidence != 1 || len(dec.questions) != 1 {
+		t.Fatalf("triage=%+v, questions=%d", tri, len(dec.questions))
+	}
+}
+
+func TestIntakeQuickActionRetainsItsType(t *testing.T) {
+	dec := &intakeChoiceRecorder{answer: models.Answer{Choice: "quick_action", Prob: .99}}
+	tri := NewModelDecider(dec, nil).Classify(context.Background(), "baja la pinza 5 cm", master.Preanalysis{})
+	if tri.Type != master.TriageQuickAction {
+		t.Fatalf("quick action became %s", tri.Type)
 	}
 }

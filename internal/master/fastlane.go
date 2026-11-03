@@ -60,7 +60,8 @@ type Outcome struct {
 }
 
 // Handle applies the Section 6.1 table to one intake result.
-func (f *FastLane) Handle(ctx context.Context, in IntakeResult) Outcome {
+func (f *FastLane) Handle(ctx context.Context, in IntakeResult) (out Outcome) {
+	defer func() { in.logTiming(out.Handled) }()
 	_ = ctx
 	text := strings.TrimSpace(in.Msg.Text)
 	if in.Pre.IsCommand {
@@ -72,6 +73,12 @@ func (f *FastLane) Handle(ctx context.Context, in IntakeResult) Outcome {
 		return Outcome{}
 	}
 	if in.Triage.Confidence < 0.7 {
+		return Outcome{}
+	}
+	// A model label alone cannot turn a world action into a run snapshot.
+	// Status vocabulary can request triage, but serving a natural-language
+	// reply also requires deterministic evidence of control or a task/run.
+	if intakeSwitch("EXCALIBUR_INTAKE_FAST_LANE_GUARD") && in.Pre.ControlIntent == "" && len(in.Pre.TaskRefs) == 0 && len(in.Pre.RunRefs) == 0 {
 		return Outcome{}
 	}
 	switch in.Triage.Type {

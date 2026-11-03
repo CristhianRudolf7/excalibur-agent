@@ -2,11 +2,15 @@ package master
 
 import (
 	"context"
+	"log/slog"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
 
@@ -209,8 +213,8 @@ type Triage struct {
 }
 
 // Decider answers bounded triage questions. Implementations are the
-// cheap decision model (Section 19.4); tests use FakeDecider. Intake
-// never calls an LLM for triage (Section 6.1 cost rule).
+// decision model (Section 19.4); tests use FakeDecider. Only potential
+// fast-lane messages need classification before the master turn.
 type Decider interface {
 	Classify(ctx context.Context, text string, pre Preanalysis) Triage
 }
@@ -314,20 +318,21 @@ type IntakeResult struct {
 	Triage  Triage
 	MsgID   types.MessageID
 	SentAt  time.Time
-	Decided bool // true when the decider ran
+	Decided bool // true when the decider completed before the deadline
+	timing  intakeTiming
 }
 
 // Intake runs the Section 6.1 pipeline: normalize, persist with
 // interactive priority, preanalyze, and triage only when the
-// preanalysis does not resolve the case. The cost rule holds: triage
-// uses the decider or defers to the master turn, never an LLM call.
+// preanalysis identifies a potential fast-lane message. Ordinary
+// conversation defers classification to the master turn.
 func Intake(ctx context.Context, msg Normalized, persist func(Normalized) (types.MessageID, error), lex *Lexicon, dec Decider, now time.Time, loc *time.Location) (IntakeResult, error) {
 	id, err := persist(msg)
 	if err != nil {
 		return IntakeResult{}, err
 	}
 	pre := Preanalyze(msg.Text, lex, now, loc)
-	res := IntakeResult{Msg: msg, Pre: pre, MsgID: id, SentAt: now}
+	res := IntakeResult{Msg: msg, Pre: pre, MsgID: id, SentAt: now, Triage: Triage{Type: TriageConversation}}
 	// Slash commands resolve in preanalysis alone. Natural-language
 	// control and status queries still run the decider when one is
 	// configured: the fast lane serves them only with high confidence
@@ -337,9 +342,110 @@ func Intake(ctx context.Context, msg Normalized, persist func(Normalized) (types
 		res.Triage = Triage{Type: TriageQuickAction, Confidence: 1}
 		return res, nil
 	}
-	if dec != nil {
-		res.Triage = dec.Classify(ctx, msg.Text, pre)
-		res.Decided = true
+	res.timing.gated = intakeSwitch("EXCALIBUR_INTAKE_GATED_TRIAGE") && !triageCandidate(msg.Text, pre)
+	if dec != nil && !res.timing.gated {
+		start := time.Now()
+		if ctx.Err() == nil {
+			res.timing.deciderCalls = 1
+		}
+		res.Triage, res.Decided = classifyIntake(ctx, dec, msg.Text, pre)
+		res.timing.deciderDuration = time.Since(start)
 	}
 	return res, nil
+}
+
+// intakeSwitch defaults latency improvements on, including on invalid input.
+func intakeSwitch(name string) bool {
+	enabled, err := strconv.ParseBool(os.Getenv(name))
+	return err != nil || enabled
+}
+
+func triageCandidate(text string, pre Preanalysis) bool {
+	return pre.ControlIntent != "" || len(pre.TaskRefs) > 0 || len(pre.RunRefs) > 0 || looksLikeStatusQuery(text)
+}
+
+// A zero duration explicitly disables the deadline for rollback. Invalid
+// values retain the default, so a typo cannot accidentally remove the bound.
+func intakeDeciderTimeout() time.Duration {
+	value, err := time.ParseDuration(os.Getenv("EXCALIBUR_INTAKE_DECIDER_TIMEOUT"))
+	if err != nil || value < 0 {
+		return 2500 * time.Millisecond
+	}
+	return value
+}
+
+func classifyIntake(ctx context.Context, dec Decider, text string, pre Preanalysis) (Triage, bool) {
+	timeout := intakeDeciderTimeout()
+	if timeout == 0 {
+		return dec.Classify(ctx, text, pre), true
+	}
+	bounded, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if bounded.Err() != nil {
+		return DeterministicTriage(text, pre), false
+	}
+	result := make(chan Triage, 1)
+	safego.Go("intake-decider", nil, func() {
+		result <- dec.Classify(bounded, text, pre)
+	})
+	select {
+	case tri := <-result:
+		// Do not act on a result arriving at or after the deadline.
+		if bounded.Err() == nil {
+			return tri, true
+		}
+	case <-bounded.Done():
+	}
+	// Keep deterministic metadata, but make the master handle the message.
+	// A late answer can only write to the buffered channel, never run controls.
+	return DeterministicTriage(text, pre), false
+}
+
+// DeterministicTriage supplies the model-free intake fallback (Section 6.1).
+func DeterministicTriage(text string, pre Preanalysis) Triage {
+	lower := strings.ToLower(strings.TrimSpace(text))
+	tri := Triage{Type: TriageConversation, Confidence: 1}
+	switch {
+	case pre.IsCommand:
+		tri.Type = TriageStatusQuery
+	case pre.ControlIntent == "status":
+		tri.Type = TriageStatusQuery
+	case pre.ControlIntent == "pause" || pre.ControlIntent == "resume" ||
+		pre.ControlIntent == "cancel" || pre.ControlIntent == "redirect" ||
+		pre.ControlIntent == "stop" || pre.ControlIntent == "approve" ||
+		pre.ControlIntent == "deny":
+		tri.Type = TriageStatusQuery
+		tri.CorrectionTarget = strings.TrimSpace(pre.ControlTarget)
+		if pre.ControlIntent == "redirect" {
+			tri.Type = TriageCorrection
+		}
+		if strings.TrimSpace(pre.ControlTarget) == "" {
+			tri.NeedsClarify = true
+		}
+	case pre.HasMandate || strings.Contains(lower, "remember") || strings.Contains(lower, "remind"):
+		tri.Type = TriageSchedule
+		if pre.HasMandate {
+			tri.DurableFrag = []string{text}
+		}
+	case len(pre.TaskRefs) > 0 || len(pre.Paths) > 0 || len(pre.URLs) > 0:
+		tri.Type = TriageTask
+	}
+	return tri
+}
+
+// Timing describes the intake work, without message or provider data.
+// Calls count Classify attempts, including timeouts; slash commands use zero.
+type intakeTiming struct {
+	gated           bool
+	deciderCalls    int
+	deciderDuration time.Duration
+}
+
+func (in IntakeResult) logTiming(fastLane bool) {
+	if intakeSwitch("EXCALIBUR_INTAKE_TIMING") {
+		slog.Info("intake timing", "gated", in.timing.gated,
+			"decider_calls", in.timing.deciderCalls,
+			"decider_ms", float64(in.timing.deciderDuration)/float64(time.Millisecond),
+			"fast_lane", fastLane)
+	}
 }
