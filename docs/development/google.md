@@ -53,3 +53,97 @@ malformed callbacks, browser-state mismatch and partial consent are handled.
 New-account email comes from Google's verified userinfo response. The provider
 uses Google's documented token and revocation endpoints:
 [OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server).
+
+# Google connection
+
+## Agent tools (google/tools)
+
+The daemon chat exposes `gmail`, `drive`, and `docs` as deferred tools in the
+`default` profile. Registration happens in `WireAssistantTurns`, after the
+embedded engine has been built. The tool names and definitions remain present
+while disconnected so connection changes do not invalidate the model tool list.
+Every invocation checks the daemon-owned `googleapi.TokenProvider`; a missing
+account directs the assistant to Settings → Connections → Connect Google, and an
+access-token failure or HTTP 401 directs it to Reconnect Google.
+
+`googleapi.RegisterTools` accepts the existing `tools.Registry` interface,
+a `TokenProvider`, and `ToolOptions`. Options inject an HTTP client, four API base
+URLs (including the API version prefix), and the daemon blob store. No SDK or
+additional dependency is required. Requests use context deadlines, refuse
+redirects, bound responses to 25 MiB, and do not retry external writes. Provider
+errors, transport errors and Google error bodies are never echoed to the model.
+
+### Actions and arguments
+
+| Tool | Implemented actions | Main arguments |
+| --- | --- | --- |
+| `gmail` | search, read, draft, send, modify, archive, trash, untrash, delete, labels | `query`, `max_results`, `page_token`, `id`, `thread_id`, `draft_id`, `reply_to_id`, `to`, `cc`, `bcc`, `subject`, `body`, `attachments`, `add_labels`, `remove_labels`, `read`, `starred`, `name` |
+| `drive` | search, list, get, download, upload, create_folder, move, rename, copy, share, trash, delete | `query`, `plain_text`, `max_results`, `page_token`, `id`, `folder_id`, `name`, `format`, `digest`, `text`, `mime_type`, `role`, `email`, `anyone` |
+| `docs` | read, create, append, replace_text, insert | `id`, `title`, `text`, `find`, `replacement`, `after_heading` |
+
+Gmail search returns metadata summaries and pagination. Read accepts a message
+`id` or a `thread_id`, prefers plain text over stripped HTML, and lists attachment
+names, MIME types, sizes and attachment IDs. Bodies share a 12,000-character
+budget per read. `labels` lists labels unless `name` requests creation.
+`draft_id` updates an existing draft; `send` with `draft_id` sends that draft.
+To/Cc/Bcc are arrays of mailbox strings. Attachments are objects with a SHA-256
+`digest`, `name`, and optional `mime_type`, using an existing daemon blob.
+Library documents can be attached once their original blob digest is known.
+Replies use `reply_to_id` to obtain the parent Message-ID, References and thread;
+conflicting thread IDs and header injection are rejected. Headers use RFC 2047
+for UTF-8 subjects and mailbox display names; bodies use quoted-printable and
+attachments use MIME base64 with RFC 2231 filenames.
+
+Drive search accepts Drive query syntax or ordinary text, converted to
+`fullText contains`; `plain_text:true` forces literal search. List defaults to
+`root`. Downloads store bytes in the daemon blob store and return a digest and
+openable `/blobs/{digest}?mime=...` URL. Native Google documents default to PDF;
+Docs additionally support DOCX, Markdown and plain text, Sheets support XLSX,
+and Slides support PPTX and plain text. Invalid source/format pairs fail before
+export. Upload accepts either `text` or `digest` plus `name` and optional
+`folder_id`. Move reads existing parents and replaces them; share supports
+reader/commenter/writer for an email or `anyone:true` with discovery disabled.
+
+Docs read renders named headings as Markdown, including tables and document
+tabs, with a 16,000-character budget. Create/append/insert accept plain text or
+Markdown source, stored verbatim; Markdown is not converted to rich formatting.
+Insert without `after_heading` appends; insertion after a heading requires one
+unambiguous match and uses the server's UTF-16 document index and revision guard.
+`replace_text` is case-sensitive and replaces every match across the document.
+
+### Confirmation policy
+
+`gmail.send`, `gmail.delete`, `gmail.trash`, `drive.delete`, `drive.trash`,
+`drive.share`, and `docs.replace_text` require `confirmed:true`. Otherwise the
+tool returns a denied result before acquiring a token or issuing HTTP, explains
+the proposed effect and arguments, and instructs the assistant to show the user
+recipients, subject, attachments, file IDs, sharing access or exact replacement
+and ask for explicit chat approval. `EXCALIBUR_GOOGLE_CONFIRM=0` or the daemon's
+explicit `ToolOptions.DisableConfirmation` option disables this gate. Tool
+arguments cannot disable the policy.
+
+### Merge notes
+
+The tools branch temporarily declares the shared token-provider contract in
+`internal/googleapi/provider_contract_tmp.go`. Delete that file when merging the
+OAuth implementation's `provider.go`. The additive `Services.Google` field must
+be kept once, assigned by OAuth startup before serving requests. The tools use
+that field through a forwarding provider, without owning token persistence,
+refresh, OAuth RPCs, callback routes or Settings UI. The only production edits
+outside `internal/googleapi` are the services field and chat registration/allowlist.
+No embedded/eval tools, core profiles or frozen tool-prefix hashes are changed.
+
+### Verification
+
+HTTP fakes exercise every action, MIME with Spanish accents and emoji,
+attachment bytes, reply headers, export formats, blob round trips, query escaping,
+confirmation gates and overrides, missing/revoked accounts, and sanitized HTTP
+failures. Daemon tests exercise deferred registration, default-only profiles,
+stable prefix hashes, provider forwarding and actual conversational tool calls.
+The existing `TestEmbeddedSurfaceAndEvalProfileDoNotMove` pins eval and embedded
+surface hashes. Full verification results are recorded below after execution.
+
+API references: [Gmail REST](https://developers.google.com/workspace/gmail/api/reference/rest),
+[Gmail threading](https://developers.google.com/workspace/gmail/api/guides/threads),
+[Drive REST](https://developers.google.com/workspace/drive/api/reference/rest/v3),
+[Docs batch requests](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/request).
