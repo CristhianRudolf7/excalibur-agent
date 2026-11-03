@@ -47,3 +47,11 @@ the stable agent profile or prior messages. A later message without context gets
 no note, even when earlier history came from the classroom. Unknown future apps
 are accepted without a resolver; classroom lookup failures produce a compact
 unavailable status, allowing the conversation to continue.
+
+The integrated tool uses the real backend service through `AgentAdapter`, so
+trusted history includes quiz answers, submitted answers and private question
+explanations. Browser grading results, attempt views and graded events contain
+only question IDs and correctness flags. Private model explanations may name
+the correct option and therefore stay behind the trusted boundary even after
+grading. Learner feedback is a separate agent write, following the skill's
+instruction to explain the reasoning without disclosing answer keys.

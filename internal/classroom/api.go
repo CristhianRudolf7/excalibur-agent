@@ -135,7 +135,7 @@ func (s *Service) Op(ctx context.Context, method string, raw json.RawMessage) (a
 		result, err := s.Submit(ctx, p.QuizID, answers)
 		out := api.ClassroomSubmitResult{Attempt: result.Attempt, Passed: result.Passed, Results: []api.ClassroomAnswerResult{}}
 		for _, r := range result.Results {
-			out.Results = append(out.Results, api.ClassroomAnswerResult(r))
+			out.Results = append(out.Results, api.ClassroomAnswerResult{QuestionID: r.QuestionID, Correct: r.Correct})
 		}
 		return out, err
 	case api.MethodClassroomAttempts:

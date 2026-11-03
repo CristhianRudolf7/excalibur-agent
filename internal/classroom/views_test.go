@@ -38,7 +38,7 @@ func TestClientViewsNeverSerializeAnswerKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), `"answers"`) || strings.Contains(string(raw), `"pairs"`) || !strings.Contains(string(raw), `"correct":true`) || !strings.Contains(string(raw), "Review the rule") {
+	if strings.Contains(string(raw), `"answers"`) || strings.Contains(string(raw), `"pairs"`) || !strings.Contains(string(raw), `"correct":true`) || strings.Contains(string(raw), "Review the rule") {
 		t.Fatal(string(raw))
 	}
 }

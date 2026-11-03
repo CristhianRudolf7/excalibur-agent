@@ -40,7 +40,7 @@ func (c Course) View() CourseView {
 func (a Attempt) View() AttemptView {
 	results := make([]api.ClassroomAnswerResult, 0, len(a.Results))
 	for _, r := range a.Results {
-		results = append(results, api.ClassroomAnswerResult{QuestionID: r.QuestionID, Correct: r.Correct, Explanation: r.Explanation})
+		results = append(results, api.ClassroomAnswerResult{QuestionID: r.QuestionID, Correct: r.Correct})
 	}
 	return AttemptView{ID: a.ID, QuizID: a.QuizID, Results: results, Passed: a.Passed, Feedback: a.Feedback, CreatedAt: a.CreatedAt}
 }
