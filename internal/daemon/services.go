@@ -10,6 +10,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/journal"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/library"
@@ -380,6 +381,7 @@ type Services struct {
 	History       *workspace.History
 	Sources       tools.SourceRecorder
 	Whiteboard    *whiteboard.Service
+	Classroom     *classroom.Service
 	BrowserWeb    *wireengine.BrowserWeb
 
 	Automations AutomationLifecycle
@@ -420,6 +422,7 @@ type Services struct {
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
 	Whiteboard *whiteboard.Service
+	Classroom  *classroom.Service
 	// Media supplies optional real document backends.
 	Media *tools.MediaDeps
 	// BrowserWeb is supplied by production startup; nil preserves test fakes.
@@ -461,6 +464,10 @@ type AssembleOptions struct {
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
 	s := &Services{Bus: opts.Bus, Decider: opts.Decider}
+	s.Classroom = opts.Classroom
+	if s.Classroom == nil {
+		s.Classroom = classroom.NewService(nil, opts.Bus)
+	}
 	s.Whiteboard = opts.Whiteboard
 	if s.Whiteboard == nil {
 		s.Whiteboard = whiteboard.NewService(nil, opts.Bus)

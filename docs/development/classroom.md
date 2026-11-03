@@ -29,3 +29,59 @@ There is one agent conversation (the same one used from Telegram). The classroom
 
 ## Agent tool `classroom` (default surface, deferred with intent keywords: course, curso, learn, aprender, study, estudiar, class, clase, quiz, exam)
 Actions: `create_course` {title, goal, level, language, units[{title, topics[{title, summary}]}]}; `update_syllabus`; `get_course`; `write_class` {course_id, topic_id, format: chat|whiteboard, content, whiteboard_id?}; `create_quiz` {course_id, topic_id? | final:true, questions[Question with answers]} (validated: kinds, option counts, correct indexes, matching is a permutation, final exam size); `write_feedback` {attempt_id, feedback}; `list_courses`.
+
+## Backend integration
+
+The daemon owns one `*classroom.Service`. `NewService(NewStore(db), bus)` uses the
+existing main database and bus; `NewService(nil, bus)` creates an isolated memory
+store. Trusted agent callers use these methods (all take `context.Context` first):
+
+- `CreateCourse(Course) (Course, error)`; generated IDs and initial state replace caller state.
+- `GetCourse(courseID) (Course, error)`, `ListCourses() ([]CourseSummary, error)`, `DeleteCourse(courseID) error`.
+- `UpdateSyllabus(courseID, []Unit) (Course, error)`; omit IDs for additions.
+- `OpenTopic(courseID, topicID) (OpenTopicResult, error)`.
+- `WriteClass(courseID, topicID, Class) (Class, error)`.
+- `CreateQuiz(courseID, topicID, final, []Question) (Quiz, error)`.
+- `RequestQuiz(courseID, topicID, final) (QuizRequestResult, error)` and `GetQuiz(quizID) (Quiz, error)`.
+- `Submit(quizID, []Answer) (SubmitResult, error)`.
+- `WriteFeedback(attemptID, feedback) (Attempt, error)` and `Attempts(courseID, topicID) ([]Attempt, error)`.
+
+Client routes return explicit views. `classroom.request_quiz` returns
+`{requested: true}` when generation is needed, or `{requested: false, quiz: QuizView}`
+when an unanswered quiz exists. `classroom.attempts` returns `{attempts: AttemptView[]}`;
+these views contain results and feedback without submitted answer arrays.
+`classroom.update_syllabus` returns the updated `CourseView`; `classroom.delete`
+returns `{ok: true}`. Course summaries use `total_topics` and `completed_topics`.
+
+Event payloads always include `course_id` and include `topic_id`, `quiz_id`,
+`attempt_id` and `final` when applicable. Course creation, updates and completion
+include `course: CourseView`; deletion uses `classroom.course_updated` with
+`deleted: true`. Class-ready events include `class`; quiz-ready events include
+`quiz: QuizView`. Graded events include `passed` and `results`; feedback-ready
+events include `feedback`. Topic completion includes `topic` and `progress`.
+Request events contain identifiers only. The full additive shapes are exported
+in `packages/contracts/methods.json` and `events.json`; regenerate them with
+`EXCALIBUR_UPDATE_CLASSROOM_CONTRACTS=1 go test ./internal/api -run TestClassroomContracts`.
+
+A quiz accepts one submission. Invalid answer encodings do not consume it;
+missing answers are graded incorrect. Retrying requires a fresh quiz. The final
+exam is revalidated against the current syllabus when requested and submitted.
+
+## Backend verification
+
+`internal/classroom` covers SQLite migration from the previous schema,
+round-trip persistence across database close/reopen, rollback and cascading
+erasure, stable syllabus IDs, progress after removals and additions, final-exam
+unlocking and size, all three grading kinds, partial and missing answers,
+malformed submissions, one attempt per quiz, latest unanswered-quiz reuse,
+feedback history and completion events emitted once. Two service instances
+sharing storage cannot commit duplicate attempts. Cancellation returns no
+partially loaded mutation result while the porter finishes its command.
+
+JSON assertions check that quiz responses and quiz-ready events omit answer
+keys and explanations, and attempt history omits answer arrays. Contract tests
+check all exported client shapes against the Go API and both registries against
+the JSON exports. Daemon tests exercise every classroom RPC through HTTP and
+WebSocket and verify service injection. A scripted conversational turn verifies
+that per-message classroom context reaches the model and tool context, survives
+queueing, and does not leak into a later ordinary message in the same history.

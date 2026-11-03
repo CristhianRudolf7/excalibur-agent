@@ -14,6 +14,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
@@ -232,6 +233,7 @@ func runDaemonStart(args []string) error {
 	}
 	svc, err := daemon.Assemble(daemon.AssembleOptions{
 		Whiteboard: whiteboard.NewService(whiteboard.NewStore(db), bus),
+		Classroom:  classroom.NewService(classroom.NewStore(db), bus),
 		BrowserWeb: webOpts,
 		Store:      orchStore, Orch: orch, Jrnl: jrnl, Bus: bus,
 		Models: endpoint, ModelID: modelSettings.Model, Media: media,
@@ -335,6 +337,7 @@ func runDaemonStart(args []string) error {
 		Sources:     svc.Sources,
 		TaskQueries: taskQueries, Reminders: reminderService, Automations: automationService,
 		Whiteboard: svc.Whiteboard,
+		Classroom:  svc.Classroom,
 		Library:    daemon.LibraryRoutesFor(memSvc, svc.Library, []string{"general"}),
 		Principal:  principal,
 		Tasks:      tasks,

@@ -121,3 +121,42 @@ const (
 	MaxTopicProgress  = 99
 	MinFinalQuestions = 10
 )
+
+// CourseSummary is the compact course list item.
+type CourseSummary struct {
+	ID              string    `json:"id"`
+	Title           string    `json:"title"`
+	Progress        int       `json:"progress"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	TotalTopics     int       `json:"total_topics"`
+	CompletedTopics int       `json:"completed_topics"`
+}
+
+func (c Course) Summary() CourseSummary {
+	s := CourseSummary{ID: c.ID, Title: c.Title, Progress: c.Progress, UpdatedAt: c.UpdatedAt}
+	for _, u := range c.Units {
+		for _, t := range u.Topics {
+			s.TotalTopics++
+			if t.Status == "completed" {
+				s.CompletedTopics++
+			}
+		}
+	}
+	return s
+}
+
+type OpenTopicResult struct {
+	Topic Topic  `json:"topic"`
+	Class *Class `json:"class,omitempty"`
+}
+
+type QuizRequestResult struct {
+	Quiz      *Quiz `json:"quiz,omitempty"`
+	Requested bool  `json:"requested"`
+}
+
+type SubmitResult struct {
+	Attempt string         `json:"attempt"`
+	Passed  bool           `json:"passed"`
+	Results []AnswerResult `json:"results"`
+}

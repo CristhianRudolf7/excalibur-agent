@@ -51,6 +51,7 @@ func (m *MemStore) SaveMessage(_ context.Context, conv string, msg Normalized) (
 	defer m.mu.Unlock()
 	id := types.NewMessageID()
 	msg.Changes = api.CloneChanges(msg.Changes)
+	msg.AppContext = api.CloneAppContext(msg.AppContext)
 	m.msgs[conv] = append(m.msgs[conv], msg)
 	m.ids[conv] = append(m.ids[conv], id)
 	return id, nil
@@ -67,6 +68,7 @@ func (m *MemStore) History(conv string, limit int) []Normalized {
 	out := append([]Normalized(nil), rows...)
 	for i := range out {
 		out[i].Changes = api.CloneChanges(out[i].Changes)
+		out[i].AppContext = api.CloneAppContext(out[i].AppContext)
 	}
 	return out
 }
@@ -240,7 +242,7 @@ func (m *Master) ReceiveWithAttachments(ctx context.Context, clientID, clientMsg
 	if id, ok := m.store.LookupClientMsg(clientID, clientMsgID); ok {
 		return id, Outcome{}, nil
 	}
-	msg := Normalized{Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
+	msg := Normalized{AppContext: api.AppContextFrom(ctx), Text: text, Attachments: append([]string(nil), attachments...), Channel: "api", Language: "en"}
 	persist := func(n Normalized) (types.MessageID, error) {
 		return m.store.SaveMessage(ctx, conv, n)
 	}
@@ -253,7 +255,7 @@ func (m *Master) ReceiveWithAttachments(ctx context.Context, clientID, clientMsg
 		return in.MsgID, out, nil
 	} else if out.Handled {
 		// Mixed: control ran; the rest joins the turn.
-		rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
+		rest := IntakeResult{Msg: Normalized{Text: out.Rest, Channel: msg.Channel, AppContext: api.CloneAppContext(msg.AppContext)}, Pre: Preanalyze(out.Rest, m.lex, time.Now(), m.loc), MsgID: in.MsgID, SentAt: time.Now()}
 		m.turns.Deliver(conv, rest)
 		return in.MsgID, out, nil
 	}

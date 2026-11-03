@@ -11,6 +11,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/agenda"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/memory"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/skills"
@@ -38,6 +39,7 @@ type BackendServices struct {
 	Automations    automations.Service
 	Reminders      *agenda.ReminderService
 	Whiteboard     *whiteboard.Service
+	Classroom      *classroom.Service
 	Library        *LibraryRoutes
 
 	// Principal serves the read-only local profile.
@@ -158,6 +160,12 @@ func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params j
 		}
 	}
 
+	if strings.HasPrefix(method, "classroom.") {
+		if b.Services == nil {
+			return (*classroom.Service)(nil).Op(ctx, method, params)
+		}
+		return b.Services.Classroom.Op(ctx, method, params)
+	}
 	if strings.HasPrefix(method, "whiteboard.") {
 		if b.Services == nil {
 			return (*whiteboard.Service)(nil).Op(ctx, method, params)

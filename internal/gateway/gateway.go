@@ -281,6 +281,12 @@ func (s *Server) route(ctx context.Context, method string, params json.RawMessag
 		if p.ClientMsgID == "" || p.ConversationID == "" {
 			return nil, &api.Error{Code: api.CodeInvalidParams, Message: "conversation.send needs conversation_id and client_msg_id"}
 		}
+		if p.Context != nil {
+			if p.Context.App != "classroom" || (p.Context.TopicID != "" && p.Context.CourseID == "") {
+				return nil, &api.Error{Code: api.CodeInvalidParams, Message: "invalid classroom message context"}
+			}
+			ctx = api.WithAppContext(ctx, *p.Context)
+		}
 		msgID, _, err := s.backend.ConversationSend(ctx, clientID, p.ClientMsgID, p.ConversationID, p.Text)
 		if err != nil {
 			return nil, asAPIError(err)
