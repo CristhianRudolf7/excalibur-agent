@@ -1,0 +1,74 @@
+.google-connect {
+  display: grid;
+  gap: 1rem;
+}
+.google-heading,
+.google-state,
+.google-actions,
+.google-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+.google-heading h3 {
+  margin: 0;
+}
+.google-logo {
+  width: 2rem;
+  height: 2rem;
+  color: var(--foreground);
+}
+.google-actions {
+  flex-wrap: wrap;
+}
+.google-permissions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.google-permissions li {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.85rem;
+  background: var(--muted);
+}
+.google-warning {
+  color: var(--foreground);
+}
+.google-connect code {
+  overflow-wrap: anywhere;
+}
+.google-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  background: var(--muted);
+}
+.google-callback {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  min-height: 60vh;
+  gap: 1rem;
+}
+.google-spinner {
+  animation: google-spin 1s linear infinite;
+}
+@keyframes google-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .google-spinner {
+    animation: none;
+  }
+}

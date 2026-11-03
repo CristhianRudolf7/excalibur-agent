@@ -375,6 +375,11 @@ func (p *OAuth) AccessToken(ctx context.Context) (string, error) {
 	if !p.status().Connected {
 		return "", ErrNotConnected
 	}
+	if p.warning == "file_storage" && p.opts.Vault != nil && !p.opts.Vault.IsLocked() {
+		if err := p.persist(ctx); err != nil {
+			return "", err
+		}
+	}
 	if p.opts.Now().Add(time.Minute).Before(p.token.AccessExpiry) {
 		return p.token.AccessToken, nil
 	}

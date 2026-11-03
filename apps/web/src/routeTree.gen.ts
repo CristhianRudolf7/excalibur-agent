@@ -22,6 +22,7 @@ import { Route as TasksRouteImport } from './routes/tasks'
 import { Route as AgentsAgentIdRouteImport } from './routes/agents.$agentId'
 import { Route as AutomationsIdRouteImport } from './routes/automations.$id'
 import { Route as ComingSoonPageRouteImport } from './routes/coming-soon.$page'
+import { Route as OauthGoogleCallbackRouteImport } from './routes/oauth.google.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -88,6 +89,11 @@ const ComingSoonPageRoute = ComingSoonPageRouteImport.update({
   path: '/coming-soon/$page',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OauthGoogleCallbackRoute = OauthGoogleCallbackRouteImport.update({
+  id: '/oauth/google/callback',
+  path: '/oauth/google/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/oauth/google/callback': typeof OauthGoogleCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/oauth/google/callback': typeof OauthGoogleCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/agents/$agentId': typeof AgentsAgentIdRoute
   '/automations/$id': typeof AutomationsIdRoute
   '/coming-soon/$page': typeof ComingSoonPageRoute
+  '/oauth/google/callback': typeof OauthGoogleCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/oauth/google/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -166,6 +176,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/oauth/google/callback'
   id:
     | '__root__'
     | '/'
@@ -181,6 +192,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/automations/$id'
     | '/coming-soon/$page'
+    | '/oauth/google/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -196,6 +208,7 @@ export interface RootRouteChildren {
   TasksRoute: typeof TasksRoute
   AgentsAgentIdRoute: typeof AgentsAgentIdRoute
   ComingSoonPageRoute: typeof ComingSoonPageRoute
+  OauthGoogleCallbackRoute: typeof OauthGoogleCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComingSoonPageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/oauth/google/callback': {
+      id: '/oauth/google/callback'
+      path: '/oauth/google/callback'
+      fullPath: '/oauth/google/callback'
+      preLoaderRoute: typeof OauthGoogleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -319,6 +339,7 @@ const rootRouteChildren: RootRouteChildren = {
   TasksRoute: TasksRoute,
   AgentsAgentIdRoute: AgentsAgentIdRoute,
   ComingSoonPageRoute: ComingSoonPageRoute,
+  OauthGoogleCallbackRoute: OauthGoogleCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

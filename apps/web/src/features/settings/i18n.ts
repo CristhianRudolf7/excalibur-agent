@@ -1,4 +1,81 @@
 export const settingsMessages = {
+  googleCancel: ['Cancelar', 'Cancel'],
+  googleConnections: ['Conexiones', 'Connections'],
+  googleTitle: ['Google', 'Google'],
+  Gmail: ['Gmail', 'Gmail'],
+  Drive: ['Drive', 'Drive'],
+  Docs: ['Docs', 'Docs'],
+  googleIdentity: ['Identidad y correo', 'Identity and email'],
+  googlePermission: ['Permiso de Google', 'Google permission'],
+  googleAccount: ['cuenta de Google', 'Google account'],
+  googleConnect: ['Conectar Google', 'Connect Google'],
+  googleReconnect: ['Volver a conectar', 'Reconnect'],
+  googleDisconnect: ['Desconectar', 'Disconnect'],
+  googleNotConfigured: ['Google no está configurado', 'Google is not configured'],
+  googleDisconnected: ['Sin cuenta conectada', 'No account connected'],
+  googleConnected: ['Conectado como {{email}}', 'Connected as {{email}}'],
+  googleSetup: [
+    'Añade el archivo de cliente OAuth de tipo web y reinicia el daemon:',
+    'Add the web application OAuth client file and restart the daemon:',
+  ],
+  googlePermissions: ['Permisos concedidos', 'Granted permissions'],
+  googleMissing: [
+    'Faltan permisos: {{permissions}}. Vuelve a conectar y concede estos permisos.',
+    'Missing permissions: {{permissions}}. Reconnect and grant these permissions.',
+  ],
+  googleMissingNotice: [
+    'Google se conectó con permisos incompletos. Revisa los permisos que faltan.',
+    'Google connected with incomplete permissions. Review the missing permissions.',
+  ],
+  googleExpiry_one: [
+    'La autorización caduca en {{count}} hora',
+    'Authorization expires in {{count}} hour',
+  ],
+  googleExpiry_other: [
+    'La autorización caduca en {{count}} horas',
+    'Authorization expires in {{count}} hours',
+  ],
+  googleExpired: ['La autorización ha caducado', 'Authorization has expired'],
+  googleExpiryWarning: [
+    'Quedan menos de dos días. Vuelve a conectar para renovar la autorización de prueba de Google.',
+    'Less than two days remain. Reconnect to renew the Google testing authorization.',
+  ],
+  googleReconnectReason: [
+    'La autorización caducó o fue revocada. Vuelve a conectar Google.',
+    'Authorization expired or was revoked. Reconnect Google.',
+  ],
+  googleFileStorage: [
+    'El almacén seguro está bloqueado o no está disponible. Los tokens se guardan en un archivo privado local; desbloquéalo para migrarlos.',
+    'The vault is locked or unavailable. Tokens are stored in a private local file; unlock the vault to migrate them.',
+  ],
+  googleVaultLocked: [
+    'Desbloquea el almacén seguro para acceder a la conexión guardada.',
+    'Unlock the vault to access the saved connection.',
+  ],
+  googleStorageError: [
+    'No se pudo acceder al almacenamiento de la conexión. Comprueba el almacén seguro y los permisos del archivo.',
+    'Connection storage is unavailable. Check the vault and file permissions.',
+  ],
+  googleError: [
+    'No se pudo actualizar la conexión con Google. Vuelve a intentarlo.',
+    'Could not update the Google connection. Try again.',
+  ],
+  googleDisconnectTitle: ['¿Desconectar Google?', 'Disconnect Google?'],
+  googleDisconnectNote: [
+    'El asistente perderá acceso a Gmail, Drive y Docs. Puedes volver a conectar cuando quieras.',
+    'The assistant will lose access to Gmail, Drive and Docs. You can reconnect at any time.',
+  ],
+  googleConnecting: ['Conectando tu cuenta de Google…', 'Connecting your Google account…'],
+  googleSuccess: ['Tu cuenta de Google está conectada.', 'Your Google account is connected.'],
+  googleDenied: [
+    'No se concedió acceso a Google. Puedes volver a intentarlo.',
+    'Google access was not granted. You can try again.',
+  ],
+  googleCallbackError: [
+    'No se pudo completar la conexión. Vuelve a conectar Google desde aquí.',
+    'Could not complete the connection. Reconnect Google from here.',
+  ],
+
   settingsTimeZone: ['Zona horaria', 'Time zone'],
   settingsTimeZoneNote: [
     'Se usa para interpretar fechas y recordatorios nuevos.',

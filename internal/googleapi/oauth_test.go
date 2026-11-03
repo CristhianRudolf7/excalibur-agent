@@ -253,8 +253,11 @@ func TestVaultFallbackMigrationAndLockedDisconnect(t *testing.T) {
 	if err := v.Unlock(ctx, []byte("fake-test-passphrase")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := f.p.AccessToken(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if f.p.ConnectionStatus(ctx).Warning != "" {
-		t.Fatal("unlocked status must migrate")
+		t.Fatal("unlocked access must migrate")
 	}
 	if _, err := os.Stat(f.p.path()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("migration left plaintext")
@@ -305,5 +308,64 @@ func TestNotConfiguredAndUnknownTTL(t *testing.T) {
 	f.p = p
 	if !f.connect(t).ExpiresAt.IsZero() {
 		t.Fatal("TTL zero must mean unknown")
+	}
+}
+
+func TestEnvironmentOverridesAndConfigurationFailures(t *testing.T) {
+	f := setup(t, nil)
+	t.Setenv("EXCALIBUR_GOOGLE_OAUTH_CLIENT", f.p.opts.ClientPath)
+	t.Setenv("EXCALIBUR_GOOGLE_REDIRECT_URI", "https://web.example.test/oauth/google/callback")
+	t.Setenv("EXCALIBUR_GOOGLE_REFRESH_TTL", "0")
+	opts := f.p.opts
+	opts.ClientPath = ""
+	opts.RedirectURI = ""
+	p, err := NewOAuth(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, _, err := p.Start(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ := url.Parse(auth)
+	if u.Query().Get("redirect_uri") != "https://web.example.test/oauth/google/callback" {
+		t.Fatal("redirect override ignored")
+	}
+	f.p = p
+	if !f.connect(t).ExpiresAt.IsZero() {
+		t.Fatal("environment TTL zero must mean unknown")
+	}
+	t.Setenv("EXCALIBUR_GOOGLE_REFRESH_TTL", "bad-duration")
+	if _, err := NewOAuth(context.Background(), opts); err == nil {
+		t.Fatal("invalid TTL accepted")
+	}
+	t.Setenv("EXCALIBUR_GOOGLE_REFRESH_TTL", "-1h")
+	if _, err := NewOAuth(context.Background(), opts); err == nil {
+		t.Fatal("negative TTL accepted")
+	}
+	t.Setenv("EXCALIBUR_GOOGLE_REFRESH_TTL", "168h")
+	opts.ClientPath = filepath.Join(t.TempDir(), "malformed-client.json")
+	if err := os.WriteFile(opts.ClientPath, []byte(`{"web":{"client_secret":"fake-private-detail"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewOAuth(context.Background(), opts); err == nil || strings.Contains(err.Error(), "fake-private-detail") {
+		t.Fatal("invalid client must fail without exposing its contents")
+	}
+}
+
+func TestRefreshPreservesIssueDateAndOfflineGrant(t *testing.T) {
+	f := setup(t, nil)
+	s := f.connect(t)
+	issued := f.p.token.RefreshIssued
+	f.now = f.now.Add(time.Hour)
+	// Google's refresh response may omit the existing refresh token and scope.
+	f.p.apply(tokenResponse{AccessToken: "fake-next-access", ExpiresIn: 3600})
+	if f.p.token.RefreshToken != "fake-refresh" || !f.p.token.RefreshIssued.Equal(issued) || !f.p.token.RefreshExpiry.Equal(s.ExpiresAt) || len(f.p.token.Scopes) != len(requiredScopes) {
+		t.Fatal("refresh must preserve offline grant and original lifetime")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := f.p.AccessToken(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatal("canceled access must stop")
 	}
 }

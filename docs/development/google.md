@@ -38,3 +38,18 @@ registry, JSON schema definitions, web wire types, gateway and daemon backend.
 `Services.Google` and `BackendServices.Google` expose the agreed token provider.
 An HTTP gateway test exercises status, start, complete, disconnect and malformed
 callbacks, checks account transitions and asserts that access tokens stay private.
+
+Settings includes a Connections section with a Google card, readable permission
+chips, reconnect and confirmed disconnect, refresh-expiry countdown and a warning
+below two days. Configuration and storage warnings are localized in English and
+Spanish. Its dedicated CSS uses existing theme tokens and settings-card classes;
+`Settings.tsx` adds only an import, section entry and render branch.
+
+The SPA callback renders through the root route independently of the chat shell,
+shows a reduced-motion-aware loading animation, clears callback parameters from
+browser history, exchanges the code once even in React Strict Mode, and returns
+to Connections with dismissible success or error feedback. Denied access,
+malformed callbacks, browser-state mismatch and partial consent are handled.
+New-account email comes from Google's verified userinfo response. The provider
+uses Google's documented token and revocation endpoints:
+[OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server).

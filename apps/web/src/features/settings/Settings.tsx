@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
 import { TimeZone } from './TimeZone'
+import { GoogleConnect } from './GoogleConnect'
 import { Segmented } from './Segmented'
 import { Skills } from './Skills'
 import { Passwords } from './Passwords'
@@ -27,6 +28,7 @@ const sections = [
   { id: 'agents', label: 'agentSettings', icon: Users },
   { id: 'usage', label: 'settingsUsage', icon: ChartNoAxesCombined },
   { id: 'skills', label: 'skills', icon: Sparkles },
+  { id: 'connections', label: 'googleConnections', icon: SlidersHorizontal },
   { id: 'passwords', label: 'passwordsTitle', icon: LockKeyhole },
 ] as const
 function General() {
@@ -138,6 +140,8 @@ export default function Settings() {
             <Profile />
           ) : section.id === 'agents' ? (
             <AgentSettings />
+          ) : section.id === 'connections' ? (
+            <GoogleConnect />
           ) : section.id === 'passwords' ? (
             <Passwords />
           ) : section.id === 'skills' ? (
