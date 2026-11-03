@@ -1038,11 +1038,11 @@ func (t *DiagramRenderTool) backend() DiagramBackend {
 
 func (t *DiagramRenderTool) Definition() Definition {
 	return Definition{
-		Name: "diagram_render", Description: "Render a diagram from Mermaid, D2, PlantUML, Graphviz, SVG or draw.io to SVG, PNG or PDF with concrete syntax errors",
+		Name: "diagram_render", Description: "Use this tool to produce diagrams from Mermaid, D2, Graphviz, PlantUML, SVG or draw.io. Saves rendered SVG, PNG or PDF artifacts and reports syntax errors.",
 		InputSchema: diagramRenderSchema, Effect: "write_local", Idempotency: "idempotent",
 		Cancel: "after_completion", Timeout: 60_000_000_000, OutputBudget: DefaultOutputBudget,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
-		Group: "media", Tags: []string{"diagram"}, Keywords: []string{"diagram", "render", "mermaid", "d2", "plantuml", "graphviz", "svg", "drawio"},
+		Group: "media", Tags: []string{"diagram"}, Keywords: []string{"diagram", "render", "mermaid", "d2", "plantuml", "graphviz", "svg", "drawio", "visualize", "flowchart", "sequence", "architecture", "diagrama", "gráfico", "esquema", "flujo"},
 	}
 }
 
@@ -1109,7 +1109,7 @@ func (t *ChartRenderTool) Definition() Definition {
 		InputSchema: chartRenderSchema, Effect: "write_local", Idempotency: "idempotent",
 		Cancel: "after_completion", Timeout: 60_000_000_000, OutputBudget: DefaultOutputBudget,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate", "eval"},
-		Group: "media", Tags: []string{"chart"}, Keywords: []string{"chart", "render", "graph", "bar", "line", "data", "plot"},
+		Group: "media", Tags: []string{"chart"}, Keywords: []string{"chart", "render", "graph", "bar", "line", "data", "plot", "visualize", "gráfico"},
 	}
 }
 

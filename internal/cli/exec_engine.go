@@ -655,6 +655,27 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	if profile == ProfileEval {
 		pruneDeferredToProfile(emb.Catalog, runner.allowed)
 	}
+	activation := wireengine.SuggestTools(emb.Catalog, skillsIndex, opts.Request, settings.Model, string(profile))
+	for _, hint := range activation.Skills {
+		// Keep a single hint when auto mode already suggested the same skill.
+		found := false
+		for i := range suggestedSkills {
+			if suggestedSkills[i].Name == hint.Name {
+				suggestedSkills[i] = hint
+				found = true
+				break
+			}
+		}
+		if !found {
+			suggestedSkills = append([]ctxcompiler.SkillView{hint}, suggestedSkills...)
+		}
+	}
+	if len(suggestedSkills) > skills.DefaultSuggestionsMax {
+		suggestedSkills = suggestedSkills[:skills.DefaultSuggestionsMax]
+	}
+	if skillsIndex != nil {
+		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsErrorCards, skillsIndex, suggestedSkills)
+	}
 	// The L3 task layer carries the request: without it the model
 	// calls never see what to do (Section 6.5, 11.1). The fixed
 	// instructions pin the executable-verification rule (P3) for the
@@ -817,6 +838,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 				continue
 			}
 			def := tool.Definition()
+			out = append(out, providers.ToolDefinition{Name: def.Name, Description: def.Description, Schema: def.InputSchema})
+		}
+		for _, def := range activation.Definitions {
 			out = append(out, providers.ToolDefinition{Name: def.Name, Description: def.Description, Schema: def.InputSchema})
 		}
 		if tools.InputRestoreEnabled() {
@@ -982,6 +1006,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		"cost_source":      effBudgets.CostSource,
 	})
 	rec := eng.AttachJournal(erun.ID, store)
+	if err := activation.Record(ctx, store, erun.ID); err != nil {
+		return "", providers.Usage{}, "", fmt.Errorf("cli: record tool activation: %w", err)
+	}
 	// Prove the orchestrator contract in embedded mode: the engine
 	// runner attaches, serves a snapshot, and detaches. Control
 	// orders travel the same path as the daemon's (Sections 15.8).

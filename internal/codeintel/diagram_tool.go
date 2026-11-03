@@ -36,7 +36,7 @@ type diagramArgs struct {
 func (t *CodeDiagramTool) Definition() tools.Definition {
 	return tools.Definition{
 		Name:        CodeDiagramToolName,
-		Description: "Create repository diagrams from the real code graph: overview, module, symbols or call flow. Saves source and rendered artifacts; splits large overviews into module details. Use Graphviz for large graphs. No model calls or LSP required.",
+		Description: "Use this tool for diagrams of source code and repositories from the real code graph: overview, module, symbols or call flow. Saves source and rendered SVG, PNG or PDF artifacts; splits large overviews into module details.",
 		InputSchema: schemaFor(map[string]any{
 			"type": "object", "additionalProperties": false,
 			"required": []string{"path", "level"},
@@ -54,7 +54,7 @@ func (t *CodeDiagramTool) Definition() tools.Definition {
 		Effect: types.EffectWriteLocal, Idempotency: types.IdemNonIdempotent,
 		Cancel: types.CancelCooperative, Timeout: 60 * time.Second, OutputBudget: tools.DefaultOutputBudget,
 		Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"},
-		Group: "code", Tags: []string{"code", "diagram"}, Keywords: []string{"repository", "codebase", "diagram", "architecture", "flow", "visualize"},
+		Group: "code", Tags: []string{"diagram", "visualization"}, Keywords: []string{"diagram", "architecture", "visualize", "graph", "flowchart", "diagrama", "esquema", "flujo"},
 	}
 }
 

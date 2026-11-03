@@ -18,6 +18,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
 
 // chatDelegations owns child lifetimes independently of the short master turn.
@@ -164,6 +165,16 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	for _, name := range allowed {
 		runner.allowed[name] = true
 	}
+	activation := wireengine.SuggestTools(dt.Catalog, s.Skills, input.Card.Goal, d.owner.modelID, "default")
+	// An explicit card grant remains authoritative. Otherwise matching deferred
+	// tools extend the role's normal on-demand discovery surface for this run.
+	if len(input.Card.Tools) == 0 {
+		for _, def := range activation.Definitions {
+			runner.allowed[def.Name] = true
+		}
+	} else {
+		activation = wireengine.ToolActivation{}
+	}
 	// Generic deferred dispatch cannot widen a role's explicit tool grant.
 	delete(runner.allowed, "call_tool")
 	var names []string
@@ -180,7 +191,7 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		language = "Spanish"
 	}
 	prompt += "\nAnswer in " + language + "."
-	snap := ctxcompiler.Snapshot{Role: "child", AgentProfile: "Answer in " + language + ". Complete the delegated work with the available tools. Verify the done criteria and report the result.", Activity: []ctxcompiler.ActivityEvent{{Role: providers.RoleUser, Content: prompt}}}
+	snap := ctxcompiler.Snapshot{Task: ctxcompiler.TaskView{SuggestedSkills: activation.Skills}, Role: "child", AgentProfile: "Answer in " + language + ". Complete the delegated work with the available tools. Verify the done criteria and report the result.", Activity: []ctxcompiler.ActivityEvent{{Role: providers.RoleUser, Content: prompt}}}
 	capture := &automationEndpoint{ModelEndpoint: d.owner.endpoint}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: d.owner.modelID, Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) {
 		for _, message := range s.Store.PendingMessages(agent.ID) {
@@ -197,6 +208,10 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	run := engine.NewRun(id, string(rec.Run.TaskID), engine.Profile{Name: agent.Profile, Role: profile.Role, Tools: names, ContextRole: "child", Limit: tasks.Limit{MaxSteps: budget.MaxSteps, MaxTokens: budget.MaxTokens, MaxCostUSD: budget.MaxCostUSD, MaxSeconds: budget.MaxSeconds, MaxProcs: budget.MaxProcs}})
 	run.Workdir = dir
 	eng.AttachJournal(id, s.Jrnl)
+	if err := activation.Record(ctx, s.Jrnl, id); err != nil {
+		d.finish(conv, id, types.RunFailed, "Record tool activation: "+err.Error())
+		return
+	}
 	s.Orch.AttachRunner(engine.NewRunner(eng, run))
 	defer s.Orch.DetachRunner(types.RunID(id))
 	err = eng.Admit(ctx, run)

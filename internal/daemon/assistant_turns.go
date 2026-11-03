@@ -24,6 +24,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
 
 // WireAssistantTurns binds bounded conversational turns to the shared engine
@@ -105,6 +106,13 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if whiteboard.Enabled() {
 		allow["whiteboard"] = true
 	}
+	activation := wireengine.SuggestTools(a.services.Catalog, a.services.Skills, msg.Text, a.modelID, "default")
+	for _, def := range activation.Definitions {
+		allow[def.Name] = true
+	}
+	if len(activation.Skills) > 0 {
+		allow["load_skill"] = true
+	}
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }}
 	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
@@ -124,6 +132,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 		defs = append(defs, providers.ToolDefinition{Name: name, Description: def.Description, Schema: def.InputSchema})
 	}
 	snap := a.snapshot(ctx, conv, msg)
+	snap.Task.SuggestedSkills = activation.Skills
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: a.modelID,
 		Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) { return snap, nil },
 		ToolDefs: func(*engine.Run) []providers.ToolDefinition { return defs },
@@ -138,6 +147,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	run := engine.NewRun(id, "", engine.Profile{Name: "master", Role: profile.Role, Tools: names, ContextRole: "master", Limit: tasks.Limit{MaxSteps: steps, MaxSeconds: int64((timeout + time.Second - 1) / time.Second)}})
 	if a.services.Jrnl != nil {
 		eng.AttachJournal(id, a.services.Jrnl)
+	}
+	if err := activation.Record(ctx, a.services.Jrnl, id); err != nil {
+		return "", nil, fmt.Errorf("daemon: record tool activation: %w", err)
 	}
 	err := eng.Admit(ctx, run)
 	if err == nil {

@@ -59,3 +59,25 @@ systemd-run --user --scope -p MemoryMax=4G -p MemorySwapMax=0 \
   nice -n 19 go test -race -p 2 -count=1 \
   ./internal/codeintel ./internal/wireengine ./internal/skills ./internal/daemon
 ```
+
+## Intent discovery
+
+Default and delegate `exec` runs query the deferred catalog at run start.
+Conversational daemon turns repeat selection for each new user message, and
+chat children select from their task goal unless the delegation card specifies
+an explicit tool grant. Up to three tools with matching intent metadata enter
+the run's direct tool list. The catalog shares its lexical ranking with
+`search_tools`; descriptions remain searchable but do not trigger activation.
+Tags and keywords supply intent signals, with groups refining the rank. Diagram
+metadata includes English and Spanish terms and supports plural forms.
+
+A `tools_activated` journal entry records the selected names and the single
+matching skill hint before the first model call. The skill index ranks hints
+among skills declaring a selected tool; the hint names `load_skill` explicitly.
+Selection does not change core catalog membership or its hash. Eval skips
+activation entirely and retains its frozen profile and prompt behavior.
+
+`TestIntentToolSelection`, `TestIntentActivationJournal`, and
+`TestIntentSuggestionsUseMetadataAndBoundSelection` cover matching, unrelated
+requests, deterministic bounds, Unicode/plurals, skill resolution, journal
+records, and the unchanged core prefix and eval behavior.

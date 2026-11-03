@@ -821,6 +821,32 @@ func (ix *Index) Suggest(query, model string, max int) []Suggestion {
 	return ranked
 }
 
+// SuggestForTools returns one task hint among skills declaring an activated tool.
+// It shares the normal ranking and per-model exclusions (Section 12.4).
+func (ix *Index) SuggestForTools(query, model string, names []string) []Suggestion {
+	wanted := map[string]bool{}
+	for _, name := range names {
+		wanted[name] = true
+	}
+	var entries []*Entry
+	for _, entry := range ix.candidates(model) {
+		for _, name := range entry.Tools {
+			if wanted[name] {
+				entries = append(entries, entry)
+				break
+			}
+		}
+	}
+	ranked := ix.scoreEntries(query, entries)
+	if len(ranked) > 1 {
+		ranked = ranked[:1]
+	}
+	for i := range ranked {
+		ranked[i].Why = "use load_skill with name=" + ranked[i].Name + " for the activated tools"
+	}
+	return ranked
+}
+
 // topTerms picks up to 3 query terms that hit the entry for the
 // one-line reason.
 // topTerms picks up to 3 query terms that hit the entry for the

@@ -531,7 +531,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	if opts.Skills != nil {
 		s.Skills = opts.Skills
 	} else {
-		s.Skills = skills.NewIndex(skills.Roots{}, skills.BuiltinFS())
+		s.Skills = wireengine.DefaultSkillsIndex()
 	}
 	if opts.Projects != nil {
 		s.Projects = opts.Projects

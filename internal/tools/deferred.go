@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // DeferredCatalog tracks which catalog entries are deferred (Section
@@ -197,6 +198,17 @@ type ScoredTool struct {
 // half; vector re-ranking arrives with the memory embeddings (10.8)
 // and only reorders within the same deterministic tie-break.
 func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
+	return c.search(query, k, false)
+}
+
+// Suggest ranks explicit intent metadata using the same retrieval path as Search.
+// Descriptive prose is excluded so incidental words do not activate tools.
+// Suggestions never mutate the catalog or its fixed prefix.
+func (c *DeferredCatalog) Suggest(query string) []ScoredTool {
+	return c.search(query, 3, true)
+}
+
+func (c *DeferredCatalog) search(query string, k int, intent bool) []ScoredTool {
 	if k <= 0 {
 		k = 5
 	}
@@ -204,6 +216,9 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 		k = 5
 	}
 	q := tokenize(query)
+	if intent {
+		q = intentTerms(q)
+	}
 	if len(q) == 0 {
 		return nil
 	}
@@ -230,9 +245,29 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 			continue
 		}
 		def := t.Definition()
+		if intent {
+			// Groups refine ranking but cannot activate a tool alone: a request
+			// about code must not activate every tool in the code group.
+			metadata := intentTerms(tokenize(strings.Join(def.Tags, " ") + " " + strings.Join(def.Keywords, " ")))
+			matched := false
+			for _, term := range q {
+				for _, signal := range metadata {
+					matched = matched || term == signal
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		text := def.Name + " " + def.Description + " " + strings.Join(def.Tags, " ") +
 			" " + strings.Join(def.Keywords, " ") + " " + def.Group
+		if intent {
+			text = strings.Join(def.Tags, " ") + " " + strings.Join(def.Keywords, " ") + " " + def.Group
+		}
 		toks := tokenize(text)
+		if intent {
+			toks = intentTerms(toks)
+		}
 		counts := map[string]int{}
 		for _, tok := range toks {
 			counts[tok]++
@@ -263,10 +298,10 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 		nameLower := strings.ToLower(d.def.Name)
 		descLower := strings.ToLower(d.def.Description)
 		qLower := strings.ToLower(strings.Join(q, " "))
-		if nameLower == qLower {
+		if !intent && nameLower == qLower {
 			score += 20
 		}
-		if strings.Contains(nameLower, qLower) && qLower != "" {
+		if !intent && strings.Contains(nameLower, qLower) && qLower != "" {
 			score += 8
 		}
 		// Tag/keyword/group exact hits outrank description prose.
@@ -287,7 +322,7 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 		if qset[strings.ToLower(d.def.Group)] {
 			score += 4
 		}
-		if strings.Contains(descLower, qLower) && len(q) == 1 {
+		if !intent && strings.Contains(descLower, qLower) && len(q) == 1 {
 			score += 2
 		}
 		for _, tok := range q {
@@ -321,10 +356,19 @@ func (c *DeferredCatalog) Search(query string, k int) []ScoredTool {
 	return scored
 }
 
+func intentTerms(terms []string) []string {
+	for i, term := range terms {
+		if len(term) > 3 {
+			terms[i] = strings.TrimSuffix(term, "s")
+		}
+	}
+	return terms
+}
+
 func tokenize(s string) []string {
 	s = strings.ToLower(s)
 	fields := strings.FieldsFunc(s, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_')
+		return !(unicode.IsLetter(r) || unicode.IsNumber(r) || r == '_')
 	})
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
