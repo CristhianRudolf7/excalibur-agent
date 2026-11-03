@@ -30,6 +30,43 @@ function cleanLine(raw: string): string {
   return line
 }
 
+const normalize = (text: string) =>
+  text
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/**
+ * Text of one recognition session. Consecutive results that only extend (or
+ * repeat) the previous one replace it, so cumulative engines do not echo words.
+ */
+export function collapseRepeats(texts: readonly string[]): string {
+  const parts: string[] = []
+  for (const raw of texts) {
+    const text = raw?.trim()
+    if (!text) continue
+    const previous = parts.at(-1)
+    if (previous !== undefined) {
+      const a = normalize(previous)
+      const b = normalize(text)
+      if (b.startsWith(a)) {
+        parts[parts.length - 1] = text
+        continue
+      }
+      if (a.startsWith(b)) continue
+    }
+    parts.push(text)
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim()
+}
+
+export function sessionTranscript(
+  results: ArrayLike<{ isFinal?: boolean; 0?: { transcript?: string } }>,
+): string {
+  return collapseRepeats(Array.from(results, (result) => result?.[0]?.transcript ?? ''))
+}
+
 /** Plain text for a speech engine: no markdown marks, code, URLs, emoji or bullets. */
 export function speakableText(markdown: string): string {
   let text = markdown.replace(/\r/g, '')
@@ -116,6 +153,11 @@ function recognitionCtor(): RecognitionCtor | undefined {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition
 }
 
+/** Speech-to-text only (dictation does not need speech synthesis). */
+export function recognitionSupported(): boolean {
+  return !!recognitionCtor()
+}
+
 export function browserVoiceSupported(): boolean {
   return (
     !!recognitionCtor() &&
@@ -160,16 +202,10 @@ export class BrowserRecognizer {
     recognition.interimResults = true
     recognition.onresult = (event) => {
       if (recognition !== this.recognition) return
-      let interim = ''
-      for (let index = event.resultIndex; index < event.results.length; index++) {
-        const result = event.results[index]
-        if (!result) continue
-        const transcript = result[0]?.transcript?.trim() ?? ''
-        if (!transcript) continue
-        if (result.isFinal) this.finals.push(transcript)
-        else interim += `${transcript} `
-      }
-      this.interim = interim.trim()
+      // Rebuild the whole session from the result list instead of accumulating
+      // deltas: some engines (Chrome on Android) resend growing prefixes as new
+      // "final" results, which would otherwise repeat every word.
+      this.interim = sessionTranscript(event.results)
       this.onActivity()
     }
     recognition.onerror = (event) => {
@@ -185,7 +221,7 @@ export class BrowserRecognizer {
     }
     recognition.onend = () => {
       if (recognition !== this.recognition) return
-      // Keep interim words the engine dropped when the session ended.
+      // Commit the finished session; a restart begins a fresh result list.
       if (this.interim) this.finals.push(this.interim)
       this.interim = ''
       if (this.wanted) this.restart = setTimeout(() => this.spawn(), 120)
@@ -220,7 +256,7 @@ export class BrowserRecognizer {
   }
   /** Drain everything heard so far and start a fresh session so nothing leaks into the next turn. */
   take(): string {
-    const text = [...this.finals, this.interim].join(' ').replace(/\s+/g, ' ').trim()
+    const text = collapseRepeats([...this.finals, this.interim])
     this.finals = []
     this.interim = ''
     if (this.wanted) {
@@ -231,7 +267,7 @@ export class BrowserRecognizer {
   }
   /** Words heard so far, without draining them. */
   peek(): string {
-    return [...this.finals, this.interim].join(' ').replace(/\s+/g, ' ').trim()
+    return collapseRepeats([...this.finals, this.interim])
   }
   clear() {
     this.finals = []

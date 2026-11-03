@@ -9,6 +9,8 @@ import { useAttachments } from '@/features/library/use-attachments'
 import { composerHeight, shouldSend } from './composer-logic'
 import { useTranslation } from 'react-i18next'
 import { Plus, Mic, ArrowUp, Square } from 'lucide-react'
+import { useDictation } from './voice/useDictation'
+import { speechLang } from './voice/speech'
 import { IconButton } from '@/components/shared'
 import { CallControls, useCallElapsed } from './voice/CallOverlay'
 import { callActive, useCall } from './voice/callStore'
@@ -61,6 +63,7 @@ export function Composer({
   )
   const [text, setText] = useState(() => useAutomationContext.getState().draft)
   const textarea = useRef<HTMLTextAreaElement>(null)
+  const dictation = useDictation(speechLang(i18n.language), setText)
   const prefill = useAgents((state) => (agentId ? state.drafts[agentId] : undefined))
   useLayoutEffect(() => {
     if (!prefill || !agentId) return
@@ -74,7 +77,6 @@ export function Composer({
     if (context.automation || context.draft) textarea.current?.focus()
   }, [context.automation, context.draft])
   const file = useRef<HTMLInputElement>(null)
-  const [notice, setNotice] = useState('')
   useLayoutEffect(() => {
     const node = textarea.current
     if (node) {
@@ -103,6 +105,7 @@ export function Composer({
             i18n.language,
           ),
         )
+      dictation.stop()
       context.clear()
       attachments.clear()
       setText('')
@@ -111,11 +114,6 @@ export function Composer({
   }
   return (
     <div className="composer-area" ref={area}>
-      {notice && (
-        <div className="composer-notice" role="status">
-          {notice}
-        </div>
-      )}
       {context.automation && (
         <div className="auto-context-chip">
           <Workflow size={16} />
@@ -123,6 +121,11 @@ export function Composer({
           <button aria-label={t('autoRemove')} onClick={context.clear}>
             <X size={14} />
           </button>
+        </div>
+      )}
+      {dictation.error && (
+        <div className="composer-notice" role="alert">
+          {t(dictation.error)}
         </div>
       )}
       <AttachmentChips items={attachments.items} onRemove={attachments.remove} />
@@ -176,9 +179,20 @@ export function Composer({
             </>
           ) : (
             <>
-              <IconButton label="microphone" onClick={() => setNotice(t('unavailable'))}>
-                <Mic />
-              </IconButton>
+              {dictation.supported && (
+                <IconButton
+                  label={dictation.listening ? 'dictationStop' : 'microphone'}
+                  className={
+                    dictation.listening
+                      ? 'icon-button composer-mic listening'
+                      : 'icon-button composer-mic'
+                  }
+                  aria-pressed={dictation.listening}
+                  onClick={() => (dictation.listening ? dictation.stop() : dictation.start(text))}
+                >
+                  <Mic />
+                </IconButton>
+              )}
               <IconButton
                 label={typing ? 'stop' : 'send'}
                 className="send-button"

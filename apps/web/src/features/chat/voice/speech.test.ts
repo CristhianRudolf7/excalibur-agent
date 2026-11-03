@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { speakableText } from './speech'
+import { collapseRepeats, sessionTranscript, speakableText } from './speech'
 
 describe('speakableText', () => {
   it('reads markdown as natural sentences without marks, bullets or emoji', () => {
@@ -38,5 +38,36 @@ describe('speakableText', () => {
     )
     expect(speakableText('¿Listo? ¡Vamos!')).toBe('¿Listo? ¡Vamos!')
     expect(speakableText('🎉🎉')).toBe('')
+  })
+})
+
+describe('recognition transcripts', () => {
+  const results = (...texts: string[]) =>
+    texts.map((transcript) => ({ isFinal: true, 0: { transcript } }))
+  it('collapses engines that resend growing prefixes as new results', () => {
+    expect(
+      sessionTranscript(
+        results(
+          'tengo',
+          'tengo',
+          'tengo algún',
+          'tengo algún listado',
+          'tengo algún listado de',
+          'tengo algún listado de tarea',
+          'tengo algún listado de tarea pendiente',
+          'tengo algún listado de tarea pendiente',
+        ),
+      ),
+    ).toBe('tengo algún listado de tarea pendiente')
+  })
+  it('keeps distinct consecutive segments from desktop engines', () => {
+    expect(sessionTranscript(results('hola', 'qué tal estás', 'muy bien'))).toBe(
+      'hola qué tal estás muy bien',
+    )
+  })
+  it('collapses repeats across restarted sessions too', () => {
+    expect(collapseRepeats(['abre el chat', 'abre el chat y busca', 'noticias'])).toBe(
+      'abre el chat y busca noticias',
+    )
   })
 })

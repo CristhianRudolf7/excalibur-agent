@@ -238,3 +238,24 @@
     transition: none;
   }
 }
+/* Composer dictation: the mic turns red and pulses while listening. */
+.composer .composer-mic.listening {
+  color: #fff;
+  background: #e5484d;
+  border-radius: 999px;
+  animation: dictation-pulse 1.2s ease-in-out infinite;
+}
+@keyframes dictation-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(229 72 77 / 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(229 72 77 / 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer .composer-mic.listening {
+    animation: none;
+  }
+}
