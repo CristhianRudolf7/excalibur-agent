@@ -44,7 +44,11 @@ const components: Components = {
     href ? (
       <a href={href} target="_blank" rel="noopener noreferrer">
         {children}
-        <ExternalLink aria-hidden="true" size={12} />
+        {/* Word joiner keeps the icon glued to the last word instead of wrapping alone. */}
+        <span className="markdown-link-icon" aria-hidden="true">
+          {'\u2060'}
+          <ExternalLink size={10} strokeWidth={2.25} />
+        </span>
       </a>
     ) : (
       <span>{children}</span>

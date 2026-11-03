@@ -143,19 +143,22 @@ function safeDomain(url: string) {
 }
 function SourceIcon({ source }: { source: SourceRef }) {
   const domain = source.url ? safeDomain(source.url) : ''
+  const [failed, setFailed] = useState(false)
+  const initial = domain
+    .replace(/^www\./, '')
+    .charAt(0)
+    .toUpperCase()
   return (
     <span className="source-icon" aria-hidden="true">
-      {domain ? (
+      {domain && !failed ? (
         <img
           src={`https://${domain}/favicon.ico`}
           alt=""
           referrerPolicy="no-referrer"
-          onError={(event) => {
-            event.currentTarget.style.display = 'none'
-          }}
+          onError={() => setFailed(true)}
         />
       ) : (
-        '▤'
+        <span className="source-initial">{initial || '▤'}</span>
       )}
     </span>
   )

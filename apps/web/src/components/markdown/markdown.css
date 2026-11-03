@@ -73,10 +73,20 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.markdown a svg {
+.markdown a .markdown-link-icon {
+  white-space: nowrap;
+}
+.markdown a .markdown-link-icon svg {
   display: inline;
-  margin-left: 4px;
-  vertical-align: baseline;
+  width: 0.62em;
+  height: 0.62em;
+  margin-left: 2px;
+  vertical-align: 0.35em;
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}
+.markdown a:hover .markdown-link-icon svg {
+  opacity: 0.8;
 }
 .markdown blockquote {
   margin: 14px 0;

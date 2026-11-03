@@ -133,9 +133,20 @@
   border: 2px solid var(--background);
   flex-shrink: 0;
 }
+.source-icon {
+  overflow: hidden;
+}
+/* Favicons must not inherit the large-image styles of message Markdown. */
+.library-sources-button .source-icon img,
 .source-icon img {
+  display: block;
   width: 14px;
   height: 14px;
+  max-width: none;
+  margin: 0;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: none;
 }
 .source-stack .source-icon + .source-icon {
   margin-inline-start: -7px;
@@ -143,6 +154,8 @@
 .library-sources-button {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
+  line-height: 1;
   transition: transform 0.15s;
 }
 .library-sources-button:hover {
@@ -191,4 +204,10 @@
   .sources-dialog {
     animation: none;
   }
+}
+.source-initial {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary-strong, var(--primary));
 }
