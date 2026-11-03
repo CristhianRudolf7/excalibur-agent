@@ -1,3 +1,4 @@
+import { Classroom } from '@/features/classroom/Classroom'
 import { Artifacts } from '@/features/artifacts/Artifacts'
 import { useArtifactEvents } from '@/features/artifacts/store'
 import { PanelHome, PanelChanges, PanelActivity, usePanelData } from '@/features/panel/Panel'
@@ -20,6 +21,7 @@ import {
   Bell,
   Folder,
   Globe,
+  GraduationCap,
   Store,
   Wrench,
   Workflow,
@@ -76,6 +78,7 @@ export function Shell() {
   const activeBoardConversation = useWhiteboard((state) =>
     state.open ? state.board?.conversation_id : undefined,
   )
+  const classroomBoardSequence = useRef<number | undefined>(undefined)
   const [profileOpen, setProfileOpen] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const split = useRef<HTMLDivElement>(null)
@@ -93,10 +96,11 @@ export function Shell() {
   const settingsItem = 'settings'
   const soonPage = location.pathname.split('/')[2] ?? ''
   const soonTitle = ['stores', 'tools'].includes(soonPage) ? soonPage : 'soon'
+  const isClassroom = location.pathname === '/classroom'
   const isTasks = location.pathname === '/tasks'
   const isReminders = location.pathname === '/reminders'
   const isAutomations = location.pathname.startsWith('/automations')
-  const isWorkPage = isTasks || isReminders || isAutomations
+  const isWorkPage = isTasks || isReminders || isAutomations || isClassroom
   const onAutomationDeleted = useCallback(
     (id: string) => {
       if (location.pathname === `/automations/${id}`) void navigate({ to: '/automations' })
@@ -113,6 +117,11 @@ export function Shell() {
   const headerLoading = useLoading(liveChatEnabled && !history && !historyError)
   const viewerAgent = useRef(agent.id)
   useEffect(() => {
+    if (isClassroom) {
+      classroomBoardSequence.current = boardOpenSequence
+      return
+    }
+    if (classroomBoardSequence.current === boardOpenSequence) return
     if (!activeBoardId || activeBoardConversation !== conversationId(agent.id)) return
     useShell.getState().openPanel()
     void navigate({
@@ -120,7 +129,7 @@ export function Shell() {
       params: { agentId: agent.id },
       search: { panel: 'whiteboard', view: 'chat' },
     })
-  }, [activeBoardId, activeBoardConversation, boardOpenSequence, agent.id, navigate])
+  }, [activeBoardId, activeBoardConversation, boardOpenSequence, agent.id, navigate, isClassroom])
 
   useLayoutEffect(() => {
     viewerAgent.current = agent.id
@@ -221,6 +230,7 @@ export function Shell() {
       })
     else if (path === 'myTasks' || path === '/tasks') void navigate({ to: '/tasks' })
     else if (path === 'reminders' || path === '/reminders') void navigate({ to: '/reminders' })
+    else if (path === 'classroom') void navigate({ to: '/classroom' })
     else if (path === 'automations') void navigate({ to: '/automations' })
     else if (path === '/projects') void navigate({ to: '/projects' })
     else void navigate({ to: '/coming-soon/$page', params: { page: path } })
@@ -364,11 +374,13 @@ export function Shell() {
                   : isProjects
                     ? 'projects'
                     : isWorkPage
-                      ? isAutomations
-                        ? 'automations'
-                        : isTasks
-                          ? 'myTasks'
-                          : 'reminders'
+                      ? isClassroom
+                        ? 'classroom'
+                        : isAutomations
+                          ? 'automations'
+                          : isTasks
+                            ? 'myTasks'
+                            : 'reminders'
                       : isSoon
                         ? location.pathname.split('/')[2]
                         : undefined
@@ -444,10 +456,12 @@ export function Shell() {
               { key: 'reminders', icon: Bell },
               { key: 'projects', icon: Folder },
               { key: 'world', icon: Globe },
+              { key: 'classroom', icon: GraduationCap },
             ].map(({ key, icon: Icon }) => (
               <button
                 key={key}
                 className={
+                  (isClassroom && key === 'classroom') ||
                   (isProjects && key === 'projects') ||
                   (isTasks && key === 'myTasks') ||
                   (isReminders && key === 'reminders')
@@ -455,6 +469,7 @@ export function Shell() {
                     : ''
                 }
                 aria-current={
+                  (isClassroom && key === 'classroom') ||
                   (isProjects && key === 'projects') ||
                   (isTasks && key === 'myTasks') ||
                   (isReminders && key === 'reminders')
@@ -559,7 +574,7 @@ export function Shell() {
               onChange={(mode) => changeMode(mode === 'world')}
             />
           )}
-          {(isSettings || isProjects || isSoon || isWorkPage) && (
+          {!isClassroom && (isSettings || isProjects || isSoon || isWorkPage) && (
             <div className="page-sidebar-toggle">
               <PanelToggle
                 side="left"
@@ -606,6 +621,8 @@ export function Shell() {
                 }}
               />
             </Suspense>
+          ) : isClassroom ? (
+            <Classroom />
           ) : isAutomations ? (
             location.pathname === '/automations' ? (
               <AutomationsPage />

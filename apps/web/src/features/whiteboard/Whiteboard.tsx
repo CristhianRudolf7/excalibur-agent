@@ -13,7 +13,13 @@ export function WhiteboardConnection() {
   useEffect(connectWhiteboards, [])
   return null
 }
-export function Whiteboard({ conversationId }: { conversationId: string }) {
+export function Whiteboard({
+  conversationId,
+  boardId,
+}: {
+  conversationId: string
+  boardId?: string
+}) {
   const { t } = useTranslation()
   const state = useWhiteboard()
   const [choosing, setChoosing] = useState(false)
@@ -21,11 +27,23 @@ export function Whiteboard({ conversationId }: { conversationId: string }) {
     queryKey: ['whiteboards', conversationId],
     queryFn: () => rpc.call('whiteboard.list', { conversation_id: conversationId }),
     retry: false,
+    enabled: !boardId,
   })
-  const loading = useLoadingState(boards.isPending)
+  const pinned = useQuery({
+    queryKey: ['whiteboard', boardId],
+    queryFn: () => rpc.call('whiteboard.get', { board_id: boardId! }),
+    enabled: Boolean(boardId),
+    retry: false,
+  })
+  useEffect(() => {
+    if (boardId && pinned.data) openBoard(pinned.data)
+  }, [boardId, pinned.data])
+  const loading = useLoadingState(boardId ? pinned.isPending : boards.isPending)
   const [opening, setOpening] = useState(false)
   const openingState = useLoadingState(opening)
-  const active = state.open && state.board?.conversation_id === conversationId
+  const active =
+    state.open &&
+    (boardId ? state.board?.id === boardId : state.board?.conversation_id === conversationId)
   useEffect(() => {
     if (!active || choosing || openingState.holding || state.layout !== 'fullscreen') return
     const previous = document.activeElement as HTMLElement | null
@@ -66,10 +84,12 @@ export function Whiteboard({ conversationId }: { conversationId: string }) {
         role={state.layout === 'fullscreen' ? 'dialog' : undefined}
         aria-label={t('whiteboard')}
       >
-        <button className="board-list-button" onClick={() => setChoosing(true)}>
-          <PanelsTopLeft aria-hidden="true" />
-          {t('boardList')}
-        </button>
+        {!boardId && (
+          <button className="board-list-button" onClick={() => setChoosing(true)}>
+            <PanelsTopLeft aria-hidden="true" />
+            {t('boardList')}
+          </button>
+        )}
         <Suspense fallback={<PanelSkeleton shape="canvas" label={t('boardLoading')} delayed />}>
           <Canvas key={state.board!.id} boardId={state.board!.id} />
         </Suspense>
@@ -85,28 +105,38 @@ export function Whiteboard({ conversationId }: { conversationId: string }) {
     <div className="board-empty">
       <PenTool className="panel-empty-icon" aria-hidden="true" />
       <h2>{t('whiteboard')}</h2>
-      <p role="status">{t(boards.isError ? 'boardOffline' : 'boardEmpty')}</p>
-      <button onClick={() => void boards.refetch()}>{t('boardRetry')}</button>
+      <p role="status">
+        {t((boardId ? pinned.isError : boards.isError) ? 'boardOffline' : 'boardEmpty')}
+      </p>
+      <button
+        onClick={() => {
+          if (boardId && pinned.data) openBoard(pinned.data)
+          else void (boardId ? pinned.refetch() : boards.refetch())
+        }}
+      >
+        {t('boardRetry')}
+      </button>
       {state.error && <p role="alert">{t('boardError')}</p>}
       <div className="board-list">
-        {boards.data?.boards.map((board) => (
-          <button
-            key={board.id}
-            onClick={() => {
-              setOpening(true)
-              void rpc
-                .call('whiteboard.get', { board_id: board.id })
-                .then((value) => {
-                  openBoard(value)
-                  setChoosing(false)
-                })
-                .catch(() => state.set({ error: true }))
-                .finally(() => setOpening(false))
-            }}
-          >
-            {board.title}
-          </button>
-        ))}
+        {!boardId &&
+          boards.data?.boards.map((board) => (
+            <button
+              key={board.id}
+              onClick={() => {
+                setOpening(true)
+                void rpc
+                  .call('whiteboard.get', { board_id: board.id })
+                  .then((value) => {
+                    openBoard(value)
+                    setChoosing(false)
+                  })
+                  .catch(() => state.set({ error: true }))
+                  .finally(() => setOpening(false))
+              }}
+            >
+              {board.title}
+            </button>
+          ))}
       </div>
     </div>
   )

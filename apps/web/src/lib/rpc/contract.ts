@@ -1,3 +1,4 @@
+import type { ClassroomMethods, ClassroomContext } from './classroom'
 import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
 import type { WhiteboardMethods } from '@/features/whiteboard/types'
 /** Wire types mirror internal/api and packages/contracts; only connected methods belong here. */
@@ -158,6 +159,12 @@ export interface ConversationEvent {
   task_id?: string
   payload:
     | {
+        course_id?: string
+        topic_id?: string
+        quiz_id?: string
+        attempt_id?: string
+        final?: boolean
+        feedback?: string
         session_id?: string
         turn_id?: string
         artifact?: Artifact
@@ -201,7 +208,7 @@ export interface ActivityItem {
   finished_at?: string
   error?: string
 }
-export interface RpcMethods extends WhiteboardMethods {
+export interface RpcMethods extends WhiteboardMethods, ClassroomMethods {
   'artifacts.get': { params: { id: string }; result: ArtifactContent }
   'activity.list': { params: { conversation_id: string }; result: { items: ActivityItem[] } }
 
@@ -228,7 +235,13 @@ export interface RpcMethods extends WhiteboardMethods {
   }
 
   'conversation.send': {
-    params: { conversation_id: string; client_msg_id: string; text: string; attachments?: string[] }
+    params: {
+      conversation_id: string
+      client_msg_id: string
+      text: string
+      attachments?: string[]
+      context?: ClassroomContext
+    }
     result: { msg_id: string }
   }
   'conversation.history': {

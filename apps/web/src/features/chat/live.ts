@@ -1,3 +1,4 @@
+import type { ClassroomContext } from '@/lib/rpc/classroom'
 import i18n from '@/lib/i18n'
 import { rpc, RpcError, TransportError } from '@/lib/rpc/client'
 import { subscribeEvents } from '@/lib/rpc/events'
@@ -159,10 +160,13 @@ export async function sendMessage(
   attachments: string[] = [],
   retry?: Message,
   signal?: AbortSignal,
+  context?: ClassroomContext,
 ) {
   const clientMsgId = retry?.clientMsgId ?? crypto.randomUUID()
   const id = retry?.id ?? `pending:${clientMsgId}`
+  const appContext = retry?.context ?? context
   const message: Message = {
+    ...(appContext ? { context: appContext } : {}),
     id,
     clientMsgId,
     sender: 'user',
@@ -178,6 +182,7 @@ export async function sendMessage(
     const params = {
       conversation_id: conversationId(agent),
       client_msg_id: clientMsgId,
+      ...(appContext ? { context: appContext } : {}),
       text,
       attachments,
     }

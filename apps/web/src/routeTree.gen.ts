@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
+import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as ProjectsRouteImport } from './routes/projects'
 import { Route as RemindersRouteImport } from './routes/reminders'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -27,6 +28,11 @@ const IndexRoute = IndexRouteImport.update({
 const AutomationsRoute = AutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomRoute = ClassroomRouteImport.update({
+  id: '/classroom',
+  path: '/classroom',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProjectsRoute = ProjectsRouteImport.update({
@@ -68,6 +74,7 @@ const ComingSoonPageRoute = ComingSoonPageRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
+  '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/settings': typeof SettingsRoute
@@ -79,6 +86,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
+  '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/settings': typeof SettingsRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRouteWithChildren
+  '/classroom': typeof ClassroomRoute
   '/projects': typeof ProjectsRoute
   '/reminders': typeof RemindersRoute
   '/settings': typeof SettingsRoute
@@ -104,6 +113,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/automations'
+    | '/classroom'
     | '/projects'
     | '/reminders'
     | '/settings'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/automations'
+    | '/classroom'
     | '/projects'
     | '/reminders'
     | '/settings'
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/automations'
+    | '/classroom'
     | '/projects'
     | '/reminders'
     | '/settings'
@@ -138,6 +150,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AutomationsRoute: typeof AutomationsRouteWithChildren
+  ClassroomRoute: typeof ClassroomRoute
   ProjectsRoute: typeof ProjectsRoute
   RemindersRoute: typeof RemindersRoute
   SettingsRoute: typeof SettingsRoute
@@ -160,6 +173,13 @@ declare module '@tanstack/react-router' {
       path: '/automations'
       fullPath: '/automations'
       preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom': {
+      id: '/classroom'
+      path: '/classroom'
+      fullPath: '/classroom'
+      preLoaderRoute: typeof ClassroomRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/projects': {
@@ -229,6 +249,7 @@ const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AutomationsRoute: AutomationsRouteWithChildren,
+  ClassroomRoute: ClassroomRoute,
   ProjectsRoute: ProjectsRoute,
   RemindersRoute: RemindersRoute,
   SettingsRoute: SettingsRoute,

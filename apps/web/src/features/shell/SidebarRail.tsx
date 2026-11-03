@@ -5,6 +5,7 @@ import {
   Bell,
   Folder,
   Globe,
+  GraduationCap,
   Store,
   Wrench,
   Workflow,
@@ -52,6 +53,7 @@ export function SidebarRail({
     { key: 'reminders', icon: Bell },
     { key: 'projects', icon: Folder },
     { key: 'world', icon: Globe },
+    { key: 'classroom', icon: GraduationCap },
   ]
   return (
     <Tooltip.Provider delayDuration={200}>

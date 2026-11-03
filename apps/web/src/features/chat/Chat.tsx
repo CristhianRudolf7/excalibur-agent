@@ -1,3 +1,4 @@
+import type { ClassroomContext } from '@/lib/rpc/classroom'
 import { ChangesCard } from './ChangesCard'
 import { visibleAutomationMessage } from '@/features/automations/context'
 import { InlineInteraction } from './InlineInteraction'
@@ -16,7 +17,17 @@ import { Composer } from './Composer'
 import { MessageCopy } from './MessageCopy'
 import { ArrowUpRight } from 'lucide-react'
 import { connectConversation, loadHistory, sendMessage, liveChatEnabled } from './live'
-export function Chat({ agentId, onFile }: { agentId: string; onFile: () => void }) {
+export function Chat({
+  agentId,
+  onFile,
+  context,
+  showWelcome = true,
+}: {
+  agentId: string
+  onFile: () => void
+  context?: ClassroomContext
+  showWelcome?: boolean
+}) {
   const { t } = useTranslation()
   const agent = getAgent(agentId)
   const initialHistory = useChat((s) => s.live[agentId])
@@ -56,10 +67,10 @@ export function Chat({ agentId, onFile }: { agentId: string; onFile: () => void 
   }, [displayedMessages, virtual])
   const send = (text: string) => {
     atBottom.current = true
-    void sendMessage(agentId, text)
+    void sendMessage(agentId, text, [], undefined, undefined, context)
   }
   const stop = () => {
-    void sendMessage(agentId, '/stop')
+    void sendMessage(agentId, '/stop', [], undefined, undefined, context)
     setTyping(agentId, false)
   }
   return (
@@ -103,7 +114,7 @@ export function Chat({ agentId, onFile }: { agentId: string; onFile: () => void 
       >
         {loading.visible && <ChatHistorySkeleton />}
         {pageLoading.visible && <ChatHistorySkeleton compact />}
-        {online && live && conversation.length === 0 && !typing && (
+        {showWelcome && online && live && conversation.length === 0 && !typing && (
           <div className="chat-empty">
             <span className="chat-empty-icon" aria-hidden="true">
               <PixelAvatar id={agent.id} size={56} />
@@ -217,7 +228,7 @@ export function Chat({ agentId, onFile }: { agentId: string; onFile: () => void 
         onSend={send}
         onSendDocuments={(text, ids) => {
           atBottom.current = true
-          void sendMessage(agentId, text, ids)
+          void sendMessage(agentId, text, ids, undefined, undefined, context)
         }}
         onStop={stop}
       />

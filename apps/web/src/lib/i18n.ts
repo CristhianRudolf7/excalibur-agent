@@ -1,3 +1,4 @@
+import { classroomMessages } from '@/features/classroom/i18n'
 import { panelMessages } from '@/features/panel/i18n'
 import { errorMessages } from '@/components/ErrorScreen'
 import { automationMessages } from '@/features/automations/i18n'
@@ -10,6 +11,7 @@ import { libraryMessages } from '@/features/library/i18n'
 import { initReactI18next } from 'react-i18next'
 
 const entries = {
+  ...classroomMessages,
   ...panelMessages,
   ...errorMessages,
   ...automationMessages,

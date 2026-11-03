@@ -314,3 +314,20 @@ it('preserves file changes through history, live events and store merges', async
   expect(useChat.getState().live.byte).toHaveLength(1)
   expect(useChat.getState().live.byte?.[0]?.changes).toEqual(changes)
 })
+
+it('keeps classroom context on the single conversation and preserves it on retry', async () => {
+  const call = vi.spyOn(rpc, 'call').mockRejectedValueOnce(new RpcError(-32099, 'Try again'))
+  const context = { app: 'classroom', course_id: 'course-1', topic_id: 'topic-2' } as const
+  await sendMessage('excalibur', 'Explain this', [], undefined, undefined, context)
+  const failed = useChat.getState().live.excalibur![0]!
+  call.mockResolvedValueOnce({ msg_id: 'retried' } as never)
+  await sendMessage('excalibur', failed.text, [], failed)
+  expect(call).toHaveBeenLastCalledWith(
+    'conversation.send',
+    expect.objectContaining({
+      conversation_id: 'cnv_web_excalibur',
+      context,
+      client_msg_id: failed.clientMsgId,
+    }),
+  )
+})
