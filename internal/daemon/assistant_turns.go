@@ -42,6 +42,13 @@ func WireAssistantTurns(b *DaemonBackend, s *Services, endpoint engine.ModelEndp
 			b.artifacts.blobs = b.Services.FileBlobs
 		}
 		s.delegations = newChatDelegations(a)
+		b.credentials = s.Credentials
+		if b.credentials != nil && b.credentials.bus == nil {
+			b.credentials.bus = b.Bus
+		}
+		if b.credentials != nil && b.credentials.vault == nil && b.Services != nil {
+			b.credentials.vault = b.Services.Vault
+		}
 	}
 	if err := wireAgentTools(b, s); err != nil {
 		a.disabled = true
@@ -90,6 +97,17 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("EXCALIBUR_SERVICE_TIER")), "flex") {
 		timeout = 6 * time.Minute
 	}
+	activation := a.services.chatToolActivation(msg.Text, a.modelID, msg.Context)
+	for _, def := range activation.Definitions {
+		if def.Name == "request_credentials" || strings.HasPrefix(def.Name, "browser_") {
+			timeout = max(timeout, credentialWaitTimeout+2*time.Minute)
+			if os.Getenv("EXCALIBUR_MASTER_STEPS") == "" {
+				// A login needs a fresh wait/snapshot around each form action.
+				steps = 24
+			}
+		}
+	}
+	// An explicit operator deadline also bounds time spent waiting for credentials.
 	if value, err := time.ParseDuration(os.Getenv("EXCALIBUR_MASTER_TIMEOUT")); err == nil && value > 0 && value <= 10*time.Minute {
 		timeout = value
 	}
@@ -100,6 +118,10 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	id := string(types.NewRunID())
+	ctx = context.WithValue(ctx, credentialOriginKey{}, a.credentialOrigin(ctx, conv, id, msg.Channel))
+	if a.services.Credentials != nil {
+		defer a.services.Credentials.EndRun(id)
+	}
 	profile := agents.Builtins[agents.ProfileMaster]
 	// Explicitly expose only operations suitable for this short conversational
 	// path. Generic dispatchers cannot escape the role through a deferred tool.
@@ -119,7 +141,6 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if robotlab.Enabled() {
 		allow["robot_lab"] = true
 	}
-	activation := a.services.chatToolActivation(msg.Text, a.modelID, msg.Context)
 	for _, def := range activation.Definitions {
 		allow[def.Name] = true
 	}
@@ -130,9 +151,10 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 		allow["load_skill"] = true
 	}
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }}
+	defer runner.closeBrowser(ctx)
 	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
-		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context)
+		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context, msg.Channel)
 	}
 	var defs []providers.ToolDefinition
 	var names []string
@@ -149,6 +171,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	}
 	snap := a.snapshot(ctx, conv, msg)
 	snap.Task.SuggestedSkills = activation.Skills
+	if allow["request_credentials"] {
+		snap.AgentProfile += "\nFor login or OTP needs, call request_credentials with the exact page host. Use its secret:// refs with browser_act type after browser_wait_ready and a fresh snapshot. Never ask for values in chat. CAPTCHA and site access blocks still require the user."
+	}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: a.modelID,
 		Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) { return snap, nil },
 		ToolDefs: func(*engine.Run) []providers.ToolDefinition { return defs },
@@ -226,6 +251,7 @@ func (e *assistantEndpoint) Chat(ctx context.Context, role types.ModelRole, req 
 
 type assistantToolRunner struct {
 	activity func(string, string)
+	browser  chatBrowser
 	daemonToolRunner
 	allowed   map[string]bool
 	runID     string
@@ -240,11 +266,15 @@ func (r *assistantToolRunner) Definition(name string) (tools.Definition, error) 
 	if !r.allowed[name] {
 		return tools.Definition{}, fmt.Errorf("tool %q is outside the master role; delegate long work", name)
 	}
-	return r.daemonToolRunner.Definition(name)
+	def, err := r.daemonToolRunner.Definition(name)
+	return chatBrowserDefinition(def), err
 }
 func (r *assistantToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, opts tools.ExecuteOptions) (tools.Result, error) {
 	if _, err := r.Definition(name); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
+	}
+	if strings.HasPrefix(name, "browser_") {
+		return r.executeBrowser(ctx, name, args, opts)
 	}
 	if name == "library_search" || name == "library_view" || name == "library_grep" || name == "subagent" {
 		var fields map[string]json.RawMessage

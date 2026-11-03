@@ -21,6 +21,8 @@ import {
 } from './live'
 import { FakeSocket } from './fake-socket'
 
+// Credential forms have their own query and security tests.
+vi.mock('@/features/credentials/CredentialRequests', () => ({ CredentialRequests: () => null }))
 vi.mock('@tanstack/react-virtual', () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getTotalSize: () => count * 100,

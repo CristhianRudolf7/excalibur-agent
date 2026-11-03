@@ -378,6 +378,7 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
+	Credentials    *CredentialRegistry
 	RobotLab       *robotlab.Service
 	RobotLabTool   *robotlab.Tool
 	ClassroomAgent classroom.AgentService
@@ -475,7 +476,11 @@ type AssembleOptions struct {
 // default registry, memory over its service, skills over the builtin
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
-	s := &Services{Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
+	s := &Services{Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
+	s.Credentials.vault = opts.Vault
+	if err := s.Credentials.recoverEphemeral(context.Background()); err != nil {
+		return nil, err
+	}
 	s.Classroom = opts.Classroom
 	if s.Classroom == nil {
 		s.Classroom = classroom.NewService(nil, opts.Bus)
@@ -561,6 +566,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		s.Skills = wireengine.DefaultSkillsIndex()
 	}
 	wiring := engineWiring{
+		Credentials:  s.Credentials,
 		RobotLabTool: s.RobotLabTool,
 		Classroom:    s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
 		Robot: s.Robot,

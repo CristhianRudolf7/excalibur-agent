@@ -141,6 +141,9 @@ var Methods = []MethodInfo{
 	{MethodAgentsSetFavorite, "agents", "Choose the default personal agent."},
 	{MethodAgentsMarkRead, "agents", "Reset an agent unread count."},
 
+	{MethodCredentialsPending, "credentials", "List pending secure credential requests for a conversation."},
+	{MethodCredentialsSubmit, "credentials", "Write requested values directly to the vault and resume the waiting tool."},
+	{MethodCredentialsCancel, "credentials", "Cancel a pending secure credential request."},
 	{MethodRobotStatus, "robot", "Read robot bridge, arm and camera status."},
 	{MethodRobotConnect, "robot", "Connect to a robot by IP."},
 	{MethodRobotDisconnect, "robot", "Disconnect the robot."},

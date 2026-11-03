@@ -88,6 +88,8 @@ var EventTypes = []EventTypeInfo{
 	{EventAgentsFavoriteChanged, "AgentsFavoriteResult", "The default agent changed."},
 	{EventAgentsUnread, "AgentsUnreadEvent", "Agent unread count or latest message changed."},
 
+	{EventCredentialsRequested, "CredentialsRequestedEvent", "A run needs secure credentials."},
+	{EventCredentialsResolved, "CredentialsResolvedEvent", "A secure credential request was resolved."},
 	{EventRobotState, "RobotStateEvent", "Robot state changed or connected heartbeat."},
 	{EventArtifactCreated, "ArtifactCreatedEvent", "A visual artifact was persisted."},
 	{EventArtifactReady, "ArtifactReadyEvent", "A turn finished with visual artifacts."},

@@ -25,6 +25,8 @@ export async function mockChat(page: Page, initial: Partial<ConversationMessage>
       })
     if (request.method === 'agents.mark_read')
       return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { unread: 0 } } })
+    if (request.method === 'credentials.pending')
+      return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { requests: [] } } })
     if (request.method === 'activity.list')
       return route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { items: [] } } })
     if (request.method === 'conversation.history')

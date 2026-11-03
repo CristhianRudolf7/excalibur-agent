@@ -258,7 +258,7 @@ func (e *Engine) navigate(t *tab, a arguments) capabilities.TaskResult {
 
 func (e *Engine) wait(t *tab, a arguments) capabilities.TaskResult {
 	e.detect(t)
-	if t.blocked != "" {
+	if t.blocked != "" && t.blocked != capabilities.BlockedLogin && t.blocked != capabilities.Blocked2FA {
 		return e.blocked(t)
 	}
 	mode := a.str("mode")
@@ -300,6 +300,9 @@ func (e *Engine) wait(t *tab, a arguments) capabilities.TaskResult {
 	}
 	e.detect(t)
 	if t.blocked != "" {
+		// Login forms remain observable and actionable through secure references.
+		// Readiness does not claim authentication or clear the detected block.
+		t.ready = t.blocked == capabilities.BlockedLogin || t.blocked == capabilities.Blocked2FA
 		return e.blocked(t)
 	}
 	t.ready = true

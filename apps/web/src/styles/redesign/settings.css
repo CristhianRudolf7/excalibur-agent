@@ -664,7 +664,7 @@
   }
   .settings-nav {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--sections, 4), minmax(0, 1fr));
     gap: 0;
     margin-bottom: 26px;
   }
@@ -1115,7 +1115,7 @@ dialog:has(.skill-detail) .dialog-title .icon-button:hover {
 }
 .settings-nav {
   display: inline-grid;
-  grid-template-columns: repeat(4, minmax(128px, 1fr));
+  grid-template-columns: repeat(var(--sections, 4), minmax(110px, 1fr));
   gap: 0;
   padding: 4px;
   margin-bottom: 28px;
@@ -1139,7 +1139,7 @@ dialog:has(.skill-detail) .dialog-title .icon-button:hover {
 }
 .settings-nav-indicator {
   inset: 4px auto 4px 4px;
-  width: calc((100% - 8px) / 4);
+  width: calc((100% - 8px) / var(--sections, 4));
   height: auto;
   border-radius: 10px;
   background: var(--accent-tint-strong);
@@ -1153,12 +1153,21 @@ dialog:has(.skill-detail) .dialog-title .icon-button:hover {
   .settings-nav {
     display: grid;
     width: 100%;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--sections, 4), minmax(90px, 1fr));
+    overflow-x: auto;
     margin-bottom: 22px;
   }
   .settings-nav button {
     padding: 8px 4px;
     font-size: 12px;
+  }
+}
+@media (max-width: 700px) {
+  .settings-nav-indicator {
+    display: none;
+  }
+  .settings-nav button[aria-current] {
+    background: var(--accent-tint-strong);
   }
 }
 @media (max-width: 420px) {

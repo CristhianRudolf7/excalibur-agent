@@ -156,6 +156,14 @@ func (s browserSecrets) Resolve(ctx context.Context, name, host string) (string,
 	if o.Vault == nil {
 		return "", errors.New("browser: vault unavailable")
 	}
+	// Credential requests expose field refs; each field is a separate vault entry.
+	// Existing bare references keep their original meaning.
+	if at := strings.LastIndexByte(name, '.'); at >= 0 {
+		switch name[at+1:] {
+		case "username", "email", "password", "otp", "api_key":
+			name = name[:at] + "-" + name[at+1:]
+		}
+	}
 	// Delegated resolution must also retain project-only restrictions.
 	var res vault.ResolveResult
 	var err error

@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
@@ -49,6 +50,7 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
+	Credentials  *CredentialRegistry
 	RobotLabTool *robotlab.Tool
 	Classroom    classroom.AgentService
 	Robot        *robot.Service
@@ -131,6 +133,9 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("daemon: build tool surface: %w", err)
 	}
+	if err := emb.Catalog.RegisterDeferred(&credentialsTool{registry: w.Credentials}); err != nil {
+		return nil, nil, err
+	}
 	if w.Robot != nil {
 		if err := emb.Catalog.RegisterDeferred(&robot.Tool{Service: w.Robot}); err != nil {
 			return nil, nil, err
@@ -161,6 +166,15 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 						_ = emb.Registry.Register(t)
 					}
 				}
+			}
+		}
+	}
+	for _, name := range emb.Registry.Names() {
+		if strings.HasPrefix(name, "browser_") {
+			t, _ := emb.Registry.Get(name)
+			emb.Registry.Unregister(name)
+			if err := emb.Registry.Register(&credentialBrowserTool{Tool: t, registry: w.Credentials}); err != nil {
+				return nil, nil, err
 			}
 		}
 	}

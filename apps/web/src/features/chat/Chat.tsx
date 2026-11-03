@@ -1,9 +1,10 @@
+import { CredentialRequests } from '@/features/credentials/CredentialRequests'
 import type { ClassroomContext } from '@/lib/rpc/classroom'
 import { ChangesCard } from './ChangesCard'
 import { visibleAutomationMessage } from '@/features/automations/context'
 import { InlineInteraction } from './InlineInteraction'
 import './chat.css'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useTranslation } from 'react-i18next'
 import { ChatHistorySkeleton } from './Skeletons'
@@ -19,38 +20,53 @@ import { MessageCopy } from './MessageCopy'
 import { MessageSpeak } from './MessageSpeak'
 import { ThinkingRow } from './ThinkingRow'
 import { ArrowUpRight } from 'lucide-react'
-import { connectConversation, loadHistory, sendMessage, liveChatEnabled } from './live'
+import {
+  connectConversation,
+  loadHistory,
+  sendMessage,
+  liveChatEnabled,
+  conversationId,
+  chatStateKey,
+} from './live'
 export function Chat({
   agentId,
   onFile,
   context,
   showWelcome = true,
+  conversation: targetConversation,
+  credentialId,
 }: {
   agentId: string
   onFile: () => void
   context?: ClassroomContext
   showWelcome?: boolean
+  conversation?: string
+  credentialId?: string
 }) {
   const { t } = useTranslation()
   const agent = useAgent(agentId)
   const agents = useAgents((state) => state.agents)
   const [readError, setReadError] = useState(false)
-  const initialHistory = useChat((s) => s.live[agentId])
-  const initialError = useChat((s) => s.historyError[agentId])
+  const stateKey = chatStateKey(agentId, targetConversation)
+  const initialHistory = useChat((s) => s.live[stateKey])
+  const initialError = useChat((s) => s.historyError[stateKey])
   const loading = useLoading(liveChatEnabled && !initialHistory && !initialError)
   const [paging, setPaging] = useState(false)
   const pageLoading = useLoading(paging)
-  const activity = useChat((s) => s.activity[agentId])
-  const online = useChat((s) => s.online[agentId] ?? false)
-  const live = useChat((s) => s.live[agentId])
-  const older = useChat((s) => s.older[agentId])
-  const historyError = useChat((s) => s.historyError[agentId])
-  const typing = useChat((s) => s.typing[agentId] ?? false)
+  const activity = useChat((s) => s.activity[stateKey])
+  const online = useChat((s) => s.online[stateKey] ?? false)
+  const live = useChat((s) => s.live[stateKey])
+  const older = useChat((s) => s.older[stateKey])
+  const historyError = useChat((s) => s.historyError[stateKey])
+  const typing = useChat((s) => s.typing[stateKey] ?? false)
   const setTyping = useChat((s) => s.setTyping)
   const parent = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
+  const revealCredentials = useCallback(() => {
+    if (atBottom.current && parent.current) parent.current.scrollTop = parent.current.scrollHeight
+  }, [])
   const conversation = live ?? []
-  useEffect(() => connectConversation(agentId), [agentId])
+  useEffect(() => connectConversation(agentId, targetConversation), [agentId, targetConversation])
   useEffect(() => {
     if (!agent.unread) return
     let active = true
@@ -82,11 +98,11 @@ export function Chat({
   }, [displayedMessages, virtual])
   const send = (text: string) => {
     atBottom.current = true
-    void sendMessage(agentId, text, [], undefined, undefined, context)
+    void sendMessage(agentId, text, [], undefined, undefined, context, targetConversation)
   }
   const stop = () => {
-    void sendMessage(agentId, '/stop', [], undefined, undefined, context)
-    setTyping(agentId, false)
+    void sendMessage(agentId, '/stop', [], undefined, undefined, context, targetConversation)
+    setTyping(stateKey, false)
   }
   return (
     <div className="chat-body">
@@ -109,7 +125,7 @@ export function Chat({
             atBottom.current = false
             setPaging(true)
             try {
-              await loadHistory(agentId, older)
+              await loadHistory(agentId, older, undefined, targetConversation)
             } finally {
               setPaging(false)
             }
@@ -121,7 +137,9 @@ export function Chat({
       {historyError && (
         <div className="chat-connection" role="alert">
           {t('chatHistoryError')}{' '}
-          <Button onClick={() => void loadHistory(agentId, older)}>{t('chatRetry')}</Button>
+          <Button onClick={() => void loadHistory(agentId, older, undefined, targetConversation)}>
+            {t('chatRetry')}
+          </Button>
         </div>
       )}
       <div
@@ -230,7 +248,15 @@ export function Chat({
                         {message.error}
                         <Button
                           onClick={() =>
-                            void sendMessage(agentId, message.text, message.attachments, message)
+                            void sendMessage(
+                              agentId,
+                              message.text,
+                              message.attachments,
+                              message,
+                              undefined,
+                              context,
+                              targetConversation,
+                            )
                           }
                         >
                           {t('chatRetry')}
@@ -238,13 +264,18 @@ export function Chat({
                       </div>
                     )}
                     {message.interaction && (
-                      <InlineInteraction message={message} agentId={agentId} />
+                      <InlineInteraction message={message} agentId={stateKey} />
                     )}
                   </div>
                 </article>
               )
             })}
         </div>
+        <CredentialRequests
+          conversationId={targetConversation ?? conversationId(agentId)}
+          focusedId={credentialId}
+          onChange={revealCredentials}
+        />
         {typing && <ThinkingRow agentId={agentId} activity={activity} />}
       </div>
       <Composer
@@ -255,7 +286,7 @@ export function Chat({
         onSend={send}
         onSendDocuments={(text, ids) => {
           atBottom.current = true
-          void sendMessage(agentId, text, ids, undefined, undefined, context)
+          void sendMessage(agentId, text, ids, undefined, undefined, context, targetConversation)
         }}
         onStop={stop}
       />

@@ -6,10 +6,18 @@ import { UsageSkeleton } from './Skeletons'
 import { useEffect, useState, Suspense } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { SlidersHorizontal, UserRound, ChartNoAxesCombined, Sparkles, Users } from 'lucide-react'
+import {
+  SlidersHorizontal,
+  UserRound,
+  ChartNoAxesCombined,
+  Sparkles,
+  LockKeyhole,
+  Users,
+} from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
 import { Segmented } from './Segmented'
 import { Skills } from './Skills'
+import { Passwords } from './Passwords'
 import { Feedback } from './feedback'
 const Usage = lazy(() => import('./Usage'))
 const sections = [
@@ -18,6 +26,7 @@ const sections = [
   { id: 'agents', label: 'agentSettings', icon: Users },
   { id: 'usage', label: 'settingsUsage', icon: ChartNoAxesCombined },
   { id: 'skills', label: 'skills', icon: Sparkles },
+  { id: 'passwords', label: 'passwordsTitle', icon: LockKeyhole },
 ] as const
 function General() {
   const { t, i18n } = useTranslation()
@@ -100,7 +109,12 @@ export default function Settings() {
         <nav
           className="settings-nav"
           aria-label={t('settings')}
-          style={{ '--section': sections.indexOf(section) } as React.CSSProperties}
+          style={
+            {
+              '--section': sections.indexOf(section),
+              '--sections': sections.length,
+            } as React.CSSProperties
+          }
         >
           <span className="settings-nav-indicator" aria-hidden="true" />
           {sections.map(({ id, label, icon: Icon }) => (
@@ -122,6 +136,8 @@ export default function Settings() {
             <Profile />
           ) : section.id === 'agents' ? (
             <AgentSettings />
+          ) : section.id === 'passwords' ? (
+            <Passwords />
           ) : section.id === 'skills' ? (
             <Skills />
           ) : (

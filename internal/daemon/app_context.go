@@ -35,6 +35,21 @@ func (s *Services) chatToolActivation(request, model string, app *api.AppContext
 			}
 		}
 	}
+	browserIntent := false
+	for _, name := range activation.Names {
+		browserIntent = browserIntent || name == "request_credentials" || strings.HasPrefix(name, "browser_")
+	}
+	if browserIntent {
+		for _, name := range []string{"request_credentials", "browser_open_session", "browser_navigate", "browser_wait_ready", "browser_snapshot", "browser_act", "browser_tabs", "browser_close_session"} {
+			if slices.Contains(activation.Names, name) {
+				continue
+			}
+			if t, err := s.Tools.Get(name); err == nil {
+				activation.Names = append(activation.Names, name)
+				activation.Definitions = append(activation.Definitions, t.Definition())
+			}
+		}
+	}
 	if (app == nil || app.App != "classroom") && !slices.Contains(activation.Names, "classroom") {
 		return activation
 	}

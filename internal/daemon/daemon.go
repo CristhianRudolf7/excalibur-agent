@@ -316,6 +316,9 @@ func waitDone(chans []<-chan struct{}, timeout time.Duration) bool {
 func (d *Daemon) Stop(ctx context.Context) error {
 	if d.dep.Services != nil {
 		defer func() { _ = d.dep.Services.BrowserWeb.Close() }()
+		if d.dep.Services.Credentials != nil {
+			defer d.dep.Services.Credentials.Close()
+		}
 		defer func() { _ = d.dep.Services.RobotLab.Close() }()
 	}
 	var first error

@@ -178,3 +178,31 @@ func TestBraveStorageRightsStartupLogAndWiring(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowserCredentialFieldReferences(t *testing.T) {
+	ctx := context.Background()
+	v := openTestVault(t)
+	for _, field := range []string{"username", "email", "password", "otp", "api_key"} {
+		value := "private-" + field + "-sentinel"
+		if _, err := v.Create(ctx, vault.CreateParams{Name: "credentials-fixture-" + field, Type: vault.TypeWebsitePassword, Value: []byte(value), AllowedTools: []string{"browser_act"}, Domains: []string{"example.com"}}); err != nil {
+			t.Fatal(err)
+		}
+		resolver := browserSecrets{BrowserWebOptions{Vault: v}}
+		for _, prefix := range []string{"", "secret://"} {
+			got, err := resolver.Resolve(ctx, prefix+"credentials-fixture."+field, "example.com")
+			if err != nil || got != value {
+				t.Fatalf("field %s unavailable: %v", field, err)
+			}
+		}
+		for _, host := range []string{"evil.test", "sub.example.com", "example.com.evil.test"} {
+			got, err := resolver.Resolve(ctx, "credentials-fixture."+field, host)
+			if err == nil || strings.Contains(got, value) {
+				t.Fatal("wrong host resolved credential")
+			}
+		}
+	}
+	v.LockVault()
+	if _, err := (browserSecrets{BrowserWebOptions{Vault: v}}).Resolve(ctx, "credentials-fixture.password", "example.com"); err == nil {
+		t.Fatal("locked vault resolved credential")
+	}
+}

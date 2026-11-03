@@ -75,6 +75,10 @@ type BackendServices struct {
 // AttachServices installs the real backends on a DaemonBackend.
 func (b *DaemonBackend) AttachServices(s BackendServices) {
 	b.Services = (*daemonServices)(&s)
+	if b.credentials == nil {
+		b.credentials = newCredentialRegistry(b.Bus)
+		b.credentials.vault = s.Vault
+	}
 }
 
 // daemonServices is the resolved service set on the backend. It
@@ -107,6 +111,9 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	if strings.HasPrefix(method, "agents.") {
 		return b.agentsOp(ctx, method, params)
+	}
+	if strings.HasPrefix(method, "credentials.") {
+		return b.credentialsOp(ctx, method, params)
 	}
 	if strings.HasPrefix(method, "robot.") {
 		if b.Services == nil {
@@ -430,7 +437,7 @@ func VaultOp(ctx context.Context, v *vault.Vault, method string, params json.Raw
 		if err != nil {
 			return nil, vaultErr(err)
 		}
-		return map[string]any{"entries": metas}, nil
+		return map[string]any{"entries": metas, "locked": v.IsLocked()}, nil
 	case api.MethodVaultLock:
 		v.LockVault()
 		return map[string]any{"locked": true}, nil

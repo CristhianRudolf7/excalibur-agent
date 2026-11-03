@@ -4,6 +4,7 @@ import { useAgents, useSelectedAgent } from '@/features/agents/store'
 import { useAgentsConnection, markAgentRead } from '@/features/agents/api'
 import { useOpenAgentChat } from '@/features/agents/navigation'
 import '@/features/agents/agents.css'
+import { CredentialConversation } from '@/features/credentials/CredentialConversation'
 import { ToolStore } from '@/features/robotlab/ToolStore'
 import { FocusConnection } from '@/features/robotlab/FocusConnection'
 import { Classroom } from '@/features/classroom/Classroom'
@@ -165,6 +166,7 @@ export function Shell() {
     location.pathname,
     location.search,
   ])
+  const search = validatePanel(location.search as Record<string, unknown>)
   const viewerAgent = useRef(agent.id)
   useEffect(() => {
     if (isClassroom) {
@@ -193,7 +195,6 @@ export function Shell() {
       search: { panel: 'document', view: 'chat' },
     })
   }, [viewerTarget, navigate])
-  const search = validatePanel(location.search as Record<string, unknown>)
   const panel = search.panel
   const worldClock = search.worldClock
   const worldDebug = search.worldDebug,
@@ -769,7 +770,17 @@ export function Shell() {
                     panelOpen={shell.panelOpen}
                   />
                 </header>
-                <Chat key={agent.id} agentId={agent.id} onFile={() => {}} />
+                {search.credential ? (
+                  <CredentialConversation
+                    key={search.credential}
+                    agentId={agent.id}
+                    credentialId={search.credential}
+                    conversation={search.conversation}
+                    onFile={() => {}}
+                  />
+                ) : (
+                  <Chat key={agent.id} agentId={agent.id} onFile={() => {}} />
+                )}
               </section>
               {shell.panelOpen && (
                 <>

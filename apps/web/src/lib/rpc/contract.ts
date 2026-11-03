@@ -1,4 +1,5 @@
 import type { AgentMethods } from '@/features/agents/types'
+import type { CredentialMethods, CredentialEvents } from './credentials'
 import type { ClassroomMethods, ClassroomContext } from './classroom'
 import type { Artifact, ArtifactContent } from '@/features/artifacts/types'
 import type { WhiteboardMethods } from '@/features/whiteboard/types'
@@ -10,6 +11,13 @@ export interface Principal {
   language: string
 }
 export const clientMethods = [
+  'credentials.pending',
+  'credentials.submit',
+  'credentials.cancel',
+  'vault.list_metadata',
+  'vault.unlock',
+  'vault.lock',
+  'vault.delete',
   'activity.list',
   'tasks.query',
   'tasks.get',
@@ -123,7 +131,7 @@ export interface SourceRef {
   snippet?: string
   url?: string
 }
-export interface RpcEvents {
+export interface RpcEvents extends CredentialEvents {
   'library.document_updated': DocumentInfo
 }
 export interface FileHunk {
@@ -215,7 +223,7 @@ export interface ActivityItem {
   finished_at?: string
   error?: string
 }
-export interface RpcMethods extends WhiteboardMethods, ClassroomMethods, AgentMethods {
+export interface RpcMethods extends WhiteboardMethods, ClassroomMethods, AgentMethods, CredentialMethods {
   'artifacts.get': { params: { id: string }; result: ArtifactContent }
   'activity.list': { params: { conversation_id: string }; result: { items: ActivityItem[] } }
 

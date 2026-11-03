@@ -12,20 +12,33 @@ export const panels = [
 export type Panel = PanelView
 export function validatePanel(search: Record<string, unknown>): {
   panel: Panel
+  credential?: string
+  conversation?: string
   view?: 'world' | 'chat'
   room?: string
   worldClock?: 'manual'
   worldDebug?: number
   worldSpeed?: number
 } {
+  const identifier = (value: unknown) =>
+    typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,200}$/.test(value) ? value : undefined
+  const credential = identifier(search.credential)
   return {
+    credential,
+    conversation: credential ? identifier(search.conversation) : undefined,
     panel:
       search.panel === 'subagents'
         ? 'activity'
         : panels.includes(search.panel as Panel)
           ? (search.panel as Panel)
           : 'home',
-    view: search.view === 'world' ? 'world' : search.view === 'chat' ? 'chat' : undefined,
+    view: credential
+      ? 'chat'
+      : search.view === 'world'
+        ? 'world'
+        : search.view === 'chat'
+          ? 'chat'
+          : undefined,
     room:
       typeof search.room === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(search.room)
         ? search.room

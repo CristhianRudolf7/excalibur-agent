@@ -48,7 +48,7 @@ func (d *chatDelegations) stop() {
 	d.wg.Wait()
 }
 
-func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext) {
+func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, channels ...string) {
 	app = api.CloneAppContext(app)
 	d.mu.Lock()
 	if d.stopped || d.jobs[id] {
@@ -62,14 +62,22 @@ func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage,
 		defer d.wg.Done()
 		d.finish(conv, id, types.RunFailed, fmt.Sprintf("Subagent failed: %v", recovered))
 	}, func() {
-		d.run(conv, inheritedDir, args, id, spanish, app)
+		d.run(conv, inheritedDir, args, id, spanish, app, channels...)
 		d.wg.Done()
 	})
 }
 
-func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext) {
+func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, channels ...string) {
 	ctx, cancel := context.WithTimeout(whiteboard.WithConversation(d.ctx, conv), 30*time.Minute)
 	defer cancel()
+	channel := ""
+	if len(channels) > 0 {
+		channel = channels[0]
+	}
+	ctx = context.WithValue(ctx, credentialOriginKey{}, d.owner.credentialOrigin(ctx, conv, id, channel))
+	if d.owner.services.Credentials != nil {
+		defer d.owner.services.Credentials.EndRun(id)
+	}
 	if app != nil {
 		ctx = api.WithAppContext(ctx, *app)
 	}
@@ -166,7 +174,7 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	}
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: dt.Exec, reg: dt.Registry, artifacts: &artifactTurn{store: d.owner.backend.artifacts, conversation: conv, run: id}}, allowed: map[string]bool{}, runID: id, root: agent.ID}
 	defer d.owner.finishArtifacts(ctx, runner.artifacts)
-	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish, app) }
+	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish, app, channel) }
 	for _, name := range allowed {
 		runner.allowed[name] = true
 	}

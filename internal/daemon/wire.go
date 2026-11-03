@@ -163,6 +163,7 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // AttachServices installs the real daemon-side backends; without them
 // every family degrades to the embedded backend.
 type DaemonBackend struct {
+	credentials    *CredentialRegistry
 	classroomTurns classroomTurns
 	Master         *master.Master
 	Ctrls          *OrchControl

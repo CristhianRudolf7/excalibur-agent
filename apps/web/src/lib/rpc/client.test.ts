@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
+import { vaultLocked } from '@/features/credentials/secure'
 import { createRpcClient, ProtocolError, RpcError, TransportError } from './client'
 
 const principal = { id: 'local', name: 'Ana Prueba', timezone: 'UTC', language: 'es' }
@@ -138,4 +139,23 @@ it('propagates cancellation before or during a request and releases its timeout'
     createRpcClient().call('principal.get', undefined, { signal: controller.signal }),
   ).rejects.toMatchObject({ kind: 'aborted' })
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it('preserves the numeric credential error and recognizes data.code for unlock and retry', async () => {
+  reply((id) => ({
+    jsonrpc: '2.0',
+    id,
+    error: { code: -32099, message: 'Unlock required', data: { code: 'vault_locked' } },
+  }))
+  const error = await createRpcClient()
+    .call('credentials.submit', {
+      request_id: 'pending-request',
+      values: {},
+      remember: true,
+    })
+    .catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(RpcError)
+  expect(error).toMatchObject({ code: -32099, data: { code: 'vault_locked' } })
+  expect(vaultLocked(error)).toBe(true)
+  expect(vaultLocked(new RpcError(-32099, 'Unavailable'))).toBe(false)
 })

@@ -142,7 +142,7 @@ func OpenRegistry(ctx context.Context, db RegistryDB, defaultName string, publis
 }
 func newPersonal(p CreateParams) (PersonalAgent, error) {
 	now := time.Now().UTC()
-	a := PersonalAgent{ID: string(types.NewAgentID()), Name: strings.TrimSpace(p.Name), Title: p.Title, Description: p.Description, Personality: p.Personality, Avatar: DefaultAvatar(), CreatedAt: now, UpdatedAt: now}
+	a := PersonalAgent{ID: string(types.NewAgentID()), Name: strings.TrimSpace(p.Name), Title: p.Title, Description: p.Description, Personality: p.Personality, Avatar: DefaultAvatar(p.Name), CreatedAt: now, UpdatedAt: now}
 	a.ConversationID = "cnv_agent_" + a.ID
 	if p.Avatar != nil {
 		a.Avatar = *p.Avatar

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -193,12 +194,13 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
 	var raw json.RawMessage
+	defer func() { clear(raw) }()
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		writeResponse(w, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
 		return
 	}
-	trimmed := strings.TrimSpace(string(raw))
-	if strings.HasPrefix(trimmed, "[") {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
 		var batch []json.RawMessage
 		if err := json.Unmarshal(raw, &batch); err != nil {
 			writeResponse(w, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
@@ -235,6 +237,10 @@ func (s *Server) dispatch(ctx context.Context, raw json.RawMessage) *api.Respons
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"})
 	}
+	if req.Method == api.MethodCredentialsSubmit {
+		defer clear(raw)
+		defer clear(req.Params)
+	}
 	if err := req.Validate(); err != nil {
 		if apiErr, ok := err.(*api.Error); ok {
 			return api.NewError(req.ID, apiErr)
@@ -243,6 +249,9 @@ func (s *Server) dispatch(ctx context.Context, raw json.RawMessage) *api.Respons
 	}
 	notification := len(req.ID) == 0
 	result, apiErr := s.route(ctx, req.Method, req.Params, clientIDOf(ctx))
+	if req.Method == api.MethodCredentialsSubmit {
+		clear(req.Params)
+	}
 	if apiErr != nil {
 		if notification {
 			return nil
@@ -426,12 +435,17 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var req api.Request
-		if err := json.Unmarshal(raw, &req); err != nil {
+		decodeErr := json.Unmarshal(raw, &req)
+		clear(raw)
+		if decodeErr != nil {
 			resp := api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"})
 			_ = peer.write(ctx, resp)
 			continue
 		}
 		if err := req.Validate(); err != nil {
+			if req.Method == api.MethodCredentialsSubmit {
+				clear(req.Params)
+			}
 			_ = peer.write(ctx, api.NewError(req.ID, &api.Error{Code: api.CodeInvalidRequest, Message: err.Error()}))
 			continue
 		}
@@ -463,6 +477,9 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		result, apiErr := s.route(ctx, req.Method, req.Params, clientIDOf(ctx))
+		if req.Method == api.MethodCredentialsSubmit {
+			clear(req.Params)
+		}
 		if len(req.ID) == 0 {
 			continue
 		}

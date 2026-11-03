@@ -13,6 +13,8 @@ export const liveChatEnabled = import.meta.env.EXCALIBUR_WEB_CHAT_LIVE !== '0'
 export const conversationId = (agent: string) =>
   useAgents.getState().agents.find((item) => item.id === agent)?.conversation_id ??
   (agent === 'excalibur' ? 'cnv_web_excalibur' : `cnv_agent_${agent}`)
+export const chatStateKey = (agent: string, target?: string) =>
+  target && target !== conversationId(agent) ? `${agent}:${target}` : agent
 const pageSize = 50
 const unavailable = (error: unknown) =>
   error instanceof TransportError || (error instanceof RpcError && error.code === -32601)
@@ -28,39 +30,51 @@ export function fromWire(message: ConversationMessage): Message {
     changes: message.changes,
   }
 }
-export async function loadHistory(agent: string, before?: string, signal?: AbortSignal) {
+export async function loadHistory(
+  agent: string,
+  before?: string,
+  signal?: AbortSignal,
+  target?: string,
+) {
+  const stateKey = chatStateKey(agent, target)
   try {
     const { messages } = await rpc.call(
       'conversation.history',
-      { conversation_id: conversationId(agent), limit: pageSize, ...(before ? { before } : {}) },
+      {
+        conversation_id: target ?? conversationId(agent),
+        limit: pageSize,
+        ...(before ? { before } : {}),
+      },
       { signal },
     )
     if (signal?.aborted) return
     const rows = messages ?? []
-    useChat.getState().merge(agent, rows.map(fromWire), true)
-    useChat.getState().page(agent, rows.length === pageSize ? rows[0]?.id : undefined)
+    useChat.getState().merge(stateKey, rows.map(fromWire), true)
+    useChat.getState().page(stateKey, rows.length === pageSize ? rows[0]?.id : undefined)
     return true
   } catch (error) {
     if (signal?.aborted) return
     useChat
       .getState()
-      .page(agent, before, error instanceof Error ? error.message : i18n.t('chatHistoryError'))
-    if (unavailable(error)) useChat.getState().connection(agent, false)
+      .page(stateKey, before, error instanceof Error ? error.message : i18n.t('chatHistoryError'))
+    if (unavailable(error)) useChat.getState().connection(stateKey, false)
     return false
   }
 }
-export function receiveEvent(agent: string, event: ConversationEvent) {
+export function receiveEvent(agent: string, event: ConversationEvent, target?: string) {
+  const stateKey = chatStateKey(agent, target)
   if (event.type === 'library.document_updated') {
     documentUpdated(event.payload as DocumentInfo)
     return
   }
   const payload = event.payload as Exclude<ConversationEvent['payload'], DocumentInfo>
+  if (target && target !== conversationId(agent) && payload.conversation_id !== target) return
   if (
     event.type === 'message.created' &&
-    payload.conversation_id === conversationId(agent) &&
+    payload.conversation_id === (target ?? conversationId(agent)) &&
     payload.message_id
   ) {
-    useChat.getState().merge(agent, [
+    useChat.getState().merge(stateKey, [
       fromWire({
         id: payload.message_id,
         conversation_id: payload.conversation_id,
@@ -72,8 +86,8 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
       }),
     ])
     if (payload.role !== 'user') {
-      useChat.getState().setTyping(agent, false)
-      useChat.getState().setActivity(agent)
+      useChat.getState().setTyping(stateKey, false)
+      useChat.getState().setActivity(stateKey)
     }
   }
   // A scoped event belongs only to that conversation. Unscoped system turns
@@ -81,26 +95,26 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
   const targetConversation = payload.conversation_id
   if (
     targetConversation
-      ? targetConversation !== conversationId(agent)
+      ? targetConversation !== (target ?? conversationId(agent))
       : payload.agent_id
         ? payload.agent_id !== agent
         : agent !== useAgents.getState().favorite_id
   )
     return
   if (event.type === 'tool.called' || event.type === 'tool.completed') {
-    if (event.type === 'tool.called') useChat.getState().setTyping(agent, true)
+    if (event.type === 'tool.called') useChat.getState().setTyping(stateKey, true)
     const label =
       payload.tool === 'web_search' || payload.tool === 'source_search'
         ? 'chatSearching'
         : payload.tool === 'web_read'
           ? 'chatReading'
           : 'chatTool'
-    useChat.getState().setActivity(agent, event.type === 'tool.called' ? label : undefined)
+    useChat.getState().setActivity(stateKey, event.type === 'tool.called' ? label : undefined)
   }
   if (event.type === 'question.asked' || event.type === 'plan.approval_requested') {
     const id = payload.question_id ?? payload.plan_id
     if (id)
-      useChat.getState().merge(agent, [
+      useChat.getState().merge(stateKey, [
         {
           id: `interaction:${id}`,
           sender: 'agent',
@@ -112,7 +126,7 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
       ])
   }
   if (event.type === 'notice.posted' && payload.notice_id) {
-    useChat.getState().merge(agent, [
+    useChat.getState().merge(stateKey, [
       {
         id: `notice:${payload.notice_id}`,
         sender: 'agent',
@@ -126,38 +140,40 @@ export function receiveEvent(agent: string, event: ConversationEvent) {
     useChat
       .getState()
       .setTyping(
-        agent,
+        stateKey,
         ['created', 'queued', 'running', 'verifying', 'recovering'].includes(payload.state ?? ''),
       )
   }
 }
-export function connectConversation(agent: string) {
+export function connectConversation(agent: string, target?: string) {
+  const stateKey = chatStateKey(agent, target)
   if (!liveChatEnabled) return () => {}
   const controller = new AbortController()
   let loading = false
   let socketReady = false
-  useChat.getState().connection(agent, false)
+  useChat.getState().connection(stateKey, false)
   const refresh = async () => {
     if (loading || controller.signal.aborted) return
     loading = true
-    const ok = await loadHistory(agent, undefined, controller.signal)
-    if (!controller.signal.aborted) useChat.getState().connection(agent, ok === true && socketReady)
+    const ok = await loadHistory(agent, undefined, controller.signal, target)
+    if (!controller.signal.aborted)
+      useChat.getState().connection(stateKey, ok === true && socketReady)
     loading = false
   }
   void refresh()
   const close = subscribeEvents({
-    event: (event) => receiveEvent(agent, event),
+    event: (event) => receiveEvent(agent, event, target),
     ready: () => {
       socketReady = true
       void refresh()
     },
     offline: () => {
       socketReady = false
-      useChat.getState().connection(agent, false)
+      useChat.getState().connection(stateKey, false)
     },
   })
   const probe = setInterval(() => {
-    if (socketReady && !useChat.getState().online[agent]) void refresh()
+    if (socketReady && !useChat.getState().online[stateKey]) void refresh()
   }, 10000)
   return () => {
     controller.abort()
@@ -172,7 +188,9 @@ export async function sendMessage(
   retry?: Message,
   signal?: AbortSignal,
   context?: ClassroomContext,
+  target?: string,
 ) {
+  const stateKey = chatStateKey(agent, target)
   const clientMsgId = retry?.clientMsgId ?? crypto.randomUUID()
   const id = retry?.id ?? `pending:${clientMsgId}`
   const appContext = retry?.context ?? context
@@ -187,11 +205,11 @@ export async function sendMessage(
     literal: true,
     delivery: 'sending',
   }
-  useChat.getState().merge(agent, [message])
-  useChat.getState().setTyping(agent, true)
+  useChat.getState().merge(stateKey, [message])
+  useChat.getState().setTyping(stateKey, true)
   try {
     const params = {
-      conversation_id: conversationId(agent),
+      conversation_id: target ?? conversationId(agent),
       client_msg_id: clientMsgId,
       ...(appContext ? { context: appContext } : {}),
       text,
@@ -204,15 +222,15 @@ export async function sendMessage(
     })
     useChat
       .getState()
-      .patch(agent, id, { id: receipt.msg_id, delivery: undefined, error: undefined })
+      .patch(stateKey, id, { id: receipt.msg_id, delivery: undefined, error: undefined })
     return true
   } catch (error) {
-    useChat.getState().patch(agent, id, {
+    useChat.getState().patch(stateKey, id, {
       delivery: 'failed',
       error: error instanceof Error ? error.message : i18n.t('chatSendError'),
     })
-    useChat.getState().setTyping(agent, false)
-    if (unavailable(error)) useChat.getState().connection(agent, false)
+    useChat.getState().setTyping(stateKey, false)
+    if (unavailable(error)) useChat.getState().connection(stateKey, false)
     return false
   }
 }

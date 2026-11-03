@@ -16,6 +16,12 @@ here are an export of its registries.
   message events and conversation history, bounded to 50 files and 40 hunks
   per file.
 
+Secure credential request shapes are additive definitions in `methods.json`
+and `events.json`. Regenerate them with
+`EXCALIBUR_UPDATE_CREDENTIAL_CONTRACTS=1 go test ./internal/api -run TestCredentialContracts`.
+Submitted values belong only in `credentials.submit`, never in conversation
+messages or credential events.
+
 Field shapes for params, results and payloads live in `internal/api`
 (`methods.go`, `events.go`) and will gain full JSON Schemas as the
 milestones implement them.
