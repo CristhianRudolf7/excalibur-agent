@@ -35,17 +35,17 @@ func TestSpanishCSVImport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Report.TotalRows != 6 || out.Report.Imported != 1 || out.Report.Skipped != 5 || len(out.Report.UnknownColumns) != 1 {
+	if out.Report.TotalRows != 6 || out.Report.Imported != 3 || out.Report.Skipped != 3 || len(out.Report.UnknownColumns) != 1 {
 		t.Fatalf("%+v", out.Report)
 	}
 	rules := map[string]bool{}
 	for _, f := range out.Report.FixesApplied {
 		rules[f.Rule] = true
-		if f.Row != 2 && f.Row != 5 {
+		if f.Row < 2 || f.Row > 5 {
 			t.Fatal(f)
 		}
 	}
-	for _, rule := range []string{"trim", "decimal_comma", "date_iso", "select_case"} {
+	for _, rule := range []string{"trim", "decimal_comma", "date_iso", "select_case", "number_word"} {
 		if !rules[rule] {
 			t.Fatal(out.Report.FixesApplied)
 		}
@@ -54,7 +54,7 @@ func TestSpanishCSVImport(t *testing.T) {
 	for _, c := range out.Report.Conflicts {
 		problems[c.Problem] = true
 	}
-	for _, kind := range []string{"invalid_type", "ambiguous_date", "duplicate", "required_missing", "unknown_option", "out_of_range"} {
+	for _, kind := range []string{"duplicate", "required_missing", "unknown_option", "out_of_range"} {
 		if !problems[kind] {
 			t.Fatal(out.Report.Conflicts)
 		}
@@ -65,11 +65,11 @@ func TestSpanishCSVImport(t *testing.T) {
 	}
 	p.DryRun = false
 	committed, err := e.Import(ctx, b, p)
-	if err != nil || committed.Report.Imported != 1 {
+	if err != nil || committed.Report.Imported != 3 {
 		t.Fatal(committed, err)
 	}
 	after, _ = e.Get(ctx, c.ID)
-	if after.RecordCount != 1 {
+	if after.RecordCount != 3 {
 		t.Fatal(after)
 	}
 	if !out.Report.DryRun || committed.Report.DryRun {
@@ -313,5 +313,35 @@ func TestSpreadsheetLeadingBlankRowsAndCSVGridBudget(t *testing.T) {
 	large := strings.Join(headers, ",") + "\n" + strings.Repeat("value\n", 8000)
 	if _, err = readInput(ctx, []byte(large), ""); err == nil {
 		t.Fatal("sparse CSV exceeded grid budget")
+	}
+}
+
+func TestInferenceToleratesOutliersAndDayFirstColumns(t *testing.T) {
+	table := inputTable{headers: []string{"Nota", "Fecha"}, rows: [][]string{
+		{"15,5", "12/09/2026"}, {"17", "2026-10-03"}, {"quince", "15/10/2026"},
+		{"18", "20/10/2026"}, {"12", "21/10/2026"}, {"11", "05/10/2026"}, {"14", "3/11"},
+	}}
+	fields := inferFields(table)
+	if fields[0].Type != "number" || fields[1].Type != "date" {
+		t.Fatalf("outliers must not turn typed columns into text: %+v", fields)
+	}
+	if !dayFirstColumn(table, 1) {
+		t.Fatal("a day above 12 establishes day/month order for the column")
+	}
+	if _, _, conflict := importValue(fields[1], "12/09/2026", true, 2, "Fecha", true); conflict != nil {
+		t.Fatalf("day-first column must not flag 12/09/2026 as ambiguous: %+v", conflict)
+	}
+	if _, _, conflict := importValue(fields[1], "12/09/2026", true, 2, "Fecha", false); conflict == nil || conflict.Problem != "ambiguous_date" {
+		t.Fatalf("without column evidence 12/09/2026 stays ambiguous: %+v", conflict)
+	}
+	value, fixes, conflict := importValue(fields[0], "quince", true, 4, "Nota", false)
+	if conflict != nil || fmt.Sprint(value) != "15" || len(fixes) == 0 || fixes[len(fixes)-1].Rule != "number_word" {
+		t.Fatalf("number words are an easy automatic fix: %v %+v %+v", value, fixes, conflict)
+	}
+	if _, _, conflict := importValue(fields[0], "abc", true, 9, "Nota", false); conflict == nil || conflict.Problem != "invalid_type" {
+		t.Fatalf("non-numeric text in a number column is a conflict: %+v", conflict)
+	}
+	if _, _, conflict := importValue(fields[1], "3/11", true, 8, "Fecha", true); conflict == nil {
+		t.Fatal("a date without a year is reported, never invented")
 	}
 }

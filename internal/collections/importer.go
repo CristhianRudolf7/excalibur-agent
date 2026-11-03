@@ -264,9 +264,9 @@ func guessedType(s string) api.FieldType {
 func inferFields(t inputTable) []Field {
 	out := []Field{}
 	for col, name := range t.headers {
-		kind := api.FieldType("")
 		seen := map[string]bool{}
 		options := []string{}
+		votes := map[api.FieldType]int{}
 		count := 0
 		for _, row := range t.rows {
 			if col >= len(row) || strings.TrimSpace(row[col]) == "" {
@@ -275,23 +275,18 @@ func inferFields(t inputTable) []Field {
 			s := strings.TrimSpace(row[col])
 			count++
 			guess := guessedType(s)
-			if kind == "" {
-				kind = guess
-			} else if kind != guess {
-				if (kind == "number" && guess == "integer") || (kind == "integer" && guess == "number") {
-					kind = "number"
-				} else {
-					kind = "text"
+			if guess == "text" {
+				if _, ok := numberWord(s); ok {
+					guess = "integer"
 				}
 			}
+			votes[guess]++
 			if !seen[s] {
 				seen[s] = true
 				options = append(options, s)
 			}
 		}
-		if kind == "" {
-			kind = "text"
-		}
+		kind := majorityType(votes, count)
 		f := Field{ID: fmt.Sprintf("f_%d", col+1), Name: name, Type: kind}
 		if kind == "text" && count >= 4 && len(options) >= 2 && len(options) <= 12 && len(options)*2 <= count {
 			f.Type = "select"
@@ -300,6 +295,68 @@ func inferFields(t inputTable) []Field {
 		out = append(out, f)
 	}
 	return out
+}
+
+// majorityType picks a typed column when most values agree, so a few
+// outliers ("quince", "3/11") become reported conflicts instead of turning
+// the whole column into text. Integers and decimals share one family.
+func majorityType(votes map[api.FieldType]int, count int) api.FieldType {
+	if count == 0 {
+		return "text"
+	}
+	numeric := votes["integer"] + votes["number"]
+	best, bestVotes := api.FieldType("text"), 0
+	for kind, n := range votes {
+		if kind == "text" || kind == "integer" || kind == "number" {
+			continue
+		}
+		if n > bestVotes {
+			best, bestVotes = kind, n
+		}
+	}
+	if numeric >= bestVotes && numeric > 0 {
+		best, bestVotes = "integer", numeric
+		if votes["number"] > 0 {
+			best = "number"
+		}
+	}
+	if bestVotes == count || (count >= 3 && bestVotes*10 >= count*7) {
+		return best
+	}
+	return "text"
+}
+
+// numberWord reads whole numbers written as Spanish or English words (0-20).
+func numberWord(s string) (int, bool) {
+	words := map[string]int{
+		"cero": 0, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+		"once": 11, "doce": 12, "trece": 13, "catorce": 14, "quince": 15, "dieciséis": 16, "dieciseis": 16, "diecisiete": 17, "dieciocho": 18, "diecinueve": 19, "veinte": 20,
+		"zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+		"eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+	}
+	n, ok := words[strings.ToLower(strings.TrimSpace(s))]
+	return n, ok
+}
+
+// dayFirstColumn reports whether a slash-date column is unambiguously
+// day/month/year because at least one value has a day above 12.
+func dayFirstColumn(t inputTable, col int) bool {
+	for _, row := range t.rows {
+		if col >= len(row) {
+			continue
+		}
+		words := strings.Fields(row[col])
+		if len(words) == 0 {
+			continue
+		}
+		parts := strings.Split(words[0], "/")
+		if len(parts) == 3 {
+			if a, err := strconv.Atoi(parts[0]); err == nil && a > 12 && a <= 31 {
+				return true
+			}
+		}
+	}
+	return false
 }
 func editDistance(a, b string) int {
 	aa, bb := []rune(a), []rune(b)
@@ -393,7 +450,7 @@ func ambiguousDate(s string) bool {
 	b, e2 := strconv.Atoi(parts[1])
 	return e1 == nil && e2 == nil && a >= 1 && a <= 12 && b >= 1 && b <= 12 && a != b
 }
-func importValue(f Field, raw string, auto bool, row int, column string) (any, []api.ImportFix, *api.ImportConflict) {
+func importValue(f Field, raw string, auto bool, row int, column string, dayFirst bool) (any, []api.ImportFix, *api.ImportConflict) {
 	s := raw
 	fixes := []api.ImportFix{}
 	fix := func(to, rule string) {
@@ -408,8 +465,13 @@ func importValue(f Field, raw string, auto bool, row int, column string) (any, [
 	if auto {
 		fix(strings.TrimSpace(s), "trim")
 	}
-	if (f.Type == "date" || f.Type == "datetime") && ambiguousDate(strings.Split(s, " ")[0]) {
+	if (f.Type == "date" || f.Type == "datetime") && !dayFirst && ambiguousDate(strings.Split(s, " ")[0]) {
 		return conflict("ambiguous_date", "Use an ISO date (YYYY-MM-DD) to specify day and month")
+	}
+	if auto && numeric(f) {
+		if n, ok := numberWord(s); ok {
+			fix(strconv.Itoa(n), "number_word")
+		}
 	}
 	if auto && numeric(f) && strings.Count(s, ",") == 1 && !strings.Contains(s, ".") {
 		fix(strings.ReplaceAll(s, ",", "."), "decimal_comma")
@@ -539,6 +601,10 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				out.Report.UnknownColumns = append(out.Report.UnknownColumns, m.Column)
 			}
 		}
+		dayFirst := map[int]bool{}
+		for col := range input.headers {
+			dayFirst[col] = dayFirstColumn(input, col)
+		}
 		key := p.UpsertKey
 		if key != "" {
 			if _, err = fieldByID(c, key); err != nil {
@@ -563,7 +629,7 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				if col < len(row) {
 					raw = row[col]
 				}
-				value, fixes, conflict := importValue(f, raw, p.Fixes != "none", line, m.Column)
+				value, fixes, conflict := importValue(f, raw, p.Fixes != "none", line, m.Column, dayFirst[col])
 				out.Report.FixesApplied = append(out.Report.FixesApplied, fixes...)
 				columns[f.ID] = m.Column
 				rawValues[f.ID] = raw
