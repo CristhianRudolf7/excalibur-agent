@@ -230,7 +230,8 @@
   border-radius: 14px;
 }
 .data-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 14px;
 }
@@ -238,13 +239,15 @@
 .data-table td {
   text-align: left;
   padding: 14px 16px;
+  min-width: 96px;
   max-width: 320px;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   border-bottom: 1px solid var(--border);
 }
 .data-table th {
   background: var(--muted);
   font-weight: 500;
+  white-space: nowrap;
 }
 .data-table th button {
   display: flex;
