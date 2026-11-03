@@ -510,9 +510,14 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		return nil, fmt.Errorf("daemon: register subagent root: %w", err)
 	}
 	s.masterAgentID = root.ID
+	if opts.Skills != nil {
+		s.Skills = opts.Skills
+	} else {
+		s.Skills = wireengine.DefaultSkillsIndex()
+	}
 	wiring := engineWiring{
 		Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
-		Vault: opts.Vault, Memory: opts.Memory, Skills: opts.Skills,
+		Vault: opts.Vault, Memory: opts.Memory, Skills: s.Skills,
 		Orch: s.Orch, OrchStore: orchStore, Root: root.ID,
 	}
 	eng, dt, err := buildEngine(wiring)
@@ -528,11 +533,6 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	s.Tools = dt.Registry
 	s.Catalog = dt.Catalog
 	s.Exec = dt.Exec
-	if opts.Skills != nil {
-		s.Skills = opts.Skills
-	} else {
-		s.Skills = wireengine.DefaultSkillsIndex()
-	}
 	if opts.Projects != nil {
 		s.Projects = opts.Projects
 	} else {

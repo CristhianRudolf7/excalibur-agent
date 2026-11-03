@@ -567,9 +567,8 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		skillCatalog = skillsIndex.RenderCatalogForMode(skills.CatalogConfig{
 			WindowTokens: effWindow, Pertinent: skills.DefaultPertinentForRole("programming"), Compact: skillsCompact,
 		}, skillsMode)
-		// Cards mode injects no catalog and no suggestions: the
-		// one-line pointer below is the only skills text in the
-		// prompt, teaching the pull pattern without the tokens.
+		// Cards mode starts with a pull pointer. Matching tool intent may
+		// add one focused hint after the deferred catalog is wired.
 		if skillsMode.CardsEnabled() {
 			skillCatalog = skills.CardsPointer()
 		}
@@ -577,12 +576,6 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 		for _, s := range skillsIndex.SuggestWithEnvForMode(opts.Request, env, settings.Model, ctxCfg.SuggestedSkillsMax, skillsMode) {
 			suggestedSkills = append(suggestedSkills, ctxcompiler.SkillView{Name: s.Name, Why: s.Why})
 		}
-		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsErrorCards, skillsIndex, suggestedSkills)
-		_ = run.EmitEvent("skills_wired", map[string]any{
-			"mode": string(skillsMode), "compact": skillsCompact,
-			"error_cards":  skillsErrorCards,
-			"catalog_hash": skillsIndex.CatalogHash(), "suggested": skillNames(suggestedSkills),
-		})
 	}
 	var media *tools.MediaDeps
 	if profile != ProfileEval && settings.Provider == "openai" && tools.VisionOCREnabled() {
@@ -675,6 +668,11 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 	}
 	if skillsIndex != nil {
 		writeSkillsRecord(run.Dir, skillsMode, skillsCompact, skillsErrorCards, skillsIndex, suggestedSkills)
+		_ = run.EmitEvent("skills_wired", map[string]any{
+			"mode": string(skillsMode), "compact": skillsCompact,
+			"error_cards":  skillsErrorCards,
+			"catalog_hash": skillsIndex.CatalogHash(), "suggested": skillNames(suggestedSkills),
+		})
 	}
 	// The L3 task layer carries the request: without it the model
 	// calls never see what to do (Section 6.5, 11.1). The fixed
@@ -808,9 +806,9 @@ func runEnginePath(ctx context.Context, opts ExecOptions, run *ExecRun, settings
 			Volatile: ctxcompiler.Volatile{Now: time.Now().UTC()},
 		}, nil
 	}
-	// Only the profile's core tools ride the model request in order;
-	// deferred tools resolve through search_tools from the next step
-	// so adding them never breaks the input cache (11.6, 13.3).
+	// The profile core and the bounded request-selected deferred tools ride
+	// the model request in order and remain fixed for this run. Other
+	// deferred tools resolve through search_tools (11.6, 13.3).
 	// Under eval the surface is the frozen Section 23.2 table: the
 	// gate rejects anything else even if the model asks for it.
 	allowed := runner.allowed

@@ -15,9 +15,9 @@ import (
 
 // DeferredCatalog tracks which catalog entries are deferred (Section
 // 13.3). Core tools stay in the model prefix in fixed order; deferred
-// tools never enter the prefix and resolve through search_tools from
-// the next step, so adding or removing them never breaks the input
-// cache (Sections 11.6, 13.3, 14.12).
+// tools resolve through search_tools unless request intent selects a bounded
+// run-local subset. Catalog changes never mutate the core prefix or its hash
+// (Sections 11.6, 13.3, 14.12).
 type DeferredCatalog struct {
 	mu       sync.RWMutex
 	reg      Registry

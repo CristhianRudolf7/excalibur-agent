@@ -81,3 +81,15 @@ activation entirely and retains its frozen profile and prompt behavior.
 `TestIntentSuggestionsUseMetadataAndBoundSelection` cover matching, unrelated
 requests, deterministic bounds, Unicode/plurals, skill resolution, journal
 records, and the unchanged core prefix and eval behavior.
+
+`TestExecIntentToolsReachFirstModelRequest` exercises default, delegate, and eval
+runs with a simulated provider. It checks English and Spanish requests, the
+first provider tool list, the explicit skill hint, and journal ordering.
+`TestChatIntentActivationPerNewMessage` verifies that a later diagram request
+activates tools and a subsequent unrelated message does not retain them.
+`TestChatActivatedRendererPublishesArtifacts` calls the real SVG renderer
+directly through the chat engine and verifies both artifact events.
+`TestChatChildIntentRespectsExplicitToolGrant` covers delegated discovery and
+ensures a narrowed delegation card keeps its tool grant. Catalog pins require
+no update because activation changes neither registry names nor the core prefix;
+the eval profile hash remains unchanged.
