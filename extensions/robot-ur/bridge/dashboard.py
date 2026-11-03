@@ -1,4 +1,5 @@
 """Independent, deadline-bounded sockets keep STOP available during RTDE calls."""
+import os
 import socket
 import time
 
@@ -23,8 +24,13 @@ def line(sock, deadline):
     return bytes(data).split(b"\n", 1)[0].decode("utf-8", "replace").strip()
 
 
+# Remote links can add ~0.5 s per round trip; STOP keeps a shorter budget.
+COMMAND_SECONDS = float(os.environ.get("EXCALIBUR_ROBOT_DASHBOARD_TIMEOUT", "3"))
+STOP_SECONDS = 2.0
+
+
 def command(host, text):
-    deadline = time.monotonic() + 1
+    deadline = time.monotonic() + COMMAND_SECONDS
     with socket.create_connection((host, 29999), timeout=remaining(deadline)) as sock:
         line(sock, deadline)
         sock.settimeout(remaining(deadline))
@@ -35,7 +41,7 @@ def command(host, text):
 def stop(host):
     errors = []
     try:
-        deadline = time.monotonic() + 1
+        deadline = time.monotonic() + STOP_SECONDS
         with socket.create_connection((host, 30002), timeout=remaining(deadline)) as sock:
             sock.settimeout(remaining(deadline))
             sock.sendall(b"def excalibur_stop():\n  stopl(0.5)\n  stopj(0.6)\nend\n")

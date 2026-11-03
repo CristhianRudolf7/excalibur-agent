@@ -62,7 +62,8 @@ class Safety:
             raise Rejected("explicit motion approval required (approved:true)")
 
     def modes(self, state):
-        if state["safety_mode"] != "NORMAL":
+        # REDUCED only lowers the controller's own limits; faults and stops still refuse.
+        if state["safety_mode"] not in ("NORMAL", "REDUCED"):
             raise Rejected("motion refused: safety_mode is " + state["safety_mode"])
         if state["robot_mode"] != "RUNNING":
             raise Rejected("motion refused: robot_mode is " + state["robot_mode"])

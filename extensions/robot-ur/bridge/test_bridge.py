@@ -32,9 +32,12 @@ class Fake:
         self.tcp_speed = [0.] * 6
         self.qd = [0.] * 6
         self.accept = True
+        self.reconnectable = False
 
     def disconnect(self): self.connected = False
     def isConnected(self): return self.connected
+    def reconnect(self):
+        if self.reconnectable: self.connected = True
     def getRobotMode(self): return self.robot_mode
     def getSafetyMode(self): return self.safety_mode
     def getRobotStatus(self): return 3
@@ -114,8 +117,9 @@ class SafetyTest(unittest.TestCase):
 
     def test_modes_rates_approval_config(self):
         safety = Safety()
-        for mode in ("REDUCED", "PROTECTIVE_STOP", "UNKNOWN"):
+        for mode in ("PROTECTIVE_STOP", "UNKNOWN", "SAFEGUARD_STOP", "FAULT"):
             with self.assertRaises(Rejected): safety.modes({"safety_mode": mode, "robot_mode": "RUNNING"})
+        safety.modes({"safety_mode": "REDUCED", "robot_mode": "RUNNING"})
         with self.assertRaises(Rejected): safety.modes({"safety_mode": "NORMAL", "robot_mode": "IDLE"})
         for body in ({}, {"approved": 1}, {"approved": "true"}, {"approved": False}):
             with self.assertRaises(Rejected): safety.approved(body)
@@ -203,6 +207,15 @@ class ControllerTest(unittest.TestCase):
         self.fake.connected = False
         with self.assertRaisesRegex(Rejected, "disconnected"): self.controller.state()
 
+    def test_remote_control_answer_is_cached_briefly(self):
+        with patch("controller.dashboard.command", return_value="true") as dash:
+            self.controller._remote_checked = -1e9
+            for _ in range(3):
+                self.controller.move({"kind": "relative", "delta": {"dz": .01}, "approved": True})
+            self.assertEqual([c.args[1] for c in dash.call_args_list].count("is in remote control"), 1)
+            self.controller.disconnect()
+            self.assertLess(self.controller._remote_checked, 0)
+
     def test_protective_stop_and_timeout_during_move(self):
         self.fake.progress = 1
         with patch("controller.time.sleep", side_effect=lambda _: setattr(self.fake, "safety_mode", 3)):
@@ -210,7 +223,10 @@ class ControllerTest(unittest.TestCase):
                 self.controller.move({"kind": "relative", "delta": {"dx": .01}, "approved": True})
         self.stopped.assert_called_once()
         self.fake.safety_mode = 1
-        with patch("controller.time.monotonic", side_effect=[0, 30]):
+        # The remote-control cache also reads the clock; motion then hits its deadline.
+        self.controller._remote_checked = -1e9
+        ticks = iter([0, 0, 0])
+        with patch("controller.time.monotonic", side_effect=lambda: next(ticks, 30)):
             with self.assertRaises(TimeoutError):
                 self.controller.move({"kind": "relative", "delta": {"dx": .01}, "approved": True})
 
@@ -284,7 +300,7 @@ class RTDEBindingsTest(unittest.TestCase):
         except ImportError:
             self.skipTest("ur_rtde is optional for ordinary fake tests")
         for cls, methods in (
-            (rtde_receive.RTDEReceiveInterface, ("getRobotStatus", "getRobotMode", "getSafetyMode", "getActualTCPPose", "getActualQ", "getActualDigitalInputBits", "getActualDigitalOutputBits", "getActualTCPSpeed", "getActualQd", "getSpeedScaling", "getTargetSpeedFraction", "isConnected", "disconnect")),
+            (rtde_receive.RTDEReceiveInterface, ("getRobotStatus", "getRobotMode", "getSafetyMode", "getActualTCPPose", "getActualQ", "getActualDigitalInputBits", "getActualDigitalOutputBits", "getActualTCPSpeed", "getActualQd", "getSpeedScaling", "getTargetSpeedFraction", "isConnected", "reconnect", "disconnect")),
             (rtde_control.RTDEControlInterface, ("moveL", "moveJ", "getAsyncOperationProgressEx", "getForwardKinematics", "isJointsWithinSafetyLimits", "isPoseWithinSafetyLimits", "freedriveMode", "endFreedriveMode", "disconnect")),
             (rtde_io.RTDEIOInterface, ("setStandardDigitalOut", "disconnect")),
         ):
@@ -324,3 +340,46 @@ class DashboardTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SecondaryIOTest(unittest.TestCase):
+    def test_sends_secondary_program_and_rejects_bad_index(self):
+        import socket as socketlib
+        import threading
+        from controller import SecondaryIO
+        server = socketlib.socket()
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        received = []
+
+        def accept():
+            connection, _ = server.accept()
+            received.append(connection.recv(4096).decode())
+            connection.close()
+
+        worker = threading.Thread(target=accept)
+        worker.start()
+        io = SecondaryIO("127.0.0.1", server.getsockname()[1])
+        self.assertTrue(io.setStandardDigitalOut(1, True))
+        worker.join(3)
+        server.close()
+        self.assertIn("sec excalibur_io():", received[0])
+        self.assertIn("set_standard_digital_out(1, True)", received[0])
+        self.assertFalse(io.setStandardDigitalOut(9, True))
+
+
+class StateStreamTest(unittest.TestCase):
+    def test_state_stream_is_reopened_after_the_controller_drops_it(self):
+        import tempfile
+        from controller import Controller
+        fake = Fake()
+        controller = Controller(tempfile.mkdtemp(), factory=lambda host: (fake, fake, fake))
+        controller.control = controller.receive = controller.io = fake
+        controller.host = "192.168.0.4"
+        fake.connected = False
+        fake.reconnectable = True
+        self.assertTrue(controller.state()["connected"])
+        fake.connected = False
+        fake.reconnectable = False
+        with self.assertRaises(Rejected):
+            controller.state()

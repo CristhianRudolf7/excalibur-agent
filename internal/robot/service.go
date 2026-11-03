@@ -104,7 +104,7 @@ func New(opts Options) *Service {
 	if opts.Command == nil {
 		opts.Command = exec.CommandContext
 	}
-	return &Service{opts: opts, client: &http.Client{Timeout: 31 * time.Second}, bridge: "stopped", backoff: opts.RestartBackoff}
+	return &Service{opts: opts, client: &http.Client{Timeout: 75 * time.Second}, bridge: "stopped", backoff: opts.RestartBackoff}
 }
 
 // Start launches only the demand/health loop, never the bridge itself.

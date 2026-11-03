@@ -226,7 +226,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    bridge = Bridge()
+    # Remote links (VPN relays) need ~10 s just to start the control script.
+    bridge = Bridge(timeout=float(os.environ.get("EXCALIBUR_ROBOT_BRIDGE_TIMEOUT", "60")))
     server = Server(("127.0.0.1", int(os.environ.get("EXCALIBUR_ROBOT_BRIDGE_PORT", "7811"))), bridge)
     def shutdown(signum, frame):
         raise KeyboardInterrupt

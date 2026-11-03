@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import dashboard
+import socket
 from safety import Rejected, Safety, vector
 from transforms import relative
 
@@ -18,11 +19,49 @@ SAFETY_MODES = {1: "NORMAL", 2: "REDUCED", 3: "PROTECTIVE_STOP", 4: "RECOVERY",
                 8: "VIOLATION", 9: "FAULT", 10: "VALIDATE_JOINT_ID", 11: "UNDEFINED_SAFETY_MODE"}
 
 
+RTDE_RECEIVE_HZ = float(os.environ.get("EXCALIBUR_ROBOT_RTDE_RECEIVE_HZ", "25"))
+PREWARM_CONTROL = os.environ.get("EXCALIBUR_ROBOT_PREWARM_CONTROL", "1") == "1"
+RTDE_CONTROL_HZ = float(os.environ.get("EXCALIBUR_ROBOT_RTDE_CONTROL_HZ", "25"))
+
+
+class SecondaryIO:
+    """Digital outputs through a URScript secondary program on port 30002.
+
+    Secondary programs run alongside the ur_rtde control script without stopping it.
+    """
+
+    def __init__(self, host, port=30002, timeout=3.0):
+        self.host, self.port, self.timeout = host, port, timeout
+
+    def setStandardDigitalOut(self, index, value):
+        if type(index) is not int or not 0 <= index <= 7:
+            return False
+        program = (
+            "sec excalibur_io():\n"
+            f"  set_standard_digital_out({index}, {'True' if value else 'False'})\n"
+            "end\n"
+        )
+        with socket.create_connection((self.host, self.port), self.timeout) as connection:
+            connection.sendall(program.encode())
+        return True
+
+    def disconnect(self):
+        return None
+
+
 class Controller:
+    REMOTE_CACHE_SECONDS = 5.0
+
     def _remote_ok(self):
         """Real arms must be in Remote Control. Only a loopback simulator
-        (URSim on this machine) may run in Local mode, and only on request."""
+        (URSim on this machine) may run in Local mode, and only on request.
+        A positive answer is reused briefly: each Dashboard round trip costs
+        ~0.5 s on remote links, and leaving Remote stops the control script anyway."""
+        now = time.monotonic()
+        if now - getattr(self, "_remote_checked", -1e9) < self.REMOTE_CACHE_SECONDS:
+            return True
         if dashboard.command(self.host, "is in remote control").lower() == "true":
+            self._remote_checked = now
             return True
         return (os.environ.get("EXCALIBUR_ROBOT_SIMULATOR_LOCAL") == "1"
                 and self.host in ("127.0.0.1", "localhost", "::1"))
@@ -51,20 +90,31 @@ class Controller:
             else:
                 from rtde_control import RTDEControlInterface
                 from rtde_receive import RTDEReceiveInterface
-                from rtde_io import RTDEIOInterface
                 # Receive/IO remain usable while powered off. Control uploads its
                 # script lazily after Dashboard power-on and brake release.
-                self.receive = RTDEReceiveInterface(host)
-                self.io = RTDEIOInterface(host)
+                # Low rates keep RTDE alive over high-latency links (VPN relays).
+                self.receive = RTDEReceiveInterface(host, RTDE_RECEIVE_HZ)
+                # The RTDE IO interface competes with the control script for input
+                # registers on many installations; secondary URScript never does.
+                self.io = SecondaryIO(host)
             result = self.state()
             result["polyscope_version"] = dashboard.command(host, "PolyscopeVersion")
             result["remote_control"] = dashboard.command(host, "is in remote control").lower() == "true"
+            if PREWARM_CONTROL and result["remote_control"] and self.factory is None:
+                # Starting the control script costs ~10 s on remote links; pay it at
+                # connect time so the first motion is as fast as the rest.
+                try:
+                    self.get_control()
+                    self._remote_checked = time.monotonic()
+                except Exception:
+                    self.control = None  # retried lazily on the first motion
             return result
         except Exception:
             self.disconnect()
             raise
 
     def disconnect(self):
+        self._remote_checked = -1e9
         for interface in (self.control, self.receive, self.io):
             if interface:
                 interface.disconnect()
@@ -79,7 +129,13 @@ class Controller:
         if not self.receive:
             return {"connected": False}
         if not self.receive.isConnected():
-            raise Rejected("RTDE disconnected; reconnect required")
+            # The controller drops state streams when a control script (re)starts.
+            try:
+                self.receive.reconnect()
+            except Exception:
+                pass
+            if not self.receive.isConnected():
+                raise Rejected("RTDE disconnected; reconnect required")
         inputs = [bool(self.receive.getActualDigitalInputBits() & (1 << i)) for i in range(18)]
         outputs = [bool(self.receive.getActualDigitalOutputBits() & (1 << i)) for i in range(18)]
         return {"connected": True, "host": self.host,
@@ -119,7 +175,11 @@ class Controller:
     def get_control(self):
         if self.control is None:
             from rtde_control import RTDEControlInterface
-            self.control = RTDEControlInterface(self.host)
+            self.control = RTDEControlInterface(self.host, RTDE_CONTROL_HZ)
+            # Starting the control script makes the controller drop other RTDE
+            # sessions; reopen the state stream instead of reporting a fault.
+            if self.receive is not None and not self.receive.isConnected():
+                self.receive.reconnect()
         return self.control
 
     def move(self, body):
