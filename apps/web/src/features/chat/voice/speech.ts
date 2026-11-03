@@ -41,6 +41,32 @@ const normalize = (text: string) =>
  * Text of one recognition session. Consecutive results that only extend (or
  * repeat) the previous one replace it, so cumulative engines do not echo words.
  */
+const words = (text: string) => normalize(text).split(' ').filter(Boolean)
+
+/**
+ * True when what the recognizer heard is (mostly) the assistant's own voice
+ * coming back through the speaker: fewer than two words, or under half of the
+ * words, are absent from the text being spoken.
+ */
+export function isEcho(heard: string, spoken: string): boolean {
+  const all = words(heard)
+  if (!all.length) return true
+  if (!spoken) return false
+  const reference = new Set(words(spoken))
+  const novel = all.filter((word) => !reference.has(word))
+  return novel.length < 2 || novel.length / all.length < 0.5
+}
+
+/** Drop the leading words that were only the assistant's echo before the user barged in. */
+export function stripEcho(text: string, spoken: string): string {
+  if (!spoken) return text
+  const reference = new Set(words(spoken))
+  const tokens = text.split(/\s+/).filter(Boolean)
+  let index = 0
+  while (index < tokens.length && reference.has(normalize(tokens[index]!))) index++
+  return tokens.slice(index).join(' ')
+}
+
 export function collapseRepeats(texts: readonly string[]): string {
   const parts: string[] = []
   for (const raw of texts) {
@@ -317,6 +343,19 @@ export function speakWithBrowser(
     signal.addEventListener('abort', abort, { once: true })
     if (signal.aborted) return abort()
     synth.speak(utterance)
+    // Chrome sometimes never fires onend: watch the engine's own speaking flag.
+    if (typeof synth.speaking === 'boolean') {
+      let began = false
+      const startedAt = Date.now()
+      const watch = setInterval(() => {
+        if (settled) return clearInterval(watch)
+        if (synth.speaking) began = true
+        else if ((began || Date.now() - startedAt > 4000) && !synth.pending) {
+          clearInterval(watch)
+          finish()
+        }
+      }, 300)
+    }
   })
   return { done, stop: () => stop() }
 }

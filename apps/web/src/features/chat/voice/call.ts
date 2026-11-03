@@ -10,7 +10,14 @@ import {
   type CallState,
   type VadOptions,
 } from './segmentation'
-import { BrowserRecognizer, browserVoiceSupported, speakableText, speakWithBrowser } from './speech'
+import {
+  BrowserRecognizer,
+  browserVoiceSupported,
+  isEcho,
+  speakableText,
+  speakWithBrowser,
+  stripEcho,
+} from './speech'
 
 /** server: daemon STT/TTS (needs credentials). browser: Web Speech API. */
 export type VoiceMode = 'server' | 'browser'
@@ -46,6 +53,10 @@ export class VoiceCall {
   private audio?: HTMLAudioElement
   private stopAudio?: () => void
   private muted = false
+  /** Text being spoken now, to recognize the assistant's own echo. */
+  private echo = ''
+  /** Reply that was playing when the user barged in; its echo is stripped from the turn. */
+  private bargeEcho = ''
   private speaker = true
   private stt: VoiceMode
   private tts: VoiceMode
@@ -127,8 +138,14 @@ export class VoiceCall {
   }
   /** Recognized words are real speech (not just noise): they may interrupt a pending reply. */
   private heardWords() {
-    if (this.snapshot.state === 'speaking' || this.muted || !this.live) return
-    if (this.snapshot.state !== 'listening') this.interrupt()
+    if (this.muted || !this.live) return
+    if (this.snapshot.state === 'speaking') {
+      // The recognizer keeps running during playback so the user can talk over
+      // the reply; the assistant's own voice coming back is ignored.
+      if (isEcho(this.recognizer?.peek() ?? '', this.echo)) return
+      this.bargeEcho = this.echo
+      this.interrupt()
+    } else if (this.snapshot.state !== 'listening') this.interrupt()
     this.emit({ partial: this.recognizer?.peek() })
     this.vad.markSpeech(performance.now())
   }
@@ -157,7 +174,8 @@ export class VoiceCall {
       if (this.recorder?.state === 'recording') this.recorder.stop()
       return
     }
-    const text = this.recognizer?.take() ?? ''
+    const text = stripEcho(this.recognizer?.take() ?? '', this.bargeEcho)
+    this.bargeEcho = ''
     this.emit({ partial: undefined })
     if (!text) return
     this.turn?.abort()
@@ -248,11 +266,17 @@ export class VoiceCall {
       const answer = await reply
       this.emit({ transcript: [...this.snapshot.transcript, { role: 'assistant', text: answer }] })
       this.transition('reply')
-      // The browser recognizer would transcribe our own voice; pause it while speaking.
-      this.recognizer?.stop()
-      await this.speak(speakableText(answer), signal)
+      const spoken = speakableText(answer)
+      this.recognizer?.clear()
+      this.echo = spoken
+      try {
+        await this.speak(spoken, signal)
+      } finally {
+        this.echo = ''
+      }
       signal.throwIfAborted()
       this.transition('played')
+      // Drop what the recognizer picked up of our own voice.
       this.recognizer?.clear()
       this.listen()
     } catch {
@@ -382,7 +406,7 @@ export class VoiceCall {
         this.turn?.abort()
         this.recorder.stop()
       }
-    } else if (this.snapshot.state !== 'speaking') {
+    } else {
       this.listen()
     }
   }

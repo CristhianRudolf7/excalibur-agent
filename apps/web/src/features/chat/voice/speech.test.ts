@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collapseRepeats, sessionTranscript, speakableText } from './speech'
+import { collapseRepeats, isEcho, sessionTranscript, speakableText, stripEcho } from './speech'
 
 describe('speakableText', () => {
   it('reads markdown as natural sentences without marks, bullets or emoji', () => {
@@ -69,5 +69,24 @@ describe('recognition transcripts', () => {
     expect(collapseRepeats(['abre el chat', 'abre el chat y busca', 'noticias'])).toBe(
       'abre el chat y busca noticias',
     )
+  })
+})
+
+describe('assistant echo during playback', () => {
+  const spoken = 'Respuesta uno. Con dos frases sobre el clima de hoy.'
+  it('ignores the assistant voice picked up by the microphone', () => {
+    expect(isEcho('respuesta uno con dos frases', spoken)).toBe(true)
+    expect(isEcho('el clima', spoken)).toBe(true)
+    expect(isEcho('', spoken)).toBe(true)
+  })
+  it('treats new words from the user as a barge-in', () => {
+    expect(isEcho('espera quiero preguntarte otra cosa', spoken)).toBe(false)
+    expect(isEcho('hola qué tal', '')).toBe(false)
+  })
+  it('strips the echoed lead-in from the user turn', () => {
+    expect(stripEcho('respuesta uno con espera quiero otra cosa', spoken)).toBe(
+      'espera quiero otra cosa',
+    )
+    expect(stripEcho('hola', '')).toBe('hola')
   })
 })

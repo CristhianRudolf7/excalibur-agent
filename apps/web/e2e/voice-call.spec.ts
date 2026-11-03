@@ -347,3 +347,148 @@ test('without voice credentials the call uses browser speech, waits for a 3 s pa
   await expect(dialog).toHaveCount(0)
   expect(await spoken()).not.toContain('Mira esto.')
 })
+
+test('browser-voice call keeps hearing the user after the first spoken reply (two full turns)', async ({
+  page,
+}) => {
+  await controlEnergy(page)
+  await page.addInitScript(() => {
+    const state = window as unknown as {
+      recognizers: { onresult?: (e: unknown) => void; started: boolean }[]
+      spoken: string[]
+      cancels: number
+      say: (text: string, final: boolean) => void
+    }
+    state.recognizers = []
+    state.spoken = []
+    state.cancels = 0
+    class FakeRecognition {
+      lang = ''
+      continuous = false
+      interimResults = false
+      started = false
+      onresult: ((e: unknown) => void) | null = null
+      onerror: ((e: unknown) => void) | null = null
+      onend: (() => void) | null = null
+      constructor() {
+        state.recognizers.push(this as never)
+      }
+      start() {
+        this.started = true
+      }
+      stop() {
+        this.started = false
+        this.onend?.()
+      }
+      abort() {
+        this.started = false
+        this.onend?.()
+      }
+    }
+    state.say = (text, final) => {
+      const live = [...state.recognizers].reverse().find((r) => r.started)
+      live?.onresult?.({
+        resultIndex: 0,
+        results: [Object.assign([{ transcript: text }], { isFinal: final })],
+      })
+    }
+    const w = window as unknown as Record<string, unknown>
+    w.SpeechRecognition = FakeRecognition
+    w.webkitSpeechRecognition = FakeRecognition
+    let current: { onend?: () => void; onerror?: (e: unknown) => void } | undefined
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        getVoices: () => [],
+        speak(utterance: { text: string; onend?: () => void }) {
+          state.spoken.push(utterance.text)
+          current = utterance
+        },
+        cancel() {
+          state.cancels++
+          current?.onerror?.({ error: 'interrupted' })
+          current = undefined
+        },
+        finish() {
+          const done = current
+          current = undefined
+          done?.onend?.()
+        },
+      },
+    })
+  })
+  const chat = await mockChat(page)
+  await page.route('**/rpc', async (route) => {
+    const request = route.request().postDataJSON()
+    if (request.method !== 'voice.status') return route.fallback()
+    await route.fulfill({
+      json: { jsonrpc: '2.0', id: request.id, result: { available: false, voices: [] } },
+    })
+  })
+  const spoken = () => page.evaluate(() => (window as unknown as { spoken: string[] }).spoken)
+  const finishSentence = () =>
+    page.evaluate(() => (window.speechSynthesis as unknown as { finish: () => void }).finish())
+  const say = (text: string, final: boolean) =>
+    page.evaluate(
+      ([t, f]) => (window as unknown as { say: (t: string, f: boolean) => void }).say(t, f),
+      [text, final] as const,
+    )
+  const finishAll = async () => {
+    for (let i = 0; i < 10; i++)
+      await page.evaluate(() =>
+        (window.speechSynthesis as unknown as { finish: () => void }).finish(),
+      )
+  }
+  await page.goto('/agents/excalibur?view=chat')
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+
+  for (const [index, words] of ['primer mensaje', 'segundo mensaje', 'tercer mensaje'].entries()) {
+    await energy(page, 0.1)
+    await say(words, false)
+    await page.waitForTimeout(300)
+    await energy(page, 0)
+    await say(words, true)
+    await expect.poll(() => chat.messages.at(-1)?.text, { timeout: 6000 }).toBe(words)
+    chat.emit('message.created', {
+      message_id: `reply-${index}`,
+      conversation_id: 'cnv_web_excalibur',
+      role: 'assistant',
+      text: `Respuesta ${index + 1}. Con dos frases.`,
+    })
+    await expect.poll(spoken).toContain(`Respuesta ${index + 1}.`)
+    await finishAll()
+    await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  }
+  // While the reply plays, the recognizer hears our own voice (ignored) and then the user (barge-in).
+  await energy(page, 0.1)
+  await say('cuéntame algo largo', true)
+  await page.waitForTimeout(300)
+  await energy(page, 0)
+  await expect.poll(() => chat.messages.at(-1)?.text, { timeout: 6000 }).toBe('cuéntame algo largo')
+  chat.emit('message.created', {
+    message_id: 'reply-long',
+    conversation_id: 'cnv_web_excalibur',
+    role: 'assistant',
+    text: 'Esta es una respuesta larga. Tiene varias frases. Y sigue hablando un buen rato.',
+  })
+  await expect.poll(spoken).toContain('Esta es una respuesta larga.')
+  await say('esta es una respuesta larga', false)
+  await page.waitForTimeout(500)
+  await expect(dialog.getByText('Hablando', { exact: true })).toBeVisible()
+  await say('esta es una respuesta larga espera quiero preguntarte otra cosa', false)
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  await say('esta es una respuesta larga espera quiero preguntarte otra cosa', true)
+  await expect
+    .poll(() => chat.messages.at(-1)?.text, { timeout: 6000 })
+    .toBe('espera quiero preguntarte otra cosa')
+  expect(chat.messages.filter((m) => m.role === 'user').map((m) => m.text)).toEqual([
+    'primer mensaje',
+    'segundo mensaje',
+    'tercer mensaje',
+    'cuéntame algo largo',
+    'espera quiero preguntarte otra cosa',
+  ])
+  await dialog.getByRole('button', { name: 'Colgar' }).click()
+})
