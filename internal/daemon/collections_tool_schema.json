@@ -194,6 +194,37 @@
     "version": {
       "type": "integer",
       "minimum": 1
+    },
+    "overrides": {
+      "type": "array",
+      "description": "Clarified source cells for import: row as reported, column = source header, value.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "row",
+          "column",
+          "value"
+        ],
+        "properties": {
+          "row": {
+            "type": "integer"
+          },
+          "column": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "skip_rows": {
+      "type": "array",
+      "description": "Source rows to leave out of an import.",
+      "items": {
+        "type": "integer"
+      }
     }
   },
   "required": [

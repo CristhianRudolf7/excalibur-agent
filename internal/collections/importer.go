@@ -605,6 +605,14 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				out.Report.UnknownColumns = append(out.Report.UnknownColumns, m.Column)
 			}
 		}
+		overrides := map[string]string{}
+		for _, o := range p.Overrides {
+			overrides[fmt.Sprintf("%d\x00%s", o.Row, o.Column)] = o.Value
+		}
+		skipRows := map[int]bool{}
+		for _, r := range p.SkipRows {
+			skipRows[r] = true
+		}
 		dayFirst := map[int]bool{}
 		for col := range input.headers {
 			dayFirst[col] = dayFirstColumn(input, col)
@@ -620,6 +628,10 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				return err
 			}
 			line := input.lines[i]
+			if skipRows[line] {
+				out.Report.Skipped++
+				continue
+			}
 			pend := func(reason string) {
 				out.Report.Skipped++
 				if len(out.Report.PendingRows) >= maxPendingRows {
@@ -645,6 +657,9 @@ func (e *Engine) Import(ctx context.Context, blobs Blobs, p api.CollectionsImpor
 				raw := ""
 				if col < len(row) {
 					raw = row[col]
+				}
+				if v, ok := overrides[fmt.Sprintf("%d\x00%s", line, m.Column)]; ok {
+					raw = v
 				}
 				value, fixes, conflict := importValue(f, raw, p.Fixes != "none", line, m.Column, dayFirst[col])
 				out.Report.FixesApplied = append(out.Report.FixesApplied, fixes...)

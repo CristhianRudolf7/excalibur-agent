@@ -214,6 +214,18 @@ type CollectionsImportParams struct {
 	UpsertKey    string          `json:"upsert_key,omitempty"`
 	Fixes        string          `json:"fixes,omitempty"`
 	DryRun       bool            `json:"dry_run,omitempty"`
+	// Overrides replace single source cells (row as reported, column header)
+	// with values the user clarified, before validation.
+	Overrides []ImportOverride `json:"overrides,omitempty"`
+	// SkipRows leaves the listed source rows out entirely.
+	SkipRows []int `json:"skip_rows,omitempty"`
+}
+
+// ImportOverride is one user-clarified source cell.
+type ImportOverride struct {
+	Row    int    `json:"row"`
+	Column string `json:"column"`
+	Value  string `json:"value"`
 }
 type CollectionsImportResult struct {
 	Collection     *Collection       `json:"collection,omitempty"`

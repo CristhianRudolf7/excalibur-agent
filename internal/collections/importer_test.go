@@ -363,3 +363,23 @@ func TestImportReportCarriesPendingRowsWithAllCells(t *testing.T) {
 		t.Fatalf("pending row must keep every original cell: %+v", pending)
 	}
 }
+
+func TestImportOverridesAndSkipRows(t *testing.T) {
+	e := testEngine(t)
+	b := gateway.NewMemoryBlobs()
+	c := createTest(t, e, Field{ID: "course", Name: "Curso", Type: "text"}, Field{ID: "grade", Name: "Nota", Type: "number"}, Field{ID: "date", Name: "Fecha", Type: "date"}, Field{ID: "credits", Name: "Créditos", Type: "integer"})
+	digest := blob(t, b, []byte("Curso;Nota;Fecha;Créditos\nCálculo III;14;3/11;4\nCálculo III;11;15/10/2026;4\nArte;9;15/10/2026;2\n"))
+	p := api.CollectionsImportParams{Collection: c.ID, BlobDigest: digest, Fixes: "auto", SkipRows: []int{4},
+		Overrides: []api.ImportOverride{{Row: 2, Column: "Fecha", Value: "2026-11-03"}}}
+	out, err := e.Import(ctx, b, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Report.Imported != 2 || out.Report.Skipped != 1 || len(out.Report.Conflicts) != 0 {
+		t.Fatalf("override must resolve row 2 and skip_rows must drop row 4: %+v", out.Report)
+	}
+	page, err := e.Query(ctx, api.RecordsListParams{Collection: c.ID, Filters: []api.CollectionFilter{{Field: "date", Op: "eq", Value: "2026-11-03"}}})
+	if err != nil || len(page.Records) != 1 || fmt.Sprint(page.Records[0].Values["credits"]) != "4" || fmt.Sprint(page.Records[0].Values["grade"]) != "14" {
+		t.Fatalf("clarified row keeps all its other cells: %+v %v", page, err)
+	}
+}

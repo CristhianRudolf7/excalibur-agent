@@ -867,6 +867,18 @@
         },
         "dry_run": {
           "type": "boolean"
+        },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ImportOverride"
+          }
+        },
+        "skip_rows": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
         }
       },
       "required": [
@@ -979,6 +991,26 @@
         "row",
         "values",
         "reason"
+      ],
+      "additionalProperties": false
+    },
+    "ImportOverride": {
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "column",
+        "value"
       ],
       "additionalProperties": false
     }

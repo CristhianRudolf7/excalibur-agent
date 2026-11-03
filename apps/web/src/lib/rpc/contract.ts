@@ -809,6 +809,8 @@ export interface RpcMethods {
       upsert_key?: string
       fixes?: 'auto' | 'none'
       dry_run?: boolean
+      overrides?: { row: number; column: string; value: string }[]
+      skip_rows?: number[]
     }
     result: { collection?: Collection; report: ImportReport; proposed_fields?: Field[] }
   }
