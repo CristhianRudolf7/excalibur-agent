@@ -30,7 +30,7 @@ it('reads a message aloud and turns into a red stop control while speaking', () 
   render(<MessageSpeak id="m1" text={'**Hola** `mundo` [enlace](http://x)'} />)
   fireEvent.click(screen.getByRole('button', { name: 'Escuchar mensaje' }))
   expect(window.speechSynthesis.speak).toHaveBeenCalledOnce()
-  expect(utterances[0]!.text).toBe('Hola mundo enlace')
+  expect(utterances[0]!.text).toBe('Hola mundo enlace.')
   const stop = screen.getByRole('button', { name: 'Detener lectura' })
   expect(stop).toHaveClass('speaking')
   fireEvent.click(stop)
@@ -46,5 +46,5 @@ it('returns to idle when speech ends', () => {
 })
 
 it('strips code blocks from speech', () => {
-  expect(speakableText('Mira:\n```js\nconst a = 1\n```\nListo')).toBe('Mira: Listo')
+  expect(speakableText('Mira:\n```js\nconst a = 1\n```\nListo')).toBe('Mira: Listo.')
 })

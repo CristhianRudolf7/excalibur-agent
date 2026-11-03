@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Square, Volume2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { pickVoice, speakableText, speechLang } from './voice/speech'
 
 // One browser speech at a time; buttons subscribe to know which one is live.
 let current: string | null = null
@@ -10,18 +11,7 @@ function setCurrent(id: string | null) {
   listeners.forEach((fn) => fn(id))
 }
 
-/** Plain text for speech: drop code blocks, markdown marks and links. */
-export function speakableText(text: string) {
-  return text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/\[\[doc:[^\]]+\]\]/g, ' ')
-    .replace(/[*_#>|~-]{1,3}/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+export { speakableText }
 
 export function MessageSpeak({ id, text }: { id: string; text: string }) {
   const { t, i18n } = useTranslation()
@@ -54,8 +44,8 @@ export function MessageSpeak({ id, text }: { id: string; text: string }) {
           return
         }
         const utterance = new SpeechSynthesisUtterance(speakableText(text))
-        utterance.lang = i18n.language?.startsWith('en') ? 'en-US' : 'es-ES'
-        const voice = synth.getVoices().find((v) => v.lang.startsWith(utterance.lang.slice(0, 2)))
+        utterance.lang = speechLang(i18n.language)
+        const voice = pickVoice(utterance.lang)
         if (voice) utterance.voice = voice
         utterance.onend = () => current === id && setCurrent(null)
         utterance.onerror = () => current === id && setCurrent(null)

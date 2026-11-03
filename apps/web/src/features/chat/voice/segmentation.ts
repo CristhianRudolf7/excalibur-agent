@@ -20,37 +20,104 @@ export function splitSentences(text: string): string[] {
   if (text.slice(start).trim()) sentences.push(text.slice(start).trim())
   return sentences.filter(Boolean)
 }
-/** Energy threshold and silence duration are configurable; the maximum bounds each upload. */
+export interface VadOptions {
+  /** Absolute minimum RMS that can count as speech. */
+  minThreshold?: number
+  /** Speech must exceed the noise floor by this factor. */
+  ratio?: number
+  /** A peak must last this long before it opens a turn (filters clicks). */
+  attackMs?: number
+  /** Silence that closes a turn. */
+  silenceMs?: number
+  /** Upper bound for a single turn. */
+  maxMs?: number
+}
+
+/**
+ * Adaptive energy voice detector. It tracks the background noise floor
+ * (which is roughly flat) and opens a turn on a sustained peak above it; the
+ * turn closes after `silenceMs` without speech. During playback (`bargeIn`)
+ * the bar is raised so the assistant's own voice does not interrupt itself.
+ */
 export class VoiceActivityDetector {
   private started?: number
+  private aboveSince?: number
   private lastSpeech = 0
-  readonly threshold: number
+  private turnEnergy = 0
+  private turnSamples = 0
+  floor = 0.004
+  readonly minThreshold: number
+  readonly ratio: number
+  readonly attackMs: number
   readonly silenceMs: number
   readonly maxMs: number
-  constructor(threshold = 0.025, silenceMs = 700, maxMs = 30000) {
-    this.threshold = threshold
-    this.silenceMs = silenceMs
-    this.maxMs = maxMs
+  constructor(options: VadOptions = {}) {
+    this.minThreshold = options.minThreshold ?? 0.012
+    this.ratio = options.ratio ?? 3
+    this.attackMs = options.attackMs ?? 100
+    this.silenceMs = options.silenceMs ?? 3000
+    this.maxMs = options.maxMs ?? 60000
   }
-  sample(energy: number, now: number): 'start' | 'end' | undefined {
-    if (energy >= this.threshold) {
-      this.lastSpeech = now
-      if (this.started === undefined) {
-        this.started = now
-        return 'start'
+  get active() {
+    return this.started !== undefined
+  }
+  threshold(bargeIn = false): number {
+    const base = Math.max(this.minThreshold, this.floor * this.ratio, this.floor + 0.008)
+    return bargeIn ? base * 2 : base
+  }
+  private track(energy: number, fast: boolean) {
+    // Fall quickly to quiet levels, rise slowly so speech does not become "noise".
+    const rate = energy < this.floor ? 0.2 : fast ? 0.05 : 0.004
+    this.floor = Math.min(0.2, Math.max(0.0005, this.floor + (energy - this.floor) * rate))
+  }
+  sample(energy: number, now: number, bargeIn = false): 'start' | 'end' | undefined {
+    const threshold = this.threshold(bargeIn)
+    if (this.started === undefined) {
+      if (energy >= threshold) {
+        this.aboveSince ??= now
+        const attack = bargeIn ? Math.max(this.attackMs, 250) : this.attackMs
+        if (now - this.aboveSince >= attack) {
+          this.started = this.aboveSince
+          this.lastSpeech = now
+          this.aboveSince = undefined
+          return 'start'
+        }
+        return
       }
+      this.aboveSince = undefined
+      // Playback echo raises the floor quickly so it stops looking like a peak.
+      this.track(energy, bargeIn)
+      return
     }
-    if (
-      this.started !== undefined &&
-      (now - this.lastSpeech >= this.silenceMs || now - this.started >= this.maxMs)
-    ) {
+    this.turnEnergy += energy
+    this.turnSamples++
+    if (energy >= threshold * 0.6) this.lastSpeech = now
+    else this.track(energy, false)
+    if (now - this.started >= this.maxMs) {
+      // A turn that never pauses is most likely new steady noise: adopt it as the floor.
+      this.floor = Math.min(0.2, this.turnEnergy / Math.max(1, this.turnSamples))
+      this.reset()
+      return 'end'
+    }
+    if (now - this.lastSpeech >= this.silenceMs) {
       this.reset()
       return 'end'
     }
   }
+  /** External evidence of speech (for example a recognizer result). */
+  markSpeech(now: number): 'start' | undefined {
+    this.lastSpeech = now
+    if (this.started === undefined) {
+      this.started = now
+      return 'start'
+    }
+  }
   reset() {
     this.started = undefined
+    this.aboveSince = undefined
     this.lastSpeech = 0
+    this.turnEnergy = 0
+    this.turnSamples = 0
   }
 }
 export function rms(samples: Float32Array): number {

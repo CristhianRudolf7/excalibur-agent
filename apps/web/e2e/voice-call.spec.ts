@@ -200,6 +200,10 @@ test('unavailable voice and denied microphone permission have clear states', asy
   await page.addInitScript(() => {
     navigator.mediaDevices.getUserMedia = () =>
       Promise.reject(new DOMException('Denied', 'NotAllowedError'))
+    // No browser speech either: nothing can carry the call.
+    const w = window as unknown as Record<string, unknown>
+    delete w.SpeechRecognition
+    delete w.webkitSpeechRecognition
   })
   await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Llamar', exact: true }).click()
@@ -212,4 +216,130 @@ test('unavailable voice and denied microphone permission have clear states', asy
   dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
   await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
   await expect(dialog.getByRole('alert')).toContainText('Permite el acceso al micrófono')
+})
+
+test('without voice credentials the call uses browser speech, waits for a 3 s pause and reads clean text', async ({
+  page,
+}) => {
+  await controlEnergy(page)
+  await page.addInitScript(() => {
+    const state = window as unknown as {
+      recognizers: { onresult?: (e: unknown) => void; started: boolean }[]
+      spoken: string[]
+      cancels: number
+      say: (text: string, final: boolean) => void
+    }
+    state.recognizers = []
+    state.spoken = []
+    state.cancels = 0
+    class FakeRecognition {
+      lang = ''
+      continuous = false
+      interimResults = false
+      started = false
+      onresult: ((e: unknown) => void) | null = null
+      onerror: ((e: unknown) => void) | null = null
+      onend: (() => void) | null = null
+      constructor() {
+        state.recognizers.push(this as never)
+      }
+      start() {
+        this.started = true
+      }
+      stop() {
+        this.started = false
+        this.onend?.()
+      }
+      abort() {
+        this.started = false
+        this.onend?.()
+      }
+    }
+    state.say = (text, final) => {
+      const live = [...state.recognizers].reverse().find((r) => r.started)
+      live?.onresult?.({
+        resultIndex: 0,
+        results: [Object.assign([{ transcript: text }], { isFinal: final })],
+      })
+    }
+    const w = window as unknown as Record<string, unknown>
+    w.SpeechRecognition = FakeRecognition
+    w.webkitSpeechRecognition = FakeRecognition
+    let current: { onend?: () => void; onerror?: (e: unknown) => void } | undefined
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        getVoices: () => [],
+        speak(utterance: { text: string; onend?: () => void }) {
+          state.spoken.push(utterance.text)
+          current = utterance
+        },
+        cancel() {
+          state.cancels++
+          current?.onerror?.({ error: 'interrupted' })
+          current = undefined
+        },
+        finish() {
+          const done = current
+          current = undefined
+          done?.onend?.()
+        },
+      },
+    })
+  })
+  const chat = await mockChat(page)
+  await page.route('**/rpc', async (route) => {
+    const request = route.request().postDataJSON()
+    if (request.method !== 'voice.status') return route.fallback()
+    await route.fulfill({
+      json: { jsonrpc: '2.0', id: request.id, result: { available: false, voices: [] } },
+    })
+  })
+  const spoken = () => page.evaluate(() => (window as unknown as { spoken: string[] }).spoken)
+  const finishSentence = () =>
+    page.evaluate(() => (window.speechSynthesis as unknown as { finish: () => void }).finish())
+  await page.goto('/agents/excalibur?view=chat')
+  await page.getByRole('button', { name: 'Llamar', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Llamada con Excalibur' })
+  await expect(dialog).toContainText('Usando la voz del navegador')
+  await dialog.getByRole('button', { name: 'Iniciar llamada' }).click()
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+
+  // A peak opens the turn; recognized words appear live.
+  await energy(page, 0.1)
+  await page.evaluate(() =>
+    (window as unknown as { say: (t: string, f: boolean) => void }).say('hola cómo', false),
+  )
+  await expect(dialog.getByRole('log')).toContainText('hola cómo')
+  await page.waitForTimeout(300)
+  await energy(page, 0)
+  await page.evaluate(() =>
+    (window as unknown as { say: (t: string, f: boolean) => void }).say('hola cómo estás', true),
+  )
+  // A 2 s pause is not the end of the turn.
+  await page.waitForTimeout(2000)
+  expect(chat.messages.filter((m) => m.text === 'hola cómo estás')).toHaveLength(0)
+  await expect(dialog.getByText('Pensando', { exact: true })).toBeVisible({ timeout: 3000 })
+  expect(chat.messages.at(-1)?.text).toBe('hola cómo estás')
+
+  chat.emit('message.created', {
+    message_id: 'assistant-browser-voice',
+    conversation_id: 'cnv_web_excalibur',
+    role: 'assistant',
+    text: '## Hola 👋\n\n- **Bien**, gracias.\n- Mira [esto](https://example.com).',
+  })
+  await expect.poll(spoken).toEqual(['Hola.'])
+  await finishSentence()
+  await expect.poll(spoken).toEqual(['Hola.', 'Bien, gracias.'])
+
+  // Speaking over the assistant stops its voice at once.
+  await energy(page, 0.1)
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { cancels: number }).cancels))
+    .toBeGreaterThan(0)
+  await expect(dialog.getByText('Escuchando', { exact: true })).toBeVisible()
+  await energy(page, 0)
+  await dialog.getByRole('button', { name: 'Colgar' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(await spoken()).not.toContain('Mira esto.')
 })

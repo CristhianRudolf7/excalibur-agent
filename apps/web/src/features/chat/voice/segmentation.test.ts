@@ -1,27 +1,56 @@
 import { describe, expect, it } from 'vitest'
 import { callTransition, rms, splitSentences, VoiceActivityDetector } from './segmentation'
 
-describe('energy VAD', () => {
-  it('segments only speech followed by 700 ms of silence and resets between utterances', () => {
+describe('adaptive energy VAD', () => {
+  const quiet = (vad: VoiceActivityDetector, from: number, to: number, level = 0.003) => {
+    let boundary: string | undefined
+    for (let now = from; now <= to; now += 50) boundary = vad.sample(level, now) ?? boundary
+    return boundary
+  }
+  it('opens on a sustained peak and sends only after a 3 s pause', () => {
     const vad = new VoiceActivityDetector()
-    expect(vad.sample(0, 0)).toBeUndefined()
-    expect(vad.sample(0.08, 50)).toBe('start')
-    expect(vad.sample(0.08, 300)).toBeUndefined()
-    expect(vad.sample(0, 999)).toBeUndefined()
-    expect(vad.sample(0, 1000)).toBe('end')
-    expect(vad.sample(0, 2000)).toBeUndefined()
-    expect(vad.sample(0.08, 2100)).toBe('start')
+    expect(quiet(vad, 0, 2000)).toBeUndefined()
+    expect(vad.sample(0.08, 2050)).toBeUndefined() // attack: a single sample is not enough
+    expect(vad.sample(0.08, 2150)).toBe('start')
+    expect(vad.sample(0.08, 2500)).toBeUndefined()
+    // A 2.5 s thinking pause keeps the turn open.
+    expect(quiet(vad, 2550, 5000)).toBeUndefined()
+    expect(vad.sample(0.08, 5050)).toBeUndefined()
+    expect(quiet(vad, 5100, 8000)).toBeUndefined()
+    expect(vad.sample(0.003, 8050)).toBe('end')
+    expect(vad.active).toBe(false)
   })
-  it('bounds continuous speech, supports custom sensitivity/silence, and discards muted segments', () => {
-    const vad = new VoiceActivityDetector(0.1, 400, 1000)
-    expect(vad.sample(0.09, 0)).toBeUndefined()
-    expect(vad.sample(0.2, 10)).toBe('start')
-    expect(vad.sample(0.2, 1010)).toBe('end')
-    expect(vad.sample(0.2, 1050)).toBe('start')
+  it('ignores single clicks and adapts to a louder but steady background', () => {
+    const vad = new VoiceActivityDetector()
+    expect(vad.sample(0.2, 0)).toBeUndefined()
+    expect(vad.sample(0.001, 50)).toBeUndefined()
+    // A fan hums at 0.01 for a while: the floor follows it.
+    for (let now = 100; now < 60000; now += 50) vad.sample(0.009, now)
+    expect(vad.floor).toBeGreaterThan(0.006)
+    expect(vad.threshold()).toBeGreaterThan(0.02)
+    expect(vad.sample(0.06, 60000)).toBeUndefined()
+    expect(vad.sample(0.06, 60100)).toBe('start')
+  })
+  it('requires a stronger, longer peak to barge in over playback', () => {
+    const vad = new VoiceActivityDetector()
+    quiet(vad, 0, 1000)
+    expect(vad.threshold(true)).toBeGreaterThan(vad.threshold())
+    expect(vad.sample(0.015, 1050, true)).toBeUndefined()
+    expect(vad.sample(0.015, 1400, true)).toBeUndefined()
+    expect(vad.sample(0.1, 1450, true)).toBeUndefined()
+    expect(vad.sample(0.1, 1600, true)).toBeUndefined()
+    expect(vad.sample(0.1, 1700, true)).toBe('start')
+  })
+  it('accepts recognizer evidence, bounds endless turns and supports custom timing', () => {
+    const vad = new VoiceActivityDetector({ silenceMs: 400, maxMs: 1000, attackMs: 0 })
+    expect(vad.markSpeech(0)).toBe('start')
+    expect(vad.markSpeech(100)).toBeUndefined()
+    expect(vad.sample(0, 499)).toBeUndefined()
+    expect(vad.sample(0, 500)).toBe('end')
+    expect(vad.sample(0.2, 600)).toBe('start')
+    expect(vad.sample(0.2, 1600)).toBe('end')
     vad.reset()
-    expect(vad.sample(0, 5000)).toBeUndefined()
-    expect(vad.sample(0.2, 5010)).toBe('start')
-    expect(vad.sample(0, 5410)).toBe('end')
+    expect(vad.active).toBe(false)
   })
   it('computes RMS without treating silence or an empty buffer as speech', () => {
     expect(rms(new Float32Array())).toBe(0)

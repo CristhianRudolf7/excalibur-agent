@@ -5,11 +5,13 @@ import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { PixelAvatar } from '@/components/shared'
 import { rpc } from '@/lib/rpc/client'
-import { VoiceCall, type CallSnapshot } from './call'
+import { VoiceCall, type CallSnapshot, type VoiceMode } from './call'
+import { browserVoiceSupported, speechLang } from './speech'
 import './voice.css'
 
 export function CallOverlay({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const [mode, setMode] = useState<VoiceMode>()
   const [starting, setStarting] = useState(false)
   const [available, setAvailable] = useState<boolean>()
   const [snapshot, setSnapshot] = useState<CallSnapshot>({
@@ -26,11 +28,18 @@ export function CallOverlay({ onClose }: { onClose: () => void }) {
     const controller = new AbortController()
     void rpc
       .call('voice.status', undefined, { signal: controller.signal })
-      .then((status) => {
-        if (!controller.signal.aborted) setAvailable(status.available)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setAvailable(false)
+      .then((status) => status.available)
+      .catch(() => false)
+      .then((server) => {
+        if (controller.signal.aborted) return
+        // Without voice credentials the call runs on the browser's own STT and TTS.
+        const next: VoiceMode | undefined = server
+          ? 'server'
+          : browserVoiceSupported()
+            ? 'browser'
+            : undefined
+        setMode(next)
+        setAvailable(next !== undefined)
       })
     return () => {
       controller.abort()
@@ -57,7 +66,7 @@ export function CallOverlay({ onClose }: { onClose: () => void }) {
     setMuted(false)
     setSpeaker(true)
     setStarting(true)
-    call.current = new VoiceCall(setSnapshot)
+    call.current = new VoiceCall(setSnapshot, { mode, lang: speechLang(i18n.language) })
     void call.current.start().finally(() => setStarting(false))
   }
   const states = {
@@ -88,6 +97,10 @@ export function CallOverlay({ onClose }: { onClose: () => void }) {
         <p role="status">
           {available === false ? t('callUnavailable') : t(states[snapshot.state])}
         </p>
+        {(snapshot.mode ?? mode) === 'browser' && available && (
+          <p className="call-mode">{t('callBrowserMode')}</p>
+        )}
+        {snapshot.notice && <p className="call-notice">{t(snapshot.notice)}</p>}
         {snapshot.error && <p role="alert">{t(snapshot.error)}</p>}
         <div className="call-wave" aria-hidden="true">
           {Array.from({ length: 25 }, (_, index) => (
@@ -110,6 +123,9 @@ export function CallOverlay({ onClose }: { onClose: () => void }) {
               {line.text}
             </p>
           ))}
+          {snapshot.partial && (
+            <p className="call-line-user call-line-partial">{snapshot.partial}</p>
+          )}
         </div>
         <div className="call-controls">
           <Button
