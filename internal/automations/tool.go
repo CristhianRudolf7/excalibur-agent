@@ -21,6 +21,16 @@ const toolSchema = `{"type":"object","required":["action"],"additionalProperties
 
 // WireTool registers the service-backed tool before intake begins.
 func WireTool(reg *tools.MapRegistry, service Service) error {
+	return wireTool(reg, service, false)
+}
+
+// WireDaemonTool adds presentation guidance only at the daemon boundary. The
+// embedded catalog also calls WireTool, including for unavailable placeholders.
+func WireDaemonTool(reg *tools.MapRegistry, service Service) error {
+	return wireTool(reg, service, true)
+}
+
+func wireTool(reg *tools.MapRegistry, service Service, localGuidance bool) error {
 	provider := &tools.StubTool{Def: ToolDefinition(), Provider: func(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
 		out, err := toolAction(ctx, service, inv.Arguments)
 		if err != nil {
@@ -32,7 +42,9 @@ func WireTool(reg *tools.MapRegistry, service Service) error {
 		raw, err := json.Marshal(out)
 		return tools.Result{Status: tools.StatusOK, Output: string(raw)}, err
 	}}
-	provider.Def.Description += "\nPresent times to the user in local time using at_local (or next_run_at_local for recurring schedules)."
+	if localGuidance {
+		provider.Def.Description += "\nPresent times to the user in local time using at_local (or next_run_at_local for recurring schedules)."
+	}
 	if existing, err := reg.Get("automations"); err == nil {
 		if stub, ok := existing.(*tools.StubTool); ok {
 			stub.Def = provider.Def

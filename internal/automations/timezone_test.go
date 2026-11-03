@@ -50,7 +50,7 @@ func TestAutomationToolLocalTimes(t *testing.T) {
 		t.Fatal(got)
 	}
 	reg := tools.NewMapRegistry()
-	if err := WireTool(reg, &toolFake{}); err != nil {
+	if err := WireDaemonTool(reg, &toolFake{}); err != nil {
 		t.Fatal(err)
 	}
 	wired, _ := reg.Get("automations")
@@ -86,6 +86,26 @@ func TestToolScheduleResultsIncludeLocalTimes(t *testing.T) {
 		}
 		if action != "pause" && !strings.Contains(string(out), `"next_run_at_local":`) {
 			t.Fatal(fmt.Sprint(action, ": ", string(out)))
+		}
+	}
+}
+
+func TestDaemonGuidancePreservesEmbeddedAutomationDefinition(t *testing.T) {
+	reg := tools.NewMapRegistry()
+	if err := WireTool(reg, &toolFake{}); err != nil {
+		t.Fatal(err)
+	}
+	embedded, _ := reg.Get("automations")
+	if embedded.Definition().Description != ToolDefinition().Description {
+		t.Fatal("embedded description changed")
+	}
+	for i := 0; i < 2; i++ {
+		if err := WireDaemonTool(reg, &toolFake{}); err != nil {
+			t.Fatal(err)
+		}
+		daemon, _ := reg.Get("automations")
+		if strings.Count(daemon.Definition().Description, "using at_local") != 1 {
+			t.Fatal("daemon guidance missing or duplicated")
 		}
 	}
 }

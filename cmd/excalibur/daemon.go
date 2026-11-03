@@ -328,7 +328,7 @@ func runDaemonStart(args []string) error {
 		}
 	}
 	automationService := newAutomationService(db, filepath.Join(data, "automations"), language, &daemon.AutomationAgentRunner{Services: svc, Endpoint: endpoint, ModelID: modelSettings.Model}, &daemon.AutomationToolInvoker{Registry: svc.Tools, Executor: svc.Exec}, &daemon.AutomationNotifier{Master: m, Backend: backend})
-	if err := automations.WireTool(svc.Tools, automationService); err != nil {
+	if err := automations.WireDaemonTool(svc.Tools, automationService); err != nil {
 		return err
 	}
 	unsubscribeAutomations := daemon.WireAutomationEvents(automationService, bus)
