@@ -73,7 +73,7 @@ function SettingsForm({ initial }: { initial: LabSettings }) {
           max={100}
           step={1}
           required
-          defaultValue={initial.max_attempts ?? 20}
+          defaultValue={initial.max_attempts ?? 40}
           disabled={pending}
         />
       </label>

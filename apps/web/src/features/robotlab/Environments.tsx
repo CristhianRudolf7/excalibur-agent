@@ -2,10 +2,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { sendMessage } from '@/features/chat/live'
 import { labCall } from './api'
 import { useLabText } from './i18n'
-import { fileBase64, validMedia } from './logic'
 import { SceneView, useScene } from './viewer'
 import type { EnvironmentSummary } from './types'
 
@@ -23,8 +21,6 @@ export function Environments({
     queryFn: () => labCall('robotlab.env.list', {}),
     refetchInterval: 5000,
   })
-  const [menu, setMenu] = useState(false)
-  const [upload, setUpload] = useState(false)
   const [deleting, setDeleting] = useState<EnvironmentSummary>()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -32,36 +28,7 @@ export function Environments({
     <>
       <div className="lab-toolbar">
         <h2>{text('environments')}</h2>
-        <div className="lab-new">
-          <Button aria-expanded={menu} onClick={() => setMenu(!menu)}>
-            {text('new')}
-          </Button>
-          {menu && (
-            <div
-              className="lab-new-options"
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') setMenu(false)
-              }}
-            >
-              <Button
-                onClick={() => {
-                  setMenu(false)
-                  onDraft(text('createDraft'))
-                }}
-              >
-                {text('fromChat')}
-              </Button>
-              <Button
-                onClick={() => {
-                  setMenu(false)
-                  setUpload(true)
-                }}
-              >
-                {text('upload')}
-              </Button>
-            </div>
-          )}
-        </div>
+        <Button onClick={() => onDraft(text('createDraft'))}>{text('new')}</Button>
       </div>
       {environments.isPending && <p role="status">{text('loading')}</p>}
       {environments.error && (
@@ -97,7 +64,6 @@ export function Environments({
           </article>
         ))}
       </div>
-      {upload && <MediaDialog onClose={() => setUpload(false)} onAgent={() => onDraft('')} />}
       {deleting && (
         <Dialog
           title={text('deleteTitle')}
@@ -154,83 +120,6 @@ function EnvironmentThumbnail({ environment }: { environment: EnvironmentSummary
     <div className="lab-env-thumbnail lab-placeholder" aria-label={environment.name}>
       {image.isPending ? text('loading') : text(environment.kind)}
     </div>
-  )
-}
-export function MediaDialog({ onClose, onAgent }: { onClose(): void; onAgent(): void }) {
-  const { text } = useLabText()
-  const [file, setFile] = useState<File>()
-  const [spec, setSpec] = useState('')
-  const [pending, setPending] = useState(false)
-  const [error, setError] = useState('')
-  return (
-    <Dialog
-      title={text('upload')}
-      footer={false}
-      className="lab-dialog"
-      onClose={() => {
-        if (!pending) onClose()
-      }}
-    >
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault()
-          if (!file || !validMedia(file)) {
-            setError(text('invalidFile'))
-            return
-          }
-          setPending(true)
-          setError('')
-          try {
-            const result = await labCall(
-              'robotlab.media.upload',
-              { name: file.name, mime: file.type, data: await fileBase64(file), spec },
-              { timeoutMs: 120_000 },
-            )
-            onAgent()
-            const sent = await sendMessage(
-              'excalibur',
-              text('mediaMessage', { name: file.name, id: result.media_id, spec }),
-            )
-            if (!sent) {
-              setError(text('sendError'))
-              return
-            }
-            onClose()
-          } catch (cause) {
-            setError(String(cause))
-          } finally {
-            setPending(false)
-          }
-        }}
-      >
-        <label>
-          {text('file')}
-          <input
-            autoFocus
-            type="file"
-            accept="image/*,video/*"
-            disabled={pending}
-            onChange={(event) => {
-              const next = event.target.files?.[0]
-              setFile(next)
-              setError(next && !validMedia(next) ? text('invalidFile') : '')
-            }}
-          />
-        </label>
-        <label>
-          {text('spec')}
-          <textarea
-            value={spec}
-            disabled={pending}
-            onChange={(event) => setSpec(event.target.value)}
-          />
-        </label>
-        {error && <p role="alert">{error}</p>}
-        <Button type="submit" disabled={pending || !file || !validMedia(file)}>
-          {text(pending ? 'sending' : 'send')}
-        </Button>
-      </form>
-    </Dialog>
   )
 }
 export function EnvironmentDetail({

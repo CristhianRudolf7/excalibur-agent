@@ -34,9 +34,6 @@ export const clientMethods = [
   'robotlab.env.scene',
   'robotlab.env.preview',
   'robotlab.env.save',
-  'robotlab.media.ingest',
-  'robotlab.media.upload',
-  'robotlab.media.get',
   'robotlab.settings.get',
   'robotlab.settings.set',
   'robotlab.session.start',
@@ -55,10 +52,10 @@ export const clientMethods = [
   'robotlab.skills.read',
   'robotlab.skills.use',
   'robotlab.skills.write',
-  'robotlab.skills.run',
   'robotlab.skills.copy',
   'robotlab.log.note',
   'robotlab.mesh.get',
+  'robotlab.session.resume',
   // END GENERATED ROBOT LAB METHODS
   'credentials.pending',
   'credentials.submit',
@@ -866,7 +863,8 @@ export type RobotLabGoal =
   | { type: 'object_near'; object: string; target: RobotLabTarget; radius: number }
   | { type: 'robot_near'; target: RobotLabTarget; radius: number }
   | { type: 'object_held'; object: string }
-  | { type: 'object_on'; object: string; target: { object: string } }
+  | { type: 'object_on'; object: string; target: { object: string }; stable_s?: number }
+  | { type: 'robot_on'; target: { object: string }; feet?: number; stable_s?: number }
   | { type: 'all'; goals: RobotLabGoal[] }
 export type RobotLabObject = {
   id: string
@@ -893,7 +891,7 @@ export type RobotLabEnvironment = {
   walls?: { from: number[]; to: number[]; height?: number; thickness?: number; color?: string }[]
   objects: RobotLabObject[]
   spawn?: { x?: number; y?: number; yaw?: number }
-  source?: { type: 'text' | 'image' | 'video'; media_id?: string; notes?: string }
+  source?: { type: 'text'; notes?: string }
   created_at?: string
   updated_at?: string
 }
@@ -910,7 +908,7 @@ export type RobotLabAttempt = {
 export type RobotLabSession = {
   id: string
   name: string
-  robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+  robot: 'arm' | 'dog'
   environment: string
   task: string
   goal: RobotLabGoal
@@ -924,7 +922,7 @@ export type RobotLabSession = {
   skill_events: {
     t: string
     attempt: number
-    kind: 'used' | 'created' | 'improved' | 'rejected' | 'copied'
+    kind: 'used' | 'created' | 'improved' | 'copied'
     skill: string
     version: number
   }[]
@@ -933,7 +931,7 @@ export type RobotLabSession = {
 export type RobotLabSessionSummary = {
   id: string
   name: string
-  robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+  robot: 'arm' | 'dog'
   environment: string
   task: string
   status: 'live' | 'succeeded' | 'stopped' | 'exhausted' | 'failed'
@@ -942,19 +940,12 @@ export type RobotLabSessionSummary = {
   attempts: number
   live: boolean
 }
-export type RobotLabRegression = {
-  old_passed: number
-  new_passed: number
-  total: number
-  details: Record<string, unknown>[]
-}
 export type RobotLabSkillSummary = {
   name: string
   description: string
   version: number
   success_rate: number | null
   uses: number
-  has_code: boolean
   failures: number
   updated_at: string
 }
@@ -964,18 +955,15 @@ export type RobotLabSkill = {
   version: number
   success_rate: number | null
   uses: number
-  has_code: boolean
   failures: number
   updated_at: string
   instructions: string
-  code: string | null
   versions: {
     version: number
     created_at: string
     accepted: boolean
     success_rate: number | null
     uses: number
-    regression: RobotLabRegression | null
   }[]
 }
 export type RobotLabLogEntry = {
@@ -990,6 +978,7 @@ export type RobotLabLogEntry = {
   summary: string
   image?: string
   sim_time: number
+  state?: Record<string, unknown>
 }
 export type RobotLabFrame = {
   session: string
@@ -1002,7 +991,7 @@ export type RobotLabFrame = {
   status: string
 }
 export type RobotLabBodyCard = {
-  id: 'arm' | 'dog' | 'drone' | 'humanoid'
+  id: 'arm' | 'dog'
   name: { en: string; es: string }
   description: string
   sensors: string[]
@@ -1029,7 +1018,7 @@ export type RobotLabScene = {
   objects: { id: string; name: string; body: number; dynamic: boolean }[]
   cameras: { name: string; fovy: number }[]
   bounds: { min: number[]; max: number[] }
-  robot: 'arm' | 'dog' | 'drone' | 'humanoid' | null
+  robot: 'arm' | 'dog' | null
   environment: string
 }
 export type RobotLabActionResult = {
@@ -1084,31 +1073,10 @@ export interface RpcMethods {
   'robotlab.env.delete': { params: { id: string }; result: Record<string, never> }
   'robotlab.env.thumbnail': { params: { id: string }; result: { png: string } }
   'robotlab.env.scene': { params: { id: string }; result: { scene: RobotLabScene } }
-  'robotlab.env.preview': {
-    params: { id: string; robot?: 'arm' | 'dog' | 'drone' | 'humanoid' }
-    result: { png: string }
-  }
+  'robotlab.env.preview': { params: { id: string; robot?: 'arm' | 'dog' }; result: { png: string } }
   'robotlab.env.save': {
     params: { environment: RobotLabEnvironment; create: boolean }
     result: { environment: RobotLabEnvironment }
-  }
-  'robotlab.media.ingest': {
-    params: { path: string; mime: string; name: string; spec: string }
-    result: { media_id: string; kind: 'image' | 'video'; frames: number }
-  }
-  'robotlab.media.upload': {
-    params: { name: string; mime: string; data: string; spec: string }
-    result: { media_id: string; kind: 'image' | 'video'; frames: number }
-  }
-  'robotlab.media.get': {
-    params: { media_id: string; max?: number }
-    result: {
-      media_id: string
-      kind: 'image' | 'video'
-      name: string
-      spec: string
-      frames: string[]
-    }
   }
   'robotlab.settings.get': { params: Record<string, never>; result: RobotLabSettings }
   'robotlab.settings.set': {
@@ -1117,7 +1085,7 @@ export interface RpcMethods {
   }
   'robotlab.session.start': {
     params: {
-      robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+      robot: 'arm' | 'dog'
       environment: string
       task: string
       goal: RobotLabGoal
@@ -1128,7 +1096,7 @@ export interface RpcMethods {
     result: { session: RobotLabSession; card: RobotLabBodyCard; skills: RobotLabSkillSummary[] }
   }
   'robotlab.session.list': {
-    params: Record<string, never>
+    params: { robot?: 'arm' | 'dog'; environment?: string; query?: string }
     result: { sessions: RobotLabSessionSummary[] }
   }
   'robotlab.session.get': { params: { session: string }; result: { session: RobotLabSession } }
@@ -1180,14 +1148,9 @@ export interface RpcMethods {
       name: string
       description: string
       instructions: string
-      code?: string
       failures?: number[]
     }
-    result: { skill: RobotLabSkill; accepted: boolean; regression: RobotLabRegression | null }
-  }
-  'robotlab.skills.run': {
-    params: { session: string; name: string; args?: Record<string, unknown> }
-    result: RobotLabActionResult
+    result: { skill: RobotLabSkill; accepted: true }
   }
   'robotlab.skills.copy': { params: { from: string; to: string }; result: { copied: string[] } }
   'robotlab.log.note': {
@@ -1198,16 +1161,16 @@ export interface RpcMethods {
     params: { key: string }
     result: { key: string; positions: string; indices: string; vertices: number; faces: number }
   }
+  'robotlab.session.resume': {
+    params: { session: string; reason?: string; conversation?: string | null }
+    result: { session: RobotLabSession; card: RobotLabBodyCard; skills: RobotLabSkillSummary[] }
+  }
 }
 export interface RpcEvents {
   'robotlab.frame': RobotLabFrame
   'robotlab.session': { session: RobotLabSession }
   'robotlab.log': { entry: RobotLabLogEntry }
-  'robotlab.focus': {
-    session: string
-    robot: 'arm' | 'dog' | 'drone' | 'humanoid'
-    environment: string
-  }
+  'robotlab.focus': { session: string; robot: 'arm' | 'dog'; environment: string }
   'robotlab.install': {
     phase: string
     message: string

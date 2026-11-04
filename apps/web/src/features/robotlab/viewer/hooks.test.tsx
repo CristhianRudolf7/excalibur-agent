@@ -238,3 +238,21 @@ it('reports load errors and handles empty recordings without playback', async ()
   expect(hook.result.current.frame).toBeNull()
   expect(hook.result.current.error).toBeUndefined()
 })
+
+it('clears old live frames and rejects late frames when the same session gets a new attempt', () => {
+  const hook = renderHook(({ attempt }) => useLiveFrame('session', attempt), {
+    initialProps: { attempt: 1 },
+  })
+  act(() => receive(frameFixture(20)))
+  tick(16)
+  expect(hook.result.current?.seq).toBe(20)
+  hook.rerender({ attempt: 2 })
+  expect(hook.result.current).toBeNull()
+  act(() => receive(frameFixture(21)))
+  tick(16)
+  expect(hook.result.current).toBeNull()
+  act(() => receive(frameFixture(1, { attempt: 2 })))
+  tick(16)
+  expect(hook.result.current?.attempt).toBe(2)
+  expect(hook.result.current?.seq).toBe(1)
+})

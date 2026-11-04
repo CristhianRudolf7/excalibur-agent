@@ -69,15 +69,3 @@ def test_blob_layout_stable_key_restart_and_repair(cache):
             meshes.mesh_blob(bad)
 
 
-def test_g1_direct_spec_all_meshes_meet_budget_under_ten_seconds():
-    path = Path(assets.menagerie_dir()) / 'unitree_g1/g1_with_hands.xml'
-    model = mujoco.MjSpec.from_file(str(path)).compile()
-    assert sum(model.mesh_facenum) > 600_000
-    start = time.perf_counter()
-    keys = [meshes.register_mesh(model, i, 'humanoid') for i in range(model.nmesh)]
-    elapsed = time.perf_counter() - start
-    assert elapsed < 10, f'G1 mesh export took {elapsed:.2f}s'
-    blobs = [json.loads(meshes.mesh_blob(key)) for key in keys]
-    assert all(blob['faces'] <= 15_000 for blob in blobs)
-    assert any(blob['faces'] < int(model.mesh_facenum[i]) for i, blob in enumerate(blobs))
-    print(f'G1: {sum(model.mesh_facenum)} source faces, {sum(b["faces"] for b in blobs)} viewer faces, {elapsed:.3f}s')

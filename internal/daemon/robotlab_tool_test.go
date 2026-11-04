@@ -14,6 +14,7 @@ import (
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/robotlab"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
 
@@ -24,8 +25,7 @@ func (s *labSidecar) Call(_ context.Context, method string, _ any) (json.RawMess
 	switch method {
 	case "robot.look", "env.preview":
 		return json.RawMessage(`{"png":"cG5n","visible":[],"state":{}}`), nil
-	case "media.get":
-		return json.RawMessage(`{"media_id":"m","spec":"A room","frames":["cG5n"]}`), nil
+
 	}
 	return json.RawMessage(`{"session":{"id":"dog-room-abcd","status":"live"},"ok":true}`), nil
 }
@@ -77,18 +77,18 @@ func TestRobotLabEmbeddedDaemonActions(t *testing.T) {
 				{`{"action":"environment_update","environment":{"version":1,"id":"room","name":"Room","kind":"room","objects":[]}}`, "env.save"},
 				{`{"action":"environment_delete","id":"room"}`, "env.delete"},
 				{`{"action":"environment_preview","id":"room"}`, "env.preview"},
-				{`{"action":"media","media_id":"m"}`, "media.get"},
 				{`{"action":"session_start","robot":"dog","environment":"room","task":"Hold ball","goal":{"type":"object_held","object":"ball"}}`, "session.start"},
+				{`{"action":"sessions","robot":"dog","query":"stairs"}`, "session.list"},
+				{`{"action":"session_resume","session":"s"}`, "session.resume"},
 				{`{"action":"session_status","session":"s"}`, "session.get"},
 				{`{"action":"session_stop","session":"s"}`, "session.stop"},
 				{`{"action":"attempt_reset","session":"s","reflection":"Try shorter steps"}`, "attempt.reset"},
-				{`{"action":"act","session":"s","tool":"walk","args":{}}`, "robot.act"},
+				{`{"action":"act","session":"s","tool":"move_joints","args":{"joints":{"FL_hip":0},"duration":0.5}}`, "robot.act"},
 				{`{"action":"look","session":"s"}`, "robot.look"},
 				{`{"action":"skills","session":"s"}`, "skills.list"},
 				{`{"action":"skill_read","session":"s","name":"walk"}`, "skills.read"},
 				{`{"action":"skill_write","session":"s","name":"walk","description":"Walk","instructions":"Short steps"}`, "skills.write"},
 				{`{"action":"skill_use","session":"s","name":"walk"}`, "skills.use"},
-				{`{"action":"skill_run","session":"s","name":"walk"}`, "skills.run"},
 				{`{"action":"skills_copy","from":"old","to":"s"}`, "skills.copy"},
 				{`{"action":"note","session":"s","text":"Approach slowly","kind":"plan"}`, "log.note"},
 			}
@@ -168,13 +168,21 @@ func TestRobotLabAssembledToolSharesService(t *testing.T) {
 }
 
 type labTrainingSidecar struct {
-	mu      sync.Mutex
-	session robotlab.SessionState
+	mu           sync.Mutex
+	session      robotlab.SessionState
+	listeners    map[int]func(robotlab.Event)
+	nextListener int
 }
 
-func (f *labTrainingSidecar) Call(_ context.Context, method string, _ any) (json.RawMessage, error) {
+func (f *labTrainingSidecar) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	stopped := false
+	defer func() {
+		f.mu.Unlock()
+		if stopped {
+			f.emitSession()
+		}
+	}()
 	switch method {
 	case "status":
 		var live any
@@ -183,7 +191,21 @@ func (f *labTrainingSidecar) Call(_ context.Context, method string, _ any) (json
 		}
 		raw, _ := json.Marshal(map[string]any{"live_session": live, "robots": 4, "environments": 3})
 		return raw, nil
+	case "session.resume":
+		raw, _ := json.Marshal(params)
+		var p struct{ Session, Conversation string }
+		_ = json.Unmarshal(raw, &p)
+		f.session.ID, f.session.Conversation, f.session.Status = p.Session, p.Conversation, "live"
+		f.session.Attempt++
+		f.session.MaxAttempts = f.session.Attempt - 1 + 100
+		raw, _ = json.Marshal(map[string]any{"session": f.session})
+		return raw, nil
 	case "session.get":
+		raw, _ := json.Marshal(map[string]any{"session": f.session})
+		return raw, nil
+	case "session.stop":
+		f.session.Status = "stopped"
+		stopped = true
 		raw, _ := json.Marshal(map[string]any{"session": f.session})
 		return raw, nil
 	default:
@@ -193,7 +215,33 @@ func (f *labTrainingSidecar) Call(_ context.Context, method string, _ any) (json
 func (*labTrainingSidecar) Status(context.Context) robotlab.Status {
 	return robotlab.Status{Enabled: true, Installed: true, Running: true}
 }
-func (*labTrainingSidecar) Subscribe(func(robotlab.Event)) func() { return func() {} }
+func (f *labTrainingSidecar) Subscribe(fn func(robotlab.Event)) func() {
+	f.mu.Lock()
+	if f.listeners == nil {
+		f.listeners = map[int]func(robotlab.Event){}
+	}
+	f.nextListener++
+	id := f.nextListener
+	f.listeners[id] = fn
+	f.mu.Unlock()
+	return func() {
+		f.mu.Lock()
+		delete(f.listeners, id)
+		f.mu.Unlock()
+	}
+}
+func (f *labTrainingSidecar) emitSession() {
+	f.mu.Lock()
+	raw, _ := json.Marshal(map[string]any{"session": f.session})
+	listeners := make([]func(robotlab.Event), 0, len(f.listeners))
+	for _, fn := range f.listeners {
+		listeners = append(listeners, fn)
+	}
+	f.mu.Unlock()
+	for _, fn := range listeners {
+		fn(robotlab.Event{Name: "session", Data: raw})
+	}
+}
 func (f *labTrainingSidecar) setStatus(status string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -209,9 +257,12 @@ type labRelayMaster struct {
 	fail     bool
 }
 
-func (f *labRelayMaster) ReceiveRelay(_ context.Context, receipt, conversation, text, by string) (types.MessageID, bool, error) {
+func (f *labRelayMaster) ReceiveRelay(ctx context.Context, receipt, conversation, text, by string) (types.MessageID, bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
 	if f.fail {
 		return "", false, fmt.Errorf("relay failed")
 	}
@@ -258,13 +309,18 @@ func TestRobotLabContinuationAfterTurnEnds(t *testing.T) {
 	c.mu.Lock()
 	queued := c.pending["c"]
 	c.mu.Unlock()
-	if !queued || m.count() != 0 {
+	if queued == nil || m.count() != 0 {
 		t.Fatal("relayed before turn ended")
 	}
 	finish()
 	relay := awaitLabRelay(t, m)
-	if relay.receipt != "robotlab:dog-room-abcd:1" || relay.by != "robot-lab" || relay.conversation != "c" || relay.text != "Continue training session dog-room-abcd: attempt 2 of 2, status live. Keep going until the goal is met or the attempt limit is reached. Remember: write or improve a skill after each failed attempt." {
+	if relay.receipt != "robotlab:dog-room-abcd:1" || relay.by != "robot-lab" || relay.conversation != "c" {
 		t.Fatalf("%+v", relay)
+	}
+	for _, phrase := range []string{"Continue training session dog-room-abcd: attempt 2 of 2, status live.", "robot card", "markdown skills", "check with ik", "4–12 keyframes", "state after every call", "support, margin and terrain", "failed or abandoned", "lesson and exact keyframes", "failures=[N]", "then attempt_reset", "no_skill_reason", "goal.met=true"} {
+		if !strings.Contains(relay.text, phrase) {
+			t.Fatalf("missing continuation guidance %q: %s", phrase, relay.text)
+		}
 	}
 }
 func TestRobotLabContinuationConditions(t *testing.T) {
@@ -295,13 +351,144 @@ func TestRobotLabContinuationConditions(t *testing.T) {
 		})
 	}
 }
+
+func TestRobotLabContinuationNewUserMessageWins(t *testing.T) {
+	for _, when := range []string{"before-queue", "after-queue", "drained-input"} {
+		t.Run(when, func(t *testing.T) {
+			_, m, c := labContinuationFixture(t)
+			turn, finish := context.WithCancel(context.Background())
+			defer finish()
+			robotLabTurnLimits(turn, c.service, "c", nil, 12, time.Minute)
+			started := c.service.TurnStartedAt(turn, "c")
+			if started.IsZero() {
+				t.Fatal("turn start was not recorded")
+			}
+			if when == "after-queue" {
+				c.queue(turn, "c", true)
+			}
+			m.mu.Lock()
+			m.history = append(m.history, master.Normalized{Role: "user", Text: "Retry the arm with the box and shelf", CreatedAt: time.Now()})
+			m.mu.Unlock()
+			if when == "drained-input" {
+				// The turn manager may drain another input with the same context.
+				robotLabTurnLimits(turn, c.service, "c", nil, 12, time.Minute)
+				if c.service.TurnStartedAt(turn, "c") != started {
+					t.Fatal("draining input reset the parent turn start")
+				}
+			}
+			if when != "after-queue" {
+				c.queue(turn, "c", true)
+			}
+			finish()
+			c.wg.Wait()
+			if m.count() != 0 {
+				t.Fatal("continuation overrode newer user input")
+			}
+			// Suppressing this turn must not consume a receipt or block a later turn.
+			next, end := context.WithCancel(context.Background())
+			defer end()
+			robotLabTurnLimits(next, c.service, "c", nil, 12, time.Minute)
+			c.queue(next, "c", true)
+			end()
+			if got := awaitLabRelay(t, m).receipt; got != "robotlab:dog-room-abcd:1" {
+				t.Fatal(got)
+			}
+		})
+	}
+}
+
+func TestRobotLabContinuationIgnoresOlderUserAndNewAssistantOrRelay(t *testing.T) {
+	_, m, c := labContinuationFixture(t)
+	turn, finish := context.WithCancel(context.Background())
+	defer finish()
+	robotLabTurnLimits(turn, c.service, "c", nil, 12, time.Minute)
+	started := c.service.TurnStartedAt(turn, "c")
+	m.history = []master.Normalized{
+		{Role: "user", CreatedAt: started.Add(-time.Millisecond)},
+		{Role: "assistant", CreatedAt: started.Add(time.Millisecond)},
+		{Role: "user", RelayedBy: "robot-lab", CreatedAt: started.Add(time.Millisecond)},
+	}
+	c.queue(turn, "c", true)
+	finish()
+	awaitLabRelay(t, m)
+}
+
+func TestRobotLabContinuationStaysBoundToQueuedSession(t *testing.T) {
+	for _, mode := range []string{"non-live", "non-current", "owner-changed"} {
+		t.Run(mode, func(t *testing.T) {
+			runtime, m, c := labContinuationFixture(t)
+			turn, finish := context.WithCancel(context.Background())
+			defer finish()
+			c.queue(turn, "c", true)
+			// No event: the final runtime recheck must still prevent a relay.
+			runtime.mu.Lock()
+			switch mode {
+			case "non-live":
+				runtime.session.Status = "stopped"
+			case "non-current":
+				runtime.session.ID = "arm-shelf"
+			case "owner-changed":
+				runtime.session.Conversation = "other"
+			}
+			runtime.mu.Unlock()
+			finish()
+			c.wg.Wait()
+			if m.count() != 0 {
+				t.Fatal("stale continuation delivered")
+			}
+		})
+	}
+}
+
+func TestRobotLabStopCancelsPendingContinuationBeforeTurnEnds(t *testing.T) {
+	for _, by := range []string{"agent", "user"} {
+		t.Run(by, func(t *testing.T) {
+			runtime, m, c := labContinuationFixture(t)
+			turn, finish := context.WithCancel(context.Background())
+			defer finish()
+			c.queue(turn, "c", true)
+			c.mu.Lock()
+			pending := c.pending["c"]
+			c.mu.Unlock()
+			if pending == nil {
+				t.Fatal("continuation was not queued")
+			}
+			if by == "agent" {
+				tool := robotlab.NewTool(runtime, c.service, nil, nil)
+				result, err := tool.Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"session_stop","session":"dog-room-abcd"}`)})
+				if err != nil || result.Status != tools.StatusOK {
+					t.Fatalf("stop: %+v %v", result, err)
+				}
+			} else if _, err := c.service.Op(context.Background(), "robotlab.session.stop", json.RawMessage(`{"session":"dog-room-abcd","by":"user"}`)); err != nil {
+				t.Fatal(err)
+			}
+			if pending.ctx.Err() == nil {
+				t.Fatalf("%s stop did not cancel the pending continuation", by)
+			}
+			c.wg.Wait() // Must finish while the triggering turn remains open.
+			c.mu.Lock()
+			queued := c.pending["c"]
+			c.mu.Unlock()
+			if queued != nil || m.count() != 0 {
+				t.Fatal("stopped session kept a continuation")
+			}
+			// Resuming the same ID must not resurrect work from the old turn.
+			runtime.setStatus("live")
+			finish()
+			if m.count() != 0 {
+				t.Fatal("old continuation survived stop/resume")
+			}
+		})
+	}
+}
+
 func TestRobotLabContinuationCapPersistsAndErrorsDoNotConsume(t *testing.T) {
 	_, m, c := labContinuationFixture(t)
 	m.fail = true
-	c.send(context.Background(), "c")
+	c.send(context.Background(), "c", "dog-room-abcd", time.Time{})
 	m.fail = false
 	for range 7 {
-		c.send(context.Background(), "c")
+		c.send(context.Background(), "c", "dog-room-abcd", time.Time{})
 	}
 	if m.count() != 6 {
 		t.Fatal(m.count())
@@ -313,7 +500,7 @@ func TestRobotLabContinuationCapPersistsAndErrorsDoNotConsume(t *testing.T) {
 	}
 	restarted := newRobotLabContinuations(c.service, m, nil)
 	defer restarted.stop()
-	restarted.send(context.Background(), "c")
+	restarted.send(context.Background(), "c", "dog-room-abcd", time.Time{})
 	if m.count() != 6 {
 		t.Fatal("restart reset continuation cap")
 	}
@@ -326,8 +513,8 @@ func TestRobotLabTurnBudgets(t *testing.T) {
 		wantSteps                    int
 		wantTimeout                  time.Duration
 	}{
-		{"active", "other", "", []tools.Definition{{Name: "robot_lab"}}, 48, 15 * time.Minute},
-		{"owned", "c", "", nil, 48, 15 * time.Minute},
+		{"active", "other", "", []tools.Definition{{Name: "robot_lab"}}, 120, 30 * time.Minute},
+		{"owned", "c", "", nil, 120, 30 * time.Minute},
 		{"other", "other", "", nil, 12, 2 * time.Minute},
 		{"explicit", "c", "20", nil, 12, 2 * time.Minute},
 	} {
@@ -340,8 +527,8 @@ func TestRobotLabTurnBudgets(t *testing.T) {
 		})
 	}
 	t.Setenv("EXCALIBUR_MASTER_STEPS", "")
-	steps, timeout := robotLabTurnLimits(context.Background(), c.service, "c", nil, 12, 20*time.Minute)
-	if steps != 48 || timeout != 20*time.Minute {
+	steps, timeout := robotLabTurnLimits(context.Background(), c.service, "c", nil, 12, 45*time.Minute)
+	if steps != 120 || timeout != 45*time.Minute {
 		t.Fatal(steps, timeout)
 	}
 	t.Setenv("EXCALIBUR_ROBOTLAB", "off")
@@ -366,11 +553,11 @@ func TestRobotLabMasterTurnUsesBudgetAndContinues(t *testing.T) {
 	calls := 0
 	a := &assistantTurns{backend: b, services: s, modelID: "test", endpoint: timingEndpoint{chat: func(ctx context.Context, _ providers.ChatRequest) (providers.ChatResponse, error) {
 		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) < 14*time.Minute {
+		if !ok || time.Until(deadline) < 29*time.Minute {
 			t.Error("training timeout not extended")
 		}
 		calls++
-		if calls <= 14 {
+		if calls <= 50 {
 			return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: fmt.Sprint(calls), Name: "robot_lab", Arguments: json.RawMessage(`{"action":"look","session":"dog-room-abcd"}`)}}}}, nil
 		}
 		return textReply("Training continues"), nil
@@ -378,7 +565,7 @@ func TestRobotLabMasterTurnUsesBudgetAndContinues(t *testing.T) {
 	turn, finish := context.WithCancel(context.Background())
 	defer finish()
 	text, _, err := a.CompleteTurn(turn, "c", master.Normalized{Text: "Continue training"})
-	if err != nil || text != "Training continues" || calls != 15 {
+	if err != nil || text != "Training continues" || calls != 51 {
 		t.Fatalf("%s %d %v", text, calls, err)
 	}
 	if m.count() != 0 {
@@ -395,11 +582,39 @@ func TestRobotLabWebTrainingIntentGetsTrainingBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer services.RobotLab.Close()
-	for _, request := range []string{"Realiza una simulación con Perro con brazo en el escenario mi-cuarto: trae la pelota", "Run a simulation with dog in mi-cuarto: bring the ball"} {
+	for _, request := range []string{"Realiza una simulación con Perro en escalera-estrecha: sube al descanso", "Run a simulation with dog in escalera-estrecha: climb onto the landing"} {
 		activation := services.chatToolActivation(request, "test", nil)
 		steps, timeout := robotLabTurnLimits(context.Background(), services.RobotLab, "new", activation.Definitions, 12, 2*time.Minute)
-		if steps != 48 || timeout < 15*time.Minute {
+		if steps != 120 || timeout < 30*time.Minute {
 			t.Fatalf("training request did not activate robot_lab: %q", request)
 		}
+	}
+}
+
+func TestRobotLabResumeTransfersContinuationOwnershipAndExtendsBudget(t *testing.T) {
+	runtime, relay, c := labContinuationFixture(t)
+	runtime.mu.Lock()
+	runtime.session.Status, runtime.session.Conversation = "stopped", "old-chat"
+	runtime.session.Attempt, runtime.session.MaxAttempts = 100, 100
+	runtime.mu.Unlock()
+	tool := robotlab.NewTool(runtime, c.service, nil, nil)
+	result, err := tool.Invoke(whiteboard.WithConversation(context.Background(), "new-chat"), tools.Invocation{Arguments: json.RawMessage(`{"action":"session_resume","session":"dog-room-abcd"}`)})
+	if err != nil || result.Status != tools.StatusOK {
+		t.Fatalf("%+v %v", result, err)
+	}
+	c.send(context.Background(), "old-chat", "dog-room-abcd", time.Time{})
+	if relay.count() != 0 {
+		t.Fatal("previous conversation kept ownership")
+	}
+	turn, finish := context.WithCancel(context.Background())
+	c.queue(turn, "new-chat", true)
+	finish()
+	message := awaitLabRelay(t, relay)
+	if message.conversation != "new-chat" || !strings.Contains(message.text, "attempt 101 of 200") {
+		t.Fatalf("%+v", message)
+	}
+	steps, timeout := robotLabTurnLimits(context.Background(), c.service, "new-chat", nil, 12, time.Minute)
+	if steps != 120 || timeout < 30*time.Minute {
+		t.Fatal(steps, timeout)
 	}
 }

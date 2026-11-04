@@ -1,17 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { fileBase64, maxMediaBytes, validMedia, orderedSessions, validLogImage } from './logic'
+import { orderedSessions, validLogImage } from './logic'
 import type { SessionSummary } from './types'
 
 describe('lab boundary logic', () => {
-  it('accepts only nonempty images/videos at most 32 MiB', () => {
-    expect(validMedia({ type: 'video/mp4', size: maxMediaBytes })).toBe(true)
-    expect(validMedia({ type: 'image/png', size: maxMediaBytes + 1 })).toBe(false)
-    expect(validMedia({ type: 'text/plain', size: 1 })).toBe(false)
-    expect(validMedia({ type: 'image/png', size: 0 })).toBe(false)
-  })
-  it('encodes the file bytes without the data URL prefix', async () => {
-    expect(await fileBase64(new File(['abc'], 'room.png', { type: 'image/png' }))).toBe('YWJj')
-  })
   it('sorts live sessions first without changing cached data', () => {
     const sessions = [
       { id: 'old', status: 'stopped', created_at: '2026-01-01' },

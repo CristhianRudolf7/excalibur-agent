@@ -40,36 +40,24 @@ def measure(profile=False, robot='dog'):
     writer = Writer(sink)
     with tempfile.TemporaryDirectory(prefix='robotlab-bench-') as root:
         runtime = Runtime(Path(root) / 'data', Path(root) / 'skills', writer.event)
-        goal = ({'type': 'object_near', 'object': 'pelota', 'target': {'robot_start': True}, 'radius': .6}
-                if robot == 'dog' else {'type': 'robot_near', 'target': {'point': [-1.7, 0]}, 'radius': .3})
-        sid = runtime.dispatch('session.start', {'robot': robot, 'environment': 'mi-cuarto' if robot == 'dog' else 'pasillo',
+        goal = {'type': 'robot_near', 'target': {'point': [10, 0]}, 'radius': .1}
+        sid = runtime.dispatch('session.start', {'robot': robot, 'environment': 'escalera-estrecha',
                                'task': 'Walk for ten seconds', 'goal': goal})['session']['id']
         runtime.dispatch('session.scene', {'session': sid})
         ctx = runtime.sessions.ctx
         origin = ctx.robot.base_xy(ctx.model, ctx.data)
-        if robot == 'dog':
-            ctx.robot.velocity[:] = [.25, 0]
         os.environ['EXCALIBUR_ROBOTLAB_FAST'] = '1' if profile else '0'
-        ctx.begin_action(limit=10 if robot == 'humanoid' else 60)
+        ctx.begin_action()
         profiler = cProfile.Profile() if profile else None
         before_lines = sink.lines
         wall = time.perf_counter()
         cpu = time.process_time()
         if profiler:
             profiler.enable()
-        try:
-            if robot == 'dog':
-                ctx.step(10)
-            else:
-                ctx.robot.walk_to(ctx, x=origin[0] + 1.5, y=origin[1])
-        except ActionInterrupted as exc:
-            if robot != 'humanoid' or exc.reason != 'timeout':
-                raise
+        ctx.step(10)
         if profiler:
             profiler.disable()
         elapsed, cpu_elapsed = time.perf_counter() - wall, time.process_time() - cpu
-        if robot == 'dog':
-            ctx.robot.velocity[:] = 0
         frames = runtime.dispatch('attempt.frames', {'session': sid, 'attempt': 1, 'count': 400})
         result = {'robot': robot, 'sim_seconds': float(ctx.data.time), 'wall_seconds': elapsed, 'cpu_seconds': cpu_elapsed,
                   'sim_per_wall': float(ctx.data.time) / elapsed, 'recorded_frames': frames['total'],
@@ -77,7 +65,6 @@ def measure(profile=False, robot='dog'):
                   'distance_m': ctx.robot.base_xy(ctx.model, ctx.data)[0] - origin[0], 'fast': profile}
         print(json.dumps(result), flush=True)
         assert frames['total'] == 200
-        assert result['distance_m'] > (.5 if robot == 'dog' else .2)
         assert 0 < result['live_frames'] <= 200
         assert ctx.robot.fallen(ctx.model, ctx.data) is None
         if profiler:
@@ -91,6 +78,6 @@ def measure(profile=False, robot='dog'):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', action='store_true')
-    parser.add_argument('--robot', choices=('dog', 'humanoid'), default='dog')
+    parser.add_argument('--robot', choices=('dog',), default='dog')
     args = parser.parse_args()
     measure(args.profile, args.robot)

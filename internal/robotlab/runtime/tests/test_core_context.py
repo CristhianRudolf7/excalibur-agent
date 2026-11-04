@@ -53,9 +53,9 @@ def test_goal_safety_fall_stop_timeout(world):
     ctx.begin_action()
     before = world.data.time
     with pytest.raises(ActionInterrupted) as e:
-        ctx.step(61)
+        ctx.step(33)
     assert e.value.reason == 'timeout'
-    assert world.data.time - before == pytest.approx(60)
+    assert world.data.time - before == pytest.approx(30.2)
     ctx.stop.set()
     with pytest.raises(ActionInterrupted, match='stopped'):
         ctx.step(1)
@@ -151,3 +151,35 @@ def test_legacy_failure_state_remains_replayable(world):
     np.testing.assert_array_equal(world.data.qpos, old['qpos'])
     np.testing.assert_array_equal(world.data.qvel, old['qvel'])
     assert world.data.time == old['time']
+
+
+@pytest.mark.parametrize('settle', [0, .2, 2])
+def test_full_thirty_second_motion_plus_settle(world, settle):
+    ctx = ToolContext(world)
+    ctx.begin_action(settle=settle)
+    ctx.step(30)
+    ctx.step(settle)
+    assert world.data.time == pytest.approx(30 + settle)
+    with pytest.raises(ActionInterrupted) as exc:
+        ctx.step(.01)
+    assert exc.value.reason == 'timeout'
+
+
+def test_low_level_targets_survive_failure_snapshot_restore(world):
+    from robotlab.core import snapshots
+    ctx = ToolContext(world)
+    robot = world.robot
+    robot.mode = 'feet'
+    robot.target = np.arange(12.)
+    robot.trunk_target = np.arange(6.)
+    robot.foot_target = np.arange(12.).reshape(4, 3)
+    state = snapshots.capture(ctx)
+    robot.mode = 'joints'
+    robot.target[:] = 0
+    robot.trunk_target[:] = 0
+    robot.foot_target[:] = 0
+    snapshots.restore(ctx, state)
+    assert robot.mode == 'feet'
+    np.testing.assert_array_equal(robot.target, np.arange(12.))
+    np.testing.assert_array_equal(robot.trunk_target, np.arange(6.))
+    np.testing.assert_array_equal(robot.foot_target, np.arange(12.).reshape(4, 3))

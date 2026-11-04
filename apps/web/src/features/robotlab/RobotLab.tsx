@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { PanelToggle } from '@/components/ui/panel-toggle'
 import { useShell } from '@/features/shell/store'
 import { useAgents } from '@/features/agents/store'
+import { CallOverlay } from '@/features/chat/voice/CallOverlay'
 import { labCall, robotlabEnabled } from './api'
 import { Environments, EnvironmentDetail } from './Environments'
 import { InstallCard } from './InstallCard'
@@ -106,6 +107,7 @@ export default function RobotLab({ mobile = false }: { mobile?: boolean }) {
           </section>
         </LabLayout>
       )}
+      <CallOverlay />
     </div>
   )
 }

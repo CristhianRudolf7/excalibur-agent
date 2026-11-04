@@ -19,3 +19,7 @@ def test_lazy_registry(monkeypatch, caplog):
     assert 'Skipping robot missing' in caplog.text
     with pytest.raises(RPCError, match='unknown robot'):
         robots.make('unknown')
+
+
+def test_builtin_registry_is_arm_and_dog():
+    assert set(robots.ROBOTS) == {'arm', 'dog'}

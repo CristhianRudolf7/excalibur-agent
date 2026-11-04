@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "id": "escalera-estrecha",
+  "name": "Escalera estrecha",
+  "kind": "room",
+  "description": "Narrow three-step stair without railings. The dog starts 0.3 m (front feet) before the first step and must reach the top landing without falling off the sides.",
+  "size": [4.0, 2.5],
+  "wall_height": 1.0,
+  "floor_color": "#c9c3b8",
+  "wall_color": "#e6e2da",
+  "objects": [
+    {"id": "escalon-1", "name": "Escalón 1", "shape": "box", "size": [0.3, 0.45, 0.12], "pos": [0.15, 0, 0.06], "color": "#9a8f80", "dynamic": false, "tags": ["stairs"]},
+    {"id": "escalon-2", "name": "Escalón 2", "shape": "box", "size": [0.3, 0.45, 0.24], "pos": [0.45, 0, 0.12], "color": "#8b8070", "dynamic": false, "tags": ["stairs"]},
+    {"id": "descanso", "name": "Descanso superior", "shape": "box", "size": [0.9, 0.45, 0.36], "pos": [1.05, 0, 0.18], "color": "#7b7062", "dynamic": false, "tags": ["stairs", "landing"]}
+  ],
+  "spawn": {"x": -0.5, "y": 0, "yaw": 0},
+  "source": {"type": "text", "notes": "Built-in narrow stair: rise 0.12 m, tread 0.30 m, width 0.45 m, no railings"}
+}

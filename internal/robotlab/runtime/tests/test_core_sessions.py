@@ -111,3 +111,46 @@ def test_restart_recovers_inflight_recording(tmp_path, environment, fake_modules
     assert recovered['status'] == 'stopped'
     assert recovered['frames'] == 10
     assert recovered['sim_time'] == .5
+
+
+@pytest.mark.parametrize('settle', [0, .2, 2])
+def test_sixteen_keyframes_with_full_duration_keep_attempt_running(tmp_path, environment, fake_modules, monkeypatch, settle):
+    from robotlab.robots.base import ToolSpec
+    s = manager(tmp_path, environment)
+    sid = start(s)
+    executed = []
+    def sequence(ctx, keyframes, settle):
+        for frame in keyframes:
+            ctx.step(frame['duration'])
+            executed.append(frame)
+        ctx.step(settle)
+        return {'ok': True}
+    schema = {'type': 'object', 'properties': {
+        'keyframes': {'type': 'array', 'minItems': 1, 'maxItems': 16,
+                      'items': {'type': 'object', 'properties': {'duration': {'type': 'number'}},
+                                'required': ['duration']}},
+        'settle': {'type': 'number', 'minimum': 0, 'maximum': 2}},
+        'required': ['keyframes', 'settle']}
+    monkeypatch.setattr(s.world.robot, 'tools', lambda: {
+        'sequence': ToolSpec('sequence', 'Test keyframes', schema, sequence)})
+    result = s.act(sid, 'sequence', {'keyframes': [{'duration': 1.8}]*15 + [{'duration': 3.}],
+                                   'settle': settle})
+    assert result['ok'] and result['attempt']['status'] == 'running'
+    assert len(executed) == 16
+    assert s.world.data.time == pytest.approx(30 + settle)
+    assert s.frames(sid, 1)['total'] == round((30 + settle) * 20)
+    before = s.world.data.time
+    with pytest.raises(RPCError, match='invalid length'):
+        s.act(sid, 'sequence', {'keyframes': [{'duration': 1}]*17, 'settle': settle})
+    assert s.world.data.time == before
+
+
+@pytest.mark.parametrize('args', [None, [], 'invalid', 1])
+def test_invalid_action_argument_type_preserves_attempt(tmp_path, environment, fake_modules, args):
+    s = manager(tmp_path, environment)
+    sid = start(s)
+    with pytest.raises(RPCError) as exc:
+        s.act(sid, 'push', args)
+    assert exc.value.code == 'invalid_params'
+    assert s.world.data.time == 0
+    assert s.get(sid)['attempts'][0]['status'] == 'running'

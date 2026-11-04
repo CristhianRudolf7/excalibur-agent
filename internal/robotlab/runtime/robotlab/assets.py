@@ -17,7 +17,7 @@ from urllib.parse import quote
 from urllib.request import urlopen
 
 MENAGERIE_COMMIT = '98a70c569c4c1b6da467a20012f766ee1f8dc521'
-MODEL_DIRS = ('universal_robots_ur10e', 'robotiq_2f85', 'unitree_go2', 'unitree_z1', 'skydio_x2', 'unitree_g1')
+MODEL_DIRS = ('universal_robots_ur10e', 'robotiq_2f85', 'unitree_go2')
 _data_dir: Path | None = None
 _RAW = 'https://raw.githubusercontent.com/google-deepmind/mujoco_menagerie'
 _UPSTREAM = 'https://github.com/google-deepmind/mujoco_menagerie'
@@ -50,7 +50,7 @@ def _manifest() -> dict:
     if manifest['version'] != 1 or manifest['commit'] != MENAGERIE_COMMIT:
         raise ValueError('asset manifest version or pinned commit mismatch')
     if set(manifest['models']) != set(MODEL_DIRS):
-        raise ValueError('asset manifest must contain exactly the six model folders')
+        raise ValueError('asset manifest must contain exactly the three model folders')
     seen = set()
     for entry in manifest['files']:
         path = PurePosixPath(entry['path'])
@@ -122,7 +122,7 @@ def _install(stage, dest):
 
 
 def fetch(dest: str | Path, *, fetcher=None) -> Path:
-    """Fetch all six folders, verify every byte, and publish one complete tree.
+    """Fetch all three folders, verify every byte, and publish one complete tree.
 
     fetcher(url) -> bytes is injectable for offline tests. A complete install is
     hash-checked and reused without any network calls. Failed fetches leave the
@@ -159,7 +159,7 @@ def fetch(dest: str | Path, *, fetcher=None) -> Path:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Install pinned Robot Lab model assets')
     commands = parser.add_subparsers(dest='command', required=True)
-    command = commands.add_parser('fetch', help='Download and verify the six model folders')
+    command = commands.add_parser('fetch', help='Download and verify the three model folders')
     command.add_argument('--dest', required=True, type=Path)
     args = parser.parse_args(argv)
     try:

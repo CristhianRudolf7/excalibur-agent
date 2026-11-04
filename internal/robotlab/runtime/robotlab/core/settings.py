@@ -6,7 +6,7 @@ from pathlib import Path
 from ..protocol import RPCError
 from .store import read_json, write_json
 
-DEFAULTS = {'max_attempts': 20, 'sim_speed': 1.0}
+DEFAULTS = {'max_attempts': 40, 'sim_speed': 1.0}
 
 
 class Settings:

@@ -31,7 +31,7 @@ atexit.register(lambda: os.write(1, b'native diagnostic\\n'))
     assert result.returncode == 0, result.stderr
     lines = [json.loads(line) for line in result.stdout.splitlines()]
     assert lines[0]['event'] == 'ready'
-    assert lines[1]['result']['environments'] == 3
+    assert lines[1]['result']['environments'] == 2
     assert 'native diagnostic' in result.stderr
     assert time.monotonic() - started < 10
 

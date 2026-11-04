@@ -21,9 +21,6 @@ def test_all_reads_during_long_action(tmp_path, environment, fake_modules, monke
     from robotlab.world import thumbnails
     monkeypatch.setattr(thumbnails, 'render_overview', lambda *_args, **_kwargs: base64.b64decode(observation['png']))
     image = rt.dispatch('session.log', {'session': sid})['entries'][-1]['image']
-    source = tmp_path / 'source.png'
-    source.write_bytes(base64.b64decode(observation['png']))
-    media = rt.dispatch('media.ingest', {'path': str(source), 'mime': 'image/png', 'name': 'View', 'spec': ''})
     model = mujoco.MjModel.from_xml_string('''<mujoco><asset><mesh name="tetra"
         vertex="0 0 0 1 0 0 0 1 0 0 0 1"/></asset><worldbody>
         <geom type="mesh" mesh="tetra"/></worldbody></mujoco>''')
@@ -53,7 +50,7 @@ def test_all_reads_during_long_action(tmp_path, environment, fake_modules, monke
                 ('session.log', {'session': sid}), ('session.image', {'session': sid, 'path': image}),
                 ('attempt.frames', {'session': sid, 'attempt': 1}),
                 ('skills.list', {'session': sid}), ('skills.read', {'session': sid, 'name': 'move'}),
-                ('settings.get', {}), ('media.get', {'media_id': media['media_id']}),
+                ('settings.get', {}),
             ]
             for method, params in routes:
                 assert isinstance(rt.dispatch(method, params), dict), method

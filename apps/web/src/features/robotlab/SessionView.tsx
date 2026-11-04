@@ -13,6 +13,7 @@ import {
 import { LabLayout } from './LabLayout'
 import { Tabs } from './Tabs'
 import { SessionAgent } from './SessionAgent'
+import { RobotCamera } from './RobotCamera'
 import { useLabText } from './i18n'
 import { useLab } from './state'
 import type { Session } from './types'
@@ -62,7 +63,7 @@ function SessionWorkspace({
     queryKey: ['robotlab', 'environment', session.environment],
     queryFn: () => labCall('robotlab.env.get', { id: session.environment }),
   })
-  const [selected, setSelected] = useState<number>()
+  const [selected, setSelected] = useState<{ current: number; n: number }>()
   const [swapped, setSwapped] = useState(false)
   const request = useLab((state) => state.agentRequest)
   const [mobileSelection, setMobileSelection] = useState<{
@@ -80,9 +81,11 @@ function SessionWorkspace({
   const live = session.status === 'live'
   const attempt = live
     ? session.attempt
-    : (selected ?? session.attempts.at(-1)?.n ?? session.attempt)
+    : selected?.current === session.attempt
+      ? selected.n
+      : session.attempt
   const scene = useScene('session', session.id, live)
-  const liveFrame = useLiveFrame(live ? session.id : undefined)
+  const liveFrame = useLiveFrame(live ? session.id : undefined, live ? session.attempt : undefined)
   const replay = useReplay(live ? undefined : session.id, live ? undefined : attempt)
   const recorded = useLatestRecordedFrame(
     live && !liveFrame ? session.id : undefined,
@@ -138,14 +141,17 @@ function SessionWorkspace({
       )}
     </header>
   )
-  const controls = !live && (
+  const controls = (
     <div className="lab-replay">
       <label>
         {text('attempt')}{' '}
         <select
           aria-label={text('attempt')}
           value={attempt}
-          onChange={(event) => setSelected(Number(event.target.value))}
+          disabled={live}
+          onChange={(event) =>
+            setSelected({ current: session.attempt, n: Number(event.target.value) })
+          }
         >
           {session.attempts.map((item) => (
             <option key={item.n} value={item.n}>
@@ -161,7 +167,7 @@ function SessionWorkspace({
           ))}
         </select>
       </label>
-      <ReplayControls {...replay} label={text('replay')} />
+      {!live && <ReplayControls {...replay} label={text('replay')} />}
     </div>
   )
   if (mobile)
@@ -178,13 +184,22 @@ function SessionWorkspace({
           <div className="lab-mobile-agent">{agent}</div>
         ) : (
           <div className="lab-mobile-view">
-            <SceneView
-              scene={scene.scene}
-              loading={scene.loading}
-              frame={frame}
-              view={mobileView}
-              label={text(mobileView)}
-            />
+            {mobileView === 'camera' ? (
+              <RobotCamera
+                session={session}
+                scene={scene.scene}
+                loading={scene.loading}
+                frame={frame}
+              />
+            ) : (
+              <SceneView
+                scene={scene.scene}
+                loading={scene.loading}
+                frame={frame}
+                view="observer"
+                label={text('observer')}
+              />
+            )}
           </div>
         )}
         {controls}
@@ -199,17 +214,16 @@ function SessionWorkspace({
             scene={scene.scene}
             loading={scene.loading}
             frame={frame}
-            view={swapped ? 'camera' : 'observer'}
-            label={text(swapped ? 'camera' : 'observer')}
-            className="lab-observer"
+            view="observer"
+            label={text('observer')}
+            className={swapped ? 'lab-camera' : 'lab-observer'}
           />
-          <SceneView
+          <RobotCamera
+            session={session}
             scene={scene.scene}
             loading={scene.loading}
             frame={frame}
-            view={swapped ? 'observer' : 'camera'}
-            label={text(swapped ? 'observer' : 'camera')}
-            className="lab-camera"
+            className={swapped ? 'lab-observer' : 'lab-camera'}
           />
           <Button className="lab-swap" onClick={() => setSwapped(!swapped)}>
             {text('swap')}
@@ -247,6 +261,8 @@ function Goal({ goal }: { goal: Record<string, unknown> }) {
   if (type === 'robot_near')
     return <>{text('goalRobotNear', { target: destination, radius: Number(goal.radius) })}</>
   if (type === 'object_held') return <>{text('goalHeld', { object })}</>
+  if (type === 'robot_on')
+    return <>{text('goalRobotOn', { target: destination, feet: Number(goal.feet ?? 4) })}</>
   if (type === 'object_on') return <>{text('goalOn', { object, target: destination })}</>
   return <>{text('unknown')}</>
 }

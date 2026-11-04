@@ -34,7 +34,7 @@ class Environments:
         self.lock = threading.RLock()
         defaults = Path(defaults) if defaults else Path(__file__).resolve().parents[1] / 'world' / 'defaults'
         sources = list(defaults.glob('*.json'))
-        marker = self.root / '.defaults-v1'
+        marker = self.root / '.defaults-v3'
         if sources and not marker.exists():
             for source in sources:
                 target = self.root / source.name
@@ -45,7 +45,7 @@ class Environments:
     def list(self):
         with self.lock:
             return [{'id': e['id'], 'name': e['name'], 'kind': e['kind'], 'objects': len(e.get('objects', [])),
-                     'updated_at': e.get('updated_at'), 'source_type': e.get('source', {}).get('type', 'text')}
+                     'updated_at': e.get('updated_at'), 'source_type': 'text'}
                     for p in sorted(self.root.glob('*.json')) if (e := read_json(p))]
 
     def get(self, id):
@@ -53,7 +53,7 @@ class Environments:
             env = read_json(self.root / (identifier(id, 64) + '.json'))
         if env is None:
             raise RPCError('not_found', 'environment not found')
-        return env
+        return world_module('schema').normalize(env)
 
     def save(self, environment, create=False):
         if not isinstance(environment, dict) or type(create) is not bool:

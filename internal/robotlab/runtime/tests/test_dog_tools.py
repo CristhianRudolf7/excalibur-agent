@@ -1,13 +1,11 @@
-"""Tool limits, observations, interruption, and low-level controller contracts."""
+"""All public low-level tools, atomic validation and stop/interruption semantics."""
 import json
-import math
 
-import mujoco
 import numpy as np
 import pytest
 
-from robotlab.robots.base import ActionInterrupted, Spawn
-from robotlab.robots.dog import DogRobot, STOW, leg_ik
+from robotlab.robots.base import ActionInterrupted
+from robotlab.robots.dog import DogRobot
 from robotlab.robots.testing import SimpleContext, build
 
 
@@ -15,218 +13,138 @@ from robotlab.robots.testing import SimpleContext, build
 def dog():
     robot = DogRobot()
     model, data = build(robot)
-    return robot, model, data, SimpleContext(robot, model, data)
-
-
-def test_remaining_locomotion_tools(dog):
-    robot, model, data, ctx = dog
-    assert robot.stand(ctx)['ok']
-    origin = data.xpos[robot.base, :2].copy()
-    result = robot.walk(ctx, -.5, speed=.6)
-    assert result['ok'], result
-    assert data.xpos[robot.base, 0] < origin[0]-.3
-    origin = data.xpos[robot.base, :2].copy()
-    assert robot.side_step(ctx, .4)['ok']
-    assert data.xpos[robot.base, 1] > origin[1]+.25
-    assert robot.side_step(ctx, -.4)['ok']
-    assert abs(data.xpos[robot.base, 1]-origin[1]) < .15
-    assert robot.stop(ctx)['ok']
-    assert np.linalg.norm(data.qvel[robot.rv:robot.rv+2]) < .08
-    assert robot.turn(ctx, -90)['ok']
-
-
-def test_crouch_runtime_clamps(dog):
-    robot, model, data, ctx = dog
-    assert robot.crouch(ctx, -10)['height_target'] == .18
-    assert .15 < data.xpos[robot.base, 2] < .21
-    assert robot.crouch(ctx, 10)['height_target'] == .32
-    assert .28 < data.xpos[robot.base, 2] < .35
-    with pytest.raises(ValueError, match='finite'):
-        robot.crouch(ctx, float('nan'))
-    with pytest.raises(ValueError, match='finite'):
-        robot.walk(ctx, 1, speed=float('inf'))
-
-
-def test_arm_body_frame_and_invalid_targets(dog):
-    robot, model, data, ctx = dog
-    assert robot.stand(ctx)['ok']
-    assert robot.arm_move_to(ctx, .4, 0, .12, frame='body')['ok']
-    # The gripper's longitudinal axis points down by default.
-    assert data.site_xmat[robot.site].reshape(3, 3)[2, 0] < -.96
-    assert robot.arm_stow(ctx)['ok']
-    assert np.max(np.abs(data.qpos[robot.aq]-STOW)) < .05
-    assert not robot.arm_move_to(ctx, 4, 0, .2)['ok']
-    assert not robot.arm_move_to(ctx, .3, 0, .2, frame='other')['ok']
-    assert robot.close_gripper(ctx)['held'] is None
-    assert robot.open_gripper(ctx)['released'] is None
-
-
-def test_spawn_cameras_card_and_torque_limits():
-    robot = DogRobot()
-    model, data = build(robot, spawn=Spawn(1, -2, math.pi/2))
-    assert robot.state(model, data)['yaw_deg'] == pytest.approx(90)
-    assert robot.base_xy(model, data) == (1, -2)
     ctx = SimpleContext(robot, model, data)
-    ctx.step(.2)
-    assert robot.mass > 19  # Original dog plus the mounted arm, no mass scaling.
-    assert model.body('robot/arm/link02').mass[0] == pytest.approx(1.19132)
-    assert all(model.body(i).name.startswith('robot/') for i in range(1,model.nbody))
-    head = model.camera('robot/head').id
-    camera_z = data.cam_xmat[head].reshape(3,3)[:,2]
-    forward = data.xmat[robot.base].reshape(3,3)[:,0]
-    assert np.dot(-camera_z, forward) > .94
-    assert -camera_z[2] < -.15
-    assert model.camera('robot/arm').fovy[0] == 65
-    card = robot.card()
-    assert set(card['name']) == {'en', 'es'}
-    assert {t['name'] for t in card['tools']} == set(robot.tools()) | {'look'}
-    json.dumps(card)
+    ctx.step(.5)
+    return robot, model, data, ctx
+
+
+def assert_result(result):
+    json.dumps(result, allow_nan=False)
+    state = result['state']
+    assert {'x', 'y', 'z', 'roll_deg', 'pitch_deg', 'yaw_deg', 'vel', 'ang_vel_deg', 'com', 'support', 'margin', 'margin_dir_deg', 'lift', 'legs', 'terrain_ahead', 'edges', 'contacts'} <= state.keys()
+    for leg in state['legs'].values():
+        assert {'joints_deg', 'target_deg', 'foot_world', 'foot_body', 'contact', 'force_n', 'terrain_z', 'edge_ahead', 'edge_side'} == leg.keys()
+    assert len(state['terrain_ahead']) == 18
+
+
+def test_only_low_level_tools_and_schemas(dog):
+    robot, model, data, ctx = dog
+    assert set(robot.tools()) == {'move_joints', 'move_feet', 'sequence', 'ik', 'wait'}
     for tool in robot.tools().values():
         assert tool.params['type'] == 'object'
         assert tool.params['additionalProperties'] is False
-        assert '/' in tool.description
-        for value in tool.params['properties'].values():
-            if value['type'] == 'number':
-                assert value['minimum'] < value['maximum']
-    data.qpos[robot.lq] += .2
-    robot.control(model,data)
-    assert np.all(data.ctrl[robot.la] >= model.actuator_ctrlrange[robot.la,0])
-    assert np.all(data.ctrl[robot.la] <= model.actuator_ctrlrange[robot.la,1])
+        assert ' / ' in tool.description
 
 
-def test_fall_tilt_and_persistent_low_height(dog):
+def test_joint_motion_wait_sequence_and_state(dog):
     robot, model, data, ctx = dog
-    data.qpos[robot.rq+2] = .1
-    mujoco.mj_forward(model, data)
-    assert robot.fallen(model,data) is None
-    data.time = .299
-    assert robot.fallen(model,data) is None
-    data.time = .301
-    assert robot.fallen(model,data)
-    robot.reset(model,data)
-    mujoco.mj_forward(model,data)
-    assert robot.fallen(model,data) is None
-    angle = math.radians(51)
-    data.qpos[robot.rq+3:robot.rq+7] = [math.cos(angle/2),math.sin(angle/2),0,0]
-    mujoco.mj_forward(model,data)
-    assert 'tilt' in robot.fallen(model,data)
+    result = robot.move_joints(ctx, {'FL_thigh': 53}, duration=.3)
+    assert result['ok']
+    assert data.qpos[robot.lq[1]] == pytest.approx(np.deg2rad(53), abs=.02)
+    assert_result(result)
+    before = data.time
+    result = robot.wait(ctx, .2)
+    assert data.time == pytest.approx(before+.2)
+    assert_result(result)
+    result = robot.sequence(ctx, [dict(type='joints', joints={'FL_thigh': 51.6}, duration=.3), dict(type='feet', feet={}, trunk={'x': .02}, duration=.5)])
+    assert result['ok'], result
+    assert_result(result)
 
 
-def test_motion_interruption_clears_velocity(dog):
+def test_feet_body_frame_and_ik_no_physics(dog):
+    robot, model, data, ctx = dog
+    state = robot.state(model, data)
+    time, qpos, qvel = data.time, data.qpos.copy(), data.qvel.copy()
+    result = robot.ik(ctx, {'FL': state['legs']['FL']['foot_body']}, frame='body')
+    assert result['ok'] and all(v['reachable'] for v in result['legs'].values())
+    assert data.time == time
+    np.testing.assert_array_equal(data.qpos, qpos)
+    np.testing.assert_array_equal(data.qvel, qvel)
+    assert_result(result)
+    result = robot.move_feet(ctx, {}, trunk={'y': -.04}, duration=.7)
+    assert result['ok'], result
+    p = np.array(result['state']['legs']['FL']['foot_body'])
+    p[2] += .025
+    result = robot.move_feet(ctx, {'FL': p.tolist()}, frame='body', duration=.5)
+    assert result['ok'], result
+    assert_result(result)
+
+
+@pytest.mark.parametrize('tool,args', [
+    ('move_joints', dict(joints={'FL_hip': 90}, duration=.2)),
+    ('move_joints', dict(joints={'unknown': 0}, duration=.2)),
+    ('move_feet', dict(feet={'FL': [2, 0, 0]}, duration=.5)),
+    ('move_feet', dict(feet={'FL': [0, float('nan'), 0]}, duration=.5)),
+    ('move_feet', dict(feet={}, frame='other', duration=.5)),
+    ('move_feet', dict(feet={}, trunk={'z': .9}, duration=.5)),
+    ('move_feet', dict(feet={}, trunk={'yaw': 360}, duration=.5)),
+    ('move_feet', dict(feet={}, trunk=[], duration=.5)),
+    ('move_feet', dict(feet={}, duration=0)),
+    ('move_feet', dict(feet={}, duration=.5, settle=3)),
+    ('wait', dict(seconds=6)),
+    ('sequence', dict(keyframes=[])),
+    ('sequence', dict(keyframes=[dict(type='joints', joints={}, duration=2)]*16)),
+    ('sequence', dict(keyframes=[dict(type='feet', feet={}, trunk={'x': .01}, duration=.2), dict(type='feet', feet={'FR': [5, 0, 0]}, duration=.5)])),
+])
+def test_invalid_plan_rejected_atomically(dog, tool, args):
+    robot, model, data, ctx = dog
+    time, qpos, targets, mode = data.time, data.qpos.copy(), robot.target.copy(), robot.mode
+    result = getattr(robot, tool)(ctx, **args)
+    assert not result['ok'] and 'details' in result
+    assert data.time == time
+    np.testing.assert_array_equal(data.qpos, qpos)
+    np.testing.assert_array_equal(robot.target, targets)
+    assert robot.mode == mode
+    assert_result(result)
+
+
+def test_sequence_stops_mid_keyframe_when_margin_falls(dog):
+    robot, model, data, ctx = dog
+    time = data.time
+    result = robot.sequence(ctx, [dict(type='feet', feet={}, trunk={'y': .09}, duration=2), dict(type='feet', feet={}, trunk={'y': 0}, duration=.5)], stop_if={'margin_below': .1})
+    assert result['ok'] and result['stopped_at'] == 0 and result['reason'] == 'margin_below'
+    assert .1 < data.time-time < 2
+    target = robot.trunk_target.copy()
+    ctx.step(.1)
+    np.testing.assert_array_equal(robot.trunk_target, target)
+    assert_result(result)
+
+
+def test_interruption_preserves_intermediate_targets(dog):
     robot, model, data, ctx = dog
     original = ctx.step
-    def interrupt(seconds):
-        if np.linalg.norm(robot.velocity) > .01:
+    until = data.time+.2
+    def stop(seconds):
+        if data.time >= until:
             raise ActionInterrupted('stopped')
         original(seconds)
-    ctx.step = interrupt
-    with pytest.raises(ActionInterrupted, match='stopped'):
-        robot.walk(ctx, 1)
-    assert np.linalg.norm(robot.velocity) == 0
-    assert robot.turn_rate == 0
+    ctx.step = stop
+    with pytest.raises(ActionInterrupted):
+        robot.move_feet(ctx, {}, trunk={'x': .05}, duration=1)
+    assert 0 < robot.trunk_target[0] < .05
+    ctx.step = original
+    target = robot.trunk_target.copy()
+    robot.wait(ctx, .1)
+    np.testing.assert_array_equal(robot.trunk_target, target)
 
 
-def test_leg_ik_known_stance():
-    for side in [-1,1]:
-        q = leg_ik(0, side*.0955, -.278, side)
-        assert abs(q[0]) < 1e-8
-        assert q[1] == pytest.approx(-q[2]/2)
-        assert .426*math.cos(q[1]) == pytest.approx(.278)
-
-
-def test_runtime_gait_limits_and_joint_targets(dog):
-    robot, model, data, ctx = dog
-    assert robot.walk(ctx, 0, speed=10, step_height=10, gait_period=10)['ok']
-    assert robot.step_height == .12
-    assert robot.period == .8
-    robot.velocity[:] = [.6, .6]
-    robot.phase = .9
-    data.time += .02
-    robot.control(model, data)
-    assert np.all(robot.target >= robot.lrange[:, 0])
-    assert np.all(robot.target <= robot.lrange[:, 1])
-    robot.velocity[:] = 0
-    assert not robot.arm_move_to(ctx, .3, 0, -.5, frame='body')['ok']
-    assert np.all(robot.arm_target >= robot.arange[:, 0])
-    assert np.all(robot.arm_target <= robot.arange[:, 1])
-
-
-def test_turn_and_arm_interruption(dog):
+def test_sequence_stops_on_new_nonfoot_contact(dog):
+    import mujoco
     robot, model, data, ctx = dog
     original = ctx.step
-    def interrupt_turn(seconds):
-        if abs(robot.turn_rate) > .01:
-            raise ActionInterrupted('goal')
+    start = data.time
+    calf = next(g for g in robot.robot_geoms if model.geom_group[g] == 3
+                and model.body(model.geom_bodyid[g]).name == 'robot/FL_calf' and g not in robot.feet)
+    def contact_after_tick(seconds):
         original(seconds)
-    ctx.step = interrupt_turn
-    with pytest.raises(ActionInterrupted, match='goal'):
-        robot.turn(ctx, 90)
-    assert robot.turn_rate == 0
-    assert np.linalg.norm(robot.velocity) == 0
-    def interrupt_arm(seconds):
-        raise ActionInterrupted('stopped')
-    ctx.step = interrupt_arm
-    with pytest.raises(ActionInterrupted, match='stopped'):
-        robot.arm_move_to(ctx, .4, 0, .3)
-    assert not robot.state(model, data)['arm_stowed']
-
-
-def test_stowed_mass_and_center_of_mass(dog):
-    robot, model, data, ctx = dog
-    arm = model.body('robot/arm/link00').id
-    assert model.body_subtreemass[arm] == pytest.approx(4.694932)
-    assert robot.mass == pytest.approx(19.90134)
-    local_com = data.xmat[robot.base].reshape(3, 3).T @ (data.subtree_com[robot.base]-data.xpos[robot.base])
-    print(f'combined mass {robot.mass:.4f} kg, stowed local COM {local_com}')
-    assert -.05 < local_com[0] < .01
-    assert abs(local_com[1]) < .01
-    assert abs(local_com[2]) < .1
-    assert robot.arm_move_to(ctx, .4, 0, .4)['ok']
-    extended_com = data.xmat[robot.base].reshape(3, 3).T @ (data.subtree_com[robot.base]-data.xpos[robot.base])
-    assert extended_com[0] > local_com[0]+.025
+        if data.time > start+.1:
+            contact = mujoco.MjContact()
+            contact.geom1, contact.geom2, contact.dist = calf, model.geom('floor').id, -.001
+            mujoco.mj_addContact(model, data, contact)
+    ctx.step = contact_after_tick
+    result = robot.sequence(ctx, [dict(type='joints', joints={'FL_thigh': 52}, duration=1),
+                                  dict(type='joints', joints={'FL_thigh': 51.6}, duration=1)], stop_if={'contact': True})
+    assert result['ok'] and result['reason'] == 'contact' and result['stopped_at'] == 0
+    assert .09 < data.time-start < .2
+    assert result['state']['contacts'][0]['link'] == 'FL_calf'
     assert robot.fallen(model, data) is None
-
-
-def test_grasp_tolerance_rejects_fixed_far_and_outside_fingers(dog):
-    robot, model, data, ctx = dog
-    # Isolate the grasp selection from finger/ball contact dynamics, already
-    # covered by the real-physics fetch. These objects must never be attached.
-    site = data.site_xpos[robot.site].copy()
-    rotation = data.site_xmat[robot.site].reshape(3, 3)
-    entries = [dict(id='fixed', dynamic=False), dict(id='far', dynamic=True),
-               dict(id='outside_fingers', dynamic=True)]
-    positions = {'fixed':site, 'far':site+rotation@np.array([.041,0,0]),
-                 'outside_fingers':site+rotation@np.array([0,.036,0])}
-    ctx.step = lambda seconds: None
-    ctx.objects = lambda: entries
-    ctx.object_pose = lambda oid: (positions[oid], np.array([1.,0,0,0]))
-    attached = []
-    ctx.hold = lambda oid, name: attached.append((oid,name))
-    assert robot.close_gripper(ctx)['held'] is None
-    assert attached == []
-    entries.append(dict(id='boundary',dynamic=True))
-    positions['boundary'] = site+rotation@np.array([.0399,0,0])
-    robot.close_gripper(ctx)
-    assert attached == [('boundary','robot/arm/grasp')]
-
-
-def test_intermediate_recovery_resets_low_height_timer(dog):
-    robot, model, data, ctx = dog
-    for height, when in [(.1,0), (.1,.2), (.3,.25), (.1,.3), (.1,.55)]:
-        data.qpos[robot.rq+2] = height
-        data.time = when
-        mujoco.mj_forward(model,data)
-        assert robot.fallen(model,data) is None
-    data.time = .61
-    assert robot.fallen(model,data)
-
-
-def test_unreached_stow_returns_json_serializable_state(dog, monkeypatch):
-    robot, model, data, ctx = dog
-    data.qpos[robot.aq[1]] = -.5
-    monkeypatch.setattr(ctx, 'step', lambda seconds: None)
-    monkeypatch.setattr(ctx, 'run_until', lambda done, timeout: done())
-    result = robot.arm_stow(ctx)
-    assert not result['ok']
-    assert result['state']['arm_stowed'] is False
-    json.dumps(result, allow_nan=False)

@@ -52,17 +52,3 @@ def test_act_logs_result_outcome(tmp_path, environment, fake_modules):
     assert summary.startswith('push failed:') and 'attempt failed: fell' in summary
 
 
-def test_skill_logs_returned_failure_and_numbers(tmp_path, environment, fake_modules):
-    sessions = manager(tmp_path, environment)
-    sid = start(sessions)
-    skills = Skills(sessions, tmp_path / 'skills')
-    skills.write(sid, 'walk', 'Walk', 'Approach carefully', code=(
-        'def run(robot):\n'
-        '    return {"ok": False, "error": "blocked by obstacle", "distance": 1.2, "held": "ball"}\n'))
-    result = skills.run(sid, 'walk')
-    assert not result['ok'] and result['attempt']['status'] == 'running'
-    entry = sessions.log(sid)['entries'][-1]
-    assert entry['kind'] == 'skill' and entry['ok'] is False
-    assert 'walk failed: blocked by obstacle' in entry['summary']
-    assert 'distance 1.20 m' in entry['summary'] and 'held ball' in entry['summary']
-    assert 'attempt' not in entry['summary']

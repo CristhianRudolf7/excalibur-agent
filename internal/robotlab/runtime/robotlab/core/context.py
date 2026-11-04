@@ -39,12 +39,14 @@ class ToolContext(BaseContext):
         self.contacts = Contacts(world)
         self.begin_action()
 
-    def begin_action(self, limit=60.):
+    def begin_action(self, limit=30., settle=.2):
         self.contacts.begin_action()
         self.action_time = float(self.data.time)
         self.wall_start = time.monotonic()
         self.wall_target = self.wall_start
-        self.limit = min(float(limit), 60.)
+        if (type(settle) not in (int, float) or not math.isfinite(settle) or not 0 <= settle <= 2):
+            raise RPCError('invalid_params', 'settle must be in 0–2 seconds')
+        self.limit = min(float(limit), 30.) + settle
         self.remember()
 
     def remember(self):
@@ -112,7 +114,7 @@ class ToolContext(BaseContext):
 
     def _frame(self, interruption=None):
         self.seq += 1
-        status = {'goal': 'succeeded', 'stopped': 'stopped'}.get(
+        status = {'goal': 'succeeded', 'stopped': 'stopped', 'timeout': 'running'}.get(
             interruption.reason, 'failed') if interruption else 'running'
         camera = self.robot.default_camera
         frame = {'session': self.session, 'attempt': self.attempt, 'seq': self.seq,
@@ -135,6 +137,22 @@ class ToolContext(BaseContext):
     def object_pose(self, object_id):
         b = self._body(object_id)
         return self.data.xpos[b].copy(), self.data.xquat[b].copy()
+
+    def object_speed(self, object_id):
+        velocity = np.zeros(6)
+        mujoco.mj_objectVelocity(self.model, self.data, mujoco.mjtObj.mjOBJ_BODY,
+                                self._body(object_id), velocity, 0)
+        return float(np.linalg.norm(velocity[3:]))
+
+    def object_touching_robot(self, object_id):
+        body = self._body(object_id)
+        for contact in self.data.contact:
+            a, b = int(contact.geom1), int(contact.geom2)
+            if self.model.geom_bodyid[b] == body:
+                a, b = b, a
+            if self.model.geom_bodyid[a] == body and b in self.contacts.robot_bodies:
+                return True
+        return False
 
     def objects(self):
         return [dict(self.world.object_info(id), pos=self.object_pose(id)[0].round(4).tolist())

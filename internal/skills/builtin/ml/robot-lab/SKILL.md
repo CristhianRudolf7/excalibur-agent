@@ -1,10 +1,10 @@
 ---
 name: robot-lab
-description: Train simulated robots with deterministic tools, inspect images, improve session skills, and build environments from text or media.
+description: Train simulated arm and dog robots with low-level keyframes, learn markdown session skills, and create environments from chat text.
 metadata:
   excalibur:
     group: ml
-    version: 2.0.0
+    version: 3.0.0
     platforms:
     - linux
     tools:
@@ -14,133 +14,72 @@ metadata:
 
 ## When to use
 
-Use `robot_lab` for simulated training sessions with the arm, dog with arm, drone,
-or humanoid. Discover it with `search_tools`. Installation is an explicit user
-operation. If unavailable, explain how to enable the lab and install its runtime
-and robot assets. Physics advances only while a predefined action or skill runs;
-the world remains frozen between calls.
+Discover `robot_lab` with `search_tools` for simulated arm (table) or dog (room)
+training. Installation is explicit. Physics advances during motion and `wait`;
+between calls motors hold their targets.
+
+## Resume a previous simulation
+
+For retry/repeat/resume requests, including "vuelve a intentar", call `sessions`
+with `robot`, `environment` or `query` filters. Select the newest matching saved
+session, then `session_resume {session}`. Never use `session_start` for a retry.
+Resume even succeeded, stopped or exhausted sessions: saved skills and replay
+remain, a new attempt opens, and the configured attempt allowance is added.
+
+The tool automatically stops another live session by agent, reports its ID in
+`stopped_session`, retries resume once and focuses the requested session. If that
+session is already live, it returns and focuses it without resetting the attempt.
+Read the card and relevant skills with `skill_use`, then continue training.
 
 ## Procedure
 
-### Run a training session
+1. Read the robot card: joints, limits, reference pose, sensors, cameras and tool
+   schemas. Inspect the environment with `environment_get`/`environment_preview`.
+   Only new training uses `session_start` with robot, environment, task and goal.
+2. List `skills`, read/use relevant markdown instructions with `skill_use`, and
+   write `note(kind=plan)`. Plan small keyframes; check reachability with `ik`.
+3. Prefer `act(tool=sequence)` with 4–12 keyframes per call. Read state, contacts,
+   goal and attempt after every call; dog: support, margin and terrain. Use `look`
+   for images. Never claim success unless `goal.met=true` or status is `succeeded`.
+4. After EVERY failed or abandoned attempt, reflect with `note(kind=reflection)`.
+   `skill_write` or improve a markdown skill: save the mistake, lesson AND exact
+   keyframes that worked so far, with `failures:[N]`. Then `attempt_reset` with a
+   reflection; give `no_skill_reason` (max 2000 characters) only without a useful
+   lesson. Repeat until goal or attempt limit (default 40, settings 1–100).
+5. Summarize created/improved skills and their uses/success rates. Every write is
+   accepted and versioned with failure evidence. Reuse via `skills_copy {from,to}`
+   or `copy_skills_from` on start; execute saved keyframes explicitly through `act`.
 
-1. Call `robots` and read the selected body's card, tools, argument schemas,
-   cameras and limits. Use `environments` and `environment_get` to choose a world.
-   The `arm` needs a `table`; `dog`, `drone` and `humanoid` need a `room`.
-2. Translate the user's task into a simulator goal. Call `session_start` with
-   `robot`, `environment`, `task` and `goal`. Retain the returned session ID.
-3. Read the returned body card and session skills. Use `skill_read` for details,
-   and `skill_use` before following an existing skill's instructions. Write a
-   short plan with `note`, `kind: "plan"`.
-4. Alternate `act` and `look`. `act` takes `session`, the predefined `tool` name
-   and its `args` object. `look` returns an image, visible object estimates and
-   state without advancing physics. Inspect the actual goal and attempt status.
-5. After a failure, explain the observed cause with a `reflection` note. Write or
-   improve a skill with `skill_write` and `failures: [attempt_number]` so its
-   failure evidence is retained. Then call `attempt_reset` with a nonempty
-   `reflection` and try the improved approach.
-6. Continue until simulator truth reports success or the attempt limit ends the
-   session. Never claim success unless `goal.met` is true or session status is
-   `succeeded`. Use `session_status` after uncertain outcomes. `session_stop`
-   ends training; a user stop must never be undone by starting another session.
+## Control and environments
 
-Do not blindly retry `act`, `skill_run`, `session_start`, `session_stop` or
-`attempt_reset` after a timeout or transport failure. Read session status and
-observe before deciding the next action. The lab handles bounded continuation
-between conversational turns; do not treat one completed reply as completed
-training.
+Angles are degrees, lengths meters, time simulation seconds. Sequences accept
+1–16 keyframes, at most 30 s total; settle defaults to 0.2 s (0–2). Rejected
+unreachable targets cause no motion; `ik` advances no time. `wait` holds 0.05–5 s.
+Dog: move_joints, move_feet, sequence, ik, wait. Keep three feet planted and COM
+inside their support triangle; unlisted feet keep world targets when trunk moves.
+Arm: move_joints, move_gripper_to, gripper, sequence, ik, wait. Grasp assist needs
+both finger pads on the same dynamic object; opening releases it. Read the card
+for arguments, cameras and `stop_if` conditions.
 
-Goals use horizontal distances in meters:
-
-```json
-{"type":"object_near","object":"ball","target":{"robot_start":true},"radius":0.5}
-```
-
-Other goals are `robot_near` with a target and radius, `object_held` with an
-object, `object_on` with an object and `target: {"object": "bin"}`, or `all` with
-nested `goals`. Targets are `{point: [x,y]}`, `{object: "id"}` or
-`{robot_start: true}`. A fallen robot cannot satisfy a goal.
-
-### Write and reuse skills
-
-Skills belong to a single training session. They are stored outside the
-repository under `<skills-root>/<session>/<skill>/`, with `SKILL.md`, optional
-`skill.py`, version history and `fallos/` failure evidence. To reuse skills from
-another session, pass `copy_skills_from` on `session_start` or call
-`skills_copy` with `from` and `to`. Do not assume skills are globally available.
-
-`skill_write` requires `session`, a slug `name`, `description` and `instructions`.
-Optional `code` defines `run(robot, **args)`, composing the robot's predefined
-tools. Read the body card to get actual tool names and arguments; do not invent
-actuator controls. Example code that inspects state and records a plan:
-
-```python
-def run(robot, **args):
-    visible = robot.look()
-    robot.log("Inspect the visible objects before approaching")
-    return {"visible": visible, "state": robot.state()}
-```
-
-The skill API also exposes `robot.objects()` and `robot.<tool>(**args)`. Only
-`math` imports are allowed. File access, arbitrary imports, `exec`, `eval` and
-dunder attributes are rejected. Skill execution is bounded to 60 simulation
-seconds. Goal, fall, safety, user stop and timeout interrupt execution.
-
-When code changes and saved failures exist, the runtime replays each failure for
-at most 30 simulation seconds. It accepts a version only when the new pass count
-is at least the old count. Check `accepted` and `regression`; a rejected candidate
-is archived while the current skill remains unchanged. Versions track uses and
-success rate. Grasp assist is a simulator convenience: closing near an object
-within 0.04 m attaches it; opening releases it.
-
-### Create an environment
-
-Use `environment_create` or `environment_update` with an `environment` object.
-Inspect with `environment_preview`, which returns an image for the agent.
-Environments consist of simple shapes; dimensions are full dimensions in meters,
-positions are centers, and yaw is in degrees.
-
-```json
-{
-  "version": 1,
-  "id": "practice-room",
-  "name": "Practice room",
-  "kind": "room",
-  "size": [5, 4],
-  "wall_height": 2.5,
-  "objects": [
-    {"id":"ball","name":"Ball","shape":"sphere","size":[0.12],"pos":[1,0],"color":"#ff6600","dynamic":true},
-    {"id":"desk","name":"Desk","shape":"box","size":[1.2,0.6,0.75],"pos":[-1,1],"dynamic":false}
-  ],
-  "spawn": {"x":0,"y":0,"yaw":0},
-  "source": {"type":"text","notes":"Dimensions specified by the user"}
-}
-```
-
-Sphere size is `[diameter]`, box is `[x,y,z]`, cylinder/capsule is
-`[diameter,height]`. Omit position z to rest on the floor or table. Use unique
-slug IDs, `#rrggbb` colors, at most 200 objects, and room sides between 1 and 30 m.
-Objects must fit inside the world; spawn must be outside fixed furniture. A
-`table` defaults to a 1.2 × 0.8 m top at 0.75 m height.
-
-For image/video uploads, call `media` with the returned `media_id` to inspect its
-frames and the user's specification. Ask the user about ambiguous measurements.
-Use reference objects such as doors around 0.9 × 2.0 m and tables around 0.75 m
-high, and give the user's stated measurements priority. Record assumptions in
-`source.notes`, preserve `source.media_id`, and preview the result before
-training. Do not silently treat image pixel coordinates as meters.
+Create/edit environments ONLY from chat text with `environment_create` or
+`environment_update`: version 1, unique slug IDs, kind room|table, simple objects,
+`source:{type:"text",notes?}`. Sizes are full dimensions, positions centers, yaw
+degrees; omitted z rests on floor/table. Ask about ambiguous dimensions, record
+assumptions and preview. Built-ins: `escalera-estrecha` (dog, `robot_on` descanso,
+4 feet) and `estante-pequeno` (arm, `object_on` caja on estante). Goals require
+continuous stability (`stable_s`, default 1 s); a held box is not placed.
 
 ## Pitfalls
 
-A completed tool call is not proof that the task succeeded. Check simulator goal
-truth. Do not reuse another session's skill names until copying them. Do not
-reset a failed attempt without recording a reflection and preserving useful
-failure evidence. Avoid blindly retrying uncertain physical actions, guessing
-ambiguous dimensions from media, or restarting a session the user stopped.
+Respect user stop; resume a stopped session only on a new explicit request.
+After timeout/transport failure, inspect `session_status` before another mutation.
+The tool's confirmed live-conflict recovery is bounded to one resume retry.
+Continuations require the same current live session and owner; stops cancel them,
+and newer user messages take priority. Lab turns get 120 steps and at least
+30 minutes when `EXCALIBUR_MASTER_STEPS` is unset; relay cap is `3 * max_attempts`.
 
 ## Verification
 
-Read the body card, preview the chosen environment, inspect observations and
-attempt status, and confirm skill regression acceptance. Report the simulator's
-session outcome and the attempt that produced it. Replay and logs preserve
-frame-by-frame evidence; do not infer success from a plausible camera image.
+Use simulator goal truth, saved attempts, replay/logs and skill versions/failure
+evidence. An image is not proof of success. Report the actual outcome and attempt.
+See `docs/development/robot-lab.md` for backend checks and integration limits.

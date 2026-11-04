@@ -25,7 +25,7 @@ func (f *labRuntimeFake) Call(_ context.Context, m string, p any) (json.RawMessa
 	if m == "settings.get" {
 		return json.RawMessage(`{"max_attempts":20,"sim_speed":1}`), nil
 	}
-	if m != "session.start" {
+	if m != "session.start" && m != "session.resume" {
 		return nil, &robotlab.RuntimeError{Code: "not_found", Message: "missing"}
 	}
 	return json.RawMessage(`{"session":{"id":"ses-test","status":"live"}}`), nil
@@ -75,11 +75,14 @@ func TestRobotLabGatewayRoutingAndDisabled(t *testing.T) {
 	if res := call("session.get", `{"session":"missing"}`); res.Error == nil || res.Error.Code != api.CodeUnknownTarget {
 		t.Fatalf("missing: %+v", res)
 	}
+	if res := call("session.resume", `{"session":"ses-test","conversation":"caller"}`); res.Error != nil {
+		t.Fatal(res.Error)
+	}
 	t.Setenv("EXCALIBUR_ROBOTLAB", "off")
 	if res := call("robots.list", "{}"); res.Error == nil || res.Error.Code != api.CodeRobotLabUnavailable {
 		t.Fatalf("disabled: %+v", res)
 	}
-	if runtime.calls != 3 {
+	if runtime.calls != 4 {
 		t.Fatalf("unexpected calls %d", runtime.calls)
 	}
 }

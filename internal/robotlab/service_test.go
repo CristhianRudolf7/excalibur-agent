@@ -2,18 +2,65 @@ package robotlab
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 )
+
+func TestTurnStartTracksParentContext(t *testing.T) {
+	s := NewService(nil, nil)
+	defer s.Close()
+	turn, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.RecordTurnStart(turn, "c")
+	first := s.TurnStartedAt(turn, "c")
+	if first.IsZero() || first.After(time.Now()) {
+		t.Fatal("missing turn start")
+	}
+	s.RecordTurnStart(turn, "c")
+	if s.TurnStartedAt(turn, "c") != first {
+		t.Fatal("same parent turn changed start")
+	}
+	next, stop := context.WithCancel(context.Background())
+	defer stop()
+	s.RecordTurnStart(next, "c")
+	if !s.TurnStartedAt(turn, "c").IsZero() || s.TurnStartedAt(next, "c").Before(first) {
+		t.Fatal("new parent turn reused old marker")
+	}
+	if !s.TurnStartedAt(turn, "other").IsZero() {
+		t.Fatal("conversation marker leaked")
+	}
+}
+
+func TestLiveSessionRejectsStaleRuntimeState(t *testing.T) {
+	for _, body := range []string{
+		`{"session":{"id":"current","status":"stopped","conversation":"c"}}`,
+		`{"session":{"id":"current","status":"succeeded","conversation":"c"}}`,
+		`{"session":{"id":"old","status":"live","conversation":"c"}}`,
+		`{"session":{"id":"current","status":"live","conversation":"other"}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			sidecar := &toolSidecarFake{call: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+				if method == "status" {
+					return json.RawMessage(`{"live_session":"current"}`), nil
+				}
+				return json.RawMessage(body), nil
+			}}
+			s := NewService(sidecar, nil)
+			defer s.Close()
+			state, err := s.LiveSession(context.Background(), "c")
+			if err != nil || state != nil {
+				t.Fatalf("stale session accepted: %+v %v", state, err)
+			}
+		})
+	}
+}
 
 type fakeSidecarAPI struct {
 	calls     int
@@ -46,16 +93,16 @@ var forwardingCases = []struct{ method, params string }{
 	{"robots.list", `{}`}, {"env.list", `{}`}, {"env.get", `{"id":"room"}`},
 	{"env.save", `{"environment":{"version":1,"id":"room","name":"Room","kind":"room","objects":[]},"create":true}`},
 	{"env.delete", `{"id":"room"}`}, {"env.thumbnail", `{"id":"room"}`}, {"env.scene", `{"id":"room"}`}, {"env.preview", `{"id":"room","robot":"dog"}`},
-	{"media.ingest", `{"path":"/tmp/test.png","mime":"image/png","name":"test","spec":""}`}, {"media.get", `{"media_id":"m","max":8}`},
 	{"settings.get", `{}`}, {"settings.set", `{"max_attempts":100,"sim_speed":0.25}`},
 	{"session.start", `{"robot":"dog","environment":"room","task":"Hold ball","goal":{"type":"object_held","object":"ball"},"conversation":"c"}`},
-	{"session.list", `{}`}, {"session.get", `{"session":"s"}`}, {"session.stop", `{"session":"s","by":"user"}`},
+	{"session.resume", `{"session":"s","reason":"Retry previous simulation","conversation":"c"}`},
+	{"session.list", `{"robot":"dog","environment":"room","query":"Hold"}`}, {"session.get", `{"session":"s"}`}, {"session.stop", `{"session":"s","by":"user"}`},
 	{"session.scene", `{"session":"s"}`}, {"session.image", `{"session":"s","path":"attempts/1/looks/1.png"}`}, {"session.log", `{"session":"s","attempt":1,"since":0}`},
 	{"attempt.reset", `{"session":"s","reflection":"Approached too quickly"}`}, {"attempt.frames", `{"session":"s","attempt":1,"from":0,"count":400}`},
-	{"robot.act", `{"session":"s","tool":"walk","args":{"distance":1}}`}, {"robot.look", `{"session":"s","camera":"robot/head","width":640,"height":480}`}, {"robot.state", `{"session":"s"}`},
-	{"skills.list", `{"session":"s"}`}, {"skills.read", `{"session":"s","name":"slow-walk"}`},
-	{"skills.write", `{"session":"s","name":"slow-walk","description":"Walk slowly","instructions":"Use small steps","code":"def run(robot): return robot.state()","failures":[1]}`},
-	{"skills.use", `{"session":"s","name":"slow-walk"}`}, {"skills.run", `{"session":"s","name":"slow-walk","args":{}}`},
+	{"robot.act", `{"session":"s","tool":"move_joints","args":{"joints":{"FL_hip":0},"duration":0.5}}`}, {"robot.look", `{"session":"s","camera":"robot/head","width":640,"height":480}`}, {"robot.state", `{"session":"s"}`},
+	{"skills.list", `{"session":"s"}`}, {"skills.read", `{"session":"s","name":"steady-pose"}`},
+	{"skills.write", `{"session":"s","name":"steady-pose","description":"Hold a steady pose","instructions":"Keep the planted feet fixed","failures":[1]}`},
+	{"skills.use", `{"session":"s","name":"steady-pose"}`},
 	{"skills.copy", `{"from":"previous","to":"s"}`}, {"log.note", `{"session":"s","text":"Approach slowly","kind":"plan"}`}, {"mesh.get", `{"key":"0123456789abcdef"}`},
 }
 
@@ -203,9 +250,9 @@ func TestServiceValidationAndErrors(t *testing.T) {
 		{"session.stop", `{"session":"s","by":"someone"}`}, {"attempt.reset", `{"session":"s","reflection":" "}`},
 		{"settings.set", `{"max_attempts":0}`}, {"settings.set", `{"max_attempts":101}`}, {"settings.set", `{"max_attempts":1.5}`}, {"settings.set", `{"sim_speed":4.01}`}, {"settings.set", `{"sim_speed":0.24}`},
 		{"attempt.frames", `{"session":"s","attempt":1,"from":0,"count":401}`}, {"attempt.frames", `{"session":"s","attempt":1,"from":-1,"count":1}`},
-		{"robot.act", `{"session":"s","tool":"walk","args":null}`}, {"robot.look", `{"session":"s","width":0}`}, {"robot.look", `{"session":"s","height":0}`},
+		{"robot.act", `{"session":"s","tool":"move_joints","args":null}`}, {"robot.look", `{"session":"s","width":0}`}, {"robot.look", `{"session":"s","height":0}`},
 		{"skills.write", `{"session":"s","name":"Bad","description":"d","instructions":"i"}`}, {"skills.write", `{"session":"s","name":"good","description":"d","instructions":"i","failures":[0]}`},
-		{"log.note", `{"session":"s","text":"a","kind":"act"}`}, {"media.get", `{"media_id":"m","max":9}`}, {"mesh.get", `{"key":"not-a-key"}`},
+		{"log.note", `{"session":"s","text":"a","kind":"act"}`}, {"mesh.get", `{"key":"not-a-key"}`},
 		{"env.save", `{"environment":{"version":1,"id":"room","name":"Room","kind":"room","objects":[{"id":"ball","shape":"sphere","size":[1],"pos":[0,0],"color":"red"}]},"create":true}`},
 	}
 	for _, tc := range cases {
@@ -268,7 +315,7 @@ func TestServiceEventsAndSwitch(t *testing.T) {
 	}
 }
 func TestStatusMergeAndLazyUnavailable(t *testing.T) {
-	f := &fakeSidecarAPI{installed: true, result: json.RawMessage(`{"version":"2","live_session":"s","robots":4,"environments":3}`)}
+	f := &fakeSidecarAPI{installed: true, result: json.RawMessage(`{"version":"3","live_session":"s","robots":2,"environments":2}`)}
 	s := NewService(f, nil)
 	defer s.Close()
 	result, err := s.Op(context.Background(), "robotlab.status", nil)
@@ -276,7 +323,7 @@ func TestStatusMergeAndLazyUnavailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := result.(Status)
-	if st.LiveSession == nil || *st.LiveSession != "s" || st.Version != "2" || st.Robots != 4 || st.Environments != 3 || !st.Installed || !st.Running {
+	if st.LiveSession == nil || *st.LiveSession != "s" || st.Version != "3" || st.Robots != 2 || st.Environments != 2 || !st.Installed || !st.Running {
 		t.Fatal(st)
 	}
 	f.installed = false
@@ -284,56 +331,6 @@ func TestStatusMergeAndLazyUnavailable(t *testing.T) {
 	_, err = s.Op(context.Background(), "robotlab.status", nil)
 	if err != nil || f.calls != 0 {
 		t.Fatal("uninstalled status started runtime")
-	}
-}
-func TestMediaUploadSniffsAndBounds(t *testing.T) {
-	f := &fakeSidecarAPI{}
-	s := NewService(f, nil)
-	s.DataDir = t.TempDir()
-	defer s.Close()
-	png := []byte("\x89PNG\r\n\x1a\n")
-	upload := func(data []byte, mime string) (any, error) {
-		raw, _ := json.Marshal(map[string]any{"name": "../../user.png", "mime": mime, "data": base64.StdEncoding.EncodeToString(data), "spec": "A room"})
-		return s.Op(context.Background(), "robotlab.media.upload", raw)
-	}
-	if _, err := upload(png, "image/png"); err != nil {
-		t.Fatal(err)
-	}
-	p := f.params.(map[string]any)
-	path := p["path"].(string)
-	if f.method != "media.ingest" || p["mime"] != "image/png" || p["spec"] != "A room" || filepath.Dir(path) != filepath.Join(s.DataDir, "robotlab", "uploads") {
-		t.Fatal(p)
-	}
-	if stat, err := os.Stat(path); err != nil || stat.Mode().Perm() != 0600 {
-		t.Fatal(stat, err)
-	}
-	if _, err := upload([]byte("plain text"), "image/png"); err == nil {
-		t.Fatal("accepted non-media")
-	}
-	padded := make([]byte, maxUploadBytes+1)
-	copy(padded, png)
-	if _, err := upload(padded[:maxUploadBytes], "image/png"); err != nil {
-		t.Fatal("32 MiB boundary rejected")
-	}
-	before := f.calls
-	if _, err := upload(padded, "image/png"); err == nil {
-		t.Fatal("accepted oversized media")
-	}
-	raw := json.RawMessage(`{"name":"x","mime":"image/png","data":"%%%%","spec":""}`)
-	if _, err := s.Op(context.Background(), "robotlab.media.upload", raw); err == nil {
-		t.Fatal("accepted invalid base64")
-	}
-	if f.calls != before {
-		t.Fatal("invalid upload reached sidecar")
-	}
-	f.err = &RuntimeError{"internal", "failed"}
-	entries, _ := os.ReadDir(filepath.Dir(path))
-	if _, err := upload(png, "image/png"); err == nil {
-		t.Fatal("lost ingest error")
-	}
-	after, _ := os.ReadDir(filepath.Dir(path))
-	if len(after) != len(entries) {
-		t.Fatal("failed upload leaked file")
 	}
 }
 func TestServiceLimitsAndCancellation(t *testing.T) {
@@ -349,15 +346,52 @@ func TestServiceLimitsAndCancellation(t *testing.T) {
 	}
 }
 
-func TestV2RequestsDoNotInheritLegacyObservationOrCodeCaps(t *testing.T) {
+func TestObservationsRetainLargeImageSupport(t *testing.T) {
 	runtime := &fakeSidecarAPI{}
 	service := NewService(runtime, nil)
 	defer service.Close()
 	if _, err := service.Op(context.Background(), "robotlab.robot.look", json.RawMessage(`{"session":"s","width":2048,"height":2048}`)); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := json.Marshal(map[string]any{"session": "s", "name": "long-skill", "description": "A composed skill", "instructions": "Follow the body card", "code": strings.Repeat("# documentation\n", 3000)})
-	if _, err := service.Op(context.Background(), "robotlab.skills.write", raw); err != nil {
-		t.Fatal(err)
+}
+
+func TestRetiredOperationsAreNotForwarded(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	runtime := &fakeSidecarAPI{}
+	service := NewService(runtime, nil)
+	defer service.Close()
+	for _, method := range []string{"media.upload", "media.ingest", "media.get", "skills.run", "vision.step"} {
+		_, err := service.Op(context.Background(), "robotlab."+method, json.RawMessage(`{}`))
+		var apiErr *api.Error
+		if !errors.As(err, &apiErr) || apiErr.Code != api.CodeMethodNotFound {
+			t.Fatalf("retired %s: %v", method, err)
+		}
+	}
+	if runtime.calls != 0 {
+		t.Fatal("retired operation reached sidecar")
+	}
+	if service.VisionStep == nil {
+		t.Fatal("missing compatibility hook")
+	}
+	if result, err := service.VisionStep(context.Background(), "s", "observe"); result != nil || err != nil {
+		t.Fatalf("compatibility hook returned %v, %v", result, err)
+	}
+	if runtime.calls != 0 {
+		t.Fatal("compatibility hook reached sidecar")
+	}
+}
+
+func TestMarkdownSkillWritesRejectCode(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	for _, code := range []any{"", "return 1", nil} {
+		runtime := &fakeSidecarAPI{}
+		service := NewService(runtime, nil)
+		raw, _ := json.Marshal(map[string]any{"session": "s", "name": "steady-pose", "description": "Hold", "instructions": "Use keyframes", "code": code})
+		_, err := service.Op(context.Background(), "robotlab.skills.write", raw)
+		service.Close()
+		var apiErr *api.Error
+		if !errors.As(err, &apiErr) || apiErr.Code != api.CodeInvalidParams || runtime.calls != 0 {
+			t.Fatalf("skill code was accepted: calls=%d err=%v", runtime.calls, err)
+		}
 	}
 }

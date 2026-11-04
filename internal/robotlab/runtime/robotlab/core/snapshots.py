@@ -10,15 +10,8 @@ import numpy as np
 # Keep model bindings, kinematics scratch buffers and immutable gains out of the
 # snapshots. These fields are the targets and controller memory changed by tools.
 _CONTROLLER_FIELDS = {
-    'arm': ('_target', '_holding', '_gripper', '_grip_target'),
-    'dog': ('target', 'height', 'arm_target', 'gripper', 'velocity', 'yaw_target',
-            'turn_rate', 'step_height', 'period', 'low_since', 'holding', '_last',
-            'phase', '_arm_stowed'),
-    'drone': ('_target', '_yaw', '_integral', '_motors', '_landing', '_failure',
-              '_safety_reason', '_before_velocity', '_speed'),
-    'humanoid': ('target', 'feet', 'foot_yaws', 'yaw', 'height', 'body_goal',
-                 'com_offset', 'weights', 'swing_foot', 'filtered_height', 'depth',
-                 'lean', 'next_control', 'max_tilt', 'hand_states', 'holding_side', 'holding'),
+    'arm': ('_target', '_holding', '_gripper', '_grip_target', '_velocity'),
+    'dog': ('target', 'mode', 'trunk_target', 'foot_target', 'low_since', 'velocity'),
 }
 
 

@@ -47,9 +47,8 @@ type RobotLabEnvironment struct {
 		Yaw float64 `json:"yaw,omitempty"`
 	} `json:"spawn,omitempty"`
 	Source struct {
-		Type    string `json:"type"`
-		MediaId string `json:"media_id,omitempty"`
-		Notes   string `json:"notes,omitempty"`
+		Type  string `json:"type"`
+		Notes string `json:"notes,omitempty"`
 	} `json:"source,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
@@ -103,20 +102,12 @@ type RobotLabSessionSummary struct {
 	Live        bool            `json:"live"`
 }
 
-type RobotLabRegression struct {
-	OldPassed int              `json:"old_passed"`
-	NewPassed int              `json:"new_passed"`
-	Total     int              `json:"total"`
-	Details   []map[string]any `json:"details"`
-}
-
 type RobotLabSkillSummary struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Version     int             `json:"version"`
 	SuccessRate json.RawMessage `json:"success_rate"`
 	Uses        int             `json:"uses"`
-	HasCode     bool            `json:"has_code"`
 	Failures    int             `json:"failures"`
 	UpdatedAt   string          `json:"updated_at"`
 }
@@ -127,18 +118,15 @@ type RobotLabSkill struct {
 	Version      int             `json:"version"`
 	SuccessRate  json.RawMessage `json:"success_rate"`
 	Uses         int             `json:"uses"`
-	HasCode      bool            `json:"has_code"`
 	Failures     int             `json:"failures"`
 	UpdatedAt    string          `json:"updated_at"`
 	Instructions string          `json:"instructions"`
-	Code         json.RawMessage `json:"code"`
 	Versions     []struct {
 		Version     int             `json:"version"`
 		CreatedAt   string          `json:"created_at"`
 		Accepted    bool            `json:"accepted"`
 		SuccessRate json.RawMessage `json:"success_rate"`
 		Uses        int             `json:"uses"`
-		Regression  json.RawMessage `json:"regression"`
 	} `json:"versions"`
 }
 
@@ -154,6 +142,7 @@ type RobotLabLogEntry struct {
 	Summary string         `json:"summary"`
 	Image   string         `json:"image,omitempty"`
 	SimTime float64        `json:"sim_time"`
+	State   map[string]any `json:"state,omitempty"`
 }
 
 type RobotLabFrame struct {
@@ -322,31 +311,6 @@ type RobotLabEnvSaveParams struct {
 	Create      bool                `json:"create"`
 }
 
-const MethodRobotLabMediaIngest = "robotlab.media.ingest"
-
-type RobotLabMediaIngestParams struct {
-	Path string `json:"path"`
-	Mime string `json:"mime"`
-	Name string `json:"name"`
-	Spec string `json:"spec"`
-}
-
-const MethodRobotLabMediaUpload = "robotlab.media.upload"
-
-type RobotLabMediaUploadParams struct {
-	Name string `json:"name"`
-	Mime string `json:"mime"`
-	Data string `json:"data"`
-	Spec string `json:"spec"`
-}
-
-const MethodRobotLabMediaGet = "robotlab.media.get"
-
-type RobotLabMediaGetParams struct {
-	MediaId string `json:"media_id"`
-	Max     int    `json:"max,omitempty"`
-}
-
 const MethodRobotLabSettingsGet = "robotlab.settings.get"
 
 type RobotLabSettingsGetParams map[string]any
@@ -372,7 +336,11 @@ type RobotLabSessionStartParams struct {
 
 const MethodRobotLabSessionList = "robotlab.session.list"
 
-type RobotLabSessionListParams map[string]any
+type RobotLabSessionListParams struct {
+	Robot       string `json:"robot,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	Query       string `json:"query,omitempty"`
+}
 
 const MethodRobotLabSessionGet = "robotlab.session.get"
 
@@ -476,16 +444,7 @@ type RobotLabSkillsWriteParams struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	Instructions string `json:"instructions"`
-	Code         string `json:"code,omitempty"`
 	Failures     []int  `json:"failures,omitempty"`
-}
-
-const MethodRobotLabSkillsRun = "robotlab.skills.run"
-
-type RobotLabSkillsRunParams struct {
-	Session string         `json:"session"`
-	Name    string         `json:"name"`
-	Args    map[string]any `json:"args,omitempty"`
 }
 
 const MethodRobotLabSkillsCopy = "robotlab.skills.copy"
@@ -507,6 +466,14 @@ const MethodRobotLabMeshGet = "robotlab.mesh.get"
 
 type RobotLabMeshGetParams struct {
 	Key string `json:"key"`
+}
+
+const MethodRobotLabSessionResume = "robotlab.session.resume"
+
+type RobotLabSessionResumeParams struct {
+	Session      string          `json:"session"`
+	Reason       string          `json:"reason,omitempty"`
+	Conversation json.RawMessage `json:"conversation,omitempty"`
 }
 
 type RobotLabSessionEvent struct {

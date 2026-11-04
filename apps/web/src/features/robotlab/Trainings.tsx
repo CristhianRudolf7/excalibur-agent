@@ -6,7 +6,7 @@ import { sendMessage } from '@/features/chat/live'
 import { labCall } from './api'
 import { useLabText } from './i18n'
 import { orderedSessions } from './logic'
-import type { RobotId } from './types'
+import { isRobotId, type RobotId } from './types'
 
 export function Trainings({
   onSelect,
@@ -58,7 +58,9 @@ export function Trainings({
             </tr>
           </thead>
           <tbody>
-            {orderedSessions(sessions.data?.sessions ?? []).map((session) => (
+            {orderedSessions(
+              (sessions.data?.sessions ?? []).filter((session) => isRobotId(session.robot)),
+            ).map((session) => (
               <tr key={session.id}>
                 <td>
                   <Button onClick={() => onSelect(session.id)} aria-label={session.name}>
@@ -169,11 +171,13 @@ export function NewSessionDialog({
             }}
           >
             <option value="">{text('choose')}</option>
-            {robots.data?.robots.map((item) => (
-              <option key={item.id} value={item.id}>
-                {text(item.id)}
-              </option>
-            ))}
+            {robots.data?.robots
+              .filter((item) => isRobotId(item.id))
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {text(item.id)}
+                </option>
+              ))}
           </select>
         </label>
         <label>

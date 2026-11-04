@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "id": "estante-pequeno",
+  "name": "Estante pequeño",
+  "kind": "table",
+  "description": "A 7 cm box must be placed on a 5 cm x 5 cm shelf top 0.40 m above the table. The box overhangs the shelf, so it only stays if it is released centered and level.",
+  "size": [1.2, 0.8],
+  "floor_color": "#c6cecf",
+  "wall_color": "#e2e8e5",
+  "objects": [
+    {"id": "caja", "name": "Caja", "shape": "box", "size": [0.07, 0.07, 0.07], "pos": [-0.2, -0.15], "color": "#d95752", "dynamic": true, "mass": 0.15},
+    {"id": "estante", "name": "Estante", "shape": "box", "size": [0.05, 0.05, 0.40], "pos": [0.15, 0.2], "color": "#6f7f8f", "dynamic": false, "tags": ["shelf"]}
+  ],
+  "source": {"type": "text", "notes": "Built-in small-shelf placement task"}
+}

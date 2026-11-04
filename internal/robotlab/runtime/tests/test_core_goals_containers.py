@@ -1,4 +1,4 @@
-"""Container goal regressions against the actual tabletop world and arm."""
+"""Container goals against a tabletop world with a fake robot."""
 import json
 from pathlib import Path
 
@@ -8,25 +8,30 @@ import pytest
 
 from robotlab.assets import menagerie_dir
 from robotlab.core.context import ToolContext
-from robotlab.robots.arm import ArmRobot
+from tests.fake_robot import FakeRobot
 from robotlab.robots.base import ActionInterrupted
 from robotlab.world import builder
 
 
-GOAL = {'type': 'object_on', 'object': 'cubo-rojo', 'target': {'object': 'caja'}}
+GOAL = {'type': 'object_on', 'object': 'cubo-rojo', 'target': {'object': 'caja'}, 'stable_s': 0}
 
 
 @pytest.fixture(params=[0, 57], ids=['straight', 'yawed'])
 def tabletop(request):
     def build(*, container=True):
-        path = Path(builder.__file__).with_name('defaults') / 'mesa-figuras.json'
-        env = json.loads(path.read_text())
+        env = {'id': 'container-test', 'kind': 'table', 'objects': [
+            {'id': 'cubo-rojo', 'shape': 'box', 'size': [.05]*3, 'pos': [-.3, -.12]},
+            {'id': 'caja', 'shape': 'box', 'size': [.22, .2, .12], 'pos': [.33, .12],
+             'dynamic': False, 'compound': True, 'tags': ['container']},
+        ]}
         target = next(o for o in env['objects'] if o['id'] == 'caja')
         target['yaw'] = request.param
         if not container:
             target.pop('compound')
             target.pop('tags')
-        world = builder.build_world(env, ArmRobot(), menagerie_dir())
+        robot = FakeRobot()
+        robot.world_kind = 'table'
+        world = builder.build_world(env, robot, '')
         return ToolContext(world)
     return build
 
@@ -83,7 +88,7 @@ def test_held_cube_cannot_meet_container_goal(tabletop, height):
     assert not ctx.goal_result()['met']
     if height == .80:
         ctx.release()
-        assert ctx.goal_result()['met']
+        assert ctx.goal_result()['met']  # This geometry-only case opts into stable_s=0.
 
 
 def test_ordinary_box_keeps_top_face_rule(tabletop):

@@ -26,7 +26,7 @@ it('detects only slabs intersecting the finite sightline, including rotated wall
   expect(wallOccludes(wall, new THREE.Vector3(-2, 0, 10), base)).toBe(false)
 })
 it('frames each robot behind-left at 35 degrees and rotates with its heading', () => {
-  for (const robot of ['dog', 'drone', 'humanoid', 'arm']) {
+  for (const robot of ['dog', 'arm']) {
     const offset = observerOffset(robot, new THREE.Quaternion())
     expect(offset.length()).toBeCloseTo(robot === 'arm' ? 2.2 : 3.5)
     expect(THREE.MathUtils.radToDeg(Math.asin(offset.z / offset.length()))).toBeCloseTo(35)

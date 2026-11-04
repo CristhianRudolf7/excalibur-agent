@@ -16,7 +16,7 @@ dependencies = [
 include = ["robotlab*"]
 
 [tool.setuptools.package-data]
-robotlab = ["world/defaults/*.json"]
+robotlab = ["world/defaults/*.json", "menagerie_manifest.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

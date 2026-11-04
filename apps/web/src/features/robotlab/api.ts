@@ -9,7 +9,14 @@ export function labCall<M extends keyof RobotLabMethods>(
   params: RobotLabMethods[M]['params'],
   options?: CallOptions,
 ) {
-  return rpc.call(method, params, options)
+  const client = rpc as unknown as {
+    call<M extends keyof RobotLabMethods>(
+      method: M,
+      params: RobotLabMethods[M]['params'],
+      options?: CallOptions,
+    ): Promise<RobotLabMethods[M]['result']>
+  }
+  return client.call(method, params, options)
 }
 // Section 8 is implemented before its generated shared type reaches this branch.
 export function sessionImage(params: { session: string; path: string }, options?: CallOptions) {
@@ -34,15 +41,31 @@ export function onRobotEvent<K extends keyof RobotLabEvents>(
     if (name === type) callback(payload as RobotLabEvents[K])
   }
   listeners.add(listener)
-  disconnect ??= subscribeEvents({
-    types: ['robotlab.focus', 'robotlab.session', 'robotlab.log', 'robotlab.install'],
-    event: ({ type, payload }) => {
-      for (const receive of listeners)
-        receive(type as keyof RobotLabEvents, payload as RobotLabEvents[keyof RobotLabEvents])
-    },
-    ready: () => {},
-    offline: () => {},
-  })
+  if (!disconnect) {
+    const subscribedAt = Date.now()
+    let ready = false
+    disconnect = subscribeEvents({
+      types: ['robotlab.focus', 'robotlab.session', 'robotlab.log', 'robotlab.install'],
+      event: ({ type, payload, at }) => {
+        if (type === 'robotlab.focus') {
+          const timestamp = Date.parse(at)
+          // Focus changes navigation. Only accept events created since subscribing
+          // or within the recent-focus window; other event types still replay.
+          if (Number.isFinite(timestamp)) {
+            if (timestamp < subscribedAt && Date.now() - timestamp > 15_000) return
+          } else if (!ready) return
+        }
+        for (const receive of listeners)
+          receive(type as keyof RobotLabEvents, payload as RobotLabEvents[keyof RobotLabEvents])
+      },
+      ready: () => {
+        ready = true
+      },
+      offline: () => {
+        ready = false
+      },
+    })
+  }
   return () => {
     listeners.delete(listener)
     if (!listeners.size) {

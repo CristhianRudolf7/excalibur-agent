@@ -1,12 +1,16 @@
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Markdown } from '@/components/markdown/Markdown'
 import { Chat } from '@/features/chat/Chat'
-import { labCall, useRobotEvent } from './api'
+import { labCall } from './api'
 import { Tabs } from './Tabs'
 import { useLabText, type LabMessage } from './i18n'
 import { ActivityImage } from './ActivityImage'
 import { validLogImage } from './logic'
 import { useInitialChatScroll } from './useInitialChatScroll'
+import { useSessionLog } from './useSessionLog'
+import { latestRobotState, robotState } from './robotState'
+import { RobotState } from './RobotState'
 import type { Session } from './types'
 
 export function SessionAgent({
@@ -19,11 +23,24 @@ export function SessionAgent({
   time?: number
 }) {
   const { text } = useLabText()
+  const log = useSessionLog(session, attempt)
+  const snapshot = latestRobotState(log.data?.entries ?? [], session.id, attempt, time)
+  const current = useQuery({
+    queryKey: ['robotlab', 'robot-state', session.id, attempt],
+    queryFn: ({ signal }) => labCall('robotlab.robot.state', { session: session.id }, { signal }),
+    enabled: session.status === 'live' && !snapshot,
+    refetchInterval: 2000,
+    retry: false,
+  })
+  const state =
+    snapshot?.state ??
+    (session.status === 'live' && time === undefined ? robotState(current.data) : undefined)
   const [tab, setTab] = useState<'chat' | 'activity' | 'skills'>('chat')
   const chatPanel = useRef<HTMLDivElement>(null)
   useInitialChatScroll(chatPanel, tab === 'chat', session.id)
   return (
     <>
+      <RobotState robot={session.robot} state={state} time={snapshot?.time} />
       <Tabs
         label={text('agent')}
         values={['chat', 'activity', 'skills']}
@@ -33,7 +50,9 @@ export function SessionAgent({
       <div ref={chatPanel} className="lab-agent-panel" hidden={tab !== 'chat'}>
         <Chat agentId="excalibur" onFile={() => {}} />
       </div>
-      {tab === 'activity' && <Activity session={session} attempt={attempt} time={time} />}
+      {tab === 'activity' && (
+        <ActivityContent session={session} attempt={attempt} time={time} log={log} />
+      )}
       {tab === 'skills' && <Skills session={session.id} />}
     </>
   )
@@ -47,15 +66,21 @@ export function Activity({
   attempt: number
   time?: number
 }) {
+  const log = useSessionLog(session, attempt)
+  return <ActivityContent session={session} attempt={attempt} time={time} log={log} />
+}
+function ActivityContent({
+  session,
+  attempt,
+  time,
+  log,
+}: {
+  session: Session
+  attempt: number
+  time?: number
+  log: ReturnType<typeof useSessionLog>
+}) {
   const { text, language } = useLabText()
-  const log = useQuery({
-    queryKey: ['robotlab', 'log', session.id, attempt],
-    queryFn: () => labCall('robotlab.session.log', { session: session.id, attempt }),
-    refetchInterval: session.status === 'live' ? 2000 : false,
-  })
-  useRobotEvent('robotlab.log', ({ entry }) => {
-    if (entry.session === session.id && entry.attempt === attempt) void log.refetch()
-  })
   const entries =
     log.data?.entries.filter((entry) => time === undefined || entry.sim_time <= time) ?? []
   const skillEvents = session.skill_events.filter((event) => event.attempt === attempt)
@@ -106,7 +131,6 @@ export function Skills({ session }: { session: string }) {
       <ul className="lab-skills">
         {skills.data?.skills.map((skill) => (
           <li key={skill.name}>
-            <strong>{skill.name}</strong>
             <p>{skill.description}</p>
             <p>
               {text('version')}: {skill.version} · {text('success')}:{' '}
@@ -116,12 +140,50 @@ export function Skills({ session }: { session: string }) {
                     style: 'percent',
                     maximumFractionDigits: 0,
                   }).format(skill.success_rate)}{' '}
-              · {text('uses')}: {skill.uses}
+              · {text('uses')}: {skill.uses} · {text('failures')}: {skill.failures}
             </p>
-            <span className="lab-badge">{text(skill.has_code ? 'code' : 'instructions')}</span>
+            <SkillDetails session={session} name={skill.name} />
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+function SkillDetails({ session, name }: { session: string; name: string }) {
+  const { text, language } = useLabText()
+  const [open, setOpen] = useState(false)
+  const detail = useQuery({
+    queryKey: ['robotlab', 'skill', session, name],
+    queryFn: () => labCall('robotlab.skills.read', { session, name }),
+    enabled: open,
+    refetchInterval: open ? 5000 : false,
+  })
+  return (
+    <details onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>{name}</summary>
+      {open && (
+        <>
+          {detail.isPending && <p role="status">{text('loading')}</p>}
+          {detail.error && <p role="alert">{detail.error.message}</p>}
+          {detail.data && (
+            <>
+              <Markdown>{detail.data.skill.instructions}</Markdown>
+              <h3>{text('versions')}</h3>
+              <ol aria-label={text('versions')}>
+                {detail.data.skill.versions.map((version) => (
+                  <li key={version.version}>
+                    {text('version')} {version.version} ·{' '}
+                    <time dateTime={version.created_at}>
+                      {new Date(version.created_at).toLocaleString(language)}
+                    </time>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </>
+      )}
+    </details>
   )
 }

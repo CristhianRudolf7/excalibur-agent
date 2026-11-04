@@ -21,6 +21,7 @@ it('shares one feature event subscription and releases it after the last listene
     expect.arrayContaining(['robotlab.focus', 'robotlab.session', 'robotlab.log']),
   )
   const payload = { session: 'session-1' }
+  options.ready()
   options.event({ type: 'robotlab.focus', payload })
   expect(focus).toHaveBeenCalledWith(payload)
   expect(session).not.toHaveBeenCalled()
@@ -28,6 +29,32 @@ it('shares one feature event subscription and releases it after the last listene
   expect(mocks.stop).not.toHaveBeenCalled()
   stopSession()
   expect(mocks.stop).toHaveBeenCalledTimes(1)
+})
+
+it('delivers replayed session and log events while suppressing stale focus', () => {
+  mocks.subscribe.mockReturnValue(mocks.stop)
+  const focus = vi.fn(),
+    session = vi.fn(),
+    log = vi.fn()
+  const stops = [
+    onRobotEvent('robotlab.focus', focus),
+    onRobotEvent('robotlab.session', session),
+    onRobotEvent('robotlab.log', log),
+  ]
+  try {
+    const options = mocks.subscribe.mock.calls[0]![0]
+    const at = new Date(Date.now() - 300_000).toISOString()
+    options.event({ type: 'robotlab.focus', at, payload: { session: 'session-1' } })
+    const sessionPayload = { session: { id: 'session-1', status: 'stopped' } }
+    const logPayload = { entry: { session: 'session-1', attempt: 1, text: 'Recorded observation' } }
+    options.event({ type: 'robotlab.session', at, payload: sessionPayload })
+    options.event({ type: 'robotlab.log', at, payload: logPayload })
+    expect(focus).not.toHaveBeenCalled()
+    expect(session).toHaveBeenCalledWith(sessionPayload)
+    expect(log).toHaveBeenCalledWith(logPayload)
+  } finally {
+    stops.forEach((stop) => stop())
+  }
 })
 
 it('requests a session image through the shared transport with cancellation', async () => {

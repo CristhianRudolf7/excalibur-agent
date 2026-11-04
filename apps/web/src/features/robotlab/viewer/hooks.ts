@@ -62,19 +62,20 @@ export function useLatestRecordedFrame(session: string | undefined, attempt: num
   return query.data ?? null
 }
 
-export function useLiveFrame(session: string | undefined): Frame | null {
-  const [state, setState] = useState<{ session: string | undefined; frame: Frame | null }>({
-    session,
+export function useLiveFrame(session: string | undefined, attempt?: number): Frame | null {
+  const key = JSON.stringify([session, attempt])
+  const [state, setState] = useState<{ key: string; frame: Frame | null }>({
+    key,
     frame: null,
   })
-  if (state.session !== session) setState({ session, frame: null })
+  if (state.key !== key) setState({ key, frame: null })
   useEffect(() => {
     if (!session) return
     let pending: Frame | null = null
     let latest: Frame | null = null
     let animation: number | undefined
     const stop = subscribeFrames((frame) => {
-      if (frame.session !== session) return
+      if (frame.session !== session || (attempt !== undefined && frame.attempt !== attempt)) return
       if (
         latest &&
         (frame.attempt < latest.attempt ||
@@ -84,15 +85,15 @@ export function useLiveFrame(session: string | undefined): Frame | null {
       latest = pending = frame
       animation ??= requestAnimationFrame(() => {
         animation = undefined
-        setState({ session, frame: pending })
+        setState({ key, frame: pending })
       })
     })
     return () => {
       stop()
       if (animation !== undefined) cancelAnimationFrame(animation)
     }
-  }, [session])
-  return state.session === session ? state.frame : null
+  }, [session, attempt, key])
+  return state.key === key ? state.frame : null
 }
 
 export function useReplay(session: string | undefined, attempt: number | undefined) {

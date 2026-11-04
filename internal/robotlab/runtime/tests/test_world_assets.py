@@ -19,7 +19,7 @@ def test_manifest_covers_every_local_file_and_hash():
         path = root / entry['path']
         assert path.stat().st_size == entry['size']
         assert assets._sha256(path) == entry['sha256']
-    assert len(manifest['files']) == 164
+    assert len(manifest['files']) == 65
 
 
 def test_full_offline_install_verify_and_skip(tmp_path):
@@ -42,7 +42,8 @@ def test_full_offline_install_verify_and_skip(tmp_path):
     for model in assets.MODEL_DIRS:
         assert model in attribution
         assert (dest / model / 'LICENSE').read_bytes() == (source / model / 'LICENSE').read_bytes()
-    assert 'BSD-2-Clause' in attribution and 'BSD-3-Clause' in attribution and 'Apache-2.0' in attribution
+    assert set(assets.MODEL_DIRS) == {'unitree_go2', 'universal_robots_ur10e', 'robotiq_2f85'}
+    assert all(entry['license'] in attribution for entry in assets._manifest()['models'].values())
 
     def no_fetch(url):
         pytest.fail(f'complete install must not fetch: {url}')

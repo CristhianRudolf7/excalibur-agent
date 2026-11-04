@@ -1,9 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import '@/lib/i18n'
 import i18n from '@/lib/i18n'
-import { Environments, EnvironmentDetail, MediaDialog } from './Environments'
+import { Environments, EnvironmentDetail } from './Environments'
 const mocks = vi.hoisted(() => ({ call: vi.fn(), send: vi.fn() }))
 vi.mock('./api', () => ({ labCall: mocks.call }))
 vi.mock('@/features/chat/live', () => ({ sendMessage: mocks.send }))
@@ -46,7 +46,6 @@ beforeEach(async () => {
   mocks.call.mockImplementation(async (method: string) => {
     if (method === 'robotlab.env.list') return { environments: [environment] }
     if (method === 'robotlab.env.thumbnail') return { png: 'YWJj' }
-    if (method === 'robotlab.media.upload') return { media_id: 'media-1' }
     if (method === 'robotlab.env.get')
       return {
         environment: {
@@ -66,14 +65,23 @@ beforeEach(async () => {
     return {}
   })
 })
-it('opens text creation with the existing composer prefill', async () => {
-  const draft = vi.fn()
-  mount(<Environments onSelect={vi.fn()} onDraft={draft} />)
-  await screen.findByText('Room')
-  fireEvent.click(screen.getByRole('button', { name: /^New$/ }))
-  fireEvent.click(screen.getByRole('button', { name: 'From chat' }))
-  expect(draft).toHaveBeenCalledWith('Create a simulation environment from this description: ')
-})
+it.each(['en', 'es'])(
+  'opens only text creation with the localized composer prefill (%s)',
+  async (language) => {
+    await i18n.changeLanguage(language)
+    const draft = vi.fn()
+    mount(<Environments onSelect={vi.fn()} onDraft={draft} />)
+    await screen.findByText('Room')
+    fireEvent.click(screen.getByRole('button', { name: language === 'es' ? /^Nuevo$/ : /^New$/ }))
+    expect(draft).toHaveBeenCalledWith(
+      language === 'es'
+        ? 'Crea un ambiente de simulación a partir de esta descripción: '
+        : 'Create a simulation environment from this description: ',
+    )
+    expect(document.querySelector('input[type=file]')).toBeNull()
+    expect(mocks.send).not.toHaveBeenCalled()
+  },
+)
 it('deletes only after confirmation and keeps conflicts visible', async () => {
   mocks.call.mockImplementation(async (method: string) => {
     if (method === 'robotlab.env.list') return { environments: [environment] }
@@ -86,53 +94,6 @@ it('deletes only after confirmation and keeps conflicts visible', async () => {
   expect(mocks.call).not.toHaveBeenCalledWith('robotlab.env.delete', expect.anything())
   fireEvent.click(screen.getByRole('button', { name: /^Delete$/ }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Used by live session')
-})
-it.each(['en', 'es'])('uploads media and sends a localized instruction (%s)', async (language) => {
-  await i18n.changeLanguage(language)
-  const close = vi.fn(),
-    agent = vi.fn()
-  mount(<MediaDialog onClose={close} onAgent={agent} />)
-  fireEvent.change(
-    screen.getByLabelText(
-      language === 'es' ? 'Imagen o video (máximo 32 MB)' : 'Image or video (up to 32 MB)',
-    ),
-    {
-      target: { files: [new File(['abc'], 'room.png', { type: 'image/png' })] },
-    },
-  )
-  fireEvent.change(
-    screen.getByLabelText(language === 'es' ? 'Especificación opcional' : 'Optional specification'),
-    {
-      target: { value: 'Keep the desk' },
-    },
-  )
-  fireEvent.click(
-    screen.getByRole('button', { name: language === 'es' ? 'Enviar al agente' : 'Send to agent' }),
-  )
-  await waitFor(() =>
-    expect(mocks.send).toHaveBeenCalledWith(
-      'excalibur',
-      language === 'es'
-        ? 'Crea un ambiente a partir del archivo "room.png" (media media-1). Especificación: Keep the desk'
-        : 'Create an environment from the file "room.png" (media media-1). Specification: Keep the desk',
-    ),
-  )
-  expect(mocks.call).toHaveBeenCalledWith(
-    'robotlab.media.upload',
-    { name: 'room.png', mime: 'image/png', data: 'YWJj', spec: 'Keep the desk' },
-    expect.anything(),
-  )
-  expect(agent).toHaveBeenCalled()
-  expect(close).toHaveBeenCalled()
-})
-it('rejects unsupported media before sending any upload', async () => {
-  mount(<MediaDialog onClose={vi.fn()} onAgent={vi.fn()} />)
-  fireEvent.change(screen.getByLabelText('Image or video (up to 32 MB)'), {
-    target: { files: [new File(['abc'], 'bad.txt', { type: 'text/plain' })] },
-  })
-  expect(screen.getByRole('alert')).toHaveTextContent('Choose an image or video up to 32 MB.')
-  expect(screen.getByRole('button', { name: 'Send to agent' })).toBeDisabled()
-  expect(mocks.call).not.toHaveBeenCalled()
 })
 it('shows object dimensions, shape, color and dynamic state', async () => {
   const draft = vi.fn()

@@ -2,9 +2,8 @@ package robotlab
 
 import "context"
 
-// NewTool binds one loop to the model tool and, optionally, the service client
-// hook. Assign during composition before accepting requests. The any result
-// matches Service.VisionStep without coupling the tool to service internals.
+// NewTool composes the tool and an inert compatibility hook.
+// Assign during composition before accepting requests.
 func NewTool(sidecar Sidecar, publisher Publisher, asker VisionAsker, hook *func(context.Context, string, string) (any, error)) *Tool {
 	loop := &VisionLoop{Sidecar: sidecar, Publisher: publisher, Asker: asker}
 	if hook != nil {

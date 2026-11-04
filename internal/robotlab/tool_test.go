@@ -34,10 +34,8 @@ func (f *toolSidecarFake) Call(ctx context.Context, method string, params any) (
 		return json.RawMessage(`{"png":"cG5n","visible":[{"id":"ball","distance":1}],"state":{"x":0}}`), nil
 	case "env.preview":
 		return json.RawMessage(`{"png":"cG5n"}`), nil
-	case "media.get":
-		return json.RawMessage(`{"media_id":"m","kind":"video","name":"room.mp4","spec":"Door is two meters","frames":["cG5n","cG5nMg=="]}`), nil
-	case "session.start":
-		return json.RawMessage(`{"session":{"id":"dog-room-abcd","status":"live","attempt":1,"max_attempts":20,"attempts":[],"skill_events":[]},"card":{"id":"dog"},"skills":[]}`), nil
+	case "session.start", "session.resume":
+		return json.RawMessage(`{"session":{"id":"dog-room-abcd","robot":"dog","environment":"room","status":"live","attempt":1,"max_attempts":40,"attempts":[],"skill_events":[]},"card":{"id":"dog"},"skills":[]}`), nil
 	default:
 		return json.RawMessage(`{"ok":true,"goal":{"met":false},"attempt":{"n":1,"status":"running"}}`), nil
 	}
@@ -90,7 +88,7 @@ func TestToolAllActions(t *testing.T) {
 			}
 			params := sidecar.params[0]
 			switch action {
-			case "session_start":
+			case "session_start", "session_resume":
 				if params["conversation"] != "conversation" || len(publisher.names) != 1 || publisher.names[0] != "robotlab.focus" {
 					t.Fatal(params, publisher)
 				}
@@ -111,7 +109,7 @@ func TestToolAllActions(t *testing.T) {
 					t.Fatal(params)
 				}
 			}
-			if action != "session_start" && len(publisher.names) != 0 {
+			if action != "session_start" && action != "session_resume" && len(publisher.names) != 0 {
 				t.Fatal("unexpected focus")
 			}
 		})
@@ -122,7 +120,7 @@ func TestToolImagesAndConciseText(t *testing.T) {
 		action   string
 		images   int
 		contains string
-	}{{"look", 1, "visible"}, {"environment_preview", 1, ""}, {"media", 2, "Door is two meters"}} {
+	}{{"look", 1, "visible"}, {"environment_preview", 1, ""}} {
 		t.Run(tc.action, func(t *testing.T) {
 			result, err := (&Tool{Sidecar: &toolSidecarFake{}}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments(tc.action)})
 			if err != nil || result.Status != tools.StatusOK || len(result.Images) != tc.images {
@@ -179,8 +177,13 @@ func TestToolAttemptResetSkillReason(t *testing.T) {
 }
 func TestToolActionSchemas(t *testing.T) {
 	bad := []string{
-		`{"action":"act","session":"s","tool":"walk"}`,
-		`{"action":"act","session":"s","tool":"walk","args":null}`,
+		`{"action":"session_resume","session":"s","conversation":"forged"}`,
+		`{"action":"session_resume"}`,
+		`{"action":"media","media_id":"m"}`,
+		`{"action":"skill_run","session":"s","name":"steady-pose"}`,
+		`{"action":"skill_write","session":"s","name":"steady-pose","description":"Hold","instructions":"Use keyframes","code":""}`,
+		`{"action":"act","session":"s","tool":"move_joints"}`,
+		`{"action":"act","session":"s","tool":"move_joints","args":null}`,
 		`{"action":"look","session":"s","height":0}`,
 		`{"action":"session_start","robot":"dog","environment":"room","task":"Go","goal":{"type":"object_held","object":"ball"},"conversation":"forged"}`,
 		`{"action":"session_stop","session":"s","by":"user"}`,
@@ -205,31 +208,38 @@ func TestToolActionSchemas(t *testing.T) {
 	if chars := utf8.RuneCountInString(def.Description); chars > 3500 {
 		t.Fatalf("tool description exceeds 3500 characters: %d", chars)
 	}
-	for _, phrase := range []string{"copy_skills_from", "skills_copy", "goal.met", "0.9×2.0", "ambiguous measurements", "no_skill_reason"} {
-		if !strings.Contains(def.Description, phrase) {
-			t.Fatal("missing training guidance: " + phrase)
-		}
-	}
-	// The loop must teach skill use before action and skill writing before reset.
-	remaining := def.Description
+}
+func TestToolDescriptionTeachesLowLevelLearningLoop(t *testing.T) {
+	description := (&Tool{}).Definition().Description
+	remaining := description
 	for _, step := range []string{
-		"(1) session_start", "body card", "list skills", "skill_use relevant",
-		"(2) note(kind=plan)",
-		"(3) act/look in small steps", "look again before fine manipulation", "objects can be pushed by the robot",
-		"(4) After EVERY failed or abandoned attempt", "reflect (note kind=reflection)",
-		"skill_write a concrete lesson in instructions with failures:[N]", "add Python code", "improve an existing skill",
-		"(5) Only then attempt_reset(reflection)",
-		"(6) At the end, summarize which skills were created/improved and their success rates",
+		"(1) session_start for new training", "robot card", "reference pose", "list skills", "skill_use relevant markdown",
+		"(2) note(kind=plan)", "small keyframes", "act(tool=ik)",
+		"(3) act(tool=sequence)", "prefer 4–12 keyframes", "returned state", "support, margin", "terrain_ahead", "act(tool=look)",
+		"(4) After EVERY failed or abandoned attempt", "reflect (note kind=reflection)", "skill_write", "lesson AND the exact keyframes", "failures:[N]",
+		"(5) Only then attempt_reset(reflection)", "no_skill_reason", "default max_attempts is 40",
+		"(6) Summarize", "success rates", "Never claim success unless goal.met=true",
 	} {
 		pos := strings.Index(remaining, step)
 		if pos < 0 {
-			t.Fatal("missing or out-of-order training guidance: " + step)
+			t.Fatalf("missing or out-of-order training guidance: %s", step)
 		}
 		remaining = remaining[pos+len(step):]
 	}
+	for _, phrase := range []string{"degrees", "simulation seconds", "30 s", "motors hold", "move_feet", "move_gripper_to", "stop_if", "copy_skills_from", "skills_copy", "ONLY from chat text", `source:{type:"text"`, "escalera-estrecha", "estante-pequeno", "robot_on", "stable_s", "respect user stop"} {
+		if !strings.Contains(description, phrase) {
+			t.Fatal("missing control guidance: " + phrase)
+		}
+	}
+	for _, retired := range []string{"skill_run", "media_id", "skill.py", "walk_to", "Python", "regression"} {
+		if strings.Contains(description, retired) {
+			t.Fatal("retired guidance: " + retired)
+		}
+	}
 }
+
 func TestToolNoBlindRetriesAndCancellation(t *testing.T) {
-	for _, action := range []string{"act", "skill_run", "session_start", "session_stop", "attempt_reset"} {
+	for _, action := range []string{"act", "session_start", "session_resume", "session_stop", "attempt_reset"} {
 		sidecar := &toolSidecarFake{call: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
 			deadline, ok := ctx.Deadline()
 			if !ok || time.Until(deadline) > 95*time.Second {
@@ -278,5 +288,176 @@ func TestToolActLookAlias(t *testing.T) {
 	result, err := (&Tool{Sidecar: &toolSidecarFake{}}).Invoke(context.Background(), tools.Invocation{Arguments: args})
 	if err != nil || result.Status != tools.StatusOK || len(result.Images) != 1 || !strings.Contains(result.Output, "visible") {
 		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestToolSessionsFiltersAndCompactResults(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	sidecar := &toolSidecarFake{call: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		if method != "session.list" {
+			t.Fatal(method)
+		}
+		return json.RawMessage(`{"sessions":[{"id":"stairs-2","name":"Stairs","robot":"dog","environment":"escalera-estrecha","task":"Climb","status":"stopped","attempts":2,"created_at":"2026-11-04","live":false}]}`), nil
+	}}
+	result, err := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"sessions","robot":"dog","environment":"escalera","query":"stairs"}`)})
+	if err != nil || result.Status != tools.StatusOK || !strings.Contains(result.Output, `"id":"stairs-2"`) || strings.Contains(result.Output, "skill_events") {
+		t.Fatalf("%+v %v", result, err)
+	}
+	params := sidecar.params[0]
+	if params["robot"] != "dog" || params["environment"] != "escalera" || params["query"] != "stairs" {
+		t.Fatal(params)
+	}
+}
+
+func TestToolResumeSwitchesLiveSession(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	resumes := 0
+	sidecar := &toolSidecarFake{call: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		switch method {
+		case "session.resume":
+			resumes++
+			if resumes == 1 {
+				return nil, &RuntimeError{Code: "conflict", Message: "another session is live"}
+			}
+			return json.RawMessage(`{"session":{"id":"saved","robot":"arm","environment":"estante-pequeno","status":"live","attempt":3},"card":{"id":"arm"},"skills":[]}`), nil
+		case "status":
+			return json.RawMessage(`{"live_session":"dog"}`), nil
+		case "session.get":
+			return json.RawMessage(`{"session":{"id":"saved","status":"stopped"}}`), nil
+		case "session.stop":
+			return json.RawMessage(`{"session":{"id":"dog","status":"stopped"}}`), nil
+		default:
+			t.Fatalf("unexpected call %s", method)
+			return nil, nil
+		}
+	}}
+	publisher := &fakePublisher{}
+	ctx := whiteboard.WithConversation(context.Background(), "chat")
+	result, err := (&Tool{Sidecar: sidecar, Publisher: publisher}).Invoke(ctx, tools.Invocation{Arguments: json.RawMessage(`{"action":"session_resume","session":"saved","reason":"Try again"}`)})
+	if err != nil || result.Status != tools.StatusOK || !strings.Contains(result.Output, `"stopped_session":"dog"`) {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if got := strings.Join(sidecar.calls, ","); got != "session.resume,status,session.get,session.stop,session.resume" {
+		t.Fatal(got)
+	}
+	stop := sidecar.params[3]
+	if stop["session"] != "dog" || stop["by"] != "agent" || stop["reason"] != "switched to saved on user request" {
+		t.Fatal(stop)
+	}
+	for _, index := range []int{0, 4} {
+		if p := sidecar.params[index]; p["session"] != "saved" || p["conversation"] != "chat" || p["reason"] != "Try again" {
+			t.Fatal(p)
+		}
+	}
+	if len(publisher.names) != 1 || publisher.names[0] != "robotlab.focus" {
+		t.Fatal(publisher)
+	}
+	focus := publisher.payloads[0].(map[string]any)
+	if focus["session"] != "saved" || focus["robot"] != "arm" || focus["environment"] != "estante-pequeno" {
+		t.Fatal(focus)
+	}
+}
+
+func TestToolResumeAlreadyLiveSessionReturnsAndFocuses(t *testing.T) {
+	sidecar := &toolSidecarFake{call: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		switch method {
+		case "session.resume":
+			return nil, &RuntimeError{Code: "conflict", Message: "already live"}
+		case "status":
+			return json.RawMessage(`{"live_session":"saved"}`), nil
+		case "session.get":
+			return json.RawMessage(`{"session":{"id":"saved","robot":"arm","environment":"estante-pequeno","status":"live","attempt":7}}`), nil
+		default:
+			t.Fatalf("unexpected mutation %s", method)
+			return nil, nil
+		}
+	}}
+	publisher := &fakePublisher{}
+	result, err := (&Tool{Sidecar: sidecar, Publisher: publisher}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"session_resume","session":"saved"}`)})
+	if err != nil || result.Status != tools.StatusOK || !strings.Contains(result.Output, `"attempt":7`) || strings.Contains(result.Output, "stopped_session") {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if len(sidecar.calls) != 3 || len(publisher.names) != 1 || publisher.payloads[0].(map[string]any)["session"] != "saved" {
+		t.Fatal(sidecar.calls, publisher)
+	}
+}
+
+func TestToolResumeSucceededSession(t *testing.T) {
+	status := "succeeded"
+	sidecar := &toolSidecarFake{call: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		if method != "session.resume" || status != "succeeded" {
+			t.Fatalf("unexpected call %s with status %s", method, status)
+		}
+		status = "live"
+		return json.RawMessage(`{"session":{"id":"saved","status":"live","attempt":2},"card":{"id":"arm"},"skills":[]}`), nil
+	}}
+	publisher := &fakePublisher{}
+	result, err := (&Tool{Sidecar: sidecar, Publisher: publisher}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"session_resume","session":"saved"}`)})
+	if err != nil || result.Status != tools.StatusOK || status != "live" || len(sidecar.calls) != 1 || len(publisher.names) != 1 {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestToolResumeConflictRecoveryIsBounded(t *testing.T) {
+	for _, mode := range []string{"no-live", "missing-target", "stop-fails", "resume-fails", "live-changed"} {
+		t.Run(mode, func(t *testing.T) {
+			resumes, stops := 0, 0
+			sidecar := &toolSidecarFake{call: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+				switch method {
+				case "session.resume":
+					resumes++
+					return nil, &RuntimeError{Code: "conflict", Message: "cannot resume"}
+				case "status":
+					if mode == "no-live" {
+						return json.RawMessage(`{"live_session":null}`), nil
+					}
+					if mode == "live-changed" {
+						return json.RawMessage(`{"live_session":"saved"}`), nil
+					}
+					return json.RawMessage(`{"live_session":"dog"}`), nil
+				case "session.get":
+					if mode == "missing-target" {
+						return nil, &RuntimeError{Code: "not_found", Message: "missing"}
+					}
+					return json.RawMessage(`{"session":{"id":"saved","status":"stopped"}}`), nil
+				case "session.stop":
+					stops++
+					if mode == "stop-fails" {
+						return nil, errors.New("stop failed")
+					}
+					return json.RawMessage(`{}`), nil
+				default:
+					t.Fatal(method)
+					return nil, nil
+				}
+			}}
+			publisher := &fakePublisher{}
+			result, err := (&Tool{Sidecar: sidecar, Publisher: publisher}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"session_resume","session":"saved"}`)})
+			if err != nil || result.Status != tools.StatusToolError || len(publisher.names) != 0 {
+				t.Fatalf("%+v %v", result, err)
+			}
+			wantResumes, wantStops := 1, 0
+			if mode == "resume-fails" {
+				wantResumes, wantStops = 2, 1
+				if !strings.Contains(result.Output, "stopped session dog") {
+					t.Fatal(result.Output)
+				}
+			}
+			if mode == "stop-fails" {
+				wantStops = 1
+			}
+			if resumes != wantResumes || stops != wantStops {
+				t.Fatalf("resumes=%d stops=%d", resumes, stops)
+			}
+		})
+	}
+}
+
+func TestToolDescriptionRoutesRetriesToSavedSessions(t *testing.T) {
+	description := (&Tool{}).Definition().Description
+	for _, text := range []string{"Retry/repeat", "vuelve a intentar", "sessions with robot/environment/query filters", "newest matching session", "session_resume(session)", "never session_start for a retry", "automatically stops another live session", "stopped_session", "Read skills with skill_use"} {
+		if !strings.Contains(description, text) {
+			t.Fatal("missing retry guidance: " + text)
+		}
 	}
 }

@@ -187,9 +187,9 @@ def validate(env: dict) -> list[str]:
     if not isinstance(source, dict):
         error('source', 'must be an object')
     else:
-        if source.get('type', 'text') not in ('text', 'image', 'video'):
-            error('source.type', 'must be text, image or video')
-        for field in ('media_id', 'notes'):
+        if source.get('type', 'text') != 'text':
+            error('source.type', 'must be text')
+        for field in ('notes',):
             if field in source and not isinstance(source[field], str):
                 error(f'source.{field}', 'must be a string')
     for field in ('created_at', 'updated_at'):
@@ -206,6 +206,10 @@ def validate(env: dict) -> list[str]:
 
 def normalize(env: dict) -> dict:
     """Validate, then return an independent document with all geometry defaults."""
+    env = deepcopy(env)
+    if isinstance(env, dict) and isinstance(env.get('source'), dict):
+        if env['source'].get('type') in ('image', 'video'):
+            env['source'] = {'type': 'text', 'notes': env['source'].get('notes', '')}
     errors = validate(env)
     if errors:
         raise ValueError('; '.join(errors))
@@ -219,7 +223,7 @@ def normalize(env: dict) -> dict:
                          'wall_color': '#e8e4dc', 'walls': [], 'objects': []}.items():
         out.setdefault(field, value)
     out['spawn'] = {'x': -0.75 if table else 0, 'y': 0, 'yaw': 0, **out.get('spawn', {})}
-    out['source'] = {'type': 'text', 'media_id': '', 'notes': '', **out.get('source', {})}
+    out['source'] = {'type': 'text', 'notes': out.get('source', {}).get('notes', '')}
     for wall in out['walls']:
         for field, default in {'height': 2.5, 'thickness': 0.1, 'color': out['wall_color']}.items():
             wall.setdefault(field, default)

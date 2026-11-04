@@ -2,15 +2,13 @@ package robotlab
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
-	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/telemetry"
@@ -18,7 +16,7 @@ import (
 )
 
 // Service is shared by client routes and the deferred robot_lab tool.
-// Set VisionStep during composition before serving requests.
+// VisionStep is an inert compatibility hook for existing composition callers.
 type Service struct {
 	DataDir     string
 	Sidecar     Sidecar
@@ -27,10 +25,48 @@ type Service struct {
 	VisionStep  func(ctx context.Context, session, instruction string) (any, error)
 	unsubscribe func()
 	closeOnce   sync.Once
+	turnMu      sync.Mutex
+	turnStarts  map[string]turnStart
+}
+
+type turnStart struct {
+	done <-chan struct{}
+	at   time.Time
+}
+
+// RecordTurnStart marks the lab turn before execution. Repeated inputs drained
+// under the same parent turn retain the first start, so newer user input wins.
+func (s *Service) RecordTurnStart(ctx context.Context, conversation string) {
+	if s == nil || ctx.Done() == nil {
+		return
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if s.turnStarts == nil {
+		s.turnStarts = map[string]turnStart{}
+	}
+	if previous, ok := s.turnStarts[conversation]; !ok || previous.done != ctx.Done() {
+		s.turnStarts[conversation] = turnStart{done: ctx.Done(), at: time.Now()}
+	}
+}
+
+// TurnStartedAt returns the matching parent turn's start, or zero for callers
+// outside the daemon's turn-budget hook. Only the latest turn per conversation
+// is retained.
+func (s *Service) TurnStartedAt(ctx context.Context, conversation string) time.Time {
+	if s == nil {
+		return time.Time{}
+	}
+	s.turnMu.Lock()
+	defer s.turnMu.Unlock()
+	if start, ok := s.turnStarts[conversation]; ok && start.done == ctx.Done() {
+		return start.at
+	}
+	return time.Time{}
 }
 
 func NewService(sidecar Sidecar, bus *telemetry.Bus) *Service {
-	s := &Service{Sidecar: sidecar, Bus: bus}
+	s := &Service{Sidecar: sidecar, Bus: bus, VisionStep: (&VisionLoop{}).VisionStep}
 	if sidecar != nil && Enabled() {
 		s.unsubscribe = sidecar.Subscribe(func(e Event) {
 			switch e.Name {
@@ -84,7 +120,7 @@ func (s *Service) Close() error {
 	return err
 }
 
-// Op validates every public Robot Lab method against the v2 contract.
+// Op validates every public Robot Lab method against the v3 contract.
 func (s *Service) Op(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, mapError(err)
@@ -133,58 +169,7 @@ func (s *Service) Op(ctx context.Context, method string, raw json.RawMessage) (a
 		}
 		return map[string]bool{"started": true}, nil
 	}
-	if method == "robotlab.media.upload" {
-		return s.upload(ctx, params)
-	}
 	result, err := s.Sidecar.Call(ctx, strings.TrimPrefix(method, "robotlab."), params)
-	return result, mapError(err)
-}
-
-const maxUploadBytes = 32 << 20
-
-func (s *Service) upload(ctx context.Context, params map[string]any) (any, error) {
-	encoded := params["data"].(string)
-	if base64.StdEncoding.DecodedLen(len(encoded)) > maxUploadBytes+2 {
-		return nil, invalid("media exceeds 32 MiB")
-	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil || len(data) > maxUploadBytes {
-		return nil, invalid("media must be base64 and at most 32 MiB decoded")
-	}
-	mime := http.DetectContentType(data)
-	if !strings.HasPrefix(mime, "image/") && !strings.HasPrefix(mime, "video/") {
-		return nil, invalid("media must contain an image or video")
-	}
-	if s.DataDir == "" {
-		return nil, unavailable("Robot Lab upload directory is unavailable")
-	}
-	root := filepath.Join(s.DataDir, "robotlab", "uploads")
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return nil, mapError(err)
-	}
-	file, err := os.CreateTemp(root, "media-")
-	if err != nil {
-		return nil, mapError(err)
-	}
-	// Failed uploads are removed; successful imports retain their source upload.
-	keep := false
-	defer func() {
-		_ = file.Close()
-		if !keep {
-			_ = os.Remove(file.Name())
-		}
-	}()
-	if _, err = file.Write(data); err != nil {
-		return nil, mapError(err)
-	}
-	if err = file.Close(); err != nil {
-		return nil, mapError(err)
-	}
-	if err = ctx.Err(); err != nil {
-		return nil, mapError(err)
-	}
-	result, err := s.Sidecar.Call(ctx, "media.ingest", map[string]any{"path": file.Name(), "mime": mime, "name": params["name"], "spec": params["spec"]})
-	keep = err == nil
 	return result, mapError(err)
 }
 

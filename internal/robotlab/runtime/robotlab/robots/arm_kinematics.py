@@ -12,6 +12,26 @@ def down_rotation(yaw: float) -> np.ndarray:
     return np.array([[c, s, 0], [s, -c, 0], [0, 0, -1.]])
 
 
+def grasp_rotation(yaw: float, pitch: float = 0., roll: float = 0.) -> np.ndarray:
+    """World Z-Y-X angles relative to the fingers-down reference pose."""
+    cy, sy, cp, sp, cr, sr = (math.cos(yaw), math.sin(yaw), math.cos(pitch),
+                              math.sin(pitch), math.cos(roll), math.sin(roll))
+    return np.array([[cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+                     [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+                     [-sp, cp * sr, cp * cr]]) @ down_rotation(0.)
+
+
+def grasp_angles(rotation: np.ndarray) -> list[float]:
+    """Return yaw, pitch, roll in degrees, with zero meaning fingers down."""
+    rot = rotation @ down_rotation(0.).T
+    pitch = math.asin(float(np.clip(-rot[2, 0], -1., 1.)))
+    if abs(math.cos(pitch)) > 1e-7:
+        yaw, roll = math.atan2(rot[1, 0], rot[0, 0]), math.atan2(rot[2, 1], rot[2, 2])
+    else:
+        yaw, roll = math.atan2(-rot[0, 1], rot[1, 1]), 0.
+    return [math.degrees(v) for v in (yaw, pitch, roll)]
+
+
 def rotation_error(target: np.ndarray, current: np.ndarray) -> np.ndarray:
     tq, cq, inv, delta, vel = (np.empty(4), np.empty(4), np.empty(4),
                                np.empty(4), np.empty(3))

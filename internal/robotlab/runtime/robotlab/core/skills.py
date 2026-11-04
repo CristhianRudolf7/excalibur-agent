@@ -1,9 +1,8 @@
-"""Session-local skills, immutable versions, failure regression and accounting."""
+"""Session-local skills, immutable versions, failure evidence and accounting."""
 from __future__ import annotations
 
 import copy
 from contextlib import nullcontext
-import hashlib
 import json
 import os
 import shutil
@@ -11,8 +10,22 @@ import threading
 from pathlib import Path
 
 from ..protocol import RPCError
-from . import skillrun
 from .store import identifier, now, read_json, write_json, slugify
+
+
+_SKILL_FIELDS = ('name', 'description', 'version', 'success_rate', 'uses', 'successes',
+                 'failures', 'updated_at', 'instructions', 'versions')
+_VERSION_FIELDS = ('version', 'created_at', 'accepted', 'success_rate', 'uses', 'successes', 'accounted')
+
+
+def _read(path):
+    value = read_json(path)
+    if value is None:
+        return None
+    skill = {key: value[key] for key in _SKILL_FIELDS if key in value}
+    skill['versions'] = [{key: version[key] for key in _VERSION_FIELDS if key in version}
+                         for version in value.get('versions', [])]
+    return skill
 
 
 def _markdown(skill):
@@ -24,10 +37,7 @@ def _markdown(skill):
 def _files(folder, skill):
     folder.mkdir(parents=True, exist_ok=True)
     (folder / 'SKILL.md').write_text(_markdown(skill))
-    if skill['code'] is not None:
-        (folder / 'skill.py').write_text(skill['code'])
-    else:
-        (folder / 'skill.py').unlink(missing_ok=True)
+    (folder / 'skill.py').unlink(missing_ok=True)
 
 
 class Skills:
@@ -44,19 +54,19 @@ class Skills:
     def read(self, session, name):
         self.sessions.get(session)
         with self.lock:
-            skill = read_json(self.folder(session, name) / 'meta.json')
+            skill = _read(self.folder(session, name) / 'meta.json')
         if skill is None:
             raise RPCError('not_found', 'skill not found')
         return skill
 
     @staticmethod
     def summary(skill):
-        return {key: skill[key] for key in ('name', 'description', 'version', 'success_rate', 'uses', 'has_code', 'failures', 'updated_at')}
+        return {key: skill[key] for key in ('name', 'description', 'version', 'success_rate', 'uses', 'failures', 'updated_at')}
 
     def list(self, session):
         self.sessions.get(session)
         with self.lock:
-            return [self.summary(read_json(p)) for p in sorted((self.root / identifier(session)).glob('*/meta.json'))]
+            return [self.summary(_read(p)) for p in sorted((self.root / identifier(session)).glob('*/meta.json'))]
 
     def _event(self, session, kind, skill):
         with self.sessions.lock:
@@ -68,17 +78,13 @@ class Skills:
             self.sessions._save(s)
             self.sessions.note(session, f'{kind}: {skill["name"]} v{skill["version"]}', 'skill')
 
-    def write(self, session, name, description, instructions, code=None, failures=None):
+    def write(self, session, name, description, instructions, failures=None):
         self.sessions.get(session)
         if isinstance(name, str) and name.strip():
             name = slugify(name, 48, 'skill')
         identifier(name, 48)
         if not isinstance(description, str) or not isinstance(instructions, str):
             raise RPCError('invalid_params', 'description and instructions must be text')
-        if code is not None:
-            errors = skillrun.validate(code)
-            if errors:
-                raise RPCError('invalid_params', '; '.join(errors))
         failures = [] if failures is None else failures
         if not isinstance(failures, list) or any(type(n) is not int or n < 1 for n in failures):
             raise RPCError('invalid_params', 'failures must list attempt numbers')
@@ -86,76 +92,38 @@ class Skills:
         for n in failures:
             source = self.sessions.store.session_dir(session) / 'attempts' / str(n) / 'failure'
             if not (source / 'state.json').is_file():
-                raise RPCError('not_found', f'failure evidence not found for attempt {n}')
+                raise RPCError('not_found', f'failure evidence not found for attempt {n}. If attempt {n} is still running, '
+                               'call attempt_reset with your reflection first: it records the evidence and then asks '
+                               f'for this skill_write(..., failures=[{n}]) before starting the next attempt.')
             sources.append((n, source))
         with self.sessions.action():
             folder = self.folder(session, name)
-            previous = read_json(folder / 'meta.json')
+            previous = _read(folder / 'meta.json')
             version = 1 + max((v['version'] for v in previous['versions']), default=0) if previous else 1
             for n, source in sources:
                 target = folder / 'fallos' / f'{session}-{n}'
                 shutil.copytree(source, target, dirs_exist_ok=True)
                 write_json(target / 'meta.json', {'session': session, 'attempt': n})
             snapshots = sorted((folder / 'fallos').glob('*/state.json'))
-            regression = self._regression(folder, previous, code, snapshots)
-            accepted = regression['new_passed'] >= regression['old_passed']
             timestamp = now()
-            version_meta = {'version': version, 'created_at': timestamp, 'accepted': accepted,
-                            'success_rate': None, 'uses': 0, 'successes': 0, 'regression': regression,
-                            'accounted': []}
-            candidate = {'name': name, 'description': description, 'version': version, 'success_rate': None,
-                         'uses': 0, 'successes': 0, 'has_code': code is not None, 'failures': len(snapshots),
-                         'updated_at': timestamp, 'instructions': instructions, 'code': code,
-                         'versions': copy.deepcopy(previous['versions']) if previous else []}
-            candidate['versions'].append(version_meta)
-            archive = folder / 'versions' / f'v{version}'
-            _files(archive, candidate)
-            write_json(archive / 'meta.json', version_meta)
-            if accepted:
+            version_meta = {'version': version, 'created_at': timestamp, 'accepted': True,
+                            'success_rate': None, 'uses': 0, 'successes': 0, 'accounted': []}
+            with self.sessions.lock, self.lock:
+                # Stop may have finalized accounting while evidence was copied.
+                previous = _read(folder / 'meta.json')
+                candidate = {'name': name, 'description': description, 'version': version,
+                             'success_rate': None, 'uses': 0, 'successes': 0,
+                             'failures': len(snapshots), 'updated_at': timestamp,
+                             'instructions': instructions,
+                             'versions': copy.deepcopy(previous['versions']) if previous else []}
+                candidate['versions'].append(version_meta)
+                archive = folder / 'versions' / f'v{version}'
+                _files(archive, candidate)
+                write_json(archive / 'meta.json', version_meta)
                 _files(folder, candidate)
-                current = candidate
-            else:
-                current = previous
-                current['versions'].append(version_meta)
-                current['failures'] = len(snapshots)
-            with self.lock:
-                # A concurrent stop may have finalized uses while regression ran.
-                for v in current['versions']:
-                    archived = read_json(folder / 'versions' / f'v{v["version"]}' / 'meta.json', {})
-                    for field in ('uses', 'successes', 'success_rate', 'accounted'):
-                        if field in archived:
-                            v[field] = archived[field]
-                    if v['version'] == current['version']:
-                        for field in ('uses', 'successes', 'success_rate'):
-                            current[field] = v.get(field, 0 if field != 'success_rate' else None)
-                write_json(folder / 'meta.json', current)
-            self._event(session, ('improved' if previous else 'created') if accepted else 'rejected', candidate)
-            return {'skill': current, 'accepted': accepted, 'regression': regression}
-
-    def _regression(self, folder, previous, code, snapshots):
-        details = []
-        if not code or not snapshots:
-            return {'old_passed': 0, 'new_passed': 0, 'total': 0, 'details': []}
-        fingerprint = hashlib.sha256(b''.join(p.read_bytes() for p in snapshots)).hexdigest()
-        old_results = None
-        if previous and previous.get('code'):
-            meta_path = folder / 'versions' / f'v{previous["version"]}' / 'meta.json'
-            old_meta = read_json(meta_path, {})
-            cached = old_meta.get('regression_cache')
-            if cached and cached['fingerprint'] == fingerprint:
-                old_results = cached['results']
-            else:
-                old_results = [skillrun.regression(previous['code'], read_json(p)) for p in snapshots]
-                with self.lock:
-                    old_meta = read_json(meta_path, {})
-                    old_meta['regression_cache'] = {'fingerprint': fingerprint, 'results': old_results}
-                    write_json(meta_path, old_meta)
-        old_results = old_results or [{'passed': False, 'detail': 'no previous code'} for _ in snapshots]
-        new_results = [skillrun.regression(code, read_json(p)) for p in snapshots]
-        for p, old, new in zip(snapshots, old_results, new_results):
-            details.append({'failure': p.parent.name, 'old': old, 'new': new})
-        return {'old_passed': sum(r['passed'] for r in old_results), 'new_passed': sum(r['passed'] for r in new_results),
-                'total': len(snapshots), 'details': details}
+                write_json(folder / 'meta.json', candidate)
+                self._event(session, 'improved' if previous else 'created', candidate)
+            return {'skill': candidate, 'accepted': True}
 
     def use(self, session, name, _skill=None):
         skill = _skill if _skill is not None else self.read(session, name)
@@ -167,26 +135,11 @@ class Skills:
             self._event(session, 'used', skill)
         return skill
 
-    def run(self, session, name, args=None):
-        skill = self.read(session, name)
-        if not skill['code']:
-            raise RPCError('invalid_params', 'skill has no code')
-        if args is not None and not isinstance(args, dict):
-            raise RPCError('invalid_params', 'skill args must be an object')
-        def execute():
-            proxy = skillrun.RobotProxy(self.sessions.ctx, self.sessions.call_tool, self.sessions._look,
-                                       lambda text: self.sessions.note(session, text, 'note'))
-            returned = skillrun.run(skill['code'], proxy, args, stop=self.sessions.stop_flag)
-            self.sessions.ctx.check()
-            return returned
-        return self.sessions.execute(session, execute, {'skill': name, 'args': args or {}}, code=skill['code'],
-                                     skill=name, on_start=lambda: self.use(session, name, _skill=skill))
-
     def attempt_end(self, session, attempt):
         with self.lock:
             for name in attempt['skills_used']:
                 folder = self.folder(session['id'], name)
-                skill = read_json(folder / 'meta.json')
+                skill = _read(folder / 'meta.json')
                 if skill is None:
                     continue
                 # Use events pin accounting to the version actually used.
@@ -220,7 +173,7 @@ class Skills:
         if source == target:
             raise RPCError('invalid_params', 'source and target sessions must differ')
         copied = []
-        with self.lock:
+        with self.sessions.lock, self.lock:
             for skill in self.list(source):
                 name = skill['name']
                 dest = self.folder(target, name)
@@ -228,7 +181,8 @@ class Skills:
                     raise RPCError('conflict', f'target already has skill: {name}')
             for skill in self.list(source):
                 name = skill['name']
-                shutil.copytree(self.folder(source, name), self.folder(target, name))
+                shutil.copytree(self.folder(source, name), self.folder(target, name),
+                                ignore=shutil.ignore_patterns('skill.py'))
                 copied.append(name)
         for name in copied:
             self._event(target, 'copied', self.read(target, name))

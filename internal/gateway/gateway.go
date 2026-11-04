@@ -193,7 +193,7 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadRPCBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, maxRPCBodyBytes)
 	body, err := io.ReadAll(r.Body)
 	defer clear(body)
 	if err != nil {
@@ -202,7 +202,7 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	var raw json.RawMessage
 	defer func() { clear(raw) }()
-	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&raw); err != nil || !rpcBodySizeAllowed(raw, len(body)) {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&raw); err != nil {
 		writeResponse(w, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
 		return
 	}
@@ -231,25 +231,7 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 	writeResponse(w, resp)
 }
 
-const (
-	maxRPCBodyBytes            = 4 << 20
-	maxMediaUploadRPCBodyBytes = 48 << 20
-)
-
-// Only a single media upload receives the larger envelope allowance. Batches
-// retain the ordinary total body limit, regardless of their constituent methods.
-func rpcBodySizeAllowed(raw []byte, size int) bool {
-	if size <= maxRPCBodyBytes {
-		return true
-	}
-	if size > maxMediaUploadRPCBodyBytes {
-		return false
-	}
-	var envelope struct {
-		Method string `json:"method"`
-	}
-	return json.Unmarshal(raw, &envelope) == nil && envelope.Method == api.MethodRobotLabMediaUpload
-}
+const maxRPCBodyBytes = 4 << 20
 
 func writeResponse(w http.ResponseWriter, resp *api.Response) {
 	w.Header().Set("Content-Type", "application/json")
@@ -454,7 +436,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
-	conn.SetReadLimit(maxMediaUploadRPCBodyBytes)
+	conn.SetReadLimit(maxRPCBodyBytes)
 	ctx := r.Context()
 	peer := &wsPeer{conn: conn}
 	sub := s.newSub(nil)
@@ -463,11 +445,6 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		_, raw, err := conn.Read(ctx)
 		if err != nil {
 			return
-		}
-		if !rpcBodySizeAllowed(raw, len(raw)) {
-			clear(raw)
-			_ = peer.write(ctx, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
-			continue
 		}
 		var req api.Request
 		decodeErr := json.Unmarshal(raw, &req)

@@ -50,3 +50,28 @@ def test_defaults_copied_once_and_deletion_survives_restart(tmp_path, environmen
     assert Environments(data, defaults=defaults).get('test-room')['name'] == 'Edited'
     envs.delete('test-room')
     assert Environments(data, defaults=defaults).list() == []
+
+
+def test_new_builtins_install_alongside_existing_user_copies(tmp_path):
+    import json
+    root = tmp_path / 'environments'
+    root.mkdir()
+    (root / '.defaults-v1').touch()
+    old = {'id': 'previous-room', 'name': 'My edited room', 'kind': 'room'}
+    (root / 'previous-room.json').write_text(json.dumps(old))
+    envs = Environments(tmp_path)
+    assert {e['id'] for e in envs.list()} == {'previous-room', 'escalera-estrecha', 'estante-pequeno'}
+    assert json.loads((root / 'previous-room.json').read_text()) == old
+    envs.delete('escalera-estrecha')
+    assert {e['id'] for e in Environments(tmp_path).list()} == {'previous-room', 'estante-pequeno'}
+
+
+def test_legacy_source_loads_as_text_without_rewriting_copy(tmp_path, environment):
+    import json
+    envs = Environments(tmp_path)
+    path = envs.root / 'test-room.json'
+    legacy = dict(environment, source={'type': 'video', 'notes': 'Original description'})
+    path.write_text(json.dumps(legacy))
+    assert envs.get('test-room')['source'] == {'type': 'text', 'notes': 'Original description'}
+    assert next(e for e in envs.list() if e['id'] == 'test-room')['source_type'] == 'text'
+    assert json.loads(path.read_text()) == legacy

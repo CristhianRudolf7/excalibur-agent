@@ -68,10 +68,18 @@ class Sessions:
         with self.lock:
             return copy.deepcopy(self.live) if self.live and self.live['id'] == session else self.store.load(session)
 
-    def list(self):
+    def list(self, robot=None, environment=None, query=None):
+        for value in (robot, environment, query):
+            if value is not None and not isinstance(value, str):
+                raise RPCError('invalid_params', 'session filters must be text')
+        def matches(s):
+            return ((robot is None or s['robot'] == robot)
+                    and (environment is None or environment.casefold() in s['environment'].casefold())
+                    and (query is None or any(query.casefold() in s[k].casefold()
+                                              for k in ('name', 'task', 'environment'))))
         with self.lock:
             return [dict((k, s[k]) for k in ('id', 'name', 'robot', 'environment', 'task', 'status', 'created_at', 'ended_at'))
-                    | {'attempts': len(s['attempts']), 'live': s['status'] == 'live'} for s in self.store.sessions()]
+                    | {'attempts': len(s['attempts']), 'live': s['status'] == 'live'} for s in self.store.sessions() if matches(s)]
 
     def _current(self, session, running=False):
         if not self.live or self.live['id'] != session or self.live['status'] != 'live':
@@ -119,11 +127,48 @@ class Sessions:
                 self.skills.copy(copy_skills_from, sid, _reserved=True)
             self.note(sid, 'Session started', 'system')
             self._save(self.live)
-            return {'session': copy.deepcopy(self.live), 'card': plugin.card(),
-                    'skills': self.skills.list(sid) if self.skills else [],
-                    'next': 'Read the robot card and session skills; call skill_use(name) for relevant skills '
-                            'before acting. Plan, then act and look. On failure, reflect, write or improve '
-                            'a skill with skill_write(..., failures=[N]), then attempt_reset.'}
+            return self._started(plugin)
+
+    def _started(self, plugin):
+        return {'session': copy.deepcopy(self.live), 'card': plugin.card(),
+                'skills': self.skills.list(self.live['id']) if self.skills else [],
+                'next': 'Read the robot card (joints, limits, reference pose, notes) and session skills; '
+                        'call skill_use(name) for relevant skills before acting. Plan small keyframes, '
+                        'check with ik, then sequence (prefer 4–12 keyframes per call). Read state '
+                        '(support, margin, terrain) after each call. On failure, reflect and write or '
+                        'improve a markdown skill with the lesson and exact keyframes that worked '
+                        '(failures=[N]), then attempt_reset. Only claim success when goal.met is true.'}
+
+    def _resume_available(self, session):
+        if self.live and self.live['status'] == 'live':
+            raise RPCError('conflict', f'Live session {self.live["id"]} ({self.live["name"]}) already exists; '
+                           'call session_stop on it by agent, then retry session_resume.')
+        saved = self.store.load(session)
+        if saved['status'] == 'live':
+            raise RPCError('conflict', f'Session {session} is already live; inspect session_status first.')
+        return saved
+
+    def resume(self, session, reason=None, conversation=None):
+        if reason is not None and not isinstance(reason, str):
+            raise RPCError('invalid_params', 'reason must be text')
+        # Report the live owner even while its motion holds the action lock.
+        with self.lock:
+            self._resume_available(session)
+        with self.action(), self.lock:
+            saved = self._resume_available(session)
+            env = read_json(self.store.session_dir(session) / 'environment.json')
+            if env is None:
+                raise RPCError('not_found', 'saved session environment not found')
+            plugin = robots.make(saved['robot'])
+            world = build(env, plugin)
+            saved.update(status='live', ended_at=None, outcome=None, conversation=conversation,
+                         max_attempts=len(saved['attempts']) + self.settings.get()['max_attempts'])
+            self.live, self.world = saved, world
+            self._new_attempt()
+            # Keep the original scene and all previous recordings intact.
+            self.note(session, 'Session resumed' + (f': {reason}' if reason else ''), 'system')
+            self._save(self.live)
+            return self._started(plugin)
 
     def _new_attempt(self):
         import mujoco
@@ -143,7 +188,7 @@ class Sessions:
                                speed=lambda: self.settings.get()['sim_speed'], record=self._record, event=self.event,
                                log=lambda text: self.note(self.live['id'], text, 'note'),
                                session=self.live['id'], attempt=n)
-        self._last_call, self._last_code = {'tool': None, 'args': {}}, None
+        self._last_call = {'tool': None, 'args': {}}
         self._cache_observation()
 
     def _cache_observation(self):
@@ -242,7 +287,7 @@ class Sessions:
                 abandoned = self.live['attempts'][-1]['status'] == 'running'
                 self._end_attempt('abandoned', reflection)
             if abandoned:
-                self._failure(self._last_call, self._last_code)
+                self._failure(self._last_call)
             with self.lock:
                 # A user stop can arrive while the failure cameras render.
                 self._current(session)
@@ -256,12 +301,12 @@ class Sessions:
                     self._save(self.live)
                     raise RPCError('conflict', 'attempt limit reached; session exhausted')
                 attempt = self.live['attempts'][-1]
-                learned = any(e['kind'] in ('created', 'improved', 'rejected') and (
+                learned = any(e['kind'] in ('created', 'improved') and (
                     e['attempt'] == attempt['n'] or (attempt['ended_at'] and e['t'] >= attempt['ended_at']))
                     for e in self.live['skill_events'])
                 if attempt['status'] in ('failed', 'abandoned') and not learned and no_skill_reason is None:
                     raise RPCError('conflict', 'Before the next attempt, write or improve a skill from this failure: '
-                                   'skill_write(name, description, instructions, code?, failures=[N]). '
+                                   'skill_write(name, description, instructions, failures=[N]). '
                                    'Pass no_skill_reason only if nothing new was learned.')
                 self._new_attempt()
                 self._save(self.live)
@@ -314,36 +359,22 @@ class Sessions:
     def act(self, session, tool, args):
         return self.execute(session, lambda: self.call_tool(tool, args), {'tool': tool, 'args': args})
 
-    def execute(self, session, fn, last_call, code=None, skill=None, on_start=None):
+    def execute(self, session, fn, last_call):
         from ..robots.base import ActionInterrupted
         with self.action():
             with self.lock:
                 self._current(session, running=True)
                 previous_status = self.live['attempts'][-1]['status']
-                self.ctx.begin_action()
-                if on_start:
-                    on_start()
-                self._last_call, self._last_code = copy.deepcopy(last_call), code
+                args = last_call.get('args')
+                self.ctx.begin_action(settle=args.get('settle', .2) if isinstance(args, dict) else .2)
+                self._last_call = copy.deepcopy(last_call)
             result, interrupted = {}, None
             try:
                 result = fn()
             except ActionInterrupted as exc:
                 interrupted = exc
-            except RPCError as exc:
-                if skill:
-                    interrupted = ActionInterrupted('safety', f'skill error: {exc}')
-                else:
-                    raise
             except (TypeError, ValueError) as exc:
-                if skill:
-                    interrupted = ActionInterrupted('safety', f'skill error: {exc}')
-                else:
-                    raise RPCError('invalid_params', str(exc)) from exc
-            except Exception as exc:
-                if skill:
-                    interrupted = ActionInterrupted('safety', f'skill error: {exc}')
-                else:
-                    raise
+                raise RPCError('invalid_params', str(exc)) from exc
             with self.lock:
                 if interrupted:
                     reason = interrupted.detail or interrupted.reason
@@ -355,11 +386,11 @@ class Sessions:
                         self._end_attempt('stopped', reason)
                         if self.live['status'] == 'live':
                             self._end_session('stopped', reason)
-                    elif interrupted.reason == 'timeout' and not skill:
+                    elif interrupted.reason == 'timeout':
                         # A long action only ends itself; the attempt continues from here.
                         if not isinstance(result, dict) or not result:
                             result = {'ok': False, 'error': f'action stopped at the {reason}; the attempt continues. '
-                                      'Use shorter motions or intermediate waypoints; call stand first if the robot was mid-step.'}
+                                      'Use shorter keyframe sequences and inspect the state before continuing.'}
                     else:
                         contact_detail = self.ctx.contacts.describe_recent()
                         if contact_detail:
@@ -368,8 +399,8 @@ class Sessions:
                             reason += contact_detail
                         result = dict(result, error=reason, contacts=self.ctx.contacts.recent())
                         self._end_attempt('failed', reason)
-            if interrupted and interrupted.reason not in ('goal', 'stopped') and not (interrupted.reason == 'timeout' and not skill):
-                self._failure(last_call, code)
+            if interrupted and interrupted.reason not in ('goal', 'stopped') and not (interrupted.reason == 'timeout'):
+                self._failure(last_call)
             with self.lock:
                 attempt = self.live['attempts'][-1]
                 attempt['sim_time'] = float(self.world.data.time)
@@ -382,17 +413,15 @@ class Sessions:
                             'attempt': {k: attempt[k] for k in ('n', 'status', 'reason')}, 'goal': self.ctx.goal_result()}
                 if attempt['status'] == 'failed':
                     response['next'] = (f'Attempt {attempt["n"]} failed ({attempt["reason"]}). Reflect, write or improve '
-                                        f'a skill with skill_write(..., failures=[{attempt["n"]}]), then attempt_reset.')
-                if skill:
-                    response.update(skill=skill, returned=result)
-                self.note(session, action_summary(skill or last_call.get('tool', 'action'), response,
+                                        f'a markdown skill with the lesson and exact keyframes that worked using skill_write(..., failures=[{attempt["n"]}]), then attempt_reset.')
+                self.note(session, action_summary(last_call.get('tool', 'action'), response,
                                                   previous_status, held=self.ctx.held()),
-                          'skill' if skill else 'act', args=last_call.get('args', {}), ok=bool(ok),
+                          'act', args=last_call.get('args', {}), ok=bool(ok), state=copy.deepcopy(self._cached_state),
                           **({'tool': last_call['tool']} if 'tool' in last_call else {}))
                 self._save(self.live)
                 return response
 
-    def _failure(self, last_call, code):
+    def _failure(self, last_call):
         from . import perception
         from . import snapshots
         folder = self.store.session_dir(self.live['id']) / 'attempts' / str(self.live['attempt']) / 'failure'
@@ -404,7 +433,7 @@ class Sessions:
         write_json(folder / 'state.json', state)
         equivalent = (f'robot.{last_call["tool"]}(**{last_call.get("args", {})!r})\n' if last_call.get('tool')
                       else '# No tool or skill was called in this attempt.\n')
-        (folder / 'code.py').write_text(code or equivalent)
+        (folder / 'code.py').write_text(equivalent)
         try:
             for name, pose in (('image.png', state), ('image_fall.png', final)):
                 snapshots.restore(self.ctx, pose)

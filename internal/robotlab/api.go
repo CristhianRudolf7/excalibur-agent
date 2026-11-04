@@ -70,11 +70,7 @@ func decodeParams(method string, raw json.RawMessage) (map[string]any, error) {
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
-	limit := 8 << 20
-	if method == "robotlab.media.upload" {
-		limit = 45 << 20
-	}
-	if len(raw) > limit {
+	if len(raw) > 8<<20 {
 		return nil, invalid("parameters exceed size limit")
 	}
 	var value any
@@ -91,7 +87,7 @@ func decodeParams(method string, raw json.RawMessage) (map[string]any, error) {
 	for key, v := range params {
 		if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
 			switch key {
-			case "spec", "code", "reason":
+			case "reason":
 			default:
 				return nil, invalid(key + " must not be blank")
 			}

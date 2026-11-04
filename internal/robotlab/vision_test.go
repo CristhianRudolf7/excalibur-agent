@@ -13,8 +13,8 @@ func TestCompatibilityVisionHookHasNoSideEffects(t *testing.T) {
 	if tool.Vision == nil || hook == nil {
 		t.Fatal("missing compatibility hook")
 	}
-	if _, err := hook(context.Background(), "s", "look"); err == nil {
-		t.Fatal("retired operation succeeded")
+	if result, err := hook(context.Background(), "s", "look"); err != nil || result != nil {
+		t.Fatalf("compatibility hook returned %v, %v", result, err)
 	}
 	if len(sidecar.calls) != 0 || len(publisher.names) != 0 {
 		t.Fatal("retired vision operation had side effects")

@@ -14,7 +14,7 @@ from tests.test_world_builder import TinyRobot
 DEFAULTS = Path(__file__).parents[1] / 'robotlab/world/defaults'
 
 
-@pytest.mark.parametrize('name', ['mi-cuarto', 'mesa-figuras', 'pasillo'])
+@pytest.mark.parametrize('name', ['escalera-estrecha', 'estante-pequeno'])
 @pytest.mark.parametrize('with_robot', [False, True])
 def test_default_build_scene_poses_and_thumbnail(name, with_robot, tmp_path, monkeypatch):
     monkeypatch.setattr(assets, '_data_dir', tmp_path)
@@ -38,18 +38,18 @@ def test_default_build_scene_poses_and_thumbnail(name, with_robot, tmp_path, mon
 
 def test_defaults_have_required_layout_and_objects():
     envs = {p.stem: normalize(json.loads(p.read_text())) for p in DEFAULTS.glob('*.json')}
-    room = envs['mi-cuarto']
-    ball = next(o for o in room['objects'] if o['id'] == 'pelota')
-    spawn = room['spawn']
-    assert np.linalg.norm(np.array(ball['pos'][:2]) - [spawn['x'], spawn['y']]) >= 2
-    assert room['size'] == [5, 4]
-    assert len(room['objects']) == 6
-    table = envs['mesa-figuras']
-    for oid in ('cubo-rojo', 'cubo-azul', 'cubo-verde'):
-        cube = next(o for o in table['objects'] if o['id'] == oid)
-        assert cube['size'] == [.05] * 3
-        assert cube['pos'][2] == .775
-    box = next(o for o in table['objects'] if o['id'] == 'caja')
-    assert box['compound'] and not box['dynamic']
-    assert envs['pasillo']['size'] == [8, 2]
-    assert len({e['floor_color'] for e in envs.values()}) == 3
+    assert set(envs) == {'escalera-estrecha', 'estante-pequeno'}
+    room = envs['escalera-estrecha']
+    assert room['kind'] == 'room'
+    assert room['spawn'] == {'x': -.5, 'y': 0, 'yaw': 0}
+    assert [o['id'] for o in room['objects']] == ['escalon-1', 'escalon-2', 'descanso']
+    assert [o['size'][2] for o in room['objects']] == [.12, .24, .36]
+    assert all(not o['dynamic'] and o['size'][1] == .45 for o in room['objects'])
+    table = envs['estante-pequeno']
+    assert table['kind'] == 'table'
+    box, shelf = table['objects']
+    assert box['id'] == 'caja' and box['size'] == [.07]*3 and box['dynamic']
+    assert shelf['id'] == 'estante' and shelf['size'] == [.05, .05, .4] and not shelf['dynamic']
+    assert box['pos'][2] == .785
+    assert shelf['pos'][2] == .95
+    assert all(e['source']['type'] == 'text' for e in envs.values())

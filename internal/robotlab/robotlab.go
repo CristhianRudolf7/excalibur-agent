@@ -48,13 +48,13 @@ type Requirements struct {
 	OSMesa bool   `json:"osmesa"`
 }
 
-// Publisher emits client events (robotlab.frame, robotlab.vision, robotlab.focus, ...).
+// Publisher emits client events (robotlab.frame, robotlab.session, robotlab.focus, ...).
 type Publisher interface {
 	Publish(event string, payload any)
 }
 
-// VisionAsker sends one image plus a prompt to the configured vision model and
-// returns its text answer. The daemon binds it to the vision models gateway.
+// VisionAsker preserves the composition interface. Robot Lab never calls it;
+// observations are returned directly by the tool.
 type VisionAsker interface {
 	AskImage(ctx context.Context, prompt string, pngBase64 string) (answer string, model string, err error)
 }

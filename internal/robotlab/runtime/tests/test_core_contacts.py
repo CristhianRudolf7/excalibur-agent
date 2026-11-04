@@ -214,33 +214,3 @@ def test_table_top_contacts_are_included():
     assert contacts[0]['max_normal_force'] > 0
 
 
-def test_real_humanoid_wall_brush_explains_fall(tmp_path):
-    # No obstacles: a narrow room puts the left hand near the side wall.
-    # The production walking controller and collision solver produce the fall.
-    envs = Environments(tmp_path)
-    envs.save({
-        'version': 1, 'id': 'narrow-room', 'name': 'Narrow room', 'kind': 'room',
-        'size': [3, 1], 'wall_height': 1.5, 'objects': [],
-        'spawn': {'x': 0, 'y': .25, 'yaw': 0},
-    })
-    sessions = Sessions(tmp_path, Settings(tmp_path), envs)
-    sid = sessions.start('humanoid', 'narrow-room', 'Walk along the room',
-                         {'type': 'robot_near', 'target': {'point': [1.4, 0]}, 'radius': .05})['session']['id']
-    result = sessions.act(sid, 'walk', {'distance': 1, 'step_length': .12, 'step_time': .6})
-    assert not result['ok'] and result['attempt']['status'] == 'failed'
-    assert 'tilt' in result['attempt']['reason']
-    assert 'touched wall/2 with robot/left_' in result['attempt']['reason']
-    contacts = result['result']['contacts']
-    wrist = next(c for c in contacts if c['robot_body'] == 'robot/left_wrist_yaw_link')
-    assert wrist['env_geom'] == 'wall/2'
-    assert wrist['max_normal_force'] > 0
-    assert 0 <= sessions.world.data.time - wrist['last_time'] <= 1.5
-    assert all(c['env_geom'] == 'wall/2' for c in contacts)
-    assert all(c['first_time'] >= sessions.world.data.time - 1.5 - 1e-9 for c in contacts)
-    folder = sessions.store.session_dir(sid) / 'attempts/1/failure'
-    state = json.loads((folder / 'state.json').read_text())
-    assert state['contacts'] == contacts
-    assert state['env']['objects'] == []
-    assert state['last_call']['tool'] == 'walk'
-    assert (folder / 'image.png').read_bytes().startswith(b'\x89PNG')
-    assert sessions.ctx.contacts.recent() == contacts

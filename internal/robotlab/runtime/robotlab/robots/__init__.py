@@ -7,8 +7,6 @@ from ..protocol import RPCError
 ROBOTS = {
     'arm': 'robotlab.robots.arm:ArmRobot',
     'dog': 'robotlab.robots.dog:DogRobot',
-    'drone': 'robotlab.robots.drone:DroneRobot',
-    'humanoid': 'robotlab.robots.humanoid:HumanoidRobot',
 }
 
 

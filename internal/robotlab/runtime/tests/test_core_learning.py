@@ -14,7 +14,7 @@ from tests.test_core_sessions import manager, start
 
 
 MESSAGE = ('Before the next attempt, write or improve a skill from this failure: '
-           'skill_write(name, description, instructions, code?, failures=[N]). '
+           'skill_write(name, description, instructions, failures=[N]). '
            'Pass no_skill_reason only if nothing new was learned.')
 
 
@@ -45,7 +45,7 @@ def test_failed_reset_requires_learning_and_override_is_per_attempt(tmp_path, en
     sid = started['session']['id']
     assert 'skill_use' in started['next'] and 'before acting' in started['next']
     failed = rt.dispatch('robot.act', {'session': sid, 'tool': 'push', 'args': {'dx': 0, 'fail': True}})
-    assert failed['next'] == ('Attempt 1 failed (fell). Reflect, write or improve a skill with '
+    assert failed['next'] == ('Attempt 1 failed (fell). Reflect, write or improve a markdown skill with the lesson and exact keyframes that worked using '
                               'skill_write(..., failures=[1]), then attempt_reset.')
     s = rt.sessions
     assert_gate(s, sid)
@@ -89,8 +89,8 @@ def test_abandoned_attempt_keeps_prefailure_evidence_for_skill(tmp_path, environ
     assert 'robot.push' in (folder / 'code.py').read_text()
     np.testing.assert_array_equal(s.world.data.qpos, final)
     result = skills.write(sid, 'short-move', 'Move briefly', 'Use a shorter move.',
-                          code='def run(robot, **args):\n    robot.push(dx=.01)\n', failures=[1])
-    assert result['accepted'] and result['regression']['new_passed'] == 1
+                          failures=[1])
+    assert result['accepted'] and result['skill']['failures'] == 1
     copied = skills.folder(sid, 'short-move') / 'fallos' / f'{sid}-1'
     assert json.loads((copied / 'state.json').read_text()) == snapshot
     assert s.reset(sid, 'Use shorter moves')['attempt'] == 2
@@ -111,32 +111,9 @@ def test_abandon_before_first_action_and_limit_exhaustion(tmp_path, environment,
     evidence(s, sid, 2)
 
 
-@pytest.mark.parametrize('as_skill', [True])
-def test_sim_timeout_evidence_can_be_attached_to_skill(tmp_path, environment, fake_modules, as_skill):
-    s = manager(tmp_path, environment)
-    skills = Skills(s, tmp_path / 'skills')
-    sid = start(s)
-    code = 'def run(robot, **args):\n    robot.push(dx=0, duration=61)\n'
-    if as_skill:
-        skills.write(sid, 'too-long', 'Long move', 'Demonstrate a timeout.', code=code)
-        result = skills.run(sid, 'too-long')
-    else:
-        result = s.act(sid, 'push', {'dx': 0, 'duration': 61})
-    assert result['attempt'] == {'n': 1, 'status': 'failed', 'reason': '60 s simulation limit'}
-    assert 'failures=[1]' in result['next']
-    folder, snapshot = evidence(s, sid)
-    assert snapshot['final']['time'] == pytest.approx(60)
-    if as_skill:
-        assert snapshot['last_call'] == {'skill': 'too-long', 'args': {}}
-        assert (folder / 'code.py').read_text() == code
-    else:
-        assert_gate(s, sid)
-    learned = skills.write(sid, 'shorter', 'Short move', 'Use bounded moves.', failures=[1])
-    assert learned['skill']['failures'] == 1
-    assert s.reset(sid, 'Use bounded moves')['attempt'] == 2
 
 
-@pytest.mark.parametrize('kind,allowed', [('created', True), ('improved', True), ('rejected', True),
+@pytest.mark.parametrize('kind,allowed', [('created', True), ('improved', True), ('rejected', False),
                                           ('used', False), ('copied', False)])
 @pytest.mark.parametrize('after_end', [False, True])
 def test_only_learning_events_satisfy_gate(tmp_path, environment, fake_modules, kind, allowed, after_end):
@@ -168,21 +145,6 @@ def test_older_learning_event_does_not_unlock_new_attempt(tmp_path, environment,
     assert s.reset(sid, 'Use the improvement')['attempt'] == 3
 
 
-def test_rejected_regression_satisfies_learning_gate(tmp_path, environment, fake_modules):
-    s = manager(tmp_path, environment)
-    skills = Skills(s, tmp_path / 'skills')
-    sid = start(s)
-    s.act(sid, 'push', {'dx': 0, 'fail': True})
-    good = 'def run(robot, **args):\n    robot.push(dx=.01)\n'
-    skills.write(sid, 'move', 'Move safely', 'Move briefly.', code=good, failures=[1])
-    s.reset(sid, 'Try the safe move')
-    s.act(sid, 'push', {'dx': 0, 'fail': True})
-    assert_gate(s, sid)
-    rejected = skills.write(sid, 'move', 'Unsafe move', 'Test a candidate.',
-                            code='def run(robot, **args):\n    robot.push(dx=0, fail=True)\n', failures=[2])
-    assert not rejected['accepted']
-    assert s.live['skill_events'][-1]['kind'] == 'rejected'
-    assert s.reset(sid, 'Keep the prior version after the failed experiment')['attempt'] == 3
 
 
 def test_stop_during_abandonment_evidence_prevents_new_attempt(tmp_path, environment, fake_modules, monkeypatch):
@@ -214,9 +176,12 @@ def test_stop_during_abandonment_evidence_prevents_new_attempt(tmp_path, environ
 def test_direct_action_timeout_keeps_attempt_running(tmp_path, environment, fake_modules):
     s = manager(tmp_path, environment)
     sid = start(s)
-    result = s.act(sid, 'push', {'dx': 0, 'duration': 61})
+    result = s.act(sid, 'push', {'dx': 0, 'duration': 33})
     assert result['ok'] is False
     assert result['attempt'] == {'n': 1, 'status': 'running', 'reason': ''}
     assert 'next' not in result
+    recorded = s.frames(sid, 1)
+    last = s.frames(sid, 1, start=recorded['total'] - 1, count=1)['frames'][0]
+    assert last['status'] == 'running'
     follow = s.act(sid, 'push', {'dx': 0, 'duration': 1})
     assert follow['attempt']['status'] == 'running'

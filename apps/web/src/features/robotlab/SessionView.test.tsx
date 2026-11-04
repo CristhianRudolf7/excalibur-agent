@@ -3,11 +3,26 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import i18n from '@/lib/i18n'
 import { SessionView } from './SessionView'
-import { Activity, Skills } from './SessionAgent'
+import { LabConnection } from './LabConnection'
+import { Activity, Skills, SessionAgent } from './SessionAgent'
 import type { Session } from './types'
 import { useLab } from './state'
-const mocks = vi.hoisted(() => ({ call: vi.fn(), live: vi.fn(), replay: vi.fn(), image: vi.fn() }))
-vi.mock('./api', () => ({ labCall: mocks.call, sessionImage: mocks.image, useRobotEvent: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  call: vi.fn(),
+  live: vi.fn(),
+  replay: vi.fn(),
+  image: vi.fn(),
+  navigate: vi.fn(),
+  events: new Map<string, (payload: unknown) => void>(),
+}))
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => mocks.navigate }))
+vi.mock('./api', () => ({
+  labCall: mocks.call,
+  sessionImage: mocks.image,
+  useRobotEvent: (name: string, callback: (payload: unknown) => void) => {
+    mocks.events.set(name, callback)
+  },
+}))
 vi.mock('@/features/chat/Chat', () => ({
   Chat: ({ agentId }: { agentId: string }) => <div>Chat: {agentId}</div>,
 }))
@@ -31,7 +46,7 @@ const session: Session = {
   status: 'live',
   created_at: '2026-01-01',
   ended_at: null,
-  max_attempts: 20,
+  max_attempts: 40,
   attempt: 2,
   attempts: [
     {
@@ -71,6 +86,7 @@ function mount(node: React.ReactNode) {
 beforeEach(async () => {
   cleanup()
   vi.clearAllMocks()
+  mocks.events.clear()
   mocks.image.mockResolvedValue({ png: 'observation-png' })
   await i18n.changeLanguage('en')
   useLab.setState({ agentOpen: false, agentRequest: 0, focusedSession: undefined })
@@ -125,11 +141,13 @@ it('renders observer, inset camera, goal and shared chat for a live session', as
   expect(await screen.findByRole('img', { name: 'Observer' })).toBeVisible()
   expect(screen.getByRole('img', { name: 'Robot camera' })).toBeVisible()
   expect(screen.getByText('Goal: Hold ball')).toBeVisible()
-  expect(await screen.findByRole('heading', { name: 'Dog with arm · Test room' })).toBeVisible()
+  expect(await screen.findByRole('heading', { name: 'Dog · Test room' })).toBeVisible()
   expect(screen.getByText('Chat: excalibur')).toBeVisible()
-  expect(mocks.live).toHaveBeenCalledWith('session-1')
+  expect(mocks.live).toHaveBeenCalledWith('session-1', 2)
   fireEvent.click(screen.getByRole('button', { name: 'Swap views' }))
-  expect(screen.getByRole('img', { name: 'Robot camera' })).toHaveClass('lab-observer')
+  expect(
+    screen.getByRole('img', { name: 'Robot camera' }).closest('.lab-robot-camera'),
+  ).toHaveClass('lab-observer')
   fireEvent.click(screen.getByRole('button', { name: 'Stop session' }))
   await waitFor(() =>
     expect(mocks.call).toHaveBeenCalledWith('robotlab.session.stop', {
@@ -148,7 +166,7 @@ it('falls back to the environment id when its details are unavailable', async ()
     return original(method, ...args)
   })
   mount(<SessionView id="session-1" mobile onBack={vi.fn()} />)
-  expect(await screen.findByRole('heading', { name: 'Dog with arm · room' })).toBeVisible()
+  expect(await screen.findByRole('heading', { name: 'Dog · room' })).toBeVisible()
   await waitFor(() => expect(mocks.call).toHaveBeenCalledWith('robotlab.env.get', { id: 'room' }))
 })
 it('selects an old attempt and uses replay rather than live frames', async () => {
@@ -157,7 +175,7 @@ it('selects an old attempt and uses replay rather than live frames', async () =>
   await screen.findByLabelText('Attempt')
   fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
   expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
-  expect(mocks.live).toHaveBeenLastCalledWith(undefined)
+  expect(mocks.live).toHaveBeenLastCalledWith(undefined, undefined)
   expect(screen.getByText('Replay: 0')).toBeInTheDocument()
 })
 it('uses observer/camera/agent navigation on mobile', async () => {
@@ -205,23 +223,44 @@ it('syncs recorded log entries to replay time and includes look thumbnails/refle
   mount(<Activity session={{ ...session, status: 'stopped' }} attempt={1} time={5} />)
   expect(await screen.findByText('Approach more slowly')).toBeVisible()
 })
-it('shows versioned skill success, use count and code availability', async () => {
-  mocks.call.mockResolvedValue({
-    skills: [
-      {
-        name: 'fetch',
-        description: 'Fetch ball',
-        version: 3,
-        success_rate: 0.75,
-        uses: 4,
-        has_code: true,
-      },
-    ],
-  })
+it('shows markdown skill instructions, versions and failure accounting', async () => {
+  mocks.call.mockImplementation(async (method: string) =>
+    method === 'robotlab.skills.read'
+      ? {
+          skill: {
+            instructions:
+              '# Lessons\n\nKeep three feet planted.\n\n```json\n{"keyframes": []}\n```',
+            versions: [
+              { version: 1, created_at: '2026-01-01' },
+              { version: 3, created_at: '2026-01-03' },
+            ],
+          },
+        }
+      : {
+          skills: [
+            {
+              name: 'fetch',
+              description: 'Fetch ball',
+              version: 3,
+              success_rate: 0.75,
+              uses: 4,
+              failures: 2,
+            },
+          ],
+        },
+  )
   mount(<Skills session={session.id} />)
   expect(await screen.findByText('fetch')).toBeVisible()
   expect(screen.getByText(/Version: 3.*Success: 75%.*Uses: 4/)).toBeVisible()
-  expect(screen.getByText('Has code')).toBeVisible()
+  expect(screen.getByText(/Failures: 2/)).toBeVisible()
+  fireEvent.click(screen.getByText('fetch'))
+  expect(await screen.findByRole('heading', { name: 'Lessons' })).toBeVisible()
+  expect(screen.getByRole('list', { name: 'Versions' })).toHaveTextContent('Version 1')
+  expect(screen.getByRole('list', { name: 'Versions' })).toHaveTextContent('Version 3')
+  expect(mocks.call).toHaveBeenCalledWith('robotlab.skills.read', {
+    session: session.id,
+    name: 'fetch',
+  })
 })
 
 it('opens the mobile agent tab when a session focus arrives', async () => {
@@ -230,4 +269,132 @@ it('opens the mobile agent tab when a session focus arrives', async () => {
   act(() => useLab.getState().focusSession('session-1'))
   expect(screen.getByText('Chat: excalibur')).toBeVisible()
   expect(screen.getByRole('tab', { name: 'Agent' })).toHaveAttribute('aria-selected', 'true')
+})
+
+it('shows logged dog state beside chat and activity without changing the selected view', async () => {
+  const original = mocks.call.getMockImplementation()!
+  mocks.call.mockImplementation((method: string, ...args: unknown[]) => {
+    if (method === 'robotlab.session.log')
+      return Promise.resolve({
+        entries: [
+          {
+            id: 'state',
+            t: '2026-01-01',
+            session: session.id,
+            attempt: 2,
+            kind: 'act',
+            tool: 'sequence',
+            summary: 'Moved trunk',
+            sim_time: 1,
+            result: {
+              state: {
+                support: ['FL', 'FR', 'RL'],
+                margin: 0.025,
+                z: 0.27,
+                pitch_deg: 1,
+                roll_deg: 0,
+              },
+            },
+          },
+        ],
+        next: 1,
+      })
+    return original(method, ...args)
+  })
+  mount(<SessionView id="session-1" mobile onBack={vi.fn()} />)
+  await screen.findByRole('img', { name: 'Observer' })
+  fireEvent.click(screen.getByRole('tab', { name: 'Agent' }))
+  expect(await screen.findByText('FL · FR · RL')).toBeVisible()
+  expect(screen.getByText('Chat: excalibur')).toBeVisible()
+  fireEvent.click(screen.getByRole('tab', { name: 'Activity' }))
+  expect(screen.getByText('FL · FR · RL')).toBeVisible()
+  expect(await screen.findByText('Moved trunk')).toBeVisible()
+})
+
+it('uses read-only state results for live sessions whose older logs have no state', async () => {
+  const original = mocks.call.getMockImplementation()!
+  mocks.call.mockImplementation((method: string, ...args: unknown[]) => {
+    if (method === 'robotlab.robot.state')
+      return Promise.resolve({
+        state: { gripper: { pos: [0.1, 0.2, 0.9], opening: 0.5 } },
+        held: 'cube',
+      })
+    return original(method, ...args)
+  })
+  mount(<SessionAgent session={{ ...session, robot: 'arm' }} attempt={2} />)
+  expect(await screen.findByText('cube')).toBeVisible()
+  expect(screen.getByText('0.100 / 0.200 / 0.900 m')).toBeVisible()
+  expect(mocks.call).toHaveBeenCalledWith(
+    'robotlab.robot.state',
+    { session: session.id },
+    expect.anything(),
+  )
+  expect(mocks.call.mock.calls.some(([method]) => method === 'robotlab.robot.act')).toBe(false)
+})
+it('keeps historical state empty when no state was recorded rather than reading the live world', async () => {
+  mount(<SessionAgent session={{ ...session, status: 'stopped' }} attempt={1} time={0} />)
+  expect(screen.getByText('No robot state recorded yet.')).toBeVisible()
+  await waitFor(() =>
+    expect(mocks.call).toHaveBeenCalledWith(
+      'robotlab.session.log',
+      { session: session.id, attempt: 1 },
+      expect.anything(),
+    ),
+  )
+  expect(mocks.call.mock.calls.some(([method]) => method === 'robotlab.robot.state')).toBe(false)
+})
+
+it('focus switches a resumed session from an old replay to the new live attempt', async () => {
+  const stopped = { ...session, status: 'stopped' as const }
+  const original = mocks.call.getMockImplementation()!
+  mocks.call.mockImplementation((method: string, ...args: unknown[]) =>
+    method === 'robotlab.session.get'
+      ? Promise.resolve({ session: stopped })
+      : original(method, ...args),
+  )
+  mount(
+    <>
+      <LabConnection />
+      <SessionView id="session-1" mobile onBack={vi.fn()} />
+    </>,
+  )
+  await screen.findByLabelText('Attempt')
+  fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
+  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
+  const resumed: Session = {
+    ...session,
+    attempt: 3,
+    max_attempts: 42,
+    attempts: [...session.attempts, { ...session.attempts[1]!, n: 3, frames: 0, sim_time: 0 }],
+  }
+  mocks.call.mockImplementation((method: string, ...args: unknown[]) =>
+    method === 'robotlab.session.get'
+      ? Promise.resolve({ session: resumed })
+      : original(method, ...args),
+  )
+  act(() => {
+    mocks.events.get('robotlab.session')?.({ session: resumed })
+    mocks.events.get('robotlab.focus')?.({ session: session.id, robot: 'dog', environment: 'room' })
+  })
+  await waitFor(() => expect(screen.getByLabelText('Attempt')).toHaveValue('3'))
+  expect(screen.getByLabelText('Attempt')).toBeDisabled()
+  expect(screen.getAllByRole('option').map((option) => option.getAttribute('value'))).toEqual([
+    '1',
+    '2',
+    '3',
+  ])
+  expect(screen.queryByText('Replay: 0')).not.toBeInTheDocument()
+  expect(mocks.replay).toHaveBeenLastCalledWith(undefined, undefined)
+  expect(mocks.live).toHaveBeenLastCalledWith('session-1', 3)
+  expect(screen.getByText('Chat: excalibur')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Stop session' })).toBeVisible()
+  expect(mocks.navigate).toHaveBeenCalledWith({
+    to: '/lab',
+    search: { tab: 'trainings', session: session.id },
+  })
+  act(() => mocks.events.get('robotlab.session')?.({ session: { ...resumed, status: 'stopped' } }))
+  await waitFor(() => expect(screen.getByLabelText('Attempt')).toBeEnabled())
+  expect(screen.getByLabelText('Attempt')).toHaveValue('3')
+  fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
+  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
 })

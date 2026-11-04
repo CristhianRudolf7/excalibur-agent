@@ -27,8 +27,7 @@ beforeEach(async () => {
   }
   mocks.send.mockResolvedValue(true)
   mocks.call.mockImplementation(async (method: string) => {
-    if (method === 'robotlab.robots.list')
-      return { robots: ['arm', 'dog', 'drone', 'humanoid'].map((id) => ({ id })) }
+    if (method === 'robotlab.robots.list') return { robots: ['arm', 'dog'].map((id) => ({ id })) }
     if (method === 'robotlab.env.list')
       return {
         environments: [
@@ -71,7 +70,7 @@ it.each(['en', 'es'])(
     const sent = vi.fn()
     mount(<NewSessionDialog onClose={vi.fn()} onCreateEnvironment={vi.fn()} onSent={sent} />)
     await screen.findByRole('option', {
-      name: language === 'es' ? 'Perro con brazo' : 'Dog with arm',
+      name: language === 'es' ? 'Perro' : 'Dog',
     })
     fireEvent.change(screen.getByLabelText('Robot'), { target: { value: 'dog' } })
     expect(screen.queryByRole('option', { name: 'Table' })).not.toBeInTheDocument()
@@ -90,8 +89,8 @@ it.each(['en', 'es'])(
       expect(mocks.send).toHaveBeenCalledWith(
         'excalibur',
         language === 'es'
-          ? 'Realiza una simulación con el Perro con brazo en el escenario Room: Fetch the ball'
-          : 'Run a simulation with the Dog with arm in the environment Room: Fetch the ball',
+          ? 'Realiza una simulación con el Perro en el escenario Room: Fetch the ball'
+          : 'Run a simulation with the Dog in the environment Room: Fetch the ball',
       ),
     )
     expect(sent).toHaveBeenCalled()
@@ -139,4 +138,12 @@ it('keeps a failed chat send visible for retry', async () => {
   fireEvent.change(screen.getByLabelText('Task'), { target: { value: 'Move cube' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send to agent' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('Message could not be sent')
+})
+
+it.each(['en', 'es'])('offers exactly the two supported robots (%s)', async (language) => {
+  await i18n.changeLanguage(language)
+  mount(<NewSessionDialog onClose={vi.fn()} onCreateEnvironment={vi.fn()} onSent={vi.fn()} />)
+  await screen.findByRole('option', { name: language === 'es' ? 'Perro' : 'Dog' })
+  const select = screen.getByLabelText('Robot') as HTMLSelectElement
+  expect(Array.from(select.options).map((option) => option.value)).toEqual(['', 'arm', 'dog'])
 })

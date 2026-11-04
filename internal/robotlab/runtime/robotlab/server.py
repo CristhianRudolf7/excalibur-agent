@@ -23,7 +23,7 @@ class Runtime:
         self.environments = Environments(data)
         self.sessions = Sessions(data, self.settings, self.environments, event)
         self._data, self._skills_root = data, skills
-        self._skills = self._media = None
+        self._skills = None
         self._lazy_lock = threading.RLock()
         self.environments.in_use = lambda id: bool(self.sessions.live and self.sessions.live['status'] == 'live'
                                                   and self.sessions.live['environment'] == id)
@@ -36,18 +36,14 @@ class Runtime:
                 self._skills = Skills(self.sessions, self._skills_root)
             return self._skills
 
-    @property
-    def media(self):
-        with self._lazy_lock:
-            if self._media is None:
-                from .core.media import Media
-                self._media = Media(self._data)
-            return self._media
-
     def _start(self, **params):
         # Attach accounting before an attempt can use or copy skills.
         self.skills
         return self.sessions.start(**params)
+
+    def _resume(self, **params):
+        self.skills
+        return self.sessions.resume(**params)
 
     def status(self):
         session = self.sessions.live
@@ -69,12 +65,11 @@ class Runtime:
             'env.thumbnail': lambda id: {'png': self.environments.preview(id, cached=True)},
             'env.scene': lambda id: {'scene': self.environments.scene(id)},
             'env.preview': lambda id, robot=None: {'png': self.environments.preview(id, robot)},
-            'media.ingest': lambda **p: self.media.ingest(**p),
-            'media.get': lambda **p: self.media.get(**p),
             'settings.get': lambda: self.settings.get(),
             'settings.set': lambda **fields: self.settings.set(fields),
             'session.start': self._start,
-            'session.list': lambda: {'sessions': self.sessions.list()},
+            'session.resume': self._resume,
+            'session.list': lambda **filters: {'sessions': self.sessions.list(**filters)},
             'session.get': lambda session: {'session': self.sessions.get(session)},
             'session.stop': self.sessions.stop,
             'session.scene': lambda session: {'scene': self.sessions.scene(session)},
@@ -89,7 +84,6 @@ class Runtime:
             'skills.read': lambda session, name: {'skill': self.skills.read(session, name)},
             'skills.write': lambda **p: self.skills.write(**p),
             'skills.use': lambda session, name: {'skill': self.skills.use(session, name)},
-            'skills.run': lambda **p: self.skills.run(**p),
             'skills.copy': self._copy_skills,
             'log.note': self._note,
             'mesh.get': self._mesh,
@@ -132,10 +126,10 @@ class Runtime:
 
 
 def serve(runtime, writer, input_stream):
-    """Read continuously while actions and regression runs execute off-thread."""
+    """Read continuously while actions and skill writes execute off-thread."""
     workers = ThreadPoolExecutor(max_workers=4, thread_name_prefix='robot-action')
     slots = threading.BoundedSemaphore(8)
-    long_methods = {'robot.act', 'skills.run', 'skills.write'}
+    long_methods = {'robot.act', 'skills.write'}
 
     def respond(request):
         id = request.get('id')

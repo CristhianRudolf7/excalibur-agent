@@ -79,3 +79,16 @@ def test_explicit_table_height_cannot_put_objects_below_top():
     assert any("object 'cube'.pos.z:" in err for err in validate(env_with(kind='table', objects=[obj])))
     obj['pos'][2] = .775
     assert validate(env_with(kind='table', objects=[obj])) == []
+
+
+@pytest.mark.parametrize('kind', ['image', 'video'])
+def test_legacy_source_normalizes_to_text_preserving_notes(kind):
+    env = env_with(source={'type': kind, 'notes': 'Original room description'})
+    assert any('source.type' in e for e in validate(env))
+    assert normalize(env)['source'] == {'type': 'text', 'notes': 'Original room description'}
+    assert env['source']['type'] == kind
+
+
+def test_new_source_accepts_only_text():
+    assert validate(env_with(source={'type': 'text', 'notes': 'Room'})) == []
+    assert validate(env_with(source={'type': 'other'}))

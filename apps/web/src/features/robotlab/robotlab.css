@@ -102,22 +102,6 @@
   place-items: center;
   color: var(--muted-foreground);
 }
-.lab-new {
-  position: relative;
-}
-.lab-new-options {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  min-width: 200px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-}
 .lab-dialog {
   width: min(520px, calc(100vw - 32px));
   border: 1px solid var(--border);
@@ -370,4 +354,64 @@
 .lab-settings-form input:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
+}
+
+.lab-robot-camera {
+  position: relative;
+  min-height: 0;
+}
+.lab-robot-camera.lab-camera,
+.lab-robot-camera.lab-observer {
+  position: absolute;
+}
+.lab-camera-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--background);
+  font-size: 12px;
+}
+.lab-camera-select select {
+  color: var(--foreground);
+  background: var(--background);
+  max-width: 120px;
+}
+.lab-camera-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.lab-robot-state {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.lab-state-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.lab-robot-state dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 4px 12px;
+}
+.lab-robot-state dt {
+  color: var(--muted-foreground);
+}
+.lab-robot-state dd {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.lab-skills summary {
+  cursor: pointer;
+  font-weight: 600;
 }

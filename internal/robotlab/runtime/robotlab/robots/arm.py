@@ -1,4 +1,4 @@
-"""Deterministic table-mounted arm tools with Cartesian IK and grasp assist."""
+"""Low-level table arm targets, Cartesian IK and bilateral finger-pad grasp assist."""
 from __future__ import annotations
 
 import math
@@ -7,7 +7,7 @@ import numbers
 import mujoco
 import numpy as np
 
-from .arm_kinematics import ArmIK, down_rotation, rotation_error
+from .arm_kinematics import ArmIK, down_rotation, grasp_angles, grasp_rotation
 from .arm_model import attach_model
 from .base import ActionInterrupted, Robot, Spawn, ToolSpec, json_fail, json_ok
 
@@ -17,16 +17,24 @@ _HIGH = np.array([0.6, 0.4, 1.65])
 
 
 def _number(value, name):
-    if isinstance(value, bool) or not isinstance(value, numbers.Real) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
         raise ValueError(name + ' must be a finite number')
-    return float(value)
+    try:
+        value = float(value)
+    except OverflowError:
+        raise ValueError(name + ' must be a finite number') from None
+    if not math.isfinite(value):
+        raise ValueError(name + ' must be a finite number')
+    return value
 
 
-def _speed(value, maximum, minimum):
-    value = _number(value, 'speed')
-    if value <= 0:
-        raise ValueError('speed must be positive')
-    return max(minimum, min(value, maximum))
+def _bounded(value, name, low, high):
+    if value is None:
+        raise ValueError(f'{name} is required in every keyframe')
+    value = _number(value, name)
+    if not low <= value <= high:
+        raise ValueError(f'{name} must be between {low:g} and {high:g}')
+    return value
 
 
 def _schema(properties=None, required=()):
@@ -39,6 +47,20 @@ def _scalar(low, high, default=None):
     if default is not None:
         out['default'] = default
     return out
+
+
+def _smooth(t):
+    return t ** 3 * (10 - 15 * t + 6 * t * t)
+
+
+def _grip_control(opening):
+    """Convert aperture to the parallel linkage's driver angle, then control units."""
+    if opening in (0., 1.):
+        return (1. - opening) * 255.
+    # Inner pad gap = 2 * (55*cos(theta) - 37.5*sin(theta) - 12.3) mm.
+    angle = math.acos((.0123 + .085 * opening / 2) / math.hypot(.055, .0375))
+    angle -= math.atan2(.0375, .055)
+    return float(np.clip(angle / .8 * 255., 0., 255.))
 
 
 def _rotation_between(start, end, fraction):
@@ -59,11 +81,22 @@ def _rotation_between(start, end, fraction):
     return mat.reshape(3, 3)
 
 
+class _ContactStop(Exception):
+    pass
+
+
 class ArmRobot(Robot):
     id = 'arm'
     name = {'en': 'Arm', 'es': 'Brazo'}
     world_kind = 'table'
     default_camera = 'robot/wrist'
+
+    def __init__(self):
+        # Cards are also requested by the registry before a world is compiled.
+        self.limits = np.array([[-6.2831, 6.2831]] * 6)
+        self.limits[2] = [-3.1415, 3.1415]
+        self._home_position = np.array([-.15, 0., 1.15])
+        self._home_q = np.deg2rad([16.858, -80.4347, -112.6922, -76.8731, 90., 16.858])
 
     def attach(self, spec, spawn: Spawn, menagerie):
         self.spawn = spawn
@@ -82,29 +115,52 @@ class ArmRobot(Robot):
         self.grip_dofs = [model.joint('robot/gripper/' + side + '_driver_joint').dofadr[0]
                           for side in ('left', 'right')]
         self.site = model.site('robot/grasp').id
-        self.ik = ArmIK(model, self.site, self.qadr, self.dofs, self.limits)
+        self._ik = ArmIK(model, self.site, self.qadr, self.dofs, self.limits)
         self._table_geoms = {g for g in range(model.ngeom)
-                             if model.geom(g).name in ('table', 'obj/table')}
+                             if model.geom(g).name in ('table', 'obj/table', 'table/top')}
         self._robot_geoms = {g for g in range(model.ngeom)
                              if model.body(model.geom_bodyid[g]).name.startswith('robot/')
                              and model.geom(g).name != 'robot/pedestal'}
         self._finger_geoms = {g for g in self._robot_geoms
-                              if '/gripper/' in model.body(model.geom_bodyid[g]).name}
-        self._object_geoms = {g for g in range(model.ngeom)
-                              if model.body(model.geom_bodyid[g]).name.startswith('obj/')}
+                              if '/gripper/' in model.body(model.geom_bodyid[g]).name
+                              and model.body(model.geom_bodyid[g]).name.rsplit('/', 1)[-1]
+                              not in ('base', 'base_mount')}
+        self._pads = {side: {model.geom(f'robot/gripper/{side}_pad{i}').id for i in (1, 2)}
+                      for side in ('left', 'right')}
+        self._objects = {}
+        for b in range(model.nbody):
+            if not model.body(b).name.startswith('obj/'):
+                continue
+            geoms = np.flatnonzero(model.geom_bodyid == b)
+            if not len(geoms):
+                continue
+            g = geoms[0]
+            kind, size = model.geom_type[g], model.geom_size[g]
+            if kind == mujoco.mjtGeom.mjGEOM_SPHERE:
+                full = [2 * size[0]]
+            elif kind in (mujoco.mjtGeom.mjGEOM_CYLINDER, mujoco.mjtGeom.mjGEOM_CAPSULE):
+                full = [2 * size[0], 2 * size[1] + (2 * size[0] if kind == mujoco.mjtGeom.mjGEOM_CAPSULE else 0)]
+            else:
+                low = np.min(model.geom_pos[geoms] - model.geom_size[geoms], axis=0)
+                high = np.max(model.geom_pos[geoms] + model.geom_size[geoms], axis=0)
+                full = (high - low).tolist()
+            self._objects[model.body(b).name[4:]] = {
+                'body': b, 'size': [round(float(v), 3) for v in full],
+                'dynamic': bool(model.body_jntnum[b])}
         self._velocity = np.zeros(6)
         self._holding = None
-        self._gripper = 'open'
 
     def reset(self, model, data):
-        self._holding, self._gripper, self._grip_target = None, 'open', 0.
-        self.ik.data.qpos[:] = data.qpos
+        # These controller fields are already included in core snapshots.
+        self._holding, self._gripper, self._grip_target = None, {'opening': 1., 'force': 1.}, 0.
+        self._ik.data.qpos[:] = data.qpos
         self._home_position = np.array([-0.15, 0., 1.15])
         seeds = ([0, -math.pi / 2, -math.pi / 2, -math.pi / 2, math.pi / 2, 0],
                  [-math.pi / 2, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, 0],
                  [0, -2., 2., -1.5, 1.5, 0])
+        home = None
         for seed in seeds:
-            home = self.ik.solve(self._home_position, down_rotation(0), seed, 300)
+            home = self._ik.solve(self._home_position, down_rotation(0), seed, 300)
             if home is not None:
                 break
         if home is None:
@@ -113,22 +169,22 @@ class ArmRobot(Robot):
         self._target = home.copy()
         data.qpos[self.qadr] = home
         data.qvel[self.dofs] = 0
-        data.ctrl[self.act] = home
-        data.ctrl[self.grip_act] = 0
+        self.control(model, data)
 
     def control(self, model, data):
+        if isinstance(self._gripper, str):
+            # Older failure snapshots stored the command as open/closed.
+            self._gripper = {'opening': 1. if self._gripper == 'open' else 0., 'force': 1.}
         data.ctrl[self.act] = self._target
         data.ctrl[self.grip_act] = self._grip_target
+        model.actuator_forcerange[self.grip_act] = np.array([-5., 5.]) * self._gripper['force']
         data.qfrc_applied[self.dofs] = data.qfrc_bias[self.dofs]
 
     def _contact(self, data, penetration=0.):
-        for c in data.contact:
-            if c.dist > -penetration or (penetration and c.dist == -penetration):
-                continue
-            if ((c.geom1 in self._table_geoms and c.geom2 in self._robot_geoms) or
-                    (c.geom2 in self._table_geoms and c.geom1 in self._robot_geoms)):
-                return True
-        return False
+        return any(c.dist <= -penetration and (not penetration or c.dist < -penetration)
+                   and ((c.geom1 in self._table_geoms and c.geom2 in self._robot_geoms)
+                        or (c.geom2 in self._table_geoms and c.geom1 in self._robot_geoms))
+                   for c in data.contact)
 
     def fallen(self, model, data):
         return 'collision' if self._contact(data, 0.02) else None
@@ -138,219 +194,366 @@ class ArmRobot(Robot):
             return 'table_collision'
         if not self._in_workspace(data.site_xpos[self.site]):
             return 'workspace'
-        mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_SITE,
-                                 self.site, self._velocity, 0)
+        mujoco.mj_objectVelocity(model, data, mujoco.mjtObj.mjOBJ_SITE, self.site, self._velocity, 0)
         if np.linalg.norm(self._velocity[3:]) > 0.5:
             return 'tcp_speed'
         return None
 
+    def _pad_contacts(self, data):
+        contacts = {side: set() for side in self._pads}
+        for c in data.contact:
+            if c.dist > 0:
+                continue
+            for side, pads in self._pads.items():
+                other = c.geom2 if c.geom1 in pads else c.geom1 if c.geom2 in pads else None
+                if other is not None:
+                    body = self.model.body(self.model.geom_bodyid[other]).name
+                    if body.startswith('obj/'):
+                        contacts[side].add(body[4:])
+        return contacts
+
+    def _opening_m(self, data):
+        centers = [np.mean(data.geom_xpos[list(self._pads[side])], axis=0)
+                   for side in ('left', 'right')]
+        # Pad collision boxes have 4 mm half-thickness along the closing axis.
+        axis = data.site_xmat[self.site].reshape(3, 3)[:, 1]
+        return float(np.clip(abs((centers[0] - centers[1]) @ axis) - .008, 0., .085))
+
+    def _unexpected_contacts(self, data):
+        out = set()
+        for c in data.contact:
+            if c.dist > 0:
+                continue
+            for robot, other in ((c.geom1, c.geom2), (c.geom2, c.geom1)):
+                if (robot in self._robot_geoms and robot not in self._finger_geoms
+                        and other not in self._robot_geoms
+                        and self.model.geom(other).name != 'robot/pedestal'):
+                    out.add((int(robot), int(other)))
+        return out
+
     def state(self, model, data):
-        pos = data.site_xpos[self.site]
-        rot = data.site_xmat[self.site].reshape(3, 3)
-        return {'x': float(pos[0]), 'y': float(pos[1]), 'z': float(pos[2]),
-                'yaw_deg': math.degrees(math.atan2(rot[1, 0], rot[0, 0])),
-                'q_deg': np.rad2deg(data.qpos[self.qadr]).round(3).tolist(),
-                'gripper': self._gripper, 'holding': self._holding}
+        yaw, pitch, roll = grasp_angles(data.site_xmat[self.site].reshape(3, 3))
+        pads = self._pad_contacts(data)
+        opening = self._opening_m(data)
+        objects = []
+        for oid, info in self._objects.items():
+            rot = data.xmat[info['body']].reshape(3, 3)
+            y, p, r = grasp_angles(rot @ down_rotation(0))
+            objects.append({'id': oid, 'pos': data.xpos[info['body']].round(3).tolist(),
+                            'rpy_deg': [round(v, 1) for v in (r, p, y)],
+                            'size': info['size'], 'dynamic': info['dynamic']})
+        contacts = [{'link': model.body(model.geom_bodyid[a]).name,
+                     'object': model.body(model.geom_bodyid[b]).name.removeprefix('obj/')
+                     or model.geom(b).name}
+                    for a, b in sorted(self._unexpected_contacts(data))]
+        return {'joints_deg': dict(zip(_JOINTS, np.rad2deg(data.qpos[self.qadr]).round(1).tolist())),
+                'gripper': {'pos': data.site_xpos[self.site].round(3).tolist(),
+                            'yaw_deg': round(yaw, 1), 'pitch_deg': round(pitch, 1),
+                            'roll_deg': round(roll, 1), 'opening': round(opening / .085, 3),
+                            'opening_m': round(opening, 3),
+                            'contacts': {side: next(iter(sorted(ids)), None) for side, ids in pads.items()}},
+                'held': self._holding, 'objects': objects, 'contacts': contacts}
 
     def base_xy(self, model, data):
         return self.spawn.x, self.spawn.y
 
-    def _step(self, ctx, seconds):
-        try:
-            for _ in range(max(1, round(seconds / ctx.model.opt.timestep))):
-                if self._contact(ctx.data):
-                    raise ActionInterrupted('safety', 'table_collision')
-                ctx.step(ctx.model.opt.timestep)
-                if self._contact(ctx.data):
-                    raise ActionInterrupted('safety', 'table_collision')
-                reason = self.safety(ctx.model, ctx.data)
-                if reason:
-                    raise ActionInterrupted('safety', reason)
-        except BaseException:
-            self._target = ctx.data.qpos[self.qadr].copy()
-            raise
-
-    def _result(self, ctx, target=None, **fields):
-        state = self.state(ctx.model, ctx.data)
-        result = {'pose': {k: state[k] for k in ('x', 'y', 'z', 'yaw_deg')},
-                  'q_deg': state['q_deg'], 'holding': ctx.held(), **fields}
-        if target is not None:
-            result['error_m'] = float(np.linalg.norm(ctx.data.site_xpos[self.site] - target))
-        return result
+    def _result(self, ctx, error=None, **fields):
+        self._holding = ctx.held()
+        result = {'state': self.state(ctx.model, ctx.data), **fields}
+        return json_fail(error, **result) if error else json_ok(**result)
 
     @staticmethod
     def _in_workspace(pos):
         return bool(np.all(pos >= _LOW - 1e-9) and np.all(pos <= _HIGH + 1e-9))
 
-    def _execute(self, ctx, path, dt, target=None, rotation=None):
-        for q in path:
-            self._target = q
-            self._step(ctx, dt)
-        settled = False
-        for _ in range(125):
-            ep = (np.linalg.norm(ctx.data.site_xpos[self.site] - target)
-                  if target is not None else np.max(np.abs(ctx.data.qpos[self.qadr] - path[-1])))
-            er = (np.linalg.norm(rotation_error(rotation, ctx.data.site_xmat[self.site].reshape(3, 3)))
-                  if rotation is not None else 0.)
-            if ep < 0.003 and er < 0.015 and np.max(np.abs(ctx.data.qvel[self.dofs])) < 0.03:
-                settled = True
-                break
-            self._step(ctx, 0.02)
-        result = self._result(ctx, target, stopped='target' if settled else 'timeout')
-        return json_ok(**result) if settled else json_fail('motion did not settle', **result)
-
-    def move_to(self, ctx, x, y, z, yaw_deg=0, speed=0.25):
-        try:
-            target = np.array([_number(x, 'x'), _number(y, 'y'), _number(z, 'z')])
-            yaw = math.radians(np.clip(_number(yaw_deg, 'yaw_deg'), -180, 180))
-            speed = _speed(speed, 0.45, 0.001)
-        except ValueError as error:
-            return json_fail(str(error))
-        if not self._in_workspace(target):
-            return json_fail('target outside table workspace')
-        start = ctx.data.site_xpos[self.site].copy()
-        initial_rot = ctx.data.site_xmat[self.site].reshape(3, 3).copy()
-        final_rot = down_rotation(yaw)
-        angle = np.linalg.norm(rotation_error(final_rot, initial_rot))
-        duration = max(0.25, 1.875 * np.linalg.norm(target - start) / speed, 1.875 * angle / 0.8)
-        n = max(1, math.ceil(duration / 0.02))
-        q = ctx.data.qpos[self.qadr].copy()
-        self.ik.data.qpos[:] = ctx.data.qpos
-        path = []
-        for i in range(1, n + 1):
-            t = i / n
-            s = t ** 3 * (10 - 15 * t + 6 * t * t)
-            point = start + s * (target - start)
-            if not self._in_workspace(point):
-                return json_fail('path outside table workspace')
-            qnext = self.ik.solve(point, _rotation_between(initial_rot, final_rot, s), q)
-            if qnext is None:
-                return json_fail('target unreachable along Cartesian path', **self._result(ctx, target))
-            if np.max(np.abs(qnext - q)) > 0.15:
-                return json_fail('path too close to a joint singularity', **self._result(ctx, target))
-            path.append(qnext)
-            q = qnext
-        peak_joint_step = max(np.max(np.abs(b - a)) for a, b in zip(
-            [ctx.data.qpos[self.qadr]] + path[:-1], path))
-        dt = max(duration / n, float(peak_joint_step) / 1.2)
-        return self._execute(ctx, path, dt, target, final_rot)
-
-    def move_joints(self, ctx, q_deg, speed=30):
-        try:
-            if not isinstance(q_deg, (list, tuple)) or len(q_deg) != 6:
-                raise ValueError('q_deg must contain six angles')
-            raw = np.deg2rad([_number(v, 'q_deg') for v in q_deg])
-            q = np.clip(raw, self.limits[:, 0], self.limits[:, 1])
-            speed = math.radians(_speed(speed, 90, 0.1))
-        except ValueError as error:
-            return json_fail(str(error))
-        start = ctx.data.qpos[self.qadr].copy()
-        duration = max(0.25, 1.875 * float(np.max(np.abs(q - start))) / speed)
-        n = max(1, math.ceil(duration / 0.02))
-        path, positions = [], [ctx.data.site_xpos[self.site].copy()]
-        self.ik.data.qpos[:] = ctx.data.qpos
-        for i in range(1, n + 1):
-            t = i / n
-            s = t ** 3 * (10 - 15 * t + 6 * t * t)
-            waypoint = start + s * (q - start)
-            self.ik.forward(waypoint)
-            pos = self.ik.data.site_xpos[self.site].copy()
-            if not self._in_workspace(pos):
-                return json_fail('joint path outside table workspace')
-            path.append(waypoint)
-            positions.append(pos)
-        dt = max(duration / n, max(np.linalg.norm(b - a)
-                                   for a, b in zip(positions, positions[1:])) / 0.4)
-        result = self._execute(ctx, path, dt)
-        result['clamped'] = bool(np.any(q != raw))
-        return result
-
-    def home(self, ctx):
-        return self.move_to(ctx, *self._home_position, yaw_deg=0)
-
-    def lift(self, ctx, dz):
-        try:
-            dz = _number(dz, 'dz')
-            if abs(dz) > 0.6:
-                raise ValueError('dz must be between -0.6 and 0.6 m')
-        except ValueError as error:
-            return json_fail(str(error))
-        s = self.state(ctx.model, ctx.data)
-        return self.move_to(ctx, s['x'], s['y'], s['z'] + dz, s['yaw_deg'])
-
-    def open_gripper(self, ctx):
-        released = ctx.release()
-        self._holding, self._gripper, self._grip_target = None, 'open', 0.
-        self._step(ctx, 0.7)
-        return json_ok(**self._result(ctx, released=released, stopped='open'))
-
-    def close_gripper(self, ctx):
-        self._grip_target, self._gripper = 255., 'closed'
-        stopped = 'timeout'
-        for i in range(60):
-            self._step(ctx, 0.02)
-            if any(c.dist <= 0 and
-                   ((c.geom1 in self._finger_geoms and c.geom2 in self._object_geoms) or
-                    (c.geom2 in self._finger_geoms and c.geom1 in self._object_geoms))
-                   for c in ctx.data.contact):
-                stopped = 'contact'
-                break
-            if i >= 10 and np.max(np.abs(ctx.data.qvel[self.grip_dofs])) < 0.015:
-                stopped = 'stall'
-                break
-        candidates = []
-        pos = ctx.data.site_xpos[self.site]
-        rot = ctx.data.site_xmat[self.site].reshape(3, 3)
-        if not ctx.held():
-            for obj in ctx.objects():
-                if not obj.get('dynamic', False):
-                    continue
-                point, _ = ctx.object_pose(obj['id'])
-                offset = rot.T @ (point - pos)
-                distance = float(np.linalg.norm(offset))
-                if distance <= 0.04 and abs(offset[0]) <= 0.03 and abs(offset[1]) <= 0.0425 and abs(offset[2]) <= 0.035:
-                    candidates.append((distance, obj['id']))
-            if candidates:
-                ctx.hold(min(candidates)[1], 'robot/grasp')
+    def _freeze(self, ctx):
+        self._target = ctx.data.qpos[self.qadr].copy()
         self._holding = ctx.held()
-        if candidates:
-            # Let the context apply the attachment and evaluate grasp goals.
-            self._step(ctx, 0.02)
-        return json_ok(**self._result(ctx, stopped=stopped, gripper='closed'))
+        self._grip_target = float(ctx.data.ctrl[self.grip_act])
+
+    def _tick(self, ctx, baseline=None):
+        def stop_contact():
+            if baseline is not None and self._unexpected_contacts(ctx.data) - baseline:
+                raise _ContactStop()
+        stop_contact()
+        reason = self.safety(ctx.model, ctx.data)
+        if reason:
+            raise ActionInterrupted('safety', reason)
+        try:
+            ctx.step(ctx.model.opt.timestep)
+        except ActionInterrupted as exc:
+            if exc.reason in ('safety', 'fell'):
+                stop_contact()
+            raise
+        if ctx.held():
+            width = self._held_width(ctx)
+            if (self._gripper['opening'] * .085 > width
+                    and self._opening_m(ctx.data) > width + .001):
+                ctx.release()
+                self._holding = None
+        stop_contact()
+        reason = self.safety(ctx.model, ctx.data)
+        if reason:
+            raise ActionInterrupted('safety', reason)
+
+    def _pose(self, q):
+        self._ik.forward(q)
+        return (self._ik.data.site_xpos[self.site].copy(),
+                self._ik.data.site_xmat[self.site].reshape(3, 3).copy())
+
+    def _cart_target(self, args, start):
+        pos = np.array([_number(args.get(a), a) for a in ('x', 'y', 'z')])
+        yaw = grasp_angles(start)[0]
+        angles = [_number(args.get(k, default), k) for k, default in
+                  (('yaw', yaw), ('pitch', 0.), ('roll', 0.))]
+        if not self._in_workspace(pos):
+            raise ValueError('target outside table workspace')
+        return pos, grasp_rotation(*np.deg2rad(angles))
+
+    def _prepare(self, frame, q):
+        if not isinstance(frame, dict):
+            raise ValueError('keyframe must be an object')
+        kind = frame.get('type')
+        allowed = {'joints': {'joints'},
+                   'gripper_to': {'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'path'},
+                   'gripper': {'opening', 'force'}}
+        if not isinstance(kind, str) or kind not in allowed:
+            raise ValueError('unknown keyframe type')
+        if set(frame) - allowed[kind] - {'type', 'duration'}:
+            raise ValueError('unknown keyframe fields')
+        duration = _bounded(frame.get('duration', 1.2 if kind == 'gripper' else None), 'duration', .002, 30.)
+        n = max(1, math.ceil(duration / .02))
+        if kind == 'gripper':
+            opening = _bounded(frame.get('opening'), 'opening', 0., 1.)
+            force = _bounded(frame.get('force', 1.), 'force', 0., 1.)
+            return {'type': kind, 'duration': duration, 'opening': opening, 'force': force}, q
+        start_pos, start_rot = self._pose(q)
+        path = []
+        if kind == 'joints':
+            joints = frame.get('joints')
+            if not isinstance(joints, dict) or not joints or set(joints) - set(_JOINTS):
+                raise ValueError('joints must be a nonempty subset of the six joint names')
+            target = q.copy()
+            for name, value in joints.items():
+                j = _JOINTS.index(name)
+                target[j] = math.radians(_number(value, name))
+                if not self.limits[j, 0] <= target[j] <= self.limits[j, 1]:
+                    raise ValueError(name + ' outside joint limits')
+            for i in range(1, n + 1):
+                qi = q + _smooth(i / n) * (target - q)
+                if not self._in_workspace(self._pose(qi)[0]):
+                    raise ValueError('joint path outside table workspace')
+                path.append(qi)
+        else:
+            target_pos, target_rot = self._cart_target(frame, start_rot)
+            mode = frame.get('path', 'line')
+            if mode not in ('line', 'joint'):
+                raise ValueError('path must be line or joint')
+            if mode == 'joint':
+                target = self._ik.solve(target_pos, target_rot, q, 300)
+                if target is None:
+                    raise ValueError('target unreachable or outside joint limits')
+                for i in range(1, n + 1):
+                    qi = q + _smooth(i / n) * (target - q)
+                    if not self._in_workspace(self._pose(qi)[0]):
+                        raise ValueError('joint path outside table workspace')
+                    path.append(qi)
+            else:
+                qi = q.copy()
+                for i in range(1, n + 1):
+                    s = _smooth(i / n)
+                    point = start_pos + s * (target_pos - start_pos)
+                    qi = self._ik.solve(point, _rotation_between(start_rot, target_rot, s), qi)
+                    if qi is None:
+                        raise ValueError('target unreachable along Cartesian path')
+                    path.append(qi.copy())
+        return {'type': kind, 'duration': duration, 'path': np.array([q.copy()] + path)}, path[-1]
+
+    def _held_width(self, ctx):
+        """Projected object width along the actual pad closing axis."""
+        oid = ctx.held()
+        if not oid or oid not in self._objects:
+            return 0.
+        b = self._objects[oid]['body']
+        axis = ctx.data.site_xmat[self.site].reshape(3, 3)[:, 1]
+        low, high = math.inf, -math.inf
+        for g in np.flatnonzero(self.model.geom_bodyid == b):
+            local_axis = ctx.data.geom_xmat[g].reshape(3, 3).T @ axis
+            kind, size = self.model.geom_type[g], self.model.geom_size[g]
+            if kind == mujoco.mjtGeom.mjGEOM_BOX:
+                radius = float(np.abs(local_axis) @ size)
+            elif kind == mujoco.mjtGeom.mjGEOM_SPHERE:
+                radius = size[0]
+            elif kind == mujoco.mjtGeom.mjGEOM_CYLINDER:
+                radius = size[0] * np.linalg.norm(local_axis[:2]) + size[1] * abs(local_axis[2])
+            else:
+                radius = size[0] + size[1] * abs(local_axis[2])
+            center = ctx.data.geom_xpos[g] @ axis
+            low, high = min(low, center - radius), max(high, center + radius)
+        return float(high - low)
+
+    def _grasp(self, ctx):
+        pads = self._pad_contacts(ctx.data)
+        common = pads['left'] & pads['right']
+        candidates = sorted(oid for oid in common if self._objects[oid]['dynamic'])
+        if not ctx.held() and candidates:
+            ctx.hold(candidates[0], 'robot/grasp')
+        self._holding = ctx.held()
+
+    def _run_frame(self, ctx, plan, baseline):
+        n = max(1, round(plan['duration'] / ctx.model.opt.timestep))
+        if plan['type'] == 'gripper':
+            start = self._grip_target
+            target = _grip_control(plan['opening'])
+            self._gripper = {'opening': plan['opening'], 'force': plan['force']}
+            for i in range(1, n + 1):
+                self._grip_target = start + _smooth(i / n) * (target - start)
+                self._tick(ctx, baseline)
+            if target >= start:
+                self._grasp(ctx)
+        else:
+            path = plan['path']
+            for i in range(1, n + 1):
+                sample = i / n * (len(path) - 1)
+                j = min(int(sample), len(path) - 2)
+                self._target = path[j] + (sample - j) * (path[j + 1] - path[j])
+                self._tick(ctx, baseline)
+
+    def _motion(self, ctx, keyframes, settle=.2, stop_if=None):
+        plans, details = [], []
+        try:
+            settle = _bounded(settle, 'settle', 0., 2.)
+            if not isinstance(keyframes, list) or not 1 <= len(keyframes) <= 16:
+                raise ValueError('keyframes must contain 1 to 16 entries')
+            if stop_if is not None and (not isinstance(stop_if, dict)
+                    or set(stop_if) - {'contact'} or not isinstance(stop_if.get('contact', False), bool)):
+                raise ValueError('stop_if accepts only contact: boolean')
+            self._ik.data.qpos[:] = ctx.data.qpos
+            q = self._target.copy()
+            for k, frame in enumerate(keyframes):
+                try:
+                    plan, q = self._prepare(frame, q)
+                    plans.append(plan)
+                except ValueError as exc:
+                    details.append({'keyframe': k, 'error': str(exc)})
+            if details:
+                return self._result(ctx, 'invalid motion plan', details=details)
+            if sum(p['duration'] for p in plans) + settle > 30. + 1e-9:
+                raise ValueError('total duration including settle exceeds 30 seconds')
+        except ValueError as exc:
+            return self._result(ctx, str(exc), details=details)
+        baseline = self._unexpected_contacts(ctx.data) if stop_if and stop_if.get('contact') else None
+        k = 0
+        try:
+            for k, plan in enumerate(plans):
+                self._run_frame(ctx, plan, baseline)
+            for _ in range(round(settle / ctx.model.opt.timestep)):
+                self._tick(ctx, baseline)
+        except _ContactStop:
+            return self._result(ctx, stopped_at=k, reason='contact')
+        except ActionInterrupted:
+            self._freeze(ctx)
+            raise
+        return self._result(ctx)
+
+    def move_joints(self, ctx, joints, duration, settle=.2):
+        return self._motion(ctx, [dict(type='joints', joints=joints, duration=duration)], settle)
+
+    def move_gripper_to(self, ctx, x, y, z, yaw=None, pitch=0., roll=0., path='line', duration=None, settle=.2):
+        frame = dict(type='gripper_to', x=x, y=y, z=z, pitch=pitch, roll=roll, path=path, duration=duration)
+        if yaw is not None:
+            frame['yaw'] = yaw
+        return self._motion(ctx, [frame], settle)
+
+    def gripper(self, ctx, opening, force=1., duration=1.2):
+        return self._motion(ctx, [dict(type='gripper', opening=opening, force=force, duration=duration)])
+
+    def sequence(self, ctx, keyframes, stop_if=None, settle=.2):
+        return self._motion(ctx, keyframes, settle, stop_if)
+
+    def ik(self, ctx, x, y, z, yaw=None, pitch=0., roll=0.):
+        try:
+            self._ik.data.qpos[:] = ctx.data.qpos
+            args = dict(x=x, y=y, z=z, pitch=pitch, roll=roll)
+            if yaw is not None:
+                args['yaw'] = yaw
+            pos, rot = self._cart_target(args, ctx.data.site_xmat[self.site].reshape(3, 3))
+            q = self._ik.solve(pos, rot, self._target, 300)
+            if q is None:
+                raise ValueError('target unreachable or outside joint limits')
+            margins = np.rad2deg(np.minimum(q - self.limits[:, 0], self.limits[:, 1] - q))
+            return self._result(ctx, joints_deg=dict(zip(_JOINTS, np.rad2deg(q).round(1).tolist())),
+                                reachable=True, limit_margin_deg=dict(zip(_JOINTS, margins.round(1).tolist())))
+        except ValueError as exc:
+            return self._result(ctx, str(exc), reachable=False, joints_deg=None, limit_margin_deg=None,
+                                details=[{'target': 'grasp', 'error': str(exc)}])
+
+    def wait(self, ctx, seconds):
+        try:
+            seconds = _bounded(seconds, 'seconds', .05, 5.)
+        except ValueError as exc:
+            return self._result(ctx, str(exc), details=[])
+        try:
+            for _ in range(round(seconds / ctx.model.opt.timestep)):
+                self._tick(ctx)
+        except ActionInterrupted:
+            self._freeze(ctx)
+            raise
+        return self._result(ctx)
 
     def tools(self):
-        cart = {'x': _scalar(-0.6, 0.6), 'y': _scalar(-0.4, 0.4), 'z': _scalar(0.76, 1.65),
-                'yaw_deg': _scalar(-180, 180, 0), 'speed': _scalar(0.001, 0.5, 0.25)}
+        timing = {'duration': _scalar(.002, 30), 'settle': _scalar(0, 2, .2)}
+        joints = _schema({name: _scalar(*np.rad2deg(self.limits[j])) for j, name in enumerate(_JOINTS)})
+        joints['minProperties'] = 1
+        cart = {'x': _scalar(-.6, .6), 'y': _scalar(-.4, .4), 'z': _scalar(.76, 1.65),
+                'yaw': {'type': 'number'}, 'pitch': _scalar(-90, 90, 0), 'roll': _scalar(-180, 180, 0),
+                'path': {'type': 'string', 'enum': ['joint', 'line'], 'default': 'line'}}
+        grip = {'opening': _scalar(0, 1), 'force': _scalar(0, 1, 1), 'duration': _scalar(.002, 30, 1.2)}
+        frames = []
+        for kind, props, required in (
+            ('joints', {'joints': joints, 'duration': timing['duration']}, ('joints', 'duration')),
+            ('gripper_to', {**cart, 'duration': timing['duration']}, ('x', 'y', 'z', 'duration')),
+            ('gripper', grip, ('opening', 'duration'))):
+            frames.append(_schema({'type': {'const': kind}, **props}, ('type', *required)))
         definitions = [
-            ('move_to', 'Move straight in world coordinates, fingers down. / Mover en línea recta en coordenadas globales, dedos abajo.',
-             _schema(cart, ('x', 'y', 'z')), self.move_to),
-            ('move_joints', 'Move six joint angles in degrees; speed in degrees/s. / Mover seis articulaciones en grados; velocidad en grados/s.',
-             _schema({'q_deg': {'type': 'array', 'minItems': 6, 'maxItems': 6, 'items': _scalar(-360, 360)},
-                      'speed': _scalar(0.1, 90, 30)}, ('q_deg',)), self.move_joints),
-            ('home', 'Return above the table with fingers down. / Volver sobre la mesa con los dedos abajo.', _schema(), self.home),
-            ('open_gripper', 'Open the fingers and release the object. / Abrir los dedos y soltar el objeto.', _schema(), self.open_gripper),
-            ('close_gripper', 'Close until contact or stall; assist a nearby grasp. / Cerrar hasta contacto o bloqueo; asistir el agarre cercano.', _schema(), self.close_gripper),
-            ('lift', 'Move vertically by dz meters. / Mover verticalmente dz metros.',
-             _schema({'dz': _scalar(-0.6, 0.6)}, ('dz',)), self.lift),
+            ('move_joints', 'Interpolate joint targets in degrees. / Interpolar objetivos articulares en grados.',
+             _schema({'joints': joints, **timing}, ('joints', 'duration')), self.move_joints),
+            ('move_gripper_to', 'Move the pinch point; angles are degrees, zero points down. / Mover el punto de agarre; ángulos en grados, cero apunta abajo.',
+             _schema({**cart, **timing}, ('x', 'y', 'z', 'duration')), self.move_gripper_to),
+            ('gripper', 'Set opening and force fractions; report pad contacts. / Fijar apertura y fuerza relativas; informar contactos de las almohadillas.',
+             _schema(grip, ('opening',)), self.gripper),
+            ('sequence', 'Validate all keyframes, then execute in order; stop on new non-finger contact. / Validar todos los fotogramas y ejecutarlos en orden; parar ante un contacto nuevo fuera de los dedos.',
+             _schema({'keyframes': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'oneOf': frames}},
+                      'stop_if': _schema({'contact': {'type': 'boolean'}}), 'settle': timing['settle']}, ('keyframes',)), self.sequence),
+            ('ik', 'Compute joints and limit margins without advancing time. / Calcular articulaciones y márgenes sin avanzar el tiempo.',
+             _schema({k: v for k, v in cart.items() if k != 'path'}, ('x', 'y', 'z')), self.ik),
+            ('wait', 'Hold current targets for simulation seconds. / Mantener los objetivos durante segundos simulados.',
+             _schema({'seconds': _scalar(.05, 5)}, ('seconds',)), self.wait),
         ]
         return {name: ToolSpec(name, desc, params, fn) for name, desc, params, fn in definitions}
 
     def card(self):
-        tools = [{'name': t.name, 'description': t.description, 'params': t.params}
-                 for t in self.tools().values()]
+        tools = [{'name': t.name, 'description': t.description, 'params': t.params} for t in self.tools().values()]
         tools.append({'name': 'look', 'description': 'Inspect a robot camera. / Observar una cámara del robot.',
                       'params': _schema({'camera': {'type': 'string', 'enum': ['robot/wrist', 'robot/overhead']}})})
         return {'id': self.id, 'name': self.name,
-                'description': 'Fixed arm for tabletop pick and place. / Brazo fijo para recoger y colocar objetos en la mesa.',
-                'sensors': ['joint_position', 'joint_velocity', 'grasp_pose', 'contact', 'holding'],
+                'description': 'Table arm with parallel fingers. / Brazo de mesa con dedos paralelos.',
+                'sensors': ['joint_position', 'grasp_pose', 'finger_contacts', 'object_tracker', 'held', 'contacts'],
                 'cameras': ['robot/wrist', 'robot/overhead'], 'tools': tools,
+                'joints': {name: {'limits_deg': np.rad2deg(self.limits[j]).round(1).tolist()}
+                           for j, name in enumerate(_JOINTS)},
+                'link_lengths_m': {'upper_arm': .6127, 'forearm': .57155, 'gripper': .1558},
+                'reference_pose': {'joints_deg': dict(zip(_JOINTS, np.rad2deg(self._home_q).round(1).tolist())),
+                                   'grasp_pos': self._home_position.tolist(), 'yaw': 0, 'pitch': 0, 'roll': 0,
+                                   'opening': 1},
                 'limits': {'workspace_m': {'min': _LOW.tolist(), 'max': _HIGH.tolist()},
-                           'max_tcp_speed_m_s': 0.5, 'max_joint_speed_deg_s': 90,
-                           'table_height_m': 0.75, 'grasp_tolerance_m': 0.04},
+                           'max_tcp_speed_m_s': .5, 'table_height_m': .75, 'opening_m': .085,
+                           'max_call_duration_s': 30},
                 'notes': [
-                    'Approach above an object, lower to its center, close, then lift. / Acercarse por arriba, bajar al centro, cerrar y levantar.',
-                    'Keep the grasp site within 3 cm of the object before closing. / Situar el punto de agarre a menos de 3 cm del objeto antes de cerrar.',
-                    'Grasp assist holds a dynamic object within 4 cm between the fingers; opening releases it. / La asistencia sujeta un objeto dinámico a menos de 4 cm entre los dedos; abrir lo libera.',
-                    'Speed for move_to is m/s; move_joints uses degrees/s. TCP motion is capped below 0.5 m/s. / move_to usa m/s; move_joints usa grados/s. El movimiento se limita por debajo de 0.5 m/s.',
-                    'Some far table corners are unreachable; route around obstacles with separate moves. / Algunas esquinas lejanas son inalcanzables; rodear obstáculos con movimientos separados.',
+                    'Plan small keyframes and check ik first; every sequence is validated before physics. / Planificar fotogramas pequeños y comprobar ik primero; cada secuencia se valida antes de simular.',
+                    'Use line for a straight Cartesian path, joint for joint interpolation. Duration is simulation seconds; settle defaults to 0.2 s. / Usar line para trayectoria cartesiana recta, joint para interpolación articular. duration son segundos simulados; settle vale 0.2 s por defecto.',
+                    'Yaw, pitch, roll use world Z-Y-X rotations from fingers down; omitted yaw keeps its target. / yaw, pitch, roll usan rotaciones globales Z-Y-X desde dedos abajo; omitir yaw mantiene su objetivo.',
+                    'Opening 1 is 85 mm, 0 is closed. Assist requires both pads touching the same dynamic object at the end of closing. / Apertura 1 son 85 mm, 0 es cerrado. La asistencia exige ambas almohadillas tocando el mismo objeto dinámico al terminar de cerrar.',
+                    'Opening beyond the held object width releases it; placement needs a level object centered over its support. / Abrir más que el ancho del objeto lo suelta; colocarlo exige nivelarlo y centrarlo sobre su apoyo.',
+                    'stop_if.contact ignores finger and existing contacts; stopped_at counts keyframes from zero. Keep motion below 0.5 m/s. / stop_if.contact ignora dedos y contactos existentes; stopped_at cuenta desde cero. Mantener el movimiento por debajo de 0.5 m/s.',
                 ]}

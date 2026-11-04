@@ -10,7 +10,6 @@ test('create an environment in chat, train, focus, observe and replay an old att
   await page.goto('/lab')
   await expect(page.getByRole('button', { name: 'Room', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'New', exact: true }).click()
-  await page.getByRole('button', { name: 'From chat' }).click()
   const composer = page.locator('.lab-agent .composer textarea')
   await expect(composer).toHaveValue('Create a simulation environment from this description: ')
   await composer.fill('Create a simulation environment from this description: a room with a ball')
@@ -44,8 +43,12 @@ test('create an environment in chat, train, focus, observe and replay an old att
   })
   await expect(page.getByRole('img', { name: 'Observer', exact: true })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Robot camera', exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Dog with arm · Room' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Dog · Room' })).toBeVisible()
   await expect(page.locator('.lab-agent .composer textarea')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Latest robot state' })).toContainText(
+    'FL · FR · RL',
+  )
+  await expect(page.getByRole('region', { name: 'Latest robot state' })).toContainText('0.025 m')
   await expect(
     page.getByRole('img', { name: 'Observer', exact: true }).locator('canvas'),
   ).toBeVisible()
@@ -65,7 +68,7 @@ test('create an environment in chat, train, focus, observe and replay an old att
       (call) =>
         call.method === 'conversation.send' &&
         call.params.text ===
-          'Run a simulation with the Dog with arm in the environment Room: Fetch the ball',
+          'Run a simulation with the Dog in the environment Room: Fetch the ball',
     ),
   ).toBe(true)
   await page.screenshot({
@@ -85,7 +88,11 @@ test('create an environment in chat, train, focus, observe and replay an old att
     },
   ])
   await page.getByRole('tab', { name: 'Skills', exact: true }).click()
-  await expect(page.getByText('Version: 2 · Success: 50% · Uses: 2')).toBeVisible()
+  await expect(page.getByText('Version: 2 · Success: 50% · Uses: 2 · Failures: 1')).toBeVisible()
+  await page.getByText('fetch', { exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Lessons' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Version 1')
+  await expect(page.getByRole('list', { name: 'Versions' })).toContainText('Version 2')
   await page.getByRole('tab', { name: 'Activity', exact: true }).click()
   await expect(observation).toHaveAttribute('src', `data:image/png;base64,${observationPng}`)
   expect(calls.filter((call) => call.method === 'robotlab.session.image')).toHaveLength(1)
@@ -108,7 +115,7 @@ test('focus navigates from another page and settings save through the lab RPC', 
 }) => {
   const { bus, calls } = await mockRobotLab(page)
   await page.goto('/settings?section=robotlab')
-  await expect(page.getByLabel('Maximum attempts')).toHaveValue('20')
+  await expect(page.getByLabel('Maximum attempts')).toHaveValue('40')
   await page.getByLabel('Maximum attempts').fill('30')
   await page.getByLabel('Simulation speed').fill('0.5')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -197,44 +204,32 @@ test('live scene conflicts recover with loading feedback without reopening the s
   await expect(page.getByText('Waiting for the robot camera…')).toHaveCount(0)
   await page.getByRole('button', { name: 'Swap views' }).click()
   await expect(page.locator('.lab-camera')).toHaveAttribute('aria-label', 'Observer')
-  await expect(page.locator('.lab-observer')).toHaveAttribute('aria-label', 'Robot camera')
+  await expect(
+    page.locator('.lab-observer').getByRole('img', { name: 'Robot camera', exact: true }),
+  ).toBeVisible()
 })
 
-test('installation and media uploads stay in the lab flow', async ({ page }) => {
+test('installation leads to chat-only environment creation and editing', async ({ page }) => {
   const { calls } = await mockRobotLab(page, false)
   await page.goto('/lab')
   await page.getByRole('button', { name: 'Install robot lab' }).click()
-  await expect(page.getByRole('button', { name: 'Room', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Room', exact: true }).click()
+  await page.getByRole('button', { name: 'Edit with agent' }).click()
+  const composer = page.locator('.lab-agent .composer textarea')
+  await expect(composer).toHaveValue('Edit environment "Room" (room): ')
+  await page.getByRole('button', { name: 'Back', exact: true }).click()
   await page.getByRole('button', { name: 'New', exact: true }).click()
-  await page.getByRole('button', { name: 'Upload video/image' }).click()
-  await page
-    .getByLabel('Image or video (up to 32 MB)')
-    .setInputFiles({ name: 'room.png', mimeType: 'image/png', buffer: Buffer.from('sample') })
-  await page.getByLabel('Optional specification').fill('Keep the desk')
-  await page.getByRole('button', { name: 'Send to agent' }).click()
-  await expect
-    .poll(() =>
-      calls.some(
-        (call) =>
-          call.method === 'conversation.send' &&
-          call.params.text ===
-            'Create an environment from the file "room.png" (media media-1). Specification: Keep the desk',
-      ),
-    )
-    .toBe(true)
-  expect(
-    calls.some(
-      (call) => call.method === 'robotlab.media.upload' && call.params.data === 'c2FtcGxl',
-    ),
-  ).toBe(true)
+  await expect(composer).toHaveValue('Create a simulation environment from this description: ')
+  await expect(page.locator('.lab-workspace input[type=file]')).toHaveCount(0)
+  expect(calls.every((call) => !call.method.startsWith('robotlab.media.'))).toBe(true)
 })
 
-test('observer frames a humanoid inside unnamed corridor walls and supports orbit/recenter', async ({
+test('observer frames a dog inside unnamed corridor walls and supports orbit/recenter', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   const { sessions } = await mockRobotLab(page)
-  sessions.get('old-training')!.robot = 'humanoid'
+  sessions.get('old-training')!.robot = 'dog'
   await page.route('**/rpc', async (route) => {
     const request = route.request().postDataJSON()
     if (request.method === 'robotlab.session.scene') {
@@ -254,8 +249,8 @@ test('observer frames a humanoid inside unnamed corridor walls and supports orbi
                 attempt: 2,
                 seq: 0,
                 t: 0,
-                poses: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0.85, 1, 0, 0, 0],
-                camera: { name: 'robot/head', pose: [0.12, 0, 1.45, 0.5, 0.5, -0.5, -0.5] },
+                poses: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0.27, 1, 0, 0, 0],
+                camera: { name: 'robot/head', pose: [0.3, 0, 0.35, 0.5, 0.5, -0.5, -0.5] },
                 held: null,
                 status: 'stopped',
               },
@@ -266,7 +261,7 @@ test('observer frames a humanoid inside unnamed corridor walls and supports orbi
     } else await route.fallback()
   })
   await page.goto('/lab?tab=trainings&session=old-training')
-  await expect(page.getByRole('heading', { name: 'Humanoid · Room' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Dog · Room' })).toBeVisible()
   const observer = page.getByRole('img', { name: 'Observer', exact: true })
   await expect(observer.locator('canvas')).toBeVisible()
   await expect(page.getByText('Loading scene…')).toHaveCount(0)
@@ -278,7 +273,7 @@ test('observer frames a humanoid inside unnamed corridor walls and supports orbi
       ),
   )
   await page.screenshot({
-    path: `${process.env.HOME}/excalibur-sim/rl2/status/web-polish2-observer.png`,
+    path: test.info().outputPath('dog-observer.png'),
   })
   const canvas = (await observer.locator('canvas').boundingBox())!
   await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
@@ -289,16 +284,16 @@ test('observer frames a humanoid inside unnamed corridor walls and supports orbi
   await page.mouse.up()
   await page.mouse.wheel(0, -120)
   await page.screenshot({
-    path: `${process.env.HOME}/excalibur-sim/rl2/status/web-polish2-orbit.png`,
+    path: test.info().outputPath('dog-orbit.png'),
   })
   await observer.getByRole('button', { name: 'Recenter' }).click()
   await page.screenshot({
-    path: `${process.env.HOME}/excalibur-sim/rl2/status/web-polish2-recenter.png`,
+    path: test.info().outputPath('dog-recenter.png'),
   })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(page.getByRole('button', { name: 'Recenter' })).toBeVisible()
   await page.screenshot({
-    path: `${process.env.HOME}/excalibur-sim/rl2/status/web-polish2-mobile.png`,
+    path: test.info().outputPath('dog-mobile.png'),
   })
 })
 
@@ -346,4 +341,50 @@ test('session chat reveals the latest asynchronous history and allows scrolling 
   await expect
     .poll(() => log.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
     .toBeGreaterThan(400)
+})
+
+for (const robot of ['dog', 'arm'] as const) {
+  test(`${robot} shows low-level state and the two robot cameras`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const { sessions, calls } = await mockRobotLab(page)
+    const session = labSession('camera-training', 'live')
+    session.robot = robot
+    sessions.set(session.id, session)
+    await page.goto('/lab?tab=trainings&session=camera-training')
+    const state = page.getByRole('region', { name: 'Latest robot state' })
+    await expect(state).toContainText(robot === 'dog' ? 'Support feet' : 'Gripper position')
+    await expect(state).toContainText(robot === 'dog' ? '0.025 m' : 'cube')
+    const camera = page.getByRole('combobox', { name: 'Camera', exact: true })
+    await expect(camera.locator('option')).toHaveText(
+      robot === 'dog' ? ['Head', 'Rear'] : ['Wrist', 'Overhead'],
+    )
+    await camera.selectOption(robot === 'dog' ? 'rear' : 'overhead')
+    await expect(page.getByRole('img', { name: 'Robot camera', exact: true })).toHaveAttribute(
+      'src',
+      `data:image/png;base64,${observationPng}`,
+    )
+    expect(
+      calls.some(
+        (call) =>
+          call.method === 'robotlab.robot.look' &&
+          call.params.camera === (robot === 'dog' ? 'robot/rear' : 'robot/overhead'),
+      ),
+    ).toBe(true)
+    expect(calls.some((call) => call.method === 'robotlab.robot.act')).toBe(false)
+  })
+}
+
+test('recorded state follows the replay time and attempt', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await mockRobotLab(page)
+  await page.goto('/lab?tab=trainings&session=old-training')
+  const state = page.getByRole('region', { name: 'Latest robot state' })
+  await expect(state).toContainText('0.040 m')
+  const timeline = page.getByRole('slider', { name: /Replay time|Replay position/ })
+  await timeline.focus()
+  await timeline.press('Home')
+  for (let step = 0; step < 21; step++) await timeline.press('ArrowRight')
+  await expect(state).toContainText('0.025 m')
+  await page.getByRole('combobox', { name: 'Attempt', exact: true }).selectOption('1')
+  await expect(state).toContainText('0.040 m')
 })

@@ -10,7 +10,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   await i18n.changeLanguage('en')
   call.mockImplementation(async (method: string, params: unknown) =>
-    method === 'robotlab.settings.get' ? { max_attempts: 20, sim_speed: 1 } : params,
+    method === 'robotlab.settings.get' ? { max_attempts: 40, sim_speed: 1 } : params,
   )
 })
 function mount() {
@@ -24,7 +24,7 @@ function mount() {
 }
 it('loads current settings and saves a bounded update', async () => {
   mount()
-  expect(await screen.findByLabelText('Maximum attempts')).toHaveValue(20)
+  expect(await screen.findByLabelText('Maximum attempts')).toHaveValue(40)
   expect(screen.getByLabelText('Simulation speed')).toHaveValue(1)
   fireEvent.change(screen.getByLabelText('Maximum attempts'), { target: { value: '35' } })
   fireEvent.change(screen.getByLabelText('Simulation speed'), { target: { value: '0.5' } })
@@ -48,4 +48,18 @@ it('rejects invalid settings and reports backend failures', async () => {
   fireEvent.change(screen.getByLabelText('Maximum attempts'), { target: { value: '10' } })
   fireEvent.submit(view.container.querySelector('form')!)
   expect(await screen.findByRole('alert')).toHaveTextContent('Runtime unavailable')
+})
+
+it.each(['en', 'es'])('defaults missing max attempts to 40 (%s)', async (language) => {
+  await i18n.changeLanguage(language)
+  call.mockResolvedValueOnce({ sim_speed: 1 })
+  mount()
+  expect(
+    await screen.findByLabelText(language === 'es' ? 'Máximo de intentos' : 'Maximum attempts'),
+  ).toHaveValue(40)
+})
+it('preserves an explicitly saved attempt limit', async () => {
+  call.mockResolvedValueOnce({ max_attempts: 12, sim_speed: 1 })
+  mount()
+  expect(await screen.findByLabelText('Maximum attempts')).toHaveValue(12)
 })

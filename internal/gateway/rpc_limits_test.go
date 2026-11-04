@@ -66,10 +66,6 @@ var rpcSizeCases = []struct {
 	{"ordinary above 4 MiB", api.MethodPrincipalGet, maxRPCBodyBytes + 1, false},
 	{"other lab method above 4 MiB", api.MethodRobotLabEnvGet, maxRPCBodyBytes + 1, false},
 	{"unknown method above 4 MiB", "unknown", maxRPCBodyBytes + 1, false},
-	{"upload above 4 MiB", api.MethodRobotLabMediaUpload, maxRPCBodyBytes + 1, true},
-	{"32 MiB base64 upload envelope", api.MethodRobotLabMediaUpload, (32<<20+2)/3*4 + 256, true},
-	{"upload at 48 MiB", api.MethodRobotLabMediaUpload, maxMediaUploadRPCBodyBytes, true},
-	{"upload above 48 MiB", api.MethodRobotLabMediaUpload, maxMediaUploadRPCBodyBytes + 1, false},
 }
 
 func TestHTTPRPCBodyLimits(t *testing.T) {
@@ -112,11 +108,11 @@ func TestWebSocketRPCBodyLimits(t *testing.T) {
 			before := backend.calls.Load()
 			err = conn.Write(ctx, websocket.MessageText, sizedRPC(tc.method, tc.size))
 			// The peer may close while an oversized message is still being sent.
-			if err != nil && tc.size <= maxMediaUploadRPCBodyBytes {
+			if err != nil && tc.size <= maxRPCBodyBytes {
 				t.Fatal(err)
 			}
 			_, raw, err := conn.Read(ctx)
-			if tc.size > maxMediaUploadRPCBodyBytes {
+			if tc.size > maxRPCBodyBytes {
 				if websocket.CloseStatus(err) != websocket.StatusMessageTooBig {
 					t.Fatalf("expected message-too-big close, got %v", err)
 				}
@@ -151,9 +147,9 @@ func TestHTTPRPCBodyLimitCannotBeBypassed(t *testing.T) {
 	backend := &rpcLimitBackend{Backend: NewMemoryBackend(nil)}
 	gate := New(DefaultConfig(), backend, nil, nil)
 	for name, raw := range map[string][]byte{
-		"upload batch":        append(append([]byte{'['}, sizedRPC(api.MethodRobotLabMediaUpload, maxRPCBodyBytes)...), ']'),
+		"request batch":       append(append([]byte{'['}, sizedRPC(api.MethodPrincipalGet, maxRPCBodyBytes)...), ']'),
 		"trailing whitespace": append([]byte(`{"jsonrpc":"2.0","id":"limit","method":"principal.get","params":{}}`), bytes.Repeat([]byte{' '}, maxRPCBodyBytes)...),
-		"nested method":       append([]byte(`{"jsonrpc":"2.0","id":"limit","method":"principal.get","params":{"method":"robotlab.media.upload","data":"`), append(bytes.Repeat([]byte{'x'}, maxRPCBodyBytes), []byte(`"}}`)...)...),
+		"nested method":       append([]byte(`{"jsonrpc":"2.0","id":"limit","method":"principal.get","params":{"method":"robotlab.env.get","data":"`), append(bytes.Repeat([]byte{'x'}, maxRPCBodyBytes), []byte(`"}}`)...)...),
 	} {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()

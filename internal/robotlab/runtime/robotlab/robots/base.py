@@ -7,8 +7,11 @@ Conventions
   seconds of *simulation* time. World frame: z up, floor at z=0.
 - Every name a robot adds to the world spec starts with ``robot/``.
 - Robot cameras are named ``robot/<camera>`` (for example ``robot/head``).
-- Tools are deterministic classical controllers. No learning, no randomness
-  unless seeded from ``ctx.rng``.
+- Tools are LOW-LEVEL and deterministic: they move joints or end points to
+  targets chosen by the agent (joint angles, foot/gripper positions via IK,
+  keyframe sequences). There are no behaviour tools (no walk, stand, pick).
+  Physics advances only while a tool runs; between calls the robot is frozen
+  with its motors holding the last targets.
 """
 from __future__ import annotations
 
@@ -106,9 +109,9 @@ class ToolContext(abc.ABC):
 
 class Robot(abc.ABC):
     """A simulated robot. One instance per world build."""
-    id: str            # 'arm' | 'dog' | 'drone' | 'humanoid'
+    id: str            # 'arm' | 'dog'
     name: dict         # {'en': 'Arm', 'es': 'Brazo'} - generic names only
-    world_kind: str    # 'table' (arm) | 'room' (others)
+    world_kind: str    # 'table' (arm) | 'room' (dog)
     default_camera: str  # e.g. 'robot/head'
 
     @abc.abstractmethod
@@ -156,6 +159,11 @@ class Robot(abc.ABC):
         """Robot base position on the floor plane (used by goals)."""
         s = self.state(model, data)
         return float(s['x']), float(s['y'])
+
+    def feet_contacts(self, model: mujoco.MjModel, data: mujoco.MjData) -> dict[str, list[int]]:
+        """Legged robots: {leg name: [non-robot geom ids each foot touches]}.
+        Used by the ``robot_on`` goal. Default: no feet."""
+        return {}
 
     def safety(self, model: mujoco.MjModel, data: mujoco.MjData) -> str | None:
         """Optional extra runtime safety check (speed, zones). Reason or None."""

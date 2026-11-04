@@ -1,70 +1,57 @@
-"""Measured body footprint and crouched floor-reach guidance."""
-import time
+"""Go2-only body, home pose, cameras and bilingual low-level card."""
+import json
+import math
 
 import numpy as np
 import pytest
 
-from robotlab.robots.dog import DogRobot
-from robotlab.robots.testing import SimpleContext, build
+from robotlab.robots.base import Spawn
+from robotlab.robots.dog import DogRobot, leg_ik
+from robotlab.robots.testing import build
 
 
-def test_body_card_footprint_matches_standing_collision_bounds():
+def test_body_home_cameras_and_card():
     robot = DogRobot()
-    model, data = build(robot)
-    robot.stand(SimpleContext(robot, model, data))
-    rotation = data.xmat[robot.base].reshape(3, 3)
-    bounds = []
-    for geom in range(model.ngeom):
-        if model.geom_group[geom] != 3 or not model.body(model.geom_bodyid[geom]).name.startswith('robot/'):
-            continue
-        local_rotation = rotation.T @ data.geom_xmat[geom].reshape(3, 3)
-        center = rotation.T @ (data.geom_xpos[geom]-data.xpos[robot.base])
-        center += local_rotation @ model.geom_aabb[geom, :3]
-        extent = np.abs(local_rotation) @ model.geom_aabb[geom, 3:]
-        bounds.append([center-extent, center+extent])
-    bounds = np.array(bounds)
-    footprint = bounds[:, 1, :2].max(axis=0)-bounds[:, 0, :2].min(axis=0)
+    model, data = build(robot, spawn=Spawn(1, -2, math.pi/2))
+    np.testing.assert_allclose(data.qpos[robot.lq], np.tile([0, .9, -1.8], 4))
+    assert data.qpos[robot.rq+2] == .27
+    assert robot.mass == pytest.approx(15.206408)
+    assert not any('arm/' in model.body(i).name for i in range(model.nbody))
+    assert robot.base_xy(model, data) == (1, -2)
+    assert robot.state(model, data)['yaw_deg'] == 90
+    front = -data.cam_xmat[model.camera('robot/head').id].reshape(3, 3)[:, 2]
+    rear = -data.cam_xmat[model.camera('robot/rear').id].reshape(3, 3)[:, 2]
+    forward = data.xmat[robot.base].reshape(3, 3)[:, 0]
+    assert np.dot(front, forward) > .94 and front[2] < -.15
+    assert np.dot(rear, forward) < -.3 and rear[2] < -.9
+    rear_id = model.camera('robot/rear').id
+    camera_rotation = data.cam_xmat[rear_id].reshape(3, 3)
+    # Both hind feet must actually fit the image, not just be behind the camera.
+    for foot in robot.feet[2:]:
+        point = camera_rotation.T @ (data.geom_xpos[foot]-data.cam_xpos[rear_id])
+        assert point[2] < 0
+        assert abs(point[1]/point[2]) < math.tan(math.radians(40))
+        assert abs(point[0]/point[2]) < math.tan(math.radians(40))*640/480
     card = robot.card()
-    print(f'standing collision footprint including folded arm: {footprint} m')
-    np.testing.assert_allclose(card['limits']['body_footprint_m'], footprint, atol=.01)
-    assert np.all(np.array(card['limits']['body_footprint_m']) >= footprint)
-    assert card['limits']['recommended_clearance_m'] == .35
-    assert card['limits']['crouched_floor_reach_m'] == [.25, .60]
-    assert all(' / ' in note for note in card['notes'])
-    assert any('0.35–0.5 m in front of the trunk center' in note and 'arm_move_to' in note
-               for note in card['notes'])
+    assert card['name'] == {'en': 'Dog', 'es': 'Perro'}
+    assert card['cameras'] == ['robot/head', 'robot/rear']
+    assert {t['name'] for t in card['tools']} == set(robot.tools()) | {'look'}
+    assert all(' / ' in n for n in card['notes'])
+    assert len(card['limits']['joints_deg']) == 12
+    for i, name in enumerate(robot.joint_names):
+        np.testing.assert_allclose(card['limits']['joints_deg'][name], np.rad2deg(robot.lrange[i]), atol=.01)
+    assert any('triangle' in n and 'margin' in n for n in card['notes'])
+    assert any('0.05 m' in n for n in card['notes'])
+    json.dumps(card, allow_nan=False)
 
 
-@pytest.mark.parametrize('distance', [.25, .35, .5, .6])
-def test_crouched_gripper_reaches_floor_ahead_of_trunk(distance):
+def test_analytic_ik_matches_real_foot_geometry():
     robot = DogRobot()
     model, data = build(robot)
-    ctx = SimpleContext(robot, model, data)
-    start = time.perf_counter()
-    assert robot.crouch(ctx, .22)['ok']
-    center = data.xpos[robot.base].copy()
-    heading = data.xmat[robot.base].reshape(3, 3)[:2, 0]
-    target = np.r_[center[:2]+distance*heading, .025]
-    result = robot.arm_move_to(ctx, *target)
-    reach = float(np.linalg.norm(data.site_xpos[robot.site, :2]-data.xpos[robot.base, :2]))
-    print(f'floor reach {distance:.2f} m: actual {reach:.4f} m, '
-          f'grasp height {data.site_xpos[robot.site, 2]:.4f} m, '
-          f'{time.perf_counter()-start:.2f} wall s')
-    assert result['ok'], result
-    assert reach == pytest.approx(distance, abs=.02)
-    assert 0 <= data.site_xpos[robot.site, 2] <= .03
-    assert robot.fallen(model, data) is None
-
-
-@pytest.mark.parametrize('distance', [.20, .65])
-def test_floor_targets_outside_measured_range_fail_clearly(distance):
-    robot = DogRobot()
-    model, data = build(robot)
-    ctx = SimpleContext(robot, model, data)
-    robot.crouch(ctx, .22)
-    target = data.xpos[robot.base].copy()
-    target[0] += distance
-    target[2] = .025
-    result = robot.arm_move_to(ctx, *target)
-    assert not result['ok']
-    assert result['error'] == 'No reachable downward arm solution'
+    for leg, side in zip(robot.legs, (1, -1, 1, -1)):
+        i = robot.legs.index(leg)
+        hip = model.body('robot/'+leg+'_hip').id
+        p = data.geom_xpos[robot.feet[i]]-data.xpos[hip]
+        np.testing.assert_allclose(leg_ik(*p, side), [0, .9, -1.8], atol=1e-10)
+    with pytest.raises(ValueError):
+        leg_ik(1, .0955, -.2, 1)
