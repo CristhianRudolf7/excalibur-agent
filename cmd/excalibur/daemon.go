@@ -16,6 +16,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/automations"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/classroom"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/codexlink"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/config"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
@@ -126,6 +127,13 @@ func runDaemonStart(args []string) error {
 	if modelErr != nil {
 		return fmt.Errorf("daemon start: model wiring: %w", modelErr)
 	}
+	modelSettings, codexRelay, modelErr := daemon.WireCodex(ctx, data, modelSettings, layerCfg.Models, codexlink.RelayOptions{})
+	if modelErr != nil {
+		return fmt.Errorf("daemon start: account relay: %w", modelErr)
+	}
+	if codexRelay != nil {
+		defer codexRelay.Close()
+	}
 	var media *tools.MediaDeps
 	var modelGateway *models.Gateway
 	var choiceDec daemon.ChoiceDecider
@@ -133,7 +141,7 @@ func runDaemonStart(args []string) error {
 	case modelSettings.Stub() || !modelSettings.Configured():
 		fmt.Fprintln(os.Stderr, "daemon: no model provider configured; intake and memory run deterministic")
 	default:
-		p, berr := cli.BuildProvider(ctx, modelSettings, daemon.VaultSecretResolver(v))
+		p, berr := buildDaemonProvider(ctx, modelSettings, codexRelay, daemon.VaultSecretResolver(v))
 		switch {
 		case berr != nil && v != nil && v.IsLocked():
 			// A provider key held in the vault cannot resolve while the
@@ -208,7 +216,12 @@ func runDaemonStart(args []string) error {
 	var memSvc *memory.Service
 	if db != nil {
 		memSvc = memory.NewService(db, wireengine.VisionMemoryOption(media))
-		if emb, eerr := cli.BuildEmbedder(modelSettings, nil); eerr != nil {
+		embeddingSettings := modelSettings
+		if codexRelay != nil {
+			// Account sign-in exposes Responses only; retain local retrieval.
+			embeddingSettings = models.ModelSettings{}
+		}
+		if emb, eerr := cli.BuildEmbedder(embeddingSettings, nil); eerr != nil {
 			fmt.Fprintf(os.Stderr, "daemon: embeddings disabled: %v\n", eerr)
 		} else if emb != nil {
 			memSvc = memory.NewService(db, memory.WithEmbedder(emb), wireengine.VisionMemoryOption(media))

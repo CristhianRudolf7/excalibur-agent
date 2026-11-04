@@ -329,6 +329,10 @@ export interface RpcMethods
     result: { events: ConversationEvent[] | null; cursor: string }
   }
   'google.status': { params: Record<string, never>; result: GoogleStatus }
+  'codex.status': { params: Record<string, never>; result: CodexStatus }
+  'codex.login.start': { params: Record<string, never>; result: { auth_url: string } }
+  'codex.login.complete': { params: { code: string; state: string }; result: CodexStatus }
+  'codex.logout': { params: Record<string, never>; result: CodexStatus }
   'google.connect.start': { params: Record<string, never>; result: { auth_url: string } }
   'google.connect.complete': { params: { code: string; state: string }; result: GoogleStatus }
   'google.disconnect': { params: Record<string, never>; result: GoogleStatus }
@@ -366,6 +370,15 @@ export interface RpcMethods
   }
   'library.delete': { params: { id: string }; result: { deleted: boolean; notice: string } }
   'library.cancel': { params: { id: string }; result: { document: DocumentInfo } }
+}
+
+/** Public metadata only; credentials remain in the daemon's local account store. */
+export interface CodexStatus {
+  connected: boolean
+  source: 'excalibur' | 'codex-cli' | 'env' | ''
+  account_email: string
+  plan_type: string
+  expires_at?: string
 }
 
 export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'failed' | 'cancelled'

@@ -164,6 +164,7 @@ func (c *OrchControl) SetScope(_, _ string) error { return nil }
 // every family degrades to the embedded backend.
 type DaemonBackend struct {
 	previews       *previewManager
+	codex          *CodexConnection
 	credentials    *CredentialRegistry
 	classroomTurns classroomTurns
 	Master         *master.Master

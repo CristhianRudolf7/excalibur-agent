@@ -282,7 +282,9 @@ it('shows localized fallback text without WebGL, waits for null scenes and recov
   const view = render(<SceneView scene={scene} frame={null} view="observer" label="Environment" />)
   expect(screen.getByRole('status')).toHaveTextContent('WebGL')
   const graphics = renderer()
-  view.rerender(<SceneView scene={{ ...scene }} frame={null} view="observer" label="Environment" />)
+  view.rerender(
+    <SceneView scene={{ ...scene }} frame={frameFixture()} view="observer" label="Environment" />,
+  )
   tick()
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
   expect(graphics.render).toHaveBeenCalledOnce()
@@ -388,4 +390,60 @@ it('fades the near unnamed wall per frame and restores it after orbit, only in o
   const cameraWall = graphics.render.mock.calls.at(-1)![0].getObjectByName('world')!
     .children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>
   expect(cameraWall.material.opacity).toBe(1)
+})
+
+it('hides every body with an unknown world pose, including static stairs, until a frame arrives', () => {
+  const graphics = renderer()
+  const stairs: Scene = {
+    ...scene,
+    bodies: [
+      ...scene.bodies,
+      { name: 'stairs/step', geoms: [{ type: 'box', size: [0.5, 0.3, 0.1] }] },
+    ],
+  }
+  const view = render(<SceneView scene={stairs} frame={null} view="observer" label="Observer" />)
+  tick()
+  const world = graphics.render.mock.calls[0]![0]
+  expect(world.getObjectByName('world')!.visible).toBe(true)
+  expect(world.getObjectByName('robot/base')!.visible).toBe(false)
+  expect(world.getObjectByName('stairs/step')!.visible).toBe(false)
+  const frame = frameFixture(0, {
+    poses: [...frameFixture().poses, 1.5, 0, 0.2, 1, 0, 0, 0],
+  })
+  view.rerender(<SceneView scene={stairs} frame={frame} view="observer" label="Observer" />)
+  tick()
+  expect(world.getObjectByName('robot/base')!.visible).toBe(true)
+  const step = world.getObjectByName('stairs/step')!
+  expect(step.visible).toBe(true)
+  expect(step.position.toArray()).toEqual([1.5, 0, 0.2])
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  view.rerender(<SceneView scene={stairs} frame={null} view="observer" label="Observer" />)
+  tick()
+  expect(step.visible).toBe(false)
+  expect(world.getObjectByName('robot/base')!.visible).toBe(false)
+  expect(mocks.renderer).toHaveBeenCalledOnce()
+})
+
+it('keeps bodies hidden when a frame has no complete valid pose for them', () => {
+  const graphics = renderer()
+  render(
+    <SceneView
+      scene={scene}
+      frame={frameFixture(0, { poses: [0, 0, 0, 1, 0, 0, 0] })}
+      view="observer"
+      label="Observer"
+    />,
+  )
+  tick()
+  expect(graphics.render.mock.calls[0]![0].getObjectByName('robot/base')!.visible).toBe(false)
+})
+
+it('shows pose waiting feedback in English and Spanish for observer and camera views', async () => {
+  renderer()
+  await i18n.changeLanguage('en')
+  const view = render(<SceneView scene={scene} frame={null} view="observer" label="Observer" />)
+  expect(screen.getByRole('status')).toHaveTextContent('Waiting for the recorded pose…')
+  await act(() => i18n.changeLanguage('es'))
+  view.rerender(<SceneView scene={scene} frame={null} view="camera" label="Camera" />)
+  expect(screen.getByRole('status')).toHaveTextContent('Esperando la pose grabada…')
 })

@@ -1,0 +1,41 @@
+.codex-connect {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+.codex-connect h3,
+.codex-connect p {
+  margin: 0;
+}
+.codex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+.codex-paste {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.codex-paste a {
+  color: var(--primary-strong);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.codex-paste input {
+  min-width: 0;
+  width: 100%;
+  padding: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+.codex-paste input:focus-visible,
+.codex-paste a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.codex-paste button {
+  justify-self: start;
+}

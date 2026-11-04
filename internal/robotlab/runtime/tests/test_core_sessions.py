@@ -30,8 +30,9 @@ def test_lifecycle_and_replay(tmp_path, environment, fake_modules):
     assert s.get(sid)['status'] == 'succeeded'
     assert s.list()[0]['live'] is False
     frames = s.frames(sid, 1)
-    assert 18 <= frames['total'] <= 20
-    assert frames['frames'][0]['seq'] == 1
+    assert 19 <= frames['total'] <= 21
+    assert frames['frames'][0]['seq'] == 0
+    assert frames['frames'][1]['seq'] == 1
     assert s.log(sid)['next'] == 2
     assert s.store.load(sid)['status'] == 'succeeded'
     with pytest.raises(RPCError):
@@ -105,11 +106,11 @@ def test_restart_recovers_inflight_recording(tmp_path, environment, fake_modules
     sid = start(s)
     # Simulate a crash before the action completion persisted session metadata.
     s.ctx.step(.5)
-    assert s.store.load(sid)['attempts'][0]['frames'] == 0
+    assert s.store.load(sid)['attempts'][0]['frames'] == 1
     restarted = manager(tmp_path, environment)
     recovered = restarted.get(sid)['attempts'][0]
     assert recovered['status'] == 'stopped'
-    assert recovered['frames'] == 10
+    assert recovered['frames'] == 11
     assert recovered['sim_time'] == .5
 
 
@@ -138,7 +139,7 @@ def test_sixteen_keyframes_with_full_duration_keep_attempt_running(tmp_path, env
     assert result['ok'] and result['attempt']['status'] == 'running'
     assert len(executed) == 16
     assert s.world.data.time == pytest.approx(30 + settle)
-    assert s.frames(sid, 1)['total'] == round((30 + settle) * 20)
+    assert s.frames(sid, 1)['total'] == 1 + round((30 + settle) * 20)
     before = s.world.data.time
     with pytest.raises(RPCError, match='invalid length'):
         s.act(sid, 'sequence', {'keyframes': [{'duration': 1}]*17, 'settle': settle})

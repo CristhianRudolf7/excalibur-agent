@@ -31,6 +31,8 @@ export function mountScene(node: HTMLDivElement, options: Options) {
   const bodies = scene.bodies.map((entry) => {
     const body = new THREE.Group()
     body.name = entry.name
+    // Only the world body has a known transform without a recorded or live pose.
+    body.visible = entry.name === 'world'
     world.add(body)
     return body
   })
@@ -132,7 +134,12 @@ export function mountScene(node: HTMLDivElement, options: Options) {
     const elapsed = Math.min(Math.max((now - previous) / 1000, 0), 0.1)
     previous = now
     const frame = options.frame()
-    if (frame) bodies.forEach((body, index) => applyPose(body, frame.poses, index * 7))
+    bodies.forEach((body, index) => {
+      const pose = frame?.poses.slice(index * 7, index * 7 + 7)
+      const known = pose?.length === 7 && pose.every(Number.isFinite)
+      body.visible = !!known || body.name === 'world'
+      if (known) applyPose(body, pose)
+    })
     if (view === 'observer' && controls) {
       if (recenter !== options.recenter()) {
         recenter = options.recenter()

@@ -20,6 +20,7 @@ import {
 import { useProfile } from '@/features/profile/api'
 import { TimeZone } from './TimeZone'
 import { GoogleConnect } from './GoogleConnect'
+import { CodexConnect } from './CodexConnect'
 import { Segmented } from './Segmented'
 import { Skills } from './Skills'
 import { Passwords } from './Passwords'
@@ -207,7 +208,10 @@ export default function Settings() {
           ) : section.id === 'agents' ? (
             <AgentSettings />
           ) : section.id === 'connections' ? (
-            <GoogleConnect />
+            <>
+              <CodexConnect />
+              <GoogleConnect />
+            </>
           ) : section.id === 'passwords' ? (
             <Passwords />
           ) : section.id === 'robotlab' ? (

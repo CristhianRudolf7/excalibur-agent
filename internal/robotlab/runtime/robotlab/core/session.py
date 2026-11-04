@@ -189,7 +189,7 @@ class Sessions:
                                log=lambda text: self.note(self.live['id'], text, 'note'),
                                session=self.live['id'], attempt=n)
         self._last_call = {'tool': None, 'args': {}}
-        self._cache_observation()
+        self.ctx._frame(initial=True)
 
     def _cache_observation(self):
         # Called only by the simulation owner, with self.lock held. Readers use
@@ -201,7 +201,7 @@ class Sessions:
     def _record(self, frame):
         with self.lock:
             attempt = self.live['attempts'][-1]
-            attempt['frames'] = frame['seq']
+            attempt['frames'] += 1
             attempt['sim_time'] = float(self.world.data.time)
             self._cache_observation()
             self.store.append(self.store.session_dir(self.live['id']) / 'attempts' / str(attempt['n']) / 'frames.jsonl', frame)

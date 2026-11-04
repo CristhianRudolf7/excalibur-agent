@@ -59,9 +59,11 @@ export function SceneView({
     ? text('webglUnavailable')
     : !scene
       ? text(loading ? 'loadingScene' : 'noScene')
-      : view === 'camera' && (!frame || (camera && camera !== frame.camera.name))
-        ? text('noCamera')
-        : undefined
+      : !frame && scene.robot
+        ? text('waitingPose')
+        : view === 'camera' && (!frame || (camera && camera !== frame.camera.name))
+          ? text('noCamera')
+          : undefined
   return (
     <div
       role="img"

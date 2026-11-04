@@ -44,7 +44,7 @@ def test_runtime_routes(tmp_path, environment, fake_modules):
                      'goal': {'type': 'robot_near', 'target': {'point': [1, 0]}, 'radius': .1}})['session']['id']
     assert rt.dispatch('status', {})['live_session'] == sid
     assert rt.dispatch('robot.act', {'session': sid, 'tool': 'push', 'args': {'dx': 1.2}})['goal']['met']
-    assert rt.dispatch('attempt.frames', {'session': sid, 'attempt': 1, 'from': 1, 'count': 2})['frames'][0]['seq'] == 2
+    assert rt.dispatch('attempt.frames', {'session': sid, 'attempt': 1, 'from': 1, 'count': 2})['frames'][0]['seq'] == 1
     assert rt.dispatch('session.list', {})['sessions'][0]['status'] == 'succeeded'
     with pytest.raises(RPCError):
         rt.dispatch('session.start', {})
@@ -101,8 +101,13 @@ def test_subprocess_smoke_and_responsiveness(tmp_path, environment):
         started = receive(id=send('session.start', {'robot': 'dog', 'environment': 'test-room', 'task': 'Move',
                             'goal': {'type': 'robot_near', 'target': {'point': [1, 0]}, 'radius': .1}}))
         sid = started['result']['session']['id']
+        initial = receive(event='frame')['data']
+        assert initial['session'] == sid and initial['attempt'] == 1
+        assert initial['seq'] == 0 and initial['t'] == 0
+        assert receive(id=send('attempt.frames', {'session': sid, 'attempt': 1}))['result'] == {
+            'frames': [initial], 'total': 1}
         act = send('robot.act', {'session': sid, 'tool': 'push', 'args': {'dx': 0, 'duration': 30}})
-        receive(event='frame')
+        assert receive(event='frame')['data']['seq'] > 0
         assert receive(id=send('robot.act', {'session': sid, 'tool': 'push', 'args': {'dx': 0}}))['error']['code'] == 'conflict'
         before = time.monotonic()
         for method, params in [('status', {}), ('session.get', {'session': sid}), ('session.log', {'session': sid}),

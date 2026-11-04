@@ -32,6 +32,11 @@ class Client:
     def start(self, robot, environment, goal):
         self.sid = self.call('session.start', robot=robot, environment=environment,
                              task='Verify deterministic training', goal=goal)['session']['id']
+        frames = self.call('attempt.frames', session=self.sid, attempt=1)
+        assert frames['total'] == 1
+        initial = frames['frames'][0]
+        assert initial['seq'] == 0 and initial['t'] == 0
+        assert [event['data'] for event in self.events if event['event'] == 'frame'] == [initial]
         return self.sid
 
     def act(self, tool, **args):
@@ -50,7 +55,7 @@ class Client:
         frames = self.call('attempt.frames', session=self.sid, attempt=attempt, count=400)
         assert frames['total'] > 0
         assert frames['total'] == session['attempts'][attempt - 1]['frames']
-        assert frames['total'] == math.floor((session['attempts'][attempt - 1]['sim_time'] + 1e-8) * 20)
+        assert frames['total'] == 1 + math.floor((session['attempts'][attempt - 1]['sim_time'] + 1e-8) * 20)
         scene = self.call('session.scene', session=self.sid)['scene']
         assert all(len(frame['poses']) == 7 * len(scene['bodies']) for frame in frames['frames'])
         assert any(event['event'] == 'frame' for event in self.events)

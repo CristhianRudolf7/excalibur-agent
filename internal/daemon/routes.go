@@ -35,6 +35,7 @@ import (
 // tests never need the full stack.
 type BackendServices struct {
 	BrowserLive *browserLiveHub
+	Codex       *CodexConnection
 	Collections *CollectionRoutes
 	Google      googleapi.TokenProvider
 	Agents      *agents.Registry
@@ -121,6 +122,13 @@ func (b *DaemonBackend) FilesList(ctx context.Context, params api.FilesListParam
 func (b *DaemonBackend) Passthrough(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	if method == api.MethodBrowserLiveState {
 		return b.browserLiveOp(ctx, params)
+	}
+	if strings.HasPrefix(method, "codex.") {
+		connection := b.codex
+		if b.Services != nil && b.Services.Codex != nil {
+			connection = b.Services.Codex
+		}
+		return connection.Op(ctx, method, params)
 	}
 	if strings.HasPrefix(method, "agents.") {
 		return b.agentsOp(ctx, method, params)

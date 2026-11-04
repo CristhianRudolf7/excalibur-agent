@@ -174,7 +174,7 @@ it('selects an old attempt and uses replay rather than live frames', async () =>
   mount(<SessionView id="session-1" mobile={false} onBack={vi.fn()} />)
   await screen.findByLabelText('Attempt')
   fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
-  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
+  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1, true)
   expect(mocks.live).toHaveBeenLastCalledWith(undefined, undefined)
   expect(screen.getByText('Replay: 0')).toBeInTheDocument()
 })
@@ -360,7 +360,7 @@ it('focus switches a resumed session from an old replay to the new live attempt'
   )
   await screen.findByLabelText('Attempt')
   fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
-  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
+  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1, true)
   const resumed: Session = {
     ...session,
     attempt: 3,
@@ -384,7 +384,7 @@ it('focus switches a resumed session from an old replay to the new live attempt'
     '3',
   ])
   expect(screen.queryByText('Replay: 0')).not.toBeInTheDocument()
-  expect(mocks.replay).toHaveBeenLastCalledWith(undefined, undefined)
+  expect(mocks.replay).toHaveBeenLastCalledWith(undefined, undefined, true)
   expect(mocks.live).toHaveBeenLastCalledWith('session-1', 3)
   expect(screen.getByText('Chat: excalibur')).toBeVisible()
   expect(screen.getByRole('button', { name: 'Stop session' })).toBeVisible()
@@ -396,5 +396,5 @@ it('focus switches a resumed session from an old replay to the new live attempt'
   await waitFor(() => expect(screen.getByLabelText('Attempt')).toBeEnabled())
   expect(screen.getByLabelText('Attempt')).toHaveValue('3')
   fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: '1' } })
-  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1)
+  expect(mocks.replay).toHaveBeenLastCalledWith('session-1', 1, true)
 })

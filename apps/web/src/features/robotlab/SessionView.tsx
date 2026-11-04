@@ -86,12 +86,13 @@ function SessionWorkspace({
       : session.attempt
   const scene = useScene('session', session.id, live)
   const liveFrame = useLiveFrame(live ? session.id : undefined, live ? session.attempt : undefined)
-  const replay = useReplay(live ? undefined : session.id, live ? undefined : attempt)
+  const replay = useReplay(live ? undefined : session.id, live ? undefined : attempt, true)
+  const activeFrame = live ? liveFrame : replay.frame
   const recorded = useLatestRecordedFrame(
-    live && !liveFrame ? session.id : undefined,
-    live && !liveFrame ? session.attempt : undefined,
+    !activeFrame ? session.id : undefined,
+    !activeFrame ? attempt : undefined,
   )
-  const frame = live ? (liveFrame ?? recorded) : replay.frame
+  const frame = activeFrame ?? recorded
   const agent = (
     <SessionAgent session={session} attempt={attempt} time={live ? undefined : replay.t} />
   )

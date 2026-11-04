@@ -6,7 +6,7 @@ import type { Frame } from './types'
 import { RpcError } from '@/lib/rpc/client'
 const mocks = vi.hoisted(() => ({ call: vi.fn(), subscribe: vi.fn(), stop: vi.fn() }))
 vi.mock('./rpc', () => ({ viewerCall: mocks.call, subscribeFrames: mocks.subscribe }))
-import { useLiveFrame, useReplay, useScene } from './hooks'
+import { useLatestRecordedFrame, useLiveFrame, useReplay, useScene } from './hooks'
 import { frameFixture, sceneFixture } from './fixtures.test-support'
 let queryClient: QueryClient
 function wrapper({ children }: { children: ReactNode }) {
@@ -255,4 +255,71 @@ it('clears old live frames and rejects late frames when the same session gets a 
   tick(16)
   expect(hook.result.current?.attempt).toBe(2)
   expect(hook.result.current?.seq).toBe(1)
+})
+
+it('fetches only the head and final record to initialize the last known pose', async () => {
+  mocks.call
+    .mockResolvedValueOnce({ frames: [frameFixture(0)], total: 50 })
+    .mockResolvedValueOnce({ frames: [frameFixture(49)], total: 50 })
+  const hook = renderHook(() => useLatestRecordedFrame('session', 1))
+  expect(hook.result.current).toBeNull()
+  await waitFor(() => expect(hook.result.current?.seq).toBe(49))
+  expect(mocks.call.mock.calls.map(([, params]) => params)).toEqual([
+    { session: 'session', attempt: 1, from: 0, count: 1 },
+    { session: 'session', attempt: 1, from: 49, count: 1 },
+  ])
+})
+
+it('falls back through empty attempts to the previous attempt with a recorded pose', async () => {
+  mocks.call
+    .mockResolvedValueOnce({ frames: [], total: 0 })
+    .mockResolvedValueOnce({ frames: [], total: 0 })
+    .mockResolvedValueOnce({ frames: [frameFixture(0)], total: 10 })
+    .mockResolvedValueOnce({ frames: [frameFixture(9)], total: 10 })
+  const hook = renderHook(() => useLatestRecordedFrame('session', 3))
+  await waitFor(() => expect(hook.result.current?.seq).toBe(9))
+  expect(hook.result.current?.attempt).toBe(1)
+  expect(mocks.call.mock.calls.map(([, params]) => params.attempt)).toEqual([3, 2, 1, 1])
+})
+
+it('keeps the pose unknown when no attempt has frames and does not query attempt zero', async () => {
+  mocks.call.mockResolvedValue({ frames: [], total: 0 })
+  const hook = renderHook(() => useLatestRecordedFrame('session', 2))
+  await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2))
+  expect(hook.result.current).toBeNull()
+  expect(mocks.call.mock.calls.map(([, params]) => params.attempt)).toEqual([2, 1])
+})
+
+it('cancels initial pose loads on session changes and ignores their late responses', async () => {
+  let finish: (value: { frames: Frame[]; total: number }) => void = () => {}
+  mocks.call.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+  )
+  const hook = renderHook(({ session }) => useLatestRecordedFrame(session, 1), {
+    initialProps: { session: 'session' },
+  })
+  const signal = mocks.call.mock.calls[0]![2].signal as AbortSignal
+  mocks.call.mockResolvedValueOnce({ frames: [frameFixture(1, { session: 'next' })], total: 1 })
+  hook.rerender({ session: 'next' })
+  expect(signal.aborted).toBe(true)
+  await waitFor(() => expect(hook.result.current?.session).toBe('next'))
+  await act(async () => finish({ frames: [frameFixture(20)], total: 1 }))
+  expect(hook.result.current?.session).toBe('next')
+})
+
+it('can open a stopped replay at its last pose and restart playback from the beginning', async () => {
+  mocks.call.mockResolvedValue({ frames: [frameFixture(0), frameFixture(20)], total: 2 })
+  const hook = renderHook(() => useReplay('session', 1, true))
+  await waitFor(() => expect(hook.result.current.loading).toBe(false))
+  expect(hook.result.current.frame?.seq).toBe(20)
+  expect(hook.result.current.t).toBe(1)
+  act(() => hook.result.current.play())
+  expect(hook.result.current.t).toBe(0)
+  tick(100)
+  expect(hook.result.current.t).toBeCloseTo(0.1)
+  act(() => hook.result.current.seek(0.5))
+  expect(hook.result.current.t).toBe(0.5)
 })

@@ -37,26 +37,35 @@ export function useScene(
   }
 }
 
-/** Last recorded frame of an attempt: shows the frozen robot while the agent thinks. */
+/** Last known pose, including the previous recording when a new attempt is still empty. */
 export function useLatestRecordedFrame(session: string | undefined, attempt: number | undefined) {
   const query = useQuery({
     queryKey: ['robotlab', 'viewer', 'latest-frame', session, attempt],
     enabled: !!session && attempt !== undefined,
     retry: 3,
     queryFn: async ({ signal }) => {
-      const head = await viewerCall(
-        'robotlab.attempt.frames',
-        { session: session!, attempt: attempt!, from: 0, count: 1 },
-        { signal },
-      )
-      const total = head.total ?? 0
-      if (total <= 1) return (head.frames?.[0] as Frame | undefined) ?? null
-      const tail = await viewerCall(
-        'robotlab.attempt.frames',
-        { session: session!, attempt: attempt!, from: total - 1, count: 1 },
-        { signal },
-      )
-      return (tail.frames?.[0] as Frame | undefined) ?? null
+      for (let n = attempt!; n >= 1; n--) {
+        signal.throwIfAborted()
+        const head = await viewerCall(
+          'robotlab.attempt.frames',
+          { session: session!, attempt: n, from: 0, count: 1 },
+          { signal },
+        )
+        signal.throwIfAborted()
+        if (head.total === 0) continue
+        const tail =
+          head.total <= 1
+            ? head
+            : await viewerCall(
+                'robotlab.attempt.frames',
+                { session: session!, attempt: n, from: head.total - 1, count: 1 },
+                { signal },
+              )
+        signal.throwIfAborted()
+        const frame = tail.frames.at(-1)
+        if (frame && frame.session === session && frame.attempt === n) return frame
+      }
+      return null
     },
   })
   return query.data ?? null
@@ -96,7 +105,11 @@ export function useLiveFrame(session: string | undefined, attempt?: number): Fra
   return state.key === key ? state.frame : null
 }
 
-export function useReplay(session: string | undefined, attempt: number | undefined) {
+export function useReplay(
+  session: string | undefined,
+  attempt: number | undefined,
+  startAtEnd = false,
+) {
   const text = useViewerText()
   const key = JSON.stringify([session, attempt])
   const enabled = !!session && attempt !== undefined
@@ -107,8 +120,13 @@ export function useReplay(session: string | undefined, attempt: number | undefin
     queryFn: ({ signal }) => fetchFrames(session!, attempt!, signal),
   })
   const [speed, updateSpeed] = useState(1)
-  const [state, setState] = useState({ key, t: 0, playing: false })
-  if (state.key !== key) setState({ key, t: 0, playing: false })
+  const initialTime = startAtEnd ? null : 0
+  const [state, setState] = useState<{ key: string; t: number | null; playing: boolean }>({
+    key,
+    t: initialTime,
+    playing: false,
+  })
+  if (state.key !== key) setState({ key, t: initialTime, playing: false })
   const frames = recording.data ?? []
   const duration = frames.at(-1)?.t ?? 0
   const loading = enabled && recording.isPending
@@ -121,7 +139,7 @@ export function useReplay(session: string | undefined, attempt: number | undefin
       previous = now
       setState((value) => {
         if (value.key !== key || !value.playing) return value
-        const t = advanceTime(value.t, elapsed, speed, duration)
+        const t = advanceTime(value.t ?? duration, elapsed, speed, duration)
         return { ...value, t, playing: t < duration }
       })
       animation = requestAnimationFrame(tick)
@@ -134,7 +152,7 @@ export function useReplay(session: string | undefined, attempt: number | undefin
   const play = useCallback(() => {
     setState((value) =>
       value.key === key && !loading && duration > 0
-        ? { ...value, t: value.t >= duration ? 0 : value.t, playing: true }
+        ? { ...value, t: (value.t ?? duration) >= duration ? 0 : value.t, playing: true }
         : value,
     )
   }, [key, loading, duration])
@@ -152,9 +170,10 @@ export function useReplay(session: string | undefined, attempt: number | undefin
     if (Number.isFinite(value) && value > 0) updateSpeed(Math.max(0.25, Math.min(value, 4)))
   }, [])
   const valid = state.key === key
+  const t = valid ? (state.t ?? duration) : 0
   return {
-    frame: valid ? frameAt(frames, state.t) : null,
-    t: valid ? state.t : 0,
+    frame: valid ? frameAt(frames, t) : null,
+    t,
     duration,
     playing: valid && state.playing,
     loading,

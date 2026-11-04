@@ -211,6 +211,19 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 	// Service loops end with the daemon, not with the caller's ctx
 	// alone: Stop cancels them and waits for each to exit.
 	svcCtx, svcCancel := context.WithCancel(ctx)
+	// Account sign-in uses the daemon data directory and closes with its lifecycle.
+	// Resolve here so production and embedded callers share the same wiring.
+	var account *CodexConnection
+	if b := d.dep.Backend; b != nil {
+		account = b.codex
+		if b.Services != nil && b.Services.Codex != nil {
+			account = b.Services.Codex
+		}
+		if account == nil {
+			account = NewCodexConnection(d.cfg.DataDir)
+		}
+		b.codex = account
+	}
 	if d.dep.Services != nil && d.dep.Services.Library != nil {
 		if err := d.dep.Services.Library.Start(svcCtx); err != nil {
 			svcCancel()
@@ -221,6 +234,15 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 		d.dep.Orch.Start(ctx)
 	}
 	svcDone := d.startServices(svcCtx)
+	if account != nil {
+		stopped := make(chan struct{})
+		safego.Go("account-connection-lifecycle", nil, func() {
+			defer close(stopped)
+			<-svcCtx.Done()
+			account.Close()
+		})
+		svcDone = append(svcDone, stopped)
+	}
 	d.mu.Lock()
 	d.svcCancel = svcCancel
 	d.svcDone = svcDone

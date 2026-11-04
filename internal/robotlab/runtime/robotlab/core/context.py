@@ -112,13 +112,15 @@ class ToolContext(BaseContext):
             if interruption:
                 raise interruption
 
-    def _frame(self, interruption=None):
-        self.seq += 1
+    def _frame(self, interruption=None, *, initial=False):
+        # Attempt setup uses seq 0 without changing the motion recording cadence.
+        if not initial:
+            self.seq += 1
         status = {'goal': 'succeeded', 'stopped': 'stopped', 'timeout': 'running'}.get(
             interruption.reason, 'failed') if interruption else 'running'
         camera = self.robot.default_camera
         frame = {'session': self.session, 'attempt': self.attempt, 'seq': self.seq,
-                 't': round(self.next_frame - self.origin, 4),
+                 't': 0. if initial else round(self.next_frame - self.origin, 4),
                  'poses': np.asarray(self.world.poses()).round(4).tolist(),
                  'camera': {'name': camera, 'pose': [round(float(v), 4) for v in self.world.camera_pose(camera)]},
                  'held': self.held(), 'status': status}

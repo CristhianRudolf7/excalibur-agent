@@ -38,9 +38,9 @@ def test_resume_preserves_recordings_and_skills(tmp_path, environment, fake_modu
     assert session['attempt'] == 3 and session['max_attempts'] == 6
     assert session['attempts'][:2] == old_attempts
     assert session['attempts'][-1]['status'] == 'running'
-    assert session['attempts'][-1]['frames'] == 0
+    assert session['attempts'][-1]['frames'] == 1
     assert [s.frames(sid, n) for n in (1, 2)] == old_frames
-    assert s.frames(sid, 3)['total'] == 0
+    assert s.frames(sid, 3)['total'] == 1
     assert (s.store.session_dir(sid) / 'scene.json').read_bytes() == scene
     assert s.world.env['name'] == environment['name']
     assert s.state(sid)['state']['x'] == 0
