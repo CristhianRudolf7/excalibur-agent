@@ -133,3 +133,63 @@ func TestCredentialChatActivation(t *testing.T) {
 		}
 	}
 }
+
+func TestCredentialBrowserOwnAppGuidance(t *testing.T) {
+	for _, tc := range []struct {
+		name, page, requested, workspace string
+		delivery, own                    bool
+	}{
+		{"delivery localhost", "http://127.0.0.1:8123/login", "http://127.0.0.1:8123/login", "", true, true},
+		{"unowned private site", "http://10.2.3.4:8123/login", "", "/workspace/app", false, false},
+		{"workspace ipv6", "http://[::1]:8123/login", "", "/workspace/app", false, true},
+		{"interactive localhost", "http://localhost:8123/login", "", "", false, false},
+		{"interactive external", "https://accounts.example.com/login", "", "", false, false},
+		{"delivery external", "https://accounts.example.com/login", "", "", true, false},
+		{"redirect external", "https://accounts.example.com/login", "http://127.0.0.1:8123/login", "", true, false},
+		{"redirect own app", "http://127.0.0.1:8123/login", "https://example.com", "", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, name := range []string{"browser_navigate", "browser_wait_ready", "browser_act"} {
+				for _, block := range []string{capabilities.BlockedLogin, capabilities.Blocked2FA} {
+					ctx := withDeliveryPolicy(context.Background(), deliveryPolicy{Autonomous: tc.delivery})
+					ctx = context.WithValue(ctx, workspaceAppKey{}, tc.workspace)
+					listing, _ := json.Marshal(map[string]any{"tabs": []map[string]string{{"tab_id": "tab", "url": tc.page}}})
+					tabs := &credentialBrowserStub{output: string(listing)}
+					stub := &credentialBrowserStub{output: "input_required: " + block}
+					wrapper := &credentialBrowserTool{Tool: stub, tabs: tabs}
+					args, _ := json.Marshal(map[string]string{"session_id": "session", "tab_id": "tab", "url": tc.requested, "action": "type"})
+					out, err := wrapper.Invoke(ctx, tools.Invocation{Tool: name, Arguments: args})
+					if err != nil || !tabs.called || strings.Contains(out.Output, "your own app") != tc.own {
+						t.Fatal(name, out, err)
+					}
+					if tc.own {
+						for _, want := range []string{"README/seed", ".env.example", "directly", "browser_act"} {
+							if !strings.Contains(out.Output, want) {
+								t.Error("own app guidance missing", want)
+							}
+						}
+						if strings.Contains(out.Output, "request_credentials") || strings.Contains(out.Output, "returned secret://") {
+							t.Fatal("own app hint requests user secrets", out.Output)
+						}
+					} else if tc.delivery {
+						if !strings.Contains(out.Output, "forms are disabled") || strings.Contains(out.Output, "Wait for the secure web form") {
+							t.Fatal("delivery hint invites a prompt", out.Output)
+						}
+					} else if !strings.Contains(out.Output, "Wait for the secure web form") {
+						t.Fatal("interactive hint changed", out.Output)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCredentialBrowserDoesNotGuessAmbiguousOrigin(t *testing.T) {
+	tabs := &credentialBrowserStub{output: `{"tabs":[{"tab_id":"a","url":"http://localhost:8123/login"},{"tab_id":"b","url":"https://example.com/login"}]}`}
+	wrapper := &credentialBrowserTool{Tool: &credentialBrowserStub{output: "input_required: " + capabilities.BlockedLogin}, tabs: tabs}
+	ctx := withDeliveryPolicy(context.Background(), deliveryPolicy{Autonomous: true})
+	out, err := wrapper.Invoke(ctx, tools.Invocation{Tool: "browser_navigate", Arguments: json.RawMessage(`{"session_id":"session","url":"http://localhost:8123/login"}`)})
+	if err != nil || strings.Contains(out.Output, "your own app") || !strings.Contains(out.Output, "forms are disabled") {
+		t.Fatal(out, err)
+	}
+}

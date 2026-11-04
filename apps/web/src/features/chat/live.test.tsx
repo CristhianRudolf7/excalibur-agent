@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import '@/lib/i18n'
+import i18n from '@/lib/i18n'
 import { rpc, RpcError, TransportError } from '@/lib/rpc/client'
 import type { ConversationEvent, ConversationMessage } from '@/lib/rpc/contract'
 import { useLibraryStore } from '@/features/library/store'
@@ -11,6 +11,7 @@ import { Chat } from './Chat'
 import { Composer } from './Composer'
 import * as attachmentHooks from '@/features/library/use-attachments'
 import { useChat } from './store'
+import { useCodingActivity } from './coding-store'
 import {
   connectConversation,
   conversationId,
@@ -51,6 +52,7 @@ const event = (message: ConversationMessage): ConversationEvent => ({
   payload: { ...message, message_id: message.id },
 })
 beforeEach(() => {
+  useCodingActivity.setState({ conversations: {} })
   useChat.setState({
     live: {},
     online: {},
@@ -465,4 +467,66 @@ it('renders live messages as soon as they arrive while initial history is still 
   expect(screen.queryByRole('status', { name: 'Cargando mensajes' })).not.toBeInTheDocument()
   await act(async () => release({ messages: [wire('older', 'Earlier history')] }))
   expect(useChat.getState().live.byte?.map((row) => row.id)).toEqual(['older', 'newest'])
+})
+
+it('keeps each activity turn between its user and final reply, across notices and later turns', async () => {
+  await i18n.changeLanguage('en')
+  vi.spyOn(rpc, 'call').mockResolvedValue({ messages: [] } as never)
+  const user = { ...wire('user-1', 'Build the endpoint'), role: 'user' }
+  receiveEvent('byte', event(user))
+  const coding = (run: string, state: string, parent?: string) =>
+    receiveEvent('byte', {
+      id: `${run}-${state}`,
+      seq: 1,
+      at: '2026-11-04T12:00:00Z',
+      type: 'run.progress',
+      payload: {
+        conversation_id: user.conversation_id,
+        run_id: run,
+        turn_id: 'turn-1',
+        parent_run_id: parent,
+        state,
+        steps: ['Verify the build'],
+      },
+    } as ConversationEvent)
+  coding('root', 'running')
+  receiveEvent('byte', event(wire('notice', 'I started a subagent.')))
+  coding('child', 'running', 'root')
+  const view = render(<Chat agentId="byte" onFile={() => {}} />)
+  const activity = screen.getByRole('region', { name: 'Coding activity' })
+  expect(
+    screen.getByText('Build the endpoint').compareDocumentPosition(activity) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  act(() => {
+    coding('child', 'completed', 'root')
+    coding('root', 'completed')
+    receiveEvent('byte', event(wire('final', 'The endpoint is ready.')))
+    receiveEvent('byte', event({ ...wire('user-2', 'Now add caching'), role: 'user' }))
+    receiveEvent('byte', {
+      id: 'next',
+      seq: 2,
+      at: '2026-11-04T13:00:00Z',
+      type: 'tool.called',
+      payload: {
+        conversation_id: user.conversation_id,
+        run_id: 'turn-2',
+        turn_id: 'turn-2',
+        tool: 'exec',
+      },
+    })
+  })
+  const blocks = screen.getAllByRole('region', { name: 'Coding activity' })
+  expect(blocks).toHaveLength(2)
+  expect(
+    activity.compareDocumentPosition(screen.getByText('The endpoint is ready.')) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  expect(activity.querySelector('button')).toHaveAttribute('aria-expanded', 'false')
+  expect(
+    screen.getByText('Now add caching').compareDocumentPosition(blocks[1]!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy()
+  expect(view.container.querySelectorAll('.coding-scroll')).toHaveLength(1)
+  await act(async () => {})
 })

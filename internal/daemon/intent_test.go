@@ -149,7 +149,7 @@ func TestChatChildIntentRespectsExplicitToolGrant(t *testing.T) {
 				t.Fatal(err)
 			}
 			args, _ := json.Marshal(map[string]any{"card": map[string]any{"goal": card.Goal, "deliverable": card.Deliverable, "done_criteria": card.Done, "tools": card.Tools}})
-			s.delegations.run("conversation", t.TempDir(), args, string(rec.Run.ID), false, nil, nil)
+			s.delegations.run("conversation", t.TempDir(), args, string(rec.Run.ID), false, nil, nil, delegationOptions{ParentRunID: "parent", TurnID: "turn"})
 			if len(model.requests) == 0 {
 				t.Fatal("child model never called")
 			}

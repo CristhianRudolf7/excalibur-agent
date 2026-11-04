@@ -6,6 +6,7 @@ import { subscribeEvents } from '@/lib/rpc/events'
 import type { ConversationEvent, ConversationMessage, DocumentInfo } from '@/lib/rpc/contract'
 import { documentUpdated } from '@/features/library/store'
 import { useChat } from './store'
+import { useCodingActivity } from './coding-store'
 import type { Message } from './types'
 
 export const liveChatEnabled = import.meta.env.EXCALIBUR_WEB_CHAT_LIVE !== '0'
@@ -133,15 +134,19 @@ export function receiveEvent(agent: string, event: ConversationEvent, target?: s
     payload.message_id
   ) {
     useChat.getState().merge(stateKey, [
-      fromWire({
-        id: payload.message_id,
-        conversation_id: payload.conversation_id,
-        role: payload.role ?? 'assistant',
-        text: payload.text ?? '',
-        relayed_by: payload.relayed_by,
-        sources: payload.sources,
-        changes: payload.changes,
-      }),
+      {
+        ...fromWire({
+          id: payload.message_id,
+          conversation_id: payload.conversation_id,
+          role: payload.role ?? 'assistant',
+          text: payload.text ?? '',
+          relayed_by: payload.relayed_by,
+          sources: payload.sources,
+          changes: payload.changes,
+        }),
+        at: event.at,
+        sequence: event.seq,
+      },
     ])
     if (payload.role !== 'user') {
       useChat.getState().setTyping(stateKey, false)
@@ -159,6 +164,12 @@ export function receiveEvent(agent: string, event: ConversationEvent, target?: s
         : agent !== useAgents.getState().favorite_id
   )
     return
+  useCodingActivity
+    .getState()
+    .receive(
+      event,
+      useChat.getState().live[stateKey]?.findLast((message) => message.sender === 'user')?.id,
+    )
   if (event.type === 'tool.called' || event.type === 'tool.completed') {
     if (event.type === 'tool.called') useChat.getState().setTyping(stateKey, true)
     const label =

@@ -6,6 +6,7 @@ const types = [
   'plan.approval_requested',
   'tool.called',
   'tool.completed',
+  'file.edited',
   'notice.posted',
   'run.progress',
   'run.state_changed',

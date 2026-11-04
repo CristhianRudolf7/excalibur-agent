@@ -49,7 +49,15 @@ func (d *chatDelegations) stop() {
 	d.wg.Wait()
 }
 
-func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, channels ...string) {
+// delegationOptions carries inherited delivery constraints and coding activity identity.
+type delegationOptions struct {
+	ParentRunID string
+	TurnID      string
+	Channel     string
+	Policy      deliveryPolicy
+}
+
+func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, opts delegationOptions) {
 	app = api.CloneAppContext(app)
 	attachmentIDs := delegationDocumentIDs(d.owner.backend.Master.TurnHistory(conv, 0), string(args))
 	d.mu.Lock()
@@ -64,19 +72,47 @@ func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage,
 		defer d.wg.Done()
 		d.finish(conv, id, types.RunFailed, fmt.Sprintf("Subagent failed: %v", recovered))
 	}, func() {
-		d.run(conv, inheritedDir, args, id, spanish, app, attachmentIDs, channels...)
+		d.run(conv, inheritedDir, args, id, spanish, app, attachmentIDs, opts)
 		d.wg.Done()
 	})
 }
 
-func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, attachmentIDs []string, channels ...string) {
-	ctx, cancel := context.WithTimeout(whiteboard.WithConversation(d.ctx, conv), 30*time.Minute)
-	defer cancel()
-	channel := ""
-	if len(channels) > 0 {
-		channel = channels[0]
+func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, attachmentIDs []string, opts delegationOptions) {
+	policy := opts.Policy
+	if policy.apps == nil {
+		policy.apps = &workspaceApps{}
 	}
+	base := withDeliveryPolicy(whiteboard.WithConversation(d.ctx, conv), policy)
+	ctx, cancel := context.WithCancel(base)
+	if policy.MaxSeconds > 0 {
+		cancel()
+		deadline := policy.Deadline
+		if deadline.IsZero() {
+			deadline = time.Now().Add(time.Duration(policy.MaxSeconds) * time.Second)
+		}
+		ctx, cancel = context.WithDeadline(base, deadline)
+	}
+	var card struct {
+		Card struct {
+			Name  string   `json:"name"`
+			Steps []string `json:"done_criteria"`
+		} `json:"card"`
+	}
+	_ = json.Unmarshal(args, &card)
+	coding := d.owner.codingActivity(conv, id, opts.ParentRunID, opts.TurnID, inheritedDir, card.Card.Name, card.Card.Steps)
+	coding.progress(types.RunQueued)
+	defer func() {
+		state, err := d.owner.services.Orch.RunState(types.RunID(id))
+		if err == nil {
+			coding.progress(state)
+		}
+	}()
+	defer cancel()
+	channel := opts.Channel
 	ctx = context.WithValue(ctx, credentialOriginKey{}, d.owner.credentialOrigin(ctx, conv, id, channel))
+	if d.owner.services.Jrnl != nil {
+		ctx = context.WithValue(ctx, promptJournalKey{}, d.owner.services.Jrnl)
+	}
 	if d.owner.services.Credentials != nil {
 		defer d.owner.services.Credentials.EndRun(id)
 	}
@@ -100,7 +136,7 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		d.finish(conv, id, types.RunFailed, err.Error())
 		return
 	}
-	if !input.Card.Deadline.IsZero() {
+	if policy.MaxSeconds > 0 && !input.Card.Deadline.IsZero() {
 		var deadlineCancel context.CancelFunc
 		ctx, deadlineCancel = context.WithDeadline(ctx, input.Card.Deadline)
 		defer deadlineCancel()
@@ -162,6 +198,9 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 			dir = s.Projects.List()[0].Roots[0]
 		}
 	}
+	ctx = context.WithValue(ctx, workspaceAppKey{}, dir)
+	coding.root = dir
+	coding.progress(types.RunRunning)
 	w := s.engineOptions
 	w.Workdir, w.Root = dir, agent.ID
 	_, dt, err := buildEngine(w)
@@ -169,14 +208,29 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		d.finish(conv, id, types.RunFailed, err.Error())
 		return
 	}
+	// Child registries are rebuilt from the embedded surface, which intentionally
+	// excludes daemon preview tools. Share the daemon-owned manager explicitly.
+	if policy.PublicPreview && len(input.Card.Tools) == 0 {
+		preview, err := s.Tools.Get("public_preview")
+		if err != nil {
+			d.finish(conv, id, types.RunFailed, "Public preview tool unavailable: "+err.Error())
+			return
+		}
+		if err := dt.Registry.Register(preview); err != nil {
+			d.finish(conv, id, types.RunFailed, err.Error())
+			return
+		}
+	}
 	allowed, err := agents.ClampTools(profile, agent.Level, input.Card.Tools)
 	if err != nil {
 		d.finish(conv, id, types.RunFailed, err.Error())
 		return
 	}
-	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: dt.Exec, reg: dt.Registry, artifacts: &artifactTurn{store: d.owner.backend.artifacts, conversation: conv, run: id}}, allowed: map[string]bool{}, runID: id, root: agent.ID}
+	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{coding: coding, ex: dt.Exec, reg: dt.Registry, artifacts: &artifactTurn{store: d.owner.backend.artifacts, conversation: conv, run: id}}, allowed: map[string]bool{}, runID: id, root: agent.ID, policy: &policy, waitChildren: true}
 	defer d.owner.finishArtifacts(ctx, runner.artifacts)
-	runner.spawn = func(args json.RawMessage, child string) { d.spawn(conv, dir, args, child, spanish, app, channel) }
+	runner.spawn = func(args json.RawMessage, child string) {
+		d.spawn(conv, dir, args, child, spanish, app, delegationOptions{ParentRunID: id, TurnID: opts.TurnID, Channel: channel, Policy: policy})
+	}
 	for _, name := range allowed {
 		runner.allowed[name] = true
 	}
@@ -184,6 +238,9 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	// An explicit card grant remains authoritative. Otherwise matching deferred
 	// tools extend the role's normal on-demand discovery surface for this run.
 	if len(input.Card.Tools) == 0 {
+		if policy.PublicPreview {
+			runner.allowed["public_preview"] = true
+		}
 		for _, def := range activation.Definitions {
 			runner.allowed[def.Name] = true
 		}
@@ -193,10 +250,21 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	allowDelegationDocumentTools(runner.allowed, profile, agent.Level, input.Card.Tools, len(attachmentIDs) > 0)
 	// Generic deferred dispatch cannot widen a role's explicit tool grant.
 	delete(runner.allowed, "call_tool")
+	if policy.Autonomous {
+		// Screenshot inspection is a read capability of this delivery, even though
+		// the frozen role inventory predates the local image inspector.
+		if len(input.Card.Tools) == 0 {
+			runner.allowed["inspect_image"] = true
+		}
+		delete(runner.allowed, "ask_user")
+	}
 	var names []string
 	var defs []providers.ToolDefinition
 	for _, name := range dt.Registry.Names() {
 		if def, err := runner.Definition(name); err == nil {
+			if policy.Autonomous && userPromptTool(def) {
+				continue
+			}
 			names = append(names, name)
 			defs = append(defs, providers.ToolDefinition{Name: name, Description: def.Description, Schema: def.InputSchema})
 		}
@@ -207,6 +275,16 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		language = "Spanish"
 	}
 	prompt += "\nAnswer in " + language + "."
+	if profile.Name == "implementer" {
+		prompt += "\n" + professionalSourceInstructions
+		prompt += "\nImplement every interactive control as labelled and verify it in a browser. Search and filters must change results; notices alone do not count. Multiple-item forms need working add/remove controls and persistence checks. Detail views must render the actual response shape."
+	}
+	prompt += "\nComplete every requirement and verify it. Choose reasonable defaults and record assumptions without asking the user. Use subagent await to wait for child progress or completion; status also waits for running children. Never infer urgency from internal budgets. Do not tell children to stop, finish early or hurry unless the user explicitly set a time or cost limit. A completed login and dashboard alone do not complete a multi-module spec."
+	if policy.PublicPreview {
+		prompt += "\nThe user explicitly requested a public preview. This authorizes public_preview publish, including port mode for an app with a backend, without another confirmation. After building and verifying the full app, publish it and include the verified URL and expiry in the final report."
+	} else {
+		prompt += "\nThe user did not request public publication. Do not publish a preview."
+	}
 	var documents delegationDocuments
 	if s.Memory != nil {
 		documents = s.Memory
@@ -215,12 +293,39 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	if d.owner.backend.Services != nil {
 		blobs = d.owner.backend.Services.FileBlobs
 	}
-	prompt += delegationAttachmentSection(ctx, documents, attachmentIDs, blobs, dir)
+	attachments := delegationAttachmentSection(ctx, documents, attachmentIDs, blobs, dir)
+	prompt += attachments
+	if policy.Autonomous {
+		runner.delivery = newDeliveryEvidence(dir, attachments)
+		runner.delivery.refresh = func() string { return delegationAttachmentSection(ctx, documents, attachmentIDs, blobs, dir) }
+		runner.deliveryGate = func() tasks.GateReport {
+			report := runner.delivery.check()
+			if policy.PublicPreview && (s.previews == nil || s.previews.messageLinks([]string{id}, "") == "") {
+				report.OK = false
+				report.Pendings = append(report.Pendings, "publish the verified app with public_preview, using port mode for its backend; the user already requested and authorized it")
+			}
+			return report
+		}
+		runner.allowed["delivery_check"] = true
+		def := deliveryCheckDefinition()
+		defs = append(defs, providers.ToolDefinition{Name: def.Name, Description: def.Description, Schema: def.InputSchema})
+		names = append(names, def.Name)
+		prompt += "\n" + deliveryEvidenceInstructions
+		if s.Skills != nil {
+			if skill, err := s.Skills.Load(appUIQualitySkill); err == nil {
+				prompt += "\nRequired app-ui-quality skill:\n" + skill.Body
+			}
+		}
+	}
 	snap := ctxcompiler.Snapshot{Task: ctxcompiler.TaskView{SuggestedSkills: activation.Skills}, Role: "child", AgentProfile: "Answer in " + language + ". Complete the delegated work with the available tools. Verify the done criteria and report the result.", Activity: []ctxcompiler.ActivityEvent{{Role: providers.RoleUser, Content: prompt}}}
 	if note := d.owner.appContextNote(ctx, app); note != "" {
 		snap.Activity = append(snap.Activity, ctxcompiler.ActivityEvent{Role: providers.RoleSystem, Content: note})
 	}
-	capture := &automationEndpoint{ModelEndpoint: d.owner.endpoint}
+	var endpoint engine.ModelEndpoint = d.owner.endpoint
+	if runner.delivery != nil {
+		endpoint = &deliveryEndpoint{ModelEndpoint: endpoint, check: runner.deliveryGate}
+	}
+	capture := &automationEndpoint{ModelEndpoint: endpoint}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: d.owner.modelID, Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) {
 		for _, message := range s.Store.PendingMessages(agent.ID) {
 			if message.Type == orchestrator.MsgDirective {
@@ -231,7 +336,12 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		}
 		return snap, nil
 	}, ToolDefs: func(*engine.Run) []providers.ToolDefinition { return defs }}
-	eng := engine.New(engine.Deps{Models: capture, Context: builder, Tools: runner, Gate: engine.GateFunc(func(*engine.Run) tasks.GateReport { return tasks.GateReport{OK: true} }), SelfVerify: &tasks.SelfVerifyConfig{}, LongHorizon: &tasks.LongHorizonConfig{}})
+	eng := engine.New(engine.Deps{Models: capture, Context: builder, Tools: runner, Gate: engine.GateFunc(func(*engine.Run) tasks.GateReport {
+		if runner.deliveryGate != nil {
+			return runner.deliveryGate()
+		}
+		return tasks.GateReport{OK: true}
+	}), SelfVerify: &tasks.SelfVerifyConfig{}, LongHorizon: &tasks.LongHorizonConfig{}})
 	budget := rec.Run.Budget
 	run := engine.NewRun(id, string(rec.Run.TaskID), engine.Profile{Name: agent.Profile, Role: profile.Role, Tools: names, ContextRole: "child", Limit: tasks.Limit{MaxSteps: budget.MaxSteps, MaxTokens: budget.MaxTokens, MaxCostUSD: budget.MaxCostUSD, MaxSeconds: budget.MaxSeconds, MaxProcs: budget.MaxProcs}})
 	run.Workdir = dir
@@ -259,11 +369,15 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
-	if err != nil || run.State() != types.RunCompleted || strings.TrimSpace(capture.final) == "" {
+	if err != nil || run.State() != types.RunCompleted || !policy.Autonomous && strings.TrimSpace(capture.final) == "" {
 		d.finish(conv, id, types.RunFailed, fmt.Sprintf("Subagent did not complete (%s): %v", run.State(), err))
 		return
 	}
-	d.finish(conv, id, types.RunCompleted, capture.final)
+	report := capture.final
+	if policy.Autonomous {
+		report = runner.delivery.summary(spanish)
+	}
+	d.finish(conv, id, types.RunCompleted, report)
 }
 
 func (d *chatDelegations) finish(conv, id string, state types.RunState, text string) {

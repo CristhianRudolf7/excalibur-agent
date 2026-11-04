@@ -3,6 +3,8 @@ import type { FileChange } from '@/lib/rpc/contract'
 import type { SourceRef } from '@/features/library/types'
 export interface Message {
   id: string
+  at?: string
+  sequence?: number
   context?: ClassroomContext
   clientMsgId?: string
   attachments?: string[]

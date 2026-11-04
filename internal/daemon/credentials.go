@@ -62,8 +62,9 @@ type credentialOrigin struct {
 type credentialOriginKey struct{}
 
 type credentialResult struct {
-	Status string            `json:"status"`
-	Refs   map[string]string `json:"refs,omitempty"`
+	Status   string            `json:"status"`
+	Refs     map[string]string `json:"refs,omitempty"`
+	Guidance string            `json:"guidance,omitempty"`
 }
 
 type credentialWait struct {
@@ -110,6 +111,18 @@ func (r *CredentialRegistry) Pending(conversation string) api.CredentialsPending
 func (r *CredentialRegistry) request(ctx context.Context, a credentialArgs) (credentialResult, error) {
 	if err := a.validate(); err != nil {
 		return credentialResult{}, err
+	}
+	// Decide before remembered lookup, publication, callbacks or wait allocation.
+	// A workspace's demo login must not reuse a user's saved localhost secret.
+	if ownWorkspaceApp(ctx, a.Site) || autonomousDelivery(ctx) {
+		guidance := autonomousPromptGuidance
+		if ownWorkspaceApp(ctx, a.Site) {
+			guidance = workspaceLoginGuidance
+		}
+		if err := recordPromptDenial(ctx, "request_credentials", guidance); err != nil {
+			return credentialResult{}, err
+		}
+		return credentialResult{Status: "denied", Guidance: guidance}, nil
 	}
 	origin, _ := ctx.Value(credentialOriginKey{}).(credentialOrigin)
 	if origin.conversation == "" || origin.run == "" {
@@ -223,7 +236,7 @@ func (r *CredentialRegistry) Close() {
 type credentialsTool struct{ registry *CredentialRegistry }
 
 func (*credentialsTool) Definition() tools.Definition {
-	return tools.Definition{Name: "request_credentials", Description: "Request credentials through the secure web form; wait for references, never ask for values in chat. Reuse remembered exact-host credentials when available. Use returned secret:// refs with browser_act type.", InputSchema: json.RawMessage(`{"type":"object","properties":{"site":{"type":"string","minLength":1,"maxLength":253,"description":"Exact page hostname only; omit scheme, path and port (for example 127.0.0.1)."},"purpose":{"type":"string","maxLength":256},"fields":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["username","email","password","otp","api_key"]}},"remember_default":{"type":"boolean"}},"required":["site"],"additionalProperties":false}`), Effect: types.EffectCommunication, Idempotency: types.IdemKeyed, Cancel: types.CancelCooperative, Timeout: credentialWaitTimeout + 5*time.Second, OutputBudget: tools.DefaultOutputBudget, Platforms: []string{"linux"}, Profiles: []string{"default", "assistant"}, Group: "browser", Tags: []string{"credentials"}, Keywords: []string{"login", "sign in", "iniciar sesión", "contraseña", "password", "credentials"}}
+	return tools.Definition{Name: "request_credentials", Description: "Request credentials through the secure web form; wait for references, never ask for values in chat. Reuse remembered exact-host credentials when available. Use returned secret:// refs with browser_act type. For your own workspace app, use the demo credentials you created directly with browser_act; autonomous delivery never opens a user form.", InputSchema: json.RawMessage(`{"type":"object","properties":{"site":{"type":"string","minLength":1,"maxLength":253,"description":"Exact page hostname only; omit scheme, path and port (for example 127.0.0.1)."},"purpose":{"type":"string","maxLength":256},"fields":{"type":"array","minItems":1,"maxItems":5,"uniqueItems":true,"items":{"type":"string","enum":["username","email","password","otp","api_key"]}},"remember_default":{"type":"boolean"}},"required":["site"],"additionalProperties":false}`), Effect: types.EffectCommunication, Idempotency: types.IdemKeyed, Cancel: types.CancelCooperative, Timeout: credentialWaitTimeout + 5*time.Second, OutputBudget: tools.DefaultOutputBudget, Platforms: []string{"linux"}, Profiles: []string{"default", "assistant"}, Group: "browser", Tags: []string{"credentials"}, Keywords: []string{"login", "sign in", "iniciar sesión", "contraseña", "password", "credentials"}}
 }
 func (t *credentialsTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
 	var a credentialArgs

@@ -25,14 +25,20 @@ type MessageEvent struct {
 // RunProgressEvent carries run progress: state, step and the live tool
 // line of Section 15.6.
 type RunProgressEvent struct {
-	RunID        types.RunID    `json:"run_id"`
-	State        types.RunState `json:"state"`
-	Step         int            `json:"step"`
-	PlanDone     int            `json:"plan_done"`
-	PlanTotal    int            `json:"plan_total"`
-	ToolInFlight string         `json:"tool_in_flight,omitempty"`
-	LiveOutput   string         `json:"live_output,omitempty"`
-	LastProgress string         `json:"last_progress,omitempty"`
+	ConversationID string         `json:"conversation_id,omitempty"`
+	ParentRunID    string         `json:"parent_run_id,omitempty"`
+	TurnID         string         `json:"turn_id,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	Steps          []string       `json:"steps,omitempty"`
+	ElapsedMS      int64          `json:"elapsed_ms,omitempty"`
+	RunID          types.RunID    `json:"run_id"`
+	State          types.RunState `json:"state"`
+	Step           int            `json:"step"`
+	PlanDone       int            `json:"plan_done"`
+	PlanTotal      int            `json:"plan_total"`
+	ToolInFlight   string         `json:"tool_in_flight,omitempty"`
+	LiveOutput     string         `json:"live_output,omitempty"`
+	LastProgress   string         `json:"last_progress,omitempty"`
 }
 
 // PlanApprovalEvent asks the user to approve a macro plan.
@@ -141,9 +147,21 @@ var EventTypes = []EventTypeInfo{
 
 // ToolCallEvent reports tool start and completion.
 type ToolCallEvent struct {
-	RunID  types.RunID `json:"run_id"`
-	Tool   string      `json:"tool"`
-	Status string      `json:"status"`
+	ConversationID string      `json:"conversation_id,omitempty"`
+	ParentRunID    string      `json:"parent_run_id,omitempty"`
+	TurnID         string      `json:"turn_id,omitempty"`
+	CallID         string      `json:"call_id,omitempty"`
+	Kind           string      `json:"kind,omitempty"`
+	Path           string      `json:"path,omitempty"`
+	Command        string      `json:"command,omitempty"`
+	SessionID      string      `json:"session_id,omitempty"`
+	Output         string      `json:"output,omitempty"`
+	ExitCode       *int        `json:"exit_code,omitempty"`
+	ElapsedMS      int64       `json:"elapsed_ms,omitempty"`
+	Truncated      bool        `json:"truncated,omitempty"`
+	RunID          types.RunID `json:"run_id"`
+	Tool           string      `json:"tool"`
+	Status         string      `json:"status"`
 }
 
 // MemoryEvent reports a memory write.
@@ -173,9 +191,18 @@ type DirectiveEvent struct {
 
 // FileEditEvent reports an edit with its diff for live UIs.
 type FileEditEvent struct {
-	RunID types.RunID `json:"run_id"`
-	Path  string      `json:"path"`
-	Diff  string      `json:"diff"`
+	ConversationID string      `json:"conversation_id,omitempty"`
+	ParentRunID    string      `json:"parent_run_id,omitempty"`
+	TurnID         string      `json:"turn_id,omitempty"`
+	CallID         string      `json:"call_id,omitempty"`
+	EditID         string      `json:"edit_id,omitempty"`
+	Added          int         `json:"added,omitempty"`
+	Removed        int         `json:"removed,omitempty"`
+	Truncated      bool        `json:"truncated,omitempty"`
+	Binary         bool        `json:"binary,omitempty"`
+	RunID          types.RunID `json:"run_id"`
+	Path           string      `json:"path"`
+	Diff           string      `json:"diff"`
 }
 
 // ErrorEvent reports an error.

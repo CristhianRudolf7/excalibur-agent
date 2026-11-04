@@ -257,7 +257,7 @@ func TestPublicPreviewVerificationRetriesAndCancellation(t *testing.T) {
 		if attempts.Add(1) >= 3 {
 			status = 200
 		}
-		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader("ready")), Header: make(http.Header)}, nil
 	})
 	previewPublish(t, m, previewRequest{Files: map[string]string{"index.html": "ok"}})
 	if attempts.Load() != 3 {

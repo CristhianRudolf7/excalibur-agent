@@ -301,7 +301,7 @@ func (m *previewManager) publish(ctx context.Context, req previewRequest, roots 
 	case <-timer.C:
 		return out, fmt.Errorf("cloudflared did not provide a trycloudflare URL within the startup timeout")
 	}
-	if err = m.verify(ctx, publicURL); err != nil {
+	if err = m.verify(ctx, publicURL, s.LocalURL); err != nil {
 		return out, err
 	}
 	m.mu.Lock()
@@ -339,9 +339,26 @@ func (m *previewManager) publish(ctx context.Context, req previewRequest, roots 
 	return out, nil
 }
 
-func (m *previewManager) verify(ctx context.Context, url string) error {
+func (m *previewManager) verify(ctx context.Context, url string, localURLs ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.verifyTimeout)
 	defer cancel()
+	expectedTitle := ""
+	if len(localURLs) > 0 {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, localURLs[0], nil)
+		if err != nil {
+			return err
+		}
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			return fmt.Errorf("local preview is unavailable: %w", err)
+		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 256*1024))
+		_ = response.Body.Close()
+		if readErr != nil || !previewAppResponse(response.StatusCode, body) && (expectedTitle == "" || previewPageTitle(body) == expectedTitle) {
+			return fmt.Errorf("local preview did not return the application")
+		}
+		expectedTitle = previewPageTitle(body)
+	}
 	ticker := time.NewTicker(350 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -351,8 +368,9 @@ func (m *previewManager) verify(ctx context.Context, url string) error {
 		}
 		response, err := m.client.Do(request)
 		if err == nil {
+			body, readErr := io.ReadAll(io.LimitReader(response.Body, 256*1024))
 			_ = response.Body.Close()
-			if response.StatusCode >= 200 && response.StatusCode < 300 {
+			if readErr == nil && previewAppResponse(response.StatusCode, body) && (expectedTitle == "" || previewPageTitle(body) == expectedTitle) {
 				return nil
 			}
 		}
@@ -511,3 +529,27 @@ func previewResult(value any, err error) (tools.Result, error) {
 }
 
 var _ io.Writer = (*previewURLWriter)(nil)
+
+// A tunnel can return an error interstitial with HTTP 200. Never advertise it.
+func previewAppResponse(status int, body []byte) bool {
+	if status < 200 || status >= 300 || len(strings.TrimSpace(string(body))) == 0 {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	for _, marker := range []string{"cloudflare tunnel error", "error 1033", "error 502", "bad gateway", "error 1016", "error 1101", "web server is down", "cf-error-details", "application error", "cannot get /"} {
+		if strings.Contains(text, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+var previewTitle = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+func previewPageTitle(body []byte) string {
+	match := previewTitle.FindSubmatch(body)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.Join(strings.Fields(strings.ToLower(string(match[1]))), " ")
+}

@@ -123,7 +123,18 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	}
 	steps, timeout = robotLabTurnLimits(ctx, a.services.RobotLab, conv, activation.Definitions, steps, timeout)
 	parentTurnContext := ctx
-	ctx = withAgentTurn(whiteboard.WithConversation(ctx, conv), conv, msg.RelayedBy != "")
+	history := a.backend.Master.TurnHistory(conv, 0)
+	if approvedSpecAcknowledgement(history, msg) {
+		text := "Approved specification received."
+		if looksSpanish(msg.Text) {
+			text = "Recibí los TDR aprobados."
+		}
+		return text, nil, nil
+	}
+	autoCard, autonomous := autonomousDeliveryCard(history, msg)
+	policy := deliveryPolicyForTurns(history, msg)
+	policy.Autonomous = autonomous
+	ctx = withDeliveryPolicy(withAgentTurn(whiteboard.WithConversation(ctx, conv), conv, msg.RelayedBy != ""), policy)
 	if msg.Context != nil {
 		ctx = api.WithAppContext(ctx, *msg.Context)
 	}
@@ -131,6 +142,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	defer cancel()
 	id := string(types.NewRunID())
 	ctx = context.WithValue(ctx, credentialOriginKey{}, a.credentialOrigin(ctx, conv, id, msg.Channel))
+	if a.services.Jrnl != nil {
+		ctx = context.WithValue(ctx, promptJournalKey{}, a.services.Jrnl)
+	}
 	if a.services.Credentials != nil {
 		defer a.services.Credentials.EndRun(id)
 	}
@@ -165,7 +179,20 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if len(activation.Skills) > 0 {
 		allow["load_skill"] = true
 	}
-	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }, timing: timing}
+	coding := a.codingActivity(conv, id, "", id, "", "", nil)
+	coding.progress(types.RunRunning)
+	codingDone := false
+	defer func() {
+		state := types.RunFailed
+		if codingDone {
+			state = types.RunCompleted
+		}
+		if ctx.Err() == context.Canceled {
+			state = types.RunCanceled
+		}
+		coding.progress(state)
+	}()
+	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{coding: coding, ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, policy: &policy, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }, timing: timing}
 	defer func() {
 		runner.mu.Lock()
 		called := runner.robotLabCalls > 0
@@ -177,9 +204,21 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	defer runner.closeBrowser(ctx)
 	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
-		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context, msg.Channel)
+		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context, delegationOptions{ParentRunID: id, TurnID: id, Channel: msg.Channel, Policy: policy})
 	}
 	runner.prepareSpawn = a.services.chatWorkspacePreparer()
+	if autonomous {
+		result, err := runner.Execute(ctx, "subagent", autoCard, tools.ExecuteOptions{})
+		if err != nil || result.Status != tools.StatusOK {
+			return "The build could not start: " + result.Output, runner.runTree(a.services.Store), err
+		}
+		text := "I started the complete spec build. I'll post the verified result here when it finishes."
+		if looksSpanish(msg.Text) {
+			text = "Inicié la implementación completa. Publicaré aquí el resultado verificado al terminar."
+		}
+		codingDone = true
+		return text, runner.runTree(a.services.Store), nil
+	}
 	var defs []providers.ToolDefinition
 	var names []string
 	for _, name := range a.services.Tools.Names() {
@@ -197,7 +236,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	snap.Task.SuggestedSkills = activation.Skills
 	if allow["request_credentials"] {
 		snap.AgentProfile += savedLoginHint(a.services.Credentials.savedLogins(ctx))
-		snap.AgentProfile += "\nFor login or OTP needs, call request_credentials with the exact page host. Use its secret:// refs with browser_act type after browser_wait_ready and a fresh snapshot. Never ask for values in chat. CAPTCHA and site access blocks still require the user."
+		snap.AgentProfile += "\nFor your own workspace app, use the demo credentials you created (README/seed data or .env.example) directly with browser_act. For third-party login or OTP needs, call request_credentials with the exact page host. Use its secret:// refs with browser_act type after browser_wait_ready and a fresh snapshot. Never ask for values in chat. CAPTCHA and site access blocks still require the user."
 	}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: a.modelID,
 		Snapshot: func(context.Context, *engine.Run) (ctxcompiler.Snapshot, error) { return snap, nil },
@@ -235,6 +274,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 		a.notice(conv, text)
 		return text, runner.runTree(a.services.Store), nil
 	}
+	codingDone = true
 	return capture.final, runner.runTree(a.services.Store), nil
 }
 
@@ -330,18 +370,37 @@ type assistantToolRunner struct {
 	spawn        func(json.RawMessage, string)
 	prepareSpawn func(context.Context, json.RawMessage, string) (json.RawMessage, error)
 	timing       *assistantTurnTiming
+	policy       *deliveryPolicy
+	waitChildren bool
+	delivery     *deliveryEvidence
+	deliveryGate func() tasks.GateReport
 
 	robotLabCalls int
 }
 
 func (r *assistantToolRunner) Definition(name string) (tools.Definition, error) {
+	if r.policy != nil && r.policy.Autonomous && userPromptTool(tools.Definition{Name: name}) {
+		return deniedPromptDefinition(name), nil
+	}
+	if name == "delivery_check" && r.delivery != nil {
+		return deliveryCheckDefinition(), nil
+	}
 	if !r.allowed[name] {
 		return tools.Definition{}, fmt.Errorf("tool %q is outside the master role; delegate long work", name)
 	}
 	def, err := r.daemonToolRunner.Definition(name)
+	if name == "subagent" {
+		def = chatSubagentDefinition(def)
+	}
 	return chatBrowserDefinition(def), err
 }
 func (r *assistantToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, opts tools.ExecuteOptions) (tools.Result, error) {
+	if r.policy != nil {
+		ctx = withDeliveryPolicy(ctx, *r.policy)
+	}
+	if autonomousDelivery(ctx) && userPromptTool(tools.Definition{Name: name}) {
+		return automaticPromptDenial(ctx, name)
+	}
 	if r.timing != nil {
 		started := time.Now()
 		timingName := name
@@ -353,6 +412,22 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 	}
 	if _, err := r.Definition(name); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
+	}
+	if name == "delivery_check" && r.deliveryGate != nil {
+		report := r.deliveryGate()
+		raw, _ := json.Marshal(report)
+		return tools.Result{Status: tools.StatusOK, Output: string(raw)}, nil
+	}
+	if name == "public_preview" && r.delivery != nil {
+		var input struct {
+			Action string `json:"action"`
+		}
+		_ = json.Unmarshal(args, &input)
+		if input.Action == "publish" {
+			if report := r.delivery.check(); !report.OK {
+				return tools.Result{Status: tools.StatusDenied, Output: "Complete and verify the entire specification before publishing: " + strings.Join(report.Pendings, "; ")}, nil
+			}
+		}
 	}
 	if name == "robot_lab" {
 		r.mu.Lock()
@@ -389,6 +464,19 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 		}
 		args, _ = json.Marshal(fields)
 	}
+	var subaction struct {
+		Action string `json:"action"`
+	}
+	if name == "subagent" {
+		_ = json.Unmarshal(args, &subaction)
+		if r.policy != nil {
+			var err error
+			args, err = r.policy.prepareDelegation(args)
+			if err != nil {
+				return tools.Result{Status: tools.StatusDenied, Output: err.Error()}, nil
+			}
+		}
+	}
 	args = normalizeChatRecallArgs(name, args)
 	if name == "subagent" && r.prepareSpawn != nil {
 		var err error
@@ -397,7 +485,23 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 			return tools.Result{Status: tools.StatusToolError, Output: "Subagent workspace: " + err.Error()}, nil
 		}
 	}
-	res, err := r.daemonToolRunner.Execute(ctx, name, args, opts)
+	var res tools.Result
+	var err error
+	if name == "subagent" && (subaction.Action == "await" || subaction.Action == "status" && r.waitChildren) {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(args, &fields)
+		fields["action"] = json.RawMessage(`"status"`)
+		args, _ = json.Marshal(fields)
+		// Each read needs a fresh key: status snapshots must not reuse cached output.
+		opts.IdempotencyKey = ""
+		res, err = waitChatStatus(ctx, chatChildWait, func() (tools.Result, error) { return r.daemonToolRunner.Execute(ctx, name, args, opts) })
+	} else {
+		res, err = r.daemonToolRunner.Execute(ctx, name, args, opts)
+	}
+	if r.policy != nil {
+		r.policy.apps.observe(name, args, res)
+	}
+	r.delivery.observe(name, args, res)
 	res = annotateChatRecallResult(name, res)
 	res = r.withEarlierConversations(ctx, name, args, res, opts)
 	if name == "subagent" && err == nil && res.Status == tools.StatusOK {

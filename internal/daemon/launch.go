@@ -154,6 +154,9 @@ func NewQuestionConfirmer(store orchestrator.Store) *QuestionConfirmer {
 
 // WaitConfirm implements agenda.Confirmer.
 func (c *QuestionConfirmer) WaitConfirm(ctx context.Context, instanceID, nodeID, prompt string) (bool, error) {
+	if autonomousDelivery(ctx) {
+		return false, recordPromptDenial(ctx, "confirmation", autonomousPromptGuidance)
+	}
 	if c.store == nil {
 		return false, nil
 	}

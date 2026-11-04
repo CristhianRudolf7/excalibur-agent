@@ -35,9 +35,13 @@ special files are rejected. File serving also enforces containment at open time,
 so adding an escaping symlink after publication does not expose its target.
 
 To expose an already running HTTP app, use
-`{"action":"publish","port":5305,"confirmed":true}` only after the user
-confirms sharing that local service. The origin is always `127.0.0.1`; no host
-or arbitrary origin URL can be supplied. The app remains running when its
+`{"action":"publish","port":5305}` when the user explicitly requests a public
+or Cloudflare link. That request authorizes both static and port modes without
+another confirmation. The daemon captures authorization from user text and passes
+it to delegated runs; `confirmed:true` alone cannot authorize publication. Without
+an explicit request, the tool rejects publication. See
+[autonomous delivery](autonomous-delivery.md) for the full delivery contract.
+The origin is always `127.0.0.1`; no host or arbitrary origin URL can be supplied. The app remains running when its
 preview is stopped.
 
 Static previews bind only to `127.0.0.1`, selecting a free port in 5300–5399.

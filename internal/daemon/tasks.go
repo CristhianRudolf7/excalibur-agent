@@ -69,7 +69,11 @@ func (s *TaskService) Start(p api.TaskStartParams) (api.TaskStartResult, error) 
 	if p.MaxSteps != nil {
 		maxSteps = *p.MaxSteps
 	}
-	_ = maxSteps
+	seconds, cost := textualDeliveryLimits(p.Request)
+	budget := (deliveryPolicy{MaxSeconds: seconds, MaxCostUSD: cost}).budget()
+	if maxSteps > 0 {
+		budget.MaxSteps = maxSteps
+	}
 	card := orchestrator.DelegationCard{
 		Name:        "task-" + string(id),
 		Description: "delegated task",
@@ -78,7 +82,12 @@ func (s *TaskService) Start(p api.TaskStartParams) (api.TaskStartResult, error) 
 		Scope:       types.GeneralScope(),
 		Done:        []string{"delivery report recorded"},
 		Report:      "what ran, what changed, what is pending",
-		Deadline:    s.now().Add(4 * time.Hour),
+		Budget:      budget,
+	}
+	// Keep evaluation task admission on its existing budget/deadline path.
+	if profile == "eval" {
+		card.Budget = types.Budget{}
+		card.Deadline = s.now().Add(4 * time.Hour)
 	}
 	_, rec, err := s.orch.Spawn(s.parent, card)
 	if err != nil {

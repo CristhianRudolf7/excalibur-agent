@@ -1,6 +1,9 @@
 import { CredentialRequests } from '@/features/credentials/CredentialRequests'
 import type { ClassroomContext } from '@/lib/rpc/classroom'
 import { ChangesCard } from './ChangesCard'
+import { CodingActivity } from './CodingActivity'
+import { useCodingActivity, type CodingRun } from './coding-store'
+import { activeCodingStates, codingTimeline } from './coding-timeline'
 import { PublicPreviewMessage } from './PublicPreviewCard'
 import { visibleAutomationMessage } from '@/features/automations/context'
 import { InlineInteraction } from './InlineInteraction'
@@ -28,6 +31,8 @@ import {
   conversationId,
   chatStateKey,
 } from './live'
+const emptyCodingRuns: CodingRun[] = []
+
 export function Chat({
   agentId,
   onFile,
@@ -66,6 +71,7 @@ export function Chat({
   const history = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
   const lastScrollTop = useRef(0)
+  const followLive = useRef<(() => void) | undefined>(undefined)
   useEffect(() => {
     const node = parent.current
     const content = history.current
@@ -73,7 +79,10 @@ export function Chat({
     const observer = new ResizeObserver(() => {
       // Preserve the previous scroll intent as wrapping and virtual measurements
       // change. Correct layout immediately, including with reduced motion.
-      if (atBottom.current) node.scrollTo({ top: node.scrollHeight, behavior: 'instant' })
+      if (atBottom.current) {
+        if (followLive.current) followLive.current()
+        else node.scrollTo({ top: node.scrollHeight, behavior: 'instant' })
+      }
     })
     observer.observe(node)
     observer.observe(content)
@@ -86,6 +95,17 @@ export function Chat({
   const conversation = useMemo(
     () => (live ?? []).filter((m) => !(m.sender === 'user' && m.text.trim() === '/stop')),
     [live],
+  )
+  const codingRuns = useCodingActivity(
+    (state) =>
+      state.conversations[targetConversation ?? conversationId(agentId)] ?? emptyCodingRuns,
+  )
+  const timeline = useMemo(
+    () => codingTimeline(conversation, codingRuns),
+    [conversation, codingRuns],
+  )
+  const activeIndex = timeline.findLastIndex((row) =>
+    row.runs?.some((run) => activeCodingStates.includes(run.state)),
   )
   useEffect(() => connectConversation(agentId, targetConversation), [agentId, targetConversation])
   useEffect(() => {
@@ -100,23 +120,43 @@ export function Chat({
   }, [agentId, agent])
   // oxlint-disable-next-line react/incompatible-library -- Virtualizer measurements intentionally remain outside React Compiler memoization.
   const virtual = useVirtualizer({
-    count: conversation.length,
-    getItemKey: (index) => conversation[index]!.id,
+    count: timeline.length,
+    getItemKey: (index) => timeline[index]!.id,
     getScrollElement: () => parent.current,
-    estimateSize: (index) => (conversation[index]?.interaction ? 180 : 100),
+    estimateSize: (index) =>
+      timeline[index]?.runs ? 390 : timeline[index]?.message?.interaction ? 180 : 100,
     overscan: 4,
   })
-  const displayedMessages = conversation
-  const previousLength = useRef(0)
   useLayoutEffect(() => {
-    if (
-      atBottom.current &&
-      previousLength.current > 0 &&
-      displayedMessages.length > previousLength.current
-    )
-      virtual.scrollToIndex(displayedMessages.length - 1, { align: 'end' })
-    previousLength.current = displayedMessages.length
-  }, [displayedMessages, virtual])
+    // While tools are live, notices below the inline block must not pull it out
+    // of view. The outer reader can still scroll upward to suspend following.
+    followLive.current =
+      activeIndex < 0
+        ? undefined
+        : () => {
+            const node = parent.current
+            const block = history.current?.querySelector<HTMLElement>('[data-coding-live="true"]')
+            if (!node || !block) {
+              virtual.scrollToIndex(activeIndex, { align: 'end' })
+              return
+            }
+            // Account for the overlaid composer, using the measured block rather than
+            // a virtualizer end anchor that would start following later notices.
+            const inset = parseFloat(getComputedStyle(node).paddingBottom) || 0
+            node.scrollTop = Math.max(
+              0,
+              node.scrollTop +
+                block.getBoundingClientRect().bottom -
+                node.getBoundingClientRect().bottom +
+                inset,
+            )
+            lastScrollTop.current = node.scrollTop
+          }
+    if (atBottom.current && timeline.length) {
+      if (followLive.current) followLive.current()
+      else virtual.scrollToIndex(timeline.length - 1, { align: 'end' })
+    }
+  }, [timeline, activeIndex, virtual])
   const send = (text: string) => {
     atBottom.current = true
     void sendMessage(agentId, text, [], undefined, undefined, context, targetConversation)
@@ -212,7 +252,26 @@ export function Chat({
           style={{ height: virtual.getTotalSize(), position: 'relative' }}
         >
           {virtual.getVirtualItems().map((item) => {
-            const message = conversation[item.index]!
+            const row = timeline[item.index]!
+            if (row.runs)
+              return (
+                <div
+                  key={row.id}
+                  data-coding-live={row.runs.some((run) => activeCodingStates.includes(run.state))}
+                  data-index={item.index}
+                  ref={virtual.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                  <CodingActivity runs={row.runs} notices={row.notices} />
+                </div>
+              )
+            const message = row.message
             return (
               <article
                 key={message.id}

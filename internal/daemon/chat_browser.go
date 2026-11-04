@@ -55,7 +55,7 @@ func chatBrowserDefinition(def tools.Definition) tools.Definition {
 			enum("action", "click", "type", "select", "hover", "scroll", "press", "upload", "drag")
 			str("snapshot_id", "snapshot_id from the most recent browser_snapshot.")
 			str("ref", "Interactive element ref from that snapshot.")
-			str("value", "Action value; for credentials use only secret:// refs from request_credentials.")
+			str("value", "Action value; use workspace demo credentials directly for your own app. For third-party credentials use secret:// refs from request_credentials.")
 			str("target_ref", "Destination ref for drag.")
 			properties["x"] = map[string]any{"type": "number"}
 			properties["y"] = map[string]any{"type": "number"}

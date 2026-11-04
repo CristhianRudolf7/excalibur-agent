@@ -170,11 +170,12 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 			}
 		}
 	}
+	browserTabs, _ := emb.Registry.Get("browser_tabs")
 	for _, name := range emb.Registry.Names() {
 		if strings.HasPrefix(name, "browser_") {
 			t, _ := emb.Registry.Get(name)
 			emb.Registry.Unregister(name)
-			t = &credentialBrowserTool{Tool: t, registry: w.Credentials}
+			t = &credentialBrowserTool{Tool: t, registry: w.Credentials, tabs: browserTabs}
 			if w.BrowserLive != nil {
 				t = &liveBrowserTool{Tool: t, hub: w.BrowserLive}
 			}

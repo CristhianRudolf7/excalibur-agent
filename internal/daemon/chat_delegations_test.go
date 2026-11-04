@@ -340,6 +340,50 @@ func TestChatDelegationRunsAndPostsChanges(t *testing.T) {
 			}
 			history = awaitAssistant(t, b, "cnv_delegation", 2)
 			report := history[len(history)-1]
+			if mode == "success" {
+				var parent, turn string
+				var called, edited, completed bool
+				for _, event := range b.Bus.Replay(types.Cursor{}) {
+					var payload struct {
+						Conversation string `json:"conversation_id"`
+						Run          string `json:"run_id"`
+						Parent       string `json:"parent_run_id"`
+						Turn         string `json:"turn_id"`
+						Tool         string `json:"tool"`
+						State        string `json:"state"`
+					}
+					_ = json.Unmarshal(event.Payload, &payload)
+					if payload.Run != id {
+						continue
+					}
+					if payload.Conversation != "cnv_delegation" || payload.Parent == "" || payload.Turn == "" {
+						t.Fatalf("missing child association: %s", event.Payload)
+					}
+					parent, turn = payload.Parent, payload.Turn
+					called = called || (event.Type == types.EventToolCalled && payload.Tool == "write_file")
+					edited = edited || event.Type == types.EventFileEdited
+					completed = completed || (event.Type == types.EventRunProgress && payload.State == "completed")
+				}
+				if parent != turn || !called || !edited {
+					t.Fatalf("missing delegated activity: parent=%s turn=%s called=%v edited=%v", parent, turn, called, edited)
+				}
+				// The final progress event is deferred until after the report has been delivered.
+				deadline := time.Now().Add(time.Second)
+				for !completed && time.Now().Before(deadline) {
+					for _, event := range b.Bus.Replay(types.Cursor{}) {
+						var p struct {
+							Run   string `json:"run_id"`
+							State string `json:"state"`
+						}
+						_ = json.Unmarshal(event.Payload, &p)
+						completed = completed || (event.Type == types.EventRunProgress && p.Run == id && p.State == "completed")
+					}
+					time.Sleep(time.Millisecond)
+				}
+				if !completed {
+					t.Fatal("missing final child progress")
+				}
+			}
 			rec, err := s.Store.GetRun(types.RunID(id))
 			if err != nil {
 				t.Fatal(err)

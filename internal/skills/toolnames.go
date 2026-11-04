@@ -21,7 +21,7 @@ func KnownTools() []string {
 var knownTools = map[string]bool{
 	// H3 built-ins (files, terminal, control).
 	"read_file": true, "write_file": true, "edit_file": true, "apply_patch": true,
-	"grep": true, "glob": true, "exec": true, "exec_io": true,
+	"grep": true, "glob": true, "exec": true, "exec_io": true, "inspect_image": true,
 	"clock": true, "get_tool_output": true, "status": true,
 	// Section 13.2 core tools.
 	"send_message": true, "ask_user": true, "leave_continuation_note": true, "ack_directive": true,

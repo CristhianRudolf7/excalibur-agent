@@ -642,11 +642,20 @@ type daemonToolRunner struct {
 	ex        *tools.Executor
 	reg       *tools.MapRegistry
 	artifacts *artifactTurn
+	coding    *codingActivity
 }
 
 // Execute implements engine.ToolRunner.
 func (r *daemonToolRunner) Execute(ctx context.Context, name string, args json.RawMessage, opts tools.ExecuteOptions) (tools.Result, error) {
-	res, err := r.ex.Execute(ctx, name, args, opts)
+	if autonomousDelivery(ctx) {
+		if def, err := r.Definition(name); err == nil && userPromptTool(def) {
+			return automaticPromptDenial(ctx, name)
+		}
+	}
+	res, err := r.executeActivity(ctx, name, args, opts)
+	if err == nil && autonomousDelivery(ctx) && userPromptResult(name, res) {
+		return automaticPromptDenial(ctx, name)
+	}
 	artifactErr := r.artifacts.collect(ctx, opts.CallID, res.Artifacts)
 	if artifactErr != nil {
 		err = errors.Join(err, artifactErr)
