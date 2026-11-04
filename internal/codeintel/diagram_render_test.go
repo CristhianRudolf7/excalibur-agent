@@ -56,7 +56,7 @@ func TestCodeDiagramRenderedArtifacts(t *testing.T) {
 						t.Fatalf("%s/%s: %+v", format, output, res)
 					}
 					ref := res.Artifacts[0]
-					if ref.Kind != "diagram" || ref.Dialect != format || ref.Format != output || ref.Group == "" || !filepath.IsAbs(ref.Path) || !filepath.IsAbs(ref.SourcePath) || !strings.Contains(ref.Path, "/artifacts/run-test/") {
+					if ref.Kind != "diagram" || ref.Dialect != format || ref.Format != output || ref.Group == "" || !filepath.IsAbs(ref.Path) || !filepath.IsAbs(ref.SourcePath) || !strings.Contains(filepath.ToSlash(ref.Path), "/artifacts/run-test/") {
 						t.Fatalf("artifact metadata: %+v", ref)
 					}
 					src, err := os.ReadFile(ref.SourcePath)

@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -120,7 +121,7 @@ func TestArtifactGateOffPassesMissing(t *testing.T) {
 	history := writeHistory(missing)
 	history = append(history,
 		ctxcompiler.ActivityEvent{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"test -s `+missing+`"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":`+strconvQuote("test -s "+missing)+`}`)}},
 		ctxcompiler.ActivityEvent{Seq: 3, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: missing + " ok"}},
 	)
@@ -162,7 +163,11 @@ func TestArtifactGateBlocksUnexecutable(t *testing.T) {
 func TestArtifactGatePassesExecutable(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "povray")
+	name := "povray"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(dir, name)
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho ok\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +183,7 @@ func TestArtifactGatePassesExecutable(t *testing.T) {
 			{Seq: 1, Role: providers.RoleTool,
 				ToolResult: &providers.ToolResult{CallID: "c1", Name: "exec", Output: "installed " + bin}},
 			{Seq: 2, Role: providers.RoleAssistant, Content: "",
-				ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"`+bin+` --help"}`)}},
+				ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":`+strconvQuote(bin+" --help")+`}`)}},
 			{Seq: 3, Role: providers.RoleTool,
 				ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "usage: povray"}},
 		})

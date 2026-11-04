@@ -45,7 +45,11 @@ func TestOfficeToolsDeferredPipeline(t *testing.T) {
 	}
 	ct, _ := reg.Get("document_create")
 	keys, e := ct.ResourceKeys(json.RawMessage(`{"path":"report.docx"}`))
-	if e != nil || len(keys) != 1 || keys[0] != "file:"+filepath.Join(root, "report.docx") {
+	wantPath, resolveErr := filepath.EvalSymlinks(filepath.Join(root, "report.docx"))
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if e != nil || len(keys) != 1 || keys[0] != "file:"+wantPath {
 		t.Fatal(keys, e)
 	}
 	for _, name := range []string{"document_create", "document_edit"} {

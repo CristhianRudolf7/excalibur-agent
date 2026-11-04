@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/envsnap"
@@ -198,15 +197,6 @@ func (s *Session) ExitSignal() (int, bool) {
 	return 0, false
 }
 
-// exitSignalOf returns the terminating signal of a finished process.
-func exitSignalOf(ee *exec.ExitError) (int, bool) {
-	ws, ok := ee.Sys().(syscall.WaitStatus)
-	if !ok || !ws.Signaled() {
-		return 0, false
-	}
-	return int(ws.Signal()), true
-}
-
 // SignalName returns the conventional name of a signal number, such as
 // SIGSEGV for 11. Unknown numbers render as SIG<n>.
 func SignalName(sig int) string {
@@ -322,6 +312,7 @@ func (m *SessionManager) StartContext(ctx context.Context, owner, cmd, dir strin
 	} else {
 		m.startPipe(s, cmd, dir, env)
 	}
+	armSessionDeadline(ctx, s)
 	out, alive := s.waitYield(ctx, time.Duration(yieldMs)*time.Millisecond)
 	return s, out, alive
 }
@@ -337,7 +328,7 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 	// Autonomous exec sessions may deliver long-running services even without
 	// background:true. File output and an independent process session let those
 	// services outlive the harness. Assistant sessions retain parent-death cleanup.
-	if runtime.GOOS == "linux" && CurrentExecScope().Active && switchDefaultOn("EXCALIBUR_SURVIVE_SESSIONS") {
+	if survivableSessionsSupported() && CurrentExecScope().Active && switchDefaultOn("EXCALIBUR_SURVIVE_SESSIONS") {
 		logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", s.ID, s.Started.UnixNano()))
 		s.mu.Lock()
 		s.Survivable = true
@@ -351,7 +342,7 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 		return
 	}
 	shell := DetectShell()
-	c := exec.Command(shell, "-c", cmd)
+	c := exec.Command(shell, shellArgs(shell, cmd)...)
 	if dir != "" {
 		c.Dir = dir
 	}
@@ -381,8 +372,18 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 		return
 	}
 	c.Stderr = c.Stdout
+	prepareShellCommand(c, shell, cmd)
+	prepareSessionProcess(c)
 	if err := c.Start(); err != nil {
 		s.appendOut([]byte("start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	releaseProcess, err := attachSessionProcess(c.Process)
+	if err != nil {
+		_ = c.Process.Kill()
+		_ = c.Wait()
+		s.appendOut([]byte("start error: attach process group: " + err.Error()))
 		s.markDone(err)
 		return
 	}
@@ -403,7 +404,9 @@ func (m *SessionManager) startPipe(s *Session, cmd, dir string, env []string) {
 				break
 			}
 		}
-		s.markDone(c.Wait())
+		err := c.Wait()
+		releaseProcess()
+		s.markDone(err)
 	})
 }
 
@@ -416,7 +419,7 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 		return
 	}
 	shell := DetectShell()
-	c := exec.Command(shell, "-c", cmd)
+	c := exec.Command(shell, shellArgs(shell, cmd)...)
 	if dir != "" {
 		c.Dir = dir
 	}
@@ -428,9 +431,17 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 	if m.deps.Isolator != nil {
 		_ = m.deps.Isolator.Isolate(c)
 	}
+	prepareShellCommand(c, shell, cmd)
+	prepareSessionProcess(c)
 	sess, err := m.deps.PTY.Start(c, platform.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		s.appendOut([]byte("pty start error: " + err.Error()))
+		s.markDone(err)
+		return
+	}
+	releaseProcess, err := attachSessionProcess(c.Process)
+	if err != nil {
+		_ = sess.Close()
 		s.markDone(err)
 		return
 	}
@@ -454,7 +465,9 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 				break
 			}
 		}
-		s.markDone(sess.Wait())
+		err := sess.Wait()
+		releaseProcess()
+		s.markDone(err)
 	})
 }
 
@@ -466,6 +479,10 @@ func (m *SessionManager) startPTY(s *Session, cmd, dir string, env []string) {
 // log file remains. PTY sessions never detach: they fall back to
 // the foreground path so interactive behaviour is unchanged.
 func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string, yieldMs ...int) (*Session, string, bool) {
+	return m.startDetachedContext(context.Background(), owner, cmd, dir, env, yieldMs...)
+}
+
+func (m *SessionManager) startDetachedContext(ctx context.Context, owner, cmd, dir string, env []string, yieldMs ...int) (*Session, string, bool) {
 	yield := minYieldMs
 	if BackgroundYieldEnabled() {
 		if len(yieldMs) > 0 {
@@ -483,7 +500,7 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string, yie
 	s.oomWatch = m.resourceReader().WatchOOM()
 	logPath := filepath.Join(os.TempDir(), fmt.Sprintf("excalibur-%s-%d.log", string(s.ID), s.Started.UnixNano()))
 	s.LogPath = logPath
-	if runtime.GOOS != "linux" || !DetachBackgroundEnabled() {
+	if !detachedBackgroundSupported() || !DetachBackgroundEnabled() {
 		s.Detached = false
 		s.LogPath = ""
 	}
@@ -495,10 +512,12 @@ func (m *SessionManager) StartDetached(owner, cmd, dir string, env []string, yie
 	if !s.Detached {
 		// Stubs and opt-out keep the foreground path byte-for-byte.
 		m.startPipe(s, cmd, dir, env)
+		armSessionDeadline(ctx, s)
 		out, alive := s.waitYield(context.Background(), time.Duration(yield)*time.Millisecond)
 		return s, out, alive
 	}
 	m.startDetachedPipe(s, cmd, dir, env, logPath)
+	armSessionDeadline(ctx, s)
 	out, alive := s.waitYield(context.Background(), time.Duration(yield)*time.Millisecond)
 	if !alive && BackgroundYieldEnabled() {
 		// Catalog readers use the manager lock, while session snapshots use
@@ -518,7 +537,7 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 		return
 	}
 	shell := DetectShell()
-	c := exec.Command(shell, "-c", cmd)
+	c := exec.Command(shell, shellArgs(shell, cmd)...)
 	if dir != "" {
 		c.Dir = dir
 	}
@@ -537,7 +556,7 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 		return
 	}
 	defer devNull.Close()
-	logF, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	logF, err := openSessionLog(logPath)
 	if err != nil {
 		s.appendOut([]byte("start error: open log: " + err.Error()))
 		s.markDone(err)
@@ -546,6 +565,7 @@ func (m *SessionManager) startDetachedPipe(s *Session, cmd, dir string, env []st
 	c.Stdin = devNull
 	c.Stdout = logF
 	c.Stderr = logF
+	prepareShellCommand(c, shell, cmd)
 	if err := c.Start(); err != nil {
 		_ = logF.Close()
 		s.appendOut([]byte("start error: " + err.Error()))
@@ -854,9 +874,13 @@ func (m *SessionManager) Signal(id SessionID, sig string) error {
 		return fmt.Errorf("unknown session %q", id)
 	}
 	s.mu.Lock()
+	exited := s.exited
 	proc := s.proc
 	pty := s.pty
 	s.mu.Unlock()
+	if ignoreCompletedSessionSignal(exited) {
+		return nil
+	}
 	switch strings.ToLower(sig) {
 	case "interrupt", "sigint":
 		if pty != nil {
@@ -877,6 +901,9 @@ func (m *SessionManager) signalProc(proc *os.Process, sig os.Signal) error {
 	if proc == nil {
 		return fmt.Errorf("session has no live process")
 	}
+	if handled, err := signalSessionProcess(proc, sig); handled {
+		return err
+	}
 	if m.deps.Group != nil {
 		// Prefer group kill through the platform interface when the
 		// test fake records it; real group signaling happens in the
@@ -890,10 +917,17 @@ func (m *SessionManager) signalProc(proc *os.Process, sig os.Signal) error {
 
 func (m *SessionManager) killProc(s *Session) error {
 	s.mu.Lock()
+	exited := s.exited
 	proc := s.proc
 	s.mu.Unlock()
+	if ignoreCompletedSessionSignal(exited) {
+		return nil
+	}
 	if proc == nil {
 		return fmt.Errorf("session has no live process")
+	}
+	if handled, err := signalSessionProcess(proc, sigKILL()); handled {
+		return err
 	}
 	if m.deps.Group != nil {
 		return m.deps.Group.Kill(proc.Pid)
@@ -908,10 +942,11 @@ func (m *SessionManager) Close(id SessionID) error {
 		return fmt.Errorf("unknown session %q", id)
 	}
 	s.mu.Lock()
+	exited := s.exited
 	proc := s.proc
 	pty := s.pty
 	s.mu.Unlock()
-	if proc != nil {
+	if proc != nil && !ignoreCompletedSessionSignal(exited) {
 		_ = m.signalProc(proc, sigTERM())
 		select {
 		case <-s.done:
@@ -1178,7 +1213,7 @@ const (
 // envKeySet reports whether the environment list defines key.
 func envKeySet(env []string, key string) bool {
 	for _, kv := range env {
-		if k, _, ok := strings.Cut(kv, "="); ok && k == key {
+		if k, _, ok := strings.Cut(kv, "="); ok && normEnvKey(k) == normEnvKey(key) {
 			return true
 		}
 	}
@@ -1233,32 +1268,7 @@ func ptyEnv(extra []string) []string {
 }
 
 func mergeEnv(base []string, over map[string]string, extra []string) []string {
-	out := append([]string(nil), base...)
-	idx := map[string]int{}
-	for i, kv := range out {
-		if k, _, ok := strings.Cut(kv, "="); ok {
-			idx[k] = i
-		}
-	}
-	for k, v := range over {
-		if i, ok := idx[k]; ok {
-			out[i] = k + "=" + v
-		} else {
-			out = append(out, k+"="+v)
-			idx[k] = len(out) - 1
-		}
-	}
-	for _, kv := range extra {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			if i, dup := idx[k]; dup {
-				out[i] = k + "=" + v
-			} else {
-				out = append(out, kv)
-				idx[k] = len(out) - 1
-			}
-		}
-	}
-	return out
+	return mergeEnvForOS(base, over, extra, windowsEnvironment())
 }
 
 // EnvProfile is the detected execution environment (Section 13.5).
@@ -1294,25 +1304,7 @@ func DetectEnv() EnvProfile {
 }
 
 // DetectShell picks the default interpreter: bash or zsh on Linux.
-func DetectShell() string {
-	if sh := os.Getenv("SHELL"); sh != "" {
-		base := filepath.Base(sh)
-		if base == "bash" || base == "zsh" || base == "fish" || base == "sh" {
-			if _, err := exec.LookPath(sh); err == nil {
-				return sh
-			}
-			if _, err := exec.LookPath(base); err == nil {
-				return base
-			}
-		}
-	}
-	for _, cand := range []string{"bash", "zsh", "sh"} {
-		if p, err := exec.LookPath(cand); err == nil {
-			return p
-		}
-	}
-	return "/bin/sh"
-}
+func DetectShell() string { return detectShellOS() }
 
 // SessionSummary is the list entry for exec_io list and status.
 type SessionSummary struct {

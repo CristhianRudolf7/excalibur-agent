@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -251,8 +252,14 @@ func TestDeadlineStopsSessionAndPreservesShellQuoting(t *testing.T) {
 	t.Setenv("EXCALIBUR_AUTOPROVISION", "off")
 	m := NewSessionManager(TerminalDeps{})
 	tool := &ExecTool{Sessions: m}
-	ctx := WithCommandDeadline(context.Background(), 300*time.Millisecond)
-	raw, _ := json.Marshal(map[string]any{"command": "[[ 1 == 1 ]] && printf '%s' \"quoted ' value\"; sleep 30", "yield_ms": 250})
+	deadline, yield := 300*time.Millisecond, 250
+	if runtime.GOOS == "windows" {
+		// Git Bash takes several hundred milliseconds to start on a loaded
+		// Windows runner; the bound under test is the same, only later.
+		deadline, yield = 3*time.Second, 2500
+	}
+	ctx := WithCommandDeadline(context.Background(), deadline)
+	raw, _ := json.Marshal(map[string]any{"command": "[[ 1 == 1 ]] && printf '%s' \"quoted ' value\"; sleep 30", "yield_ms": yield})
 	res, err := tool.Invoke(ctx, Invocation{Arguments: raw})
 	if err != nil || !strings.Contains(res.Output, "quoted ' value") {
 		t.Fatal(res, err)

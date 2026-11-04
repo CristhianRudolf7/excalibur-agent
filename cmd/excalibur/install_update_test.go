@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
@@ -26,6 +27,9 @@ func cliEnv(t *testing.T) {
 }
 
 func TestCLIInstallClean(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux XDG layout and systemd user-unit installation; macOS uses LaunchAgents")
+	}
 	cliEnv(t)
 	if err := runInstall([]string{"--timezone", "America/Lima", "--provider", "openai", "--autostart"}); err != nil {
 		t.Fatalf("install: %v", err)

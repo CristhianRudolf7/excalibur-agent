@@ -3,6 +3,7 @@ package tasks
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -128,7 +129,7 @@ func TestInputSnapshotPreservesPrivateBytes(t *testing.T) {
 		t.Fatalf("deleted source lost copy: %q %v", content, err)
 	}
 	info, err := os.Stat(copyDir)
-	if err != nil || info.Mode().Perm() != 0o700 {
+	if err != nil || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) {
 		t.Fatalf("private copy directory: %v %v", info, err)
 	}
 }

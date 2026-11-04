@@ -40,6 +40,10 @@ func (m *Manager) runScript(ctx context.Context, id string, s Step, prior map[st
 	case "bash":
 		binary, ext = "bash", ".sh"
 	}
+	binary, prefix, err := scriptInvocation(binary)
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, "step-"+uuid.NewString()+ext)
 	if err = os.WriteFile(path, []byte(s.Code), 0600); err != nil {
 		return "", err
@@ -49,7 +53,7 @@ func (m *Manager) runScript(ctx context.Context, id string, s Step, prior map[st
 	if err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, binary, path)
+	cmd := exec.CommandContext(ctx, binary, append(prefix, path)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "AUTOMATION_INPUT="+string(input))
 	cmd.WaitDelay = 100 * time.Millisecond
@@ -60,7 +64,7 @@ func (m *Manager) runScript(ctx context.Context, id string, s Step, prior map[st
 	var stdout, stderr cappedBuffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err = cmd.Run()
+	err = runScriptProcess(cmd)
 	output := truncate(string(stdout.data), 2000)
 	if ctx.Err() != nil {
 		return output, ctx.Err()

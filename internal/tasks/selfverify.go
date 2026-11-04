@@ -194,7 +194,7 @@ type DraftCriterion struct {
 }
 
 var (
-	absPathRe  = regexp.MustCompile(`/[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+`)
+	absPathRe  = regexp.MustCompile(absolutePathPattern())
 	relPathRe  = regexp.MustCompile("(?:^|[\\s(\"'])(\\./[^\\s\"'`,;]+)")
 	quotedRe   = regexp.MustCompile("`([^`\\n]+)`|\"([^\"\\n]+)\"|'([^'\\n]+)'")
 	bareFileRe = regexp.MustCompile(`\b[\w\-]+\.(py|js|ts|jsx|tsx|go|rs|java|c|h|hpp|cpp|cc|rb|php|R|r|jl|sh|bash|sql|json|yaml|yml|toml|ini|cfg|csv|tsv|html|css|xml|pdf|md|txt|log|png|jpg|jpeg|wasm|so|o|a|bin|exe|jar|m|stan|pm|pl|tex|bib|Rmd|ipynb)\b`)
@@ -240,7 +240,7 @@ func ExtractDraftCriteria(request string, maxDrafts int) []DraftCriterion {
 
 	// Exact absolute and ./-relative paths first: they are the
 	// strongest, most checkable items.
-	for _, p := range absPathRe.FindAllString(text, -1) {
+	for _, p := range absolutePaths(text) {
 		clean := strings.TrimRight(p, ".,;:")
 		add("path "+clean+" exists with the expected content",
 			types.CriterionCommand, exerciseCheckFor(clean),
@@ -630,8 +630,8 @@ func DraftCoverage(drafts []DraftCriterion, finalText string, history []HistoryT
 
 func baseToken(key string) string {
 	key = strings.Trim(key, "\"'`")
-	if i := strings.LastIndex(key, "/"); i >= 0 {
-		return key[i+1:]
+	if base := draftPathBase(key); base != key {
+		return base
 	}
 	return ""
 }

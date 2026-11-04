@@ -132,7 +132,7 @@ func checkINI(content string) error {
 // single-line writes that carry literal backslash-n sequences, so the
 // cost is paid rarely.
 func checkPython(content string) error {
-	return runStdinCheck(content, "python3", "-c", "import ast, sys; ast.parse(sys.stdin.read(), '<write_file>')")
+	return runStdinCheck(content, pythonSyntaxCommand()...)
 }
 
 func checkShell(content string) error {
@@ -140,7 +140,7 @@ func checkShell(content string) error {
 }
 
 func runStdinCheck(content string, argv ...string) error {
-	bin, err := exec.LookPath(argv[0])
+	bin, err := syntaxCheckLookPath(argv[0])
 	if err != nil {
 		return errCheckUnavailable
 	}

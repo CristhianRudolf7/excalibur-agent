@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -68,6 +69,7 @@ func TestExecDeadlineRecordsBeforeWorkerReturns(t *testing.T) {
 
 // A subprocess receives real SIGTERM/SIGINT without interrupting the test runner.
 func TestExecSignalRecords(t *testing.T) {
+	requirePOSIXExecSignals(t)
 	if os.Getenv("EXCALIBUR_SIGNAL_HELPER") == "1" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -158,5 +160,12 @@ func TestExecOrdinaryFinalRecord(t *testing.T) {
 	}
 	if final.State != "completed" || final.ExitCode != 0 {
 		t.Fatal(string(raw))
+	}
+}
+
+func requirePOSIXExecSignals(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX SIGTERM/SIGINT delivery via os.Process.Signal is unavailable on Windows")
 	}
 }

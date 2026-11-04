@@ -72,7 +72,7 @@ func principalName(env func(string) string, lookup func() (string, error)) (stri
 	if name, err := lookup(); err == nil && strings.TrimSpace(name) != "" {
 		return strings.TrimSpace(name), nil
 	}
-	for _, key := range []string{"USER", "LOGNAME"} {
+	for _, key := range principalUserEnv() {
 		if name := strings.TrimSpace(env(key)); name != "" {
 			return name, nil
 		}
@@ -88,7 +88,7 @@ func principalLanguage(env func(string) string) string {
 			return "en"
 		}
 	}
-	return "en"
+	return defaultPrincipalLanguage()
 }
 
 // Get never edits a principal or assigns principal IDs to existing records.

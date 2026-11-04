@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -189,11 +190,12 @@ func TestStrictBlockedRefusesUntouchedDeliverable(t *testing.T) {
 		{Name: "exec", Args: `{"command":"mkdir -p /tmp/build"}`, Output: "exit: 0", IsError: false},
 	}
 	e, run := strictRunWithHistory(history, 3600)
-	run.Request = "Create /tmp/strict-untouched-report.txt with the summary."
+	target := filepath.Join(dir, "strict-untouched-report.txt")
+	run.Request = "Create " + target + " with the summary."
 	run.Workdir = dir
 	reason := "the environment could not produce the report"
 	refusal := e.strictBlockedRefusal(run, reason)
-	if !strings.Contains(refusal, "/tmp/strict-untouched-report.txt") {
+	if !strings.Contains(refusal, target) {
 		t.Fatalf("untouched creatable deliverable must refuse blocked, got %q", refusal)
 	}
 }

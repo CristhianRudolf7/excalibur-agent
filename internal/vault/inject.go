@@ -82,6 +82,11 @@ func (v *Vault) InjectFile(ctx context.Context, ref, tool, runID, project, runti
 		_ = f.Chmod(0o600)
 	}
 	name := f.Name()
+	if err := preparePrivateFile(name); err != nil {
+		_ = f.Close()
+		_ = os.Remove(name)
+		return "", nil, err
+	}
 	if _, err := f.Write(res.Value); err != nil {
 		_ = f.Close()
 		_ = os.Remove(name)

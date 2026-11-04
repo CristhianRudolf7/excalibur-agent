@@ -168,6 +168,9 @@ func Open(ctx context.Context, path string, opts Options, reg MigrationRegistry)
 				_ = writerDB.Close()
 				return nil, ErrCorrupt
 			}
+			if err := closeBeforeRestore(conn, writerDB); err != nil {
+				return nil, err
+			}
 			restored, rerr := restoreLatest(ctx, path, BackupsDirFor(path))
 			if rerr != nil {
 				_ = conn.Close()

@@ -13,7 +13,7 @@ func TestHardArtifactsRequireAbsoluteCreationPath(t *testing.T) {
 			t.Fatalf("%q became a hard obligation: %v", request, p)
 		}
 	}
-	request := "Save the report to /app/result.txt"
+	request := nativeFixtureText("Save the report to /app/result.txt")
 	if p := ApplyArtifactGate(DefaultArtifactConfig(), ArtifactRequest{Request: request}); len(p) == 0 {
 		t.Fatal("absolute requested output did not block")
 	}

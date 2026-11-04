@@ -297,24 +297,12 @@ func (u *Updater) rollbackData() error {
 
 // FileImageStore is a minimal on-disk ImageStore for the daemon: the
 // candidate sits next to the current binary and Swap renames
-// atomically, keeping the previous binary as .prev for RollbackBinary.
+// keeping an OS-specific backup for RollbackBinary.
 type FileImageStore struct {
-	// Dir holds excalibur, excalibur.next and excalibur.prev.
+	// Dir holds the current, staged and backup executable images.
 	Dir string
 	// Version tracks the running version for reports.
 	Version string
-}
-
-// binaryPaths resolves the three image paths.
-func (s *FileImageStore) binaryPaths() (cur, next, prev string) {
-	return joinBin(s.Dir), joinBin(s.Dir) + ".next", joinBin(s.Dir) + ".prev"
-}
-
-func joinBin(dir string) string {
-	if dir == "" {
-		return "excalibur"
-	}
-	return dir + string(os.PathSeparator) + "excalibur"
 }
 
 // CurrentVersion implements ImageStore.
@@ -330,33 +318,4 @@ func (s *FileImageStore) Stage(payload []byte) (string, error) {
 		return "", err
 	}
 	return next, nil
-}
-
-// Swap implements ImageStore.
-func (s *FileImageStore) Swap() error {
-	cur, next, prev := s.binaryPaths()
-	if _, err := os.Stat(next); err != nil {
-		return fmt.Errorf("daemon: swap without staged binary: %w", err)
-	}
-	if _, err := os.Stat(cur); err == nil {
-		if err := os.Rename(cur, prev); err != nil {
-			return err
-		}
-	}
-	if err := os.Rename(next, cur); err != nil {
-		return err
-	}
-	return nil
-}
-
-// RollbackBinary implements ImageStore.
-func (s *FileImageStore) RollbackBinary() error {
-	cur, _, prev := s.binaryPaths()
-	if _, err := os.Stat(prev); err != nil {
-		return fmt.Errorf("daemon: no previous binary to roll back to: %w", err)
-	}
-	if err := os.Rename(cur, cur+".bad"); err != nil {
-		return err
-	}
-	return os.Rename(prev, cur)
 }

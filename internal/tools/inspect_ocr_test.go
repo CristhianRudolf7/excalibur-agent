@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"time"
 )
 
@@ -199,8 +201,8 @@ func TestInspectImageOCRPreparesTwoColorNearestRaster(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if info, err := os.Stat(args[0]); err != nil || info.Mode().Perm() != 0600 {
-					t.Fatalf("temporary raster must be private: %v %v", info, err)
+				if private, err := platform.IsOwnerOnly(args[0]); err != nil || !private {
+					t.Fatalf("temporary raster must be private: %v %v", private, err)
 				}
 				checkRaster(prepared)
 				_, err = io.WriteString(w, "Prepared raster read")

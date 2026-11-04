@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	platformfake "github.com/CristhianRudolf7/excalibur-agent/internal/platform/fake"
 )
 
@@ -84,14 +85,7 @@ func TestVault_AllTypes_NoCleartext(t *testing.T) {
 		}
 		ZeroBytes(res.Value)
 	}
-	// File permissions are 0600.
-	fi, err := os.Stat(filepath.Join(dir, "vault.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("vault.db perms = %o, want 600", fi.Mode().Perm())
-	}
+	assertPrivateFile(t, filepath.Join(dir, "vault.db"))
 	// Raw file and logical dump must not contain any value or encoding.
 	raw, err := os.ReadFile(filepath.Join(dir, "vault.db"))
 	if err != nil {
@@ -118,4 +112,12 @@ func redactLen(s string) string {
 		return s[:4] + "...(len " + itoa(len(s)) + ")"
 	}
 	return "short"
+}
+
+// assertPrivateFile checks the native protection (0600 on POSIX, DACL on Windows).
+func assertPrivateFile(t *testing.T, path string) {
+	t.Helper()
+	if ok, err := platform.IsOwnerOnly(path); err != nil || !ok {
+		t.Fatalf("file %q is not private: %v", path, err)
+	}
 }

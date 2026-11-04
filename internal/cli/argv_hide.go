@@ -73,6 +73,11 @@ func PrepareInstructionArgv(argv, env []string, request string) (newArgv, newEnv
 		return argv, env, "", fmt.Errorf("create instruction file: %w", err)
 	}
 	path = f.Name()
+	if err := protectInstructionFile(path); err != nil {
+		_ = f.Close()
+		_ = os.Remove(path)
+		return argv, env, "", fmt.Errorf("protect instruction file: %w", err)
+	}
 	if _, err := f.WriteString(request); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)

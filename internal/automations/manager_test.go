@@ -90,7 +90,7 @@ func create(t *testing.T, m *Manager, s Spec) Automation {
 }
 func waitFor(t *testing.T, fn func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if fn() {
 			return
@@ -418,6 +418,10 @@ func TestScripts(t *testing.T) {
 	for _, language := range []string{"python", "bash", "node"} {
 		t.Run(language, func(t *testing.T) {
 			binary := map[string]string{"python": "python3", "bash": "bash", "node": "node"}[language]
+			binary, _, err := scriptInvocation(binary)
+			if err != nil {
+				t.Skip(err)
+			}
 			if _, err := exec.LookPath(binary); err != nil {
 				t.Skip(err)
 			}
@@ -451,6 +455,9 @@ func TestScriptFailureAndTimeout(t *testing.T) {
 		t.Run(code, func(t *testing.T) {
 			m := manager(t, Config{})
 			m.runDuration = 30 * time.Millisecond
+			if strings.Contains(code, "exit") {
+				m.runDuration = 10 * time.Second
+			}
 			s := spec()
 			s.Steps = []Step{{ID: "script", Type: StepScript, Language: "bash", Code: code}}
 			a := create(t, m, s)

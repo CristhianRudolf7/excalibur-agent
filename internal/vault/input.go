@@ -22,6 +22,10 @@ func writePrivateFile(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := preparePrivateFile(path); err != nil {
+		_ = f.Close()
+		return err
+	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 		return err
@@ -30,14 +34,7 @@ func writePrivateFile(path string, data []byte) error {
 		return err
 	}
 	// Enforce 0600 against umask surprises and pre-existing files.
-	return os.Chmod(path, 0o600)
-}
-
-func dirOf(path string) string {
-	if i := strings.LastIndex(path, "/"); i >= 0 {
-		return path[:i]
-	}
-	return ""
+	return restrictPrivateFile(path)
 }
 
 func parseTime(s string) (time.Time, error) { return time.Parse(time.RFC3339Nano, s) }
@@ -52,8 +49,8 @@ func LoadPassphraseFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if fi.Mode().Perm() != 0o600 {
-		return nil, fmt.Errorf("vault: passphrase file %q must be 0600 (has %o)", path, fi.Mode().Perm())
+	if err := checkPassphrasePermissions(path, fi); err != nil {
+		return nil, err
 	}
 	raw, err := os.ReadFile(path)
 	if err != nil {

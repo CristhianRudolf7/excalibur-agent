@@ -6,7 +6,7 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:4184', channel: 'chrome' },
   webServer: [
     {
-      command: 'bash scripts/dev-daemon.sh',
+      command: 'node scripts/dev-daemon.mjs',
       env: {
         EXCALIBUR_USER_NAME: 'Ana Prueba',
         EXCALIBUR_DEV_LISTEN: '127.0.0.1:7788',

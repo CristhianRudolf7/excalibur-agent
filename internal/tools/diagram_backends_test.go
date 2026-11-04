@@ -180,7 +180,12 @@ func TestDiagramMissingRendererHints(t *testing.T) {
 			if err == nil {
 				t.Fatal("missing renderer succeeded")
 			}
-			for _, want := range []string{tc.binary, tc.install, runtime.GOOS, "Another dialect such as graphviz"} {
+			wants := []string{tc.binary, b.installHint(tc.dialect, runtime.GOOS), runtime.GOOS, "Another dialect such as graphviz"}
+			if runtime.GOOS != "darwin" {
+				// Retain the existing GNU install-hint assertions as well.
+				wants = append(wants, tc.install)
+			}
+			for _, want := range wants {
 				if !strings.Contains(err.Error(), want) {
 					t.Errorf("error %q missing %q", err, want)
 				}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -71,8 +73,8 @@ func TestBrowserWebAvailabilityAndPrivatePaths(t *testing.T) {
 		t.Fatal("available browser not built")
 	}
 	for _, part := range []string{"profile", "downloads", "routines"} {
-		st, err := os.Stat(dir + "/browser/" + part)
-		if err != nil || st.Mode().Perm() != 0700 {
+		st, err := os.Stat(filepath.Join(dir, "browser", part))
+		if err != nil || !st.IsDir() || (runtime.GOOS != "windows" && st.Mode().Perm() != 0700) {
 			t.Fatalf("private %s: %v", part, err)
 		}
 	}

@@ -13,6 +13,7 @@ import (
 var boundaryHarness = []string{"/logs/agent"}
 
 func TestBoundaryRefusesEscapesInExecScope(t *testing.T) {
+	requirePOSIXFeature(t, "Linux container boundary paths")
 	restore := SetExecScope(ExecScope{Active: true, HarnessPaths: boundaryHarness})
 	defer restore()
 	refused := []string{
@@ -133,6 +134,7 @@ func TestReadFileToolRefusesHarnessLog(t *testing.T) {
 }
 
 func TestExecToolRefusesEscapeBeforeRunning(t *testing.T) {
+	requirePOSIXFeature(t, "Linux container boundary paths")
 	restore := SetExecScope(ExecScope{Active: true, HarnessPaths: boundaryHarness})
 	defer restore()
 	m := NewSessionManager(TerminalDeps{})
@@ -144,5 +146,60 @@ func TestExecToolRefusesEscapeBeforeRunning(t *testing.T) {
 	}
 	if !strings.Contains(res.Output, BoundaryRefusal) || strings.Contains(res.Output, "root:") {
 		t.Fatalf("exec output: %s", res.Output)
+	}
+}
+
+// A harness root spelled through a symlinked directory still protects the
+// files the candidate path resolves to (macOS TMPDIR under /var -> /private/var).
+func TestBoundaryHarnessRootThroughSymlink(t *testing.T) {
+	real := t.TempDir()
+	secret := filepath.Join(real, "trajectory.json")
+	if err := os.WriteFile(secret, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "logs")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skip(err)
+	}
+	restore := SetExecScope(ExecScope{Active: true, HarnessPaths: []string{alias}})
+	defer restore()
+	link := filepath.Join(t.TempDir(), "notes.json")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckPathBoundary(link); err == nil {
+		t.Fatal("symlink to harness log reached through an aliased root readable")
+	}
+	if err := CheckPathBoundary(secret); err == nil {
+		t.Fatal("resolved harness log readable")
+	}
+	if err := CheckCommandBoundary("cat " + secret); err == nil {
+		t.Fatal("command naming the resolved harness log allowed")
+	}
+}
+
+func TestBoundaryHarnessRootWithMultipleAliasesAndFuturePaths(t *testing.T) {
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.Symlink(real, other); err != nil {
+		t.Fatal(err)
+	}
+	restore := SetExecScope(ExecScope{Active: true, HarnessPaths: []string{filepath.Join(alias, "future", "logs")}})
+	defer restore()
+	for _, root := range []string{real, alias, other} {
+		secret := filepath.Join(root, "future", "logs", "trajectory.json")
+		if err := CheckCommandBoundary("cat '" + secret + "'"); err == nil {
+			t.Errorf("command naming aliased future harness log allowed: %q", secret)
+		}
+		if err := CheckPathBoundary(secret); err == nil {
+			t.Errorf("aliased future harness log readable: %q", secret)
+		}
+		if err := CheckCommandBoundary("cat " + filepath.Join(root, "future", "logs-sibling", "report.json")); err != nil {
+			t.Errorf("sibling prefix refused: %v", err)
+		}
 	}
 }

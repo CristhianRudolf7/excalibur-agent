@@ -45,5 +45,5 @@ func dataInput(path string) bool {
 	b := make([]byte, 512)
 	n, _ := f.Read(b)
 	b = b[:n]
-	return info.Mode().Perm()&0111 != 0 || bytes.IndexByte(b, 0) >= 0 || bytes.HasPrefix(b, []byte("\x7fELF")) || bytes.HasPrefix(b, []byte("MZ")) || bytes.HasPrefix(b, []byte("PK\x03\x04")) || bytes.HasPrefix(b, []byte("!<arch>\n")) || bytes.HasPrefix(b, []byte{0x1f, 0x8b})
+	return inputExecutable(info.Mode()) || bytes.IndexByte(b, 0) >= 0 || bytes.HasPrefix(b, []byte("\x7fELF")) || bytes.HasPrefix(b, []byte("MZ")) || bytes.HasPrefix(b, []byte("PK\x03\x04")) || bytes.HasPrefix(b, []byte("!<arch>\n")) || bytes.HasPrefix(b, []byte{0x1f, 0x8b})
 }

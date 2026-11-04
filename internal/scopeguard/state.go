@@ -26,7 +26,7 @@ func StartRun(root, instruction, id string) (*Guard, error) {
 		return nil, err
 	}
 	key := fmt.Sprintf("%x", sha256.Sum256([]byte(abs+"\x00"+id)))
-	dir := filepath.Join("/tmp/excalibur-originals", "state-"+key)
+	dir := filepath.Join(originalsDir(), "state-"+key)
 	path := filepath.Join(dir, "guard.json")
 	ih := fmt.Sprintf("%x", sha256.Sum256([]byte(instruction)))
 	if b, e := os.ReadFile(path); e == nil {

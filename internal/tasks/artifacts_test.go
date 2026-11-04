@@ -206,7 +206,7 @@ type fakeFS struct {
 }
 
 func (f *fakeFS) stat(path string) (ArtifactFS, error) {
-	fs, ok := f.files[path]
+	fs, ok := f.files[fixturePOSIXPath(path)]
 	if !ok {
 		return ArtifactFS{}, os.ErrNotExist
 	}
@@ -214,7 +214,7 @@ func (f *fakeFS) stat(path string) (ArtifactFS, error) {
 }
 
 func (f *fakeFS) read(path string) (string, error) {
-	s, ok := f.text[path]
+	s, ok := f.text[fixturePOSIXPath(path)]
 	if !ok {
 		return "", os.ErrNotExist
 	}
@@ -230,6 +230,7 @@ func TestGateMissingEmptyUnexecutable(t *testing.T) {
 		{ID: "A1", Kind: ArtifactOutput, Path: "/app/run.py", Detail: "output", Source: "put it in /app/run.py"},
 		{ID: "A2", Kind: ArtifactExecutable, Path: "/usr/local/bin/povray", Detail: "executable", Source: "install to /usr/local/bin/povray"},
 	}
+	reqs = nativeFixtureRequirements(reqs)
 	fs := &fakeFS{files: map[string]ArtifactFS{}, text: map[string]string{}}
 	got := CheckArtifactFiles(reqs, nil, "", fs.stat, fs.read)
 	if len(got) != 2 {
@@ -256,6 +257,7 @@ func TestGateContentExpectation(t *testing.T) {
 	reqs := []ArtifactRequirement{
 		{ID: "A1", Kind: ArtifactOutput, Path: "/app/summary.csv", Expect: []string{"period,severity,count"}, Source: "write /app/summary.csv"},
 	}
+	reqs = nativeFixtureRequirements(reqs)
 	fs := &fakeFS{
 		files: map[string]ArtifactFS{"/app/summary.csv": {Exists: true, Size: 40, NonEmpty: true}},
 		text:  map[string]string{"/app/summary.csv": "oops,wrong,header\n"},
@@ -438,7 +440,7 @@ func TestPathTemplatesNeverRequireRemnants(t *testing.T) {
 		}
 	}
 	t.Setenv("EXCALIBUR_PATH_TEMPLATES", "off")
-	if !HardArtifactRequirement(ArtifactRequirement{Path: "/app/{name}/out.txt", Source: "Create /app/{name}/out.txt"}) {
+	if !HardArtifactRequirement(nativeFixtureRequirements([]ArtifactRequirement{{Path: "/app/{name}/out.txt", Source: "Create /app/{name}/out.txt"}})[0]) {
 		t.Fatal("off switch ignored")
 	}
 }

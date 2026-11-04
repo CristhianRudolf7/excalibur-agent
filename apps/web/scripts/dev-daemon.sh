@@ -2,7 +2,12 @@
 set -euo pipefail
 export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-state="$(mktemp -d -t excalibur-web-daemon.XXXXXX)"
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+  state="$(mktemp -d "${TMPDIR:-/tmp}/excalibur-web-daemon.XXXXXX")"
+else
+  state="$(mktemp -d -t excalibur-web-daemon.XXXXXX)"
+fi
 child=""
 cleanup() {
   if [[ -n "$child" ]]; then kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true; fi

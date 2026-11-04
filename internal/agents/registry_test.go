@@ -148,7 +148,14 @@ func TestRegistryFavoriteFallsBackToOldestAndValidation(t *testing.T) {
 	r, _ := OpenRegistry(ctx, nil, "", nil)
 	first := r.Favorite()
 	second, _ := r.Create(ctx, CreateParams{Name: "Ada"})
-	_, _ = r.Create(ctx, CreateParams{Name: "Grace"})
+	third, _ := r.Create(ctx, CreateParams{Name: "Grace"})
+	// Set distinct fixture times: Windows wall-clock ticks can give sequential
+	// creations identical timestamps, where the registry correctly sorts by ID.
+	r.mu.Lock()
+	second.CreatedAt = time.Unix(1, 0).UTC()
+	third.CreatedAt = second.CreatedAt.Add(time.Second)
+	r.rows[second.ID], r.rows[third.ID] = second, third
+	r.mu.Unlock()
 	fav, err := r.Archive(ctx, first.ID)
 	if err != nil || fav != second.ID {
 		t.Fatal(fav, err)

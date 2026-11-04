@@ -33,7 +33,7 @@ func artifactOff() *tasks.ArtifactConfig {
 func writeHistory(path string) []ctxcompiler.ActivityEvent {
 	return []ctxcompiler.ActivityEvent{
 		{Seq: 0, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c1", "write_file", `{"path":"`+path+`"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c1", "write_file", `{"path":`+strconvQuote(path)+`}`)}},
 		{Seq: 1, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: "wrote " + path}},
 	}
@@ -45,8 +45,8 @@ func TestFinishTurnBlocksUnverifiedWrite(t *testing.T) {
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
 	run := testRun(Profile{})
-	run.Request = "Create the file /app/filter.py that strips scripts."
-	run.History = writeHistory("/app/filter.py")
+	run.Request = nativeFixtureText("Create the file /app/filter.py that strips scripts.")
+	run.History = writeHistory(nativeFixtureText("/app/filter.py"))
 	startRun(t, e, run, js)
 	if err := e.Run(ctx, run); err != nil {
 		t.Fatal(err)
@@ -71,23 +71,23 @@ func TestFinishTurnBlocksUnverifiedWrite(t *testing.T) {
 
 func verifierPassResp() providers.ChatResponse {
 	return providers.ChatResponse{Message: providers.Message{Role: providers.RoleAssistant,
-		Content: "FRESH_INPUTS: PASS - generated hello input asserted independently\nPROPERTY: PASS - file is importable Python\nOUTPUT_CONTRACT: PASS - Python module import verified\nCHECKS:\n- python3 /app/filter.py hello\nD1: PASS - ran with input, output confirms behavior\nVERDICT: PASS\nREASONS: none"}}
+		Content: nativeFixtureText("FRESH_INPUTS: PASS - generated hello input asserted independently\nPROPERTY: PASS - file is importable Python\nOUTPUT_CONTRACT: PASS - Python module import verified\nCHECKS:\n- python3 /app/filter.py hello\nD1: PASS - ran with input, output confirms behavior\nVERDICT: PASS\nREASONS: none")}}
 }
 
 func TestFinishTurnPassesWhenVerified(t *testing.T) {
 	ctx := context.Background()
-	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp("created /app/filter.py and verified the import"), verifierPassResp()}}
+	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp(nativeFixtureText("created /app/filter.py and verified the import")), verifierPassResp()}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	e.deps.SelfVerify = verifyConfig()
 	e.deps.Artifacts = artifactOff()
 	run := testRun(Profile{})
-	run.Request = "Create /app/filter.py."
-	history := writeHistory("/app/filter.py")
+	run.Request = nativeFixtureText("Create /app/filter.py.")
+	history := writeHistory(nativeFixtureText("/app/filter.py"))
 	history = append(history,
 		ctxcompiler.ActivityEvent{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/filter.py hello","workdir":"/app"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", nativeFixtureText(`{"command":"python3 /app/filter.py hello","workdir":"/app"}`))}},
 		ctxcompiler.ActivityEvent{Seq: 3, Role: providers.RoleTool,
-			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/filter.py ok"}},
+			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: nativeFixtureText("/app/filter.py ok")}},
 	)
 	run.History = history
 	startRun(t, e, run, js)
@@ -110,7 +110,7 @@ func TestFinishTurnBlocksStillRunning(t *testing.T) {
 	run.Request = "Build the project with make."
 	run.History = []ctxcompiler.ActivityEvent{
 		{Seq: 0, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c1", "exec", `{"command":"make -j","workdir":"/app"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c1", "exec", nativeFixtureText(`{"command":"make -j","workdir":"/app"}`))}},
 		{Seq: 1, Role: providers.RoleTool,
 			ToolResult: &providers.ToolResult{CallID: "c1", Name: "exec", Output: "session: sess-1  alive: true\nbuilding..."}},
 	}
@@ -150,9 +150,9 @@ func TestFinishTurnStashesRequestFromLayer(t *testing.T) {
 func TestFinishTurnRefineImprovesDrafts(t *testing.T) {
 	ctx := context.Background()
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
-		finalResp("created /app/x.py and verified"),
+		finalResp(nativeFixtureText("created /app/x.py and verified")),
 		{Message: providers.Message{Role: providers.RoleAssistant,
-			Content: "command | file /app/x.py exists | test -s /app/x.py"}},
+			Content: nativeFixtureText("command | file /app/x.py exists | test -s /app/x.py")}},
 		verifierPassResp(),
 	}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
@@ -160,16 +160,16 @@ func TestFinishTurnRefineImprovesDrafts(t *testing.T) {
 	e.deps.SelfVerify = &cfg
 	e.deps.Artifacts = artifactOff()
 	run := testRun(Profile{})
-	run.Request = "Create /app/x.py."
+	run.Request = nativeFixtureText("Create /app/x.py.")
 	run.History = []ctxcompiler.ActivityEvent{
 		{Seq: 0, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c1", "write_file", `{"path":"/app/x.py"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c1", "write_file", nativeFixtureText(`{"path":"/app/x.py"}`))}},
 		{Seq: 1, Role: providers.RoleTool,
-			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: "wrote /app/x.py"}},
+			ToolResult: &providers.ToolResult{CallID: "c1", Name: "write_file", Output: nativeFixtureText("wrote /app/x.py")}},
 		{Seq: 2, Role: providers.RoleAssistant, Content: "",
-			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", `{"command":"python3 /app/x.py"}`)}},
+			ToolCalls: []providers.ToolCall{toolCall("c2", "exec", nativeFixtureText(`{"command":"python3 /app/x.py"}`))}},
 		{Seq: 3, Role: providers.RoleTool,
-			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: "/app/x.py ok"}},
+			ToolResult: &providers.ToolResult{CallID: "c2", Name: "exec", Output: nativeFixtureText("/app/x.py ok")}},
 	}
 	startRun(t, e, run, js)
 	if err := e.Run(ctx, run); err != nil {

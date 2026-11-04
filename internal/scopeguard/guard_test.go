@@ -52,7 +52,11 @@ func TestDatabaseProbePreservesCompanions(t *testing.T) {
 	}
 	defer func() {
 		d := g.Backups[p]
-		for filepath.Dir(d) != "/tmp/excalibur-originals" {
+		for filepath.Dir(d) != originalsDir() {
+			if filepath.Dir(d) == d {
+				t.Errorf("backup %q is outside originals directory %q", g.Backups[p], originalsDir())
+				return
+			}
 			d = filepath.Dir(d)
 		}
 		_ = os.RemoveAll(d)

@@ -344,14 +344,24 @@ func TestSupervisorStartsRestartsAndJoinsRealPythonProcess(t *testing.T) {
 	s.mu.Unlock()
 	_ = first.Process.Kill()
 	<-done
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for starts.Load() < 2 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if starts.Load() < 2 {
 		t.Fatal("bridge was not restarted")
 	}
-	if err = s.ensure(context.Background()); err != nil {
+	// A launch attempt precedes the HTTP listener becoming ready. Wait for
+	// readiness rather than assuming the command-factory counter proves it.
+	err = fmt.Errorf("restarted bridge did not become ready")
+	for time.Now().Before(deadline) {
+		err = s.ensure(context.Background())
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err = s.Close(); err != nil {

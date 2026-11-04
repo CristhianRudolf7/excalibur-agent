@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -107,6 +108,7 @@ func TestExecExitStatusSwitchOffRestoresOkStatus(t *testing.T) {
 }
 
 func TestExecSignalExitIsNamed(t *testing.T) {
+	requirePOSIXFeature(t, "POSIX signal exit codes")
 	// A child killed by SIGTERM: os/exec reports -1, the model must see
 	// 128+15 and the signal name. The child is started by the test itself,
 	// so the self-kill guard does not apply.
@@ -153,15 +155,38 @@ func TestExecProbeFailureCarriesNeutralNote(t *testing.T) {
 	if !IsProbeFailureOutput(res.Output) {
 		t.Fatal("finish gate must recognise the probe failure")
 	}
-	// ls of a missing path exits 2 and carries the note with its own code.
+	// GNU ls exits 2 for a missing path; BSD ls exits 1. Both are probes.
 	ls := callTool(t, tool, map[string]any{"command": "ls /nope/missing-dir", "workdir": dir})
-	if !strings.Contains(ls.Output, `note: exit 2 here usually means`) {
+	lsCode := 2
+	if runtime.GOOS == "darwin" {
+		lsCode = 1
+	}
+	if ls.Status != StatusToolError || ls.ExitCode == nil || *ls.ExitCode != lsCode || !IsProbeFailureOutput(ls.Output) || !strings.Contains(ls.Output, fmt.Sprintf("note: exit %d here usually means", lsCode)) {
 		t.Fatalf("ls of a missing path must carry the note: %q", ls.Output)
 	}
 	// A plain failure gets no probe note.
 	plain := callTool(t, tool, map[string]any{"command": "false", "workdir": dir})
 	if strings.Contains(plain.Output, "note: exit") || IsProbeFailureOutput(plain.Output) {
 		t.Fatalf("non-probe failure must not be neutralised: %q", plain.Output)
+	}
+}
+
+func TestProbeMissingPathDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name, output string
+		code         int
+	}{
+		{"GNU ls", "ls: cannot access '/nope/missing-dir': No such file or directory\n", 2},
+		{"BSD ls", "ls: /nope/missing-dir: No such file or directory\n", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := missingPathIn(tc.output); got != "/nope/missing-dir" {
+				t.Fatalf("missing path = %q", got)
+			}
+			if note := probeExitNote("ls /nope/missing-dir", tc.code); !IsProbeFailureOutput(note) {
+				t.Fatalf("probe note missing: %q", note)
+			}
+		})
 	}
 }
 
@@ -201,6 +226,14 @@ func TestExecZeroExitWarnsOnFailureText(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			res := callTool(t, tool, map[string]any{"command": c.cmd, "workdir": dir})
+			if c.name == "unterminated heredoc" && runtime.GOOS == "darwin" {
+				// Apple's /bin/bash 3.2 accepts EOF as the delimiter without
+				// emitting a diagnostic, so there is no failure text to detect.
+				if res.Status != StatusOK || !strings.HasSuffix(res.Output, "hello\n") || strings.Contains(res.Output, "warning:") {
+					t.Fatalf("bash 3.2 silently accepts the heredoc: %q", res.Output)
+				}
+				return
+			}
 			want := fmt.Sprintf("warning: exit 0 but the output contains %q", c.phrase)
 			if res.Status != StatusOK || !strings.Contains(res.Output, want) {
 				t.Fatalf("missing warning %q: %q", want, res.Output)
@@ -210,6 +243,15 @@ func TestExecZeroExitWarnsOnFailureText(t *testing.T) {
 	clean := callTool(t, tool, map[string]any{"command": "echo ok", "workdir": dir})
 	if strings.Contains(clean.Output, "warning:") {
 		t.Fatalf("clean output must not warn: %q", clean.Output)
+	}
+}
+
+func TestZeroExitWarningHeredocDiagnostic(t *testing.T) {
+	// Keep detector coverage even on shells that emit no heredoc warning.
+	phrase := "here-document at line 1 delimited by end-of-file"
+	out := "/bin/bash: line 2: warning: " + phrase + " (wanted `EOF')\nhello\n"
+	if got, want := zeroExitWarning(out), fmt.Sprintf("warning: exit 0 but the output contains %q\n", phrase); got != want {
+		t.Fatalf("warning = %q, want %q", got, want)
 	}
 }
 

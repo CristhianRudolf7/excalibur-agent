@@ -2,8 +2,6 @@ package store
 
 import (
 	"bufio"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -58,21 +56,6 @@ func mountForDir(mounts []mountEntry, dir string) *mountEntry {
 	return best
 }
 
-// detectNetworkFS reports whether dir lives on a network filesystem.
-// It reads /proc/mounts on Linux and returns false (no degradation)
-// on any error or elsewhere, so detection never blocks opening.
-func detectNetworkFS(dir string) bool {
-	data, err := os.ReadFile("/proc/mounts")
-	if err != nil {
-		return false
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		abs = dir
-	}
-	m := mountForDir(parseMounts(string(data)), abs)
-	if m == nil {
-		return false
-	}
-	return networkFSTypes[strings.ToLower(m.fsType)]
-}
+// detectNetworkFS selects the native filesystem probe. Failure to determine the
+// filesystem type never prevents opening a local store (Section 4.3).
+func detectNetworkFS(dir string) bool { return detectPlatformNetworkFS(dir) }

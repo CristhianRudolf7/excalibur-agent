@@ -51,7 +51,7 @@ func fileVersion(path string) string {
 
 // Literal file operands include inline script references. Dynamic filesystem
 // accesses additionally use the dependency receipts captured on tool results.
-var fileOperandRe = regexp.MustCompile(`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9_.-]+|/[a-zA-Z0-9_./-]+`)
+var fileOperandRe = regexp.MustCompile(fileOperandPattern())
 
 func historyFileOperands(h tasks.HistoryTool, workdir string) []string {
 	var a map[string]any

@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +144,19 @@ func TestDeclaredServiceProbe(t *testing.T) {
 	}
 }
 
+func TestDeclaredServiceUsesFullIntentSentence(t *testing.T) {
+	// The service instruction follows a long context, beyond the displayed source.
+	req := strings.Repeat("context ", 17) + "On port 18081 keep the endpoint running"
+	withPortProbe(t, false)
+	if got := declaredServiceReasons(req, "", 8); len(got) != 1 || !strings.Contains(got[0], "18081") {
+		t.Fatalf("trailing service instruction must refuse a closed port, got %v", got)
+	}
+	withPortProbe(t, true)
+	if got := declaredServiceReasons(req, "", 8); len(got) != 0 {
+		t.Fatalf("answering port must pass, got %v", got)
+	}
+}
+
 // D3a/item 100: a file provided before the run is not a deliverable unless
 // the instruction asks to modify it; creating it is not the same as
 // modifying it.
@@ -242,7 +256,7 @@ func TestSoftWarningBaselineOverwrite(t *testing.T) {
 	}
 	files := []deliverable{{Path: filepath.Join(dir, "out.bin"), Base: "out.bin"}}
 	history := hist(
-		tasks.HistoryTool{Name: "write_file", Args: `{"path":"` + files[0].Path + `","content":"x"}`, Output: "ok"},
+		tasks.HistoryTool{Name: "write_file", Args: `{"path":` + strconvQuote(files[0].Path) + `,"content":"x"}`, Output: "ok"},
 		tasks.HistoryTool{Name: "exec", Args: `{"command":"python3 baseline_writer.py"}`, Output: "exit: 0"},
 	)
 	if got := baselineOverwriteWarnings(snap, files, history); len(got) != 1 || !strings.Contains(got[0], "baseline_writer.py") {
@@ -404,7 +418,11 @@ func TestDeclaredLocalURLProbe(t *testing.T) {
 }
 
 func TestProgramDetectionExecutableAndNamedOutput(t *testing.T) {
-	p := tmpFile(t, "worker", "binary data")
+	name := "worker"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	p := tmpFile(t, name, "binary data")
 	if err := os.Chmod(p, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -421,14 +439,14 @@ func TestProgramDetectionExecutableAndNamedOutput(t *testing.T) {
 
 func TestDeliverablesExcludeAgentScratchPaths(t *testing.T) {
 	e := &Engine{}
-	run := &Run{Request: "Create /app/out.txt with the result.", Workdir: "/app"}
+	run := &Run{Request: nativeFixtureText("Create /app/out.txt with the result."), Workdir: nativeFixtureText("/app")}
 	history := hist(
-		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/tmp/check.py","content":"print(1)"}`},
-		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/app/helper.py","content":"print(1)"}`},
-		tasks.HistoryTool{Name: "write_file", Args: `{"path":"/app/out.txt","content":"result"}`},
+		tasks.HistoryTool{Name: "write_file", Args: nativeFixtureText(`{"path":"/tmp/check.py","content":"print(1)"}`)},
+		tasks.HistoryTool{Name: "write_file", Args: nativeFixtureText(`{"path":"/app/helper.py","content":"print(1)"}`)},
+		tasks.HistoryTool{Name: "write_file", Args: nativeFixtureText(`{"path":"/app/out.txt","content":"result"}`)},
 	)
 	files := e.deliverables(run, run.Request, history)
-	if len(files) != 1 || files[0].Path != "/app/out.txt" {
+	if len(files) != 1 || filepath.ToSlash(files[0].Path) != nativeFixtureText("/app/out.txt") {
 		t.Fatalf("only instruction paths are deliverables: %+v", files)
 	}
 	if got := unexecutedProgramReasons(run.Request, history, files); len(got) != 0 {

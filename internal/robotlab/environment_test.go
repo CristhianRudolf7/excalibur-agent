@@ -10,6 +10,9 @@ import (
 )
 
 func TestChildEnvironmentAllowlist(t *testing.T) {
+	if runtime.GOOS == "linux" && mujocoGL() != "osmesa" {
+		t.Fatal("Linux runtime must use OSMesa")
+	}
 	for name, value := range map[string]string{
 		"ROBOTLAB_SENTINEL_SECRET": "private", "HARNESS_TEST_CREDENTIAL": "private",
 		"PYTHONPATH": "/untrusted", "PYTHONHOME": "/untrusted",
@@ -36,15 +39,15 @@ func TestChildEnvironmentAllowlist(t *testing.T) {
 				t.Fatalf("install=%v unexpected presence for %s", install, name)
 			}
 		}
-		if env["LC_MESSAGES"] != "C" || env["EXCALIBUR_ROBOTLAB_TEST"] != "enabled" || env["MUJOCO_GL"] != "osmesa" {
+		if env["LC_MESSAGES"] != "C" || env["EXCALIBUR_ROBOTLAB_TEST"] != "enabled" || env["MUJOCO_GL"] != mujocoGL() {
 			t.Fatal("required runtime environment missing")
 		}
 	}
 }
 
 func TestInstallRunnerChildEnvironment(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux installer")
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("Unix installer environment")
 	}
 	t.Setenv("ROBOTLAB_SENTINEL_SECRET", "private")
 	t.Setenv("PIP_ROBOTLAB_TEST", "allowed")

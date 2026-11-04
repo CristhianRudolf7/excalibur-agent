@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -84,11 +83,13 @@ func readSecretLine(prompt string) ([]byte, error) {
 			"no terminal for the passphrase: pass --passphrase-file")}
 	}
 	fmt.Fprint(os.Stderr, prompt)
-	if err := setEcho(false); err != nil {
+	restoreEcho, err := disableEcho()
+	if err != nil {
 		return nil, fmt.Errorf("vault: cannot hide input: %w", err)
 	}
+	defer restoreEcho()
 	line, err := bufio.NewReader(os.Stdin).ReadBytes('\n')
-	_ = setEcho(true)
+	restoreEcho()
 	fmt.Fprintln(os.Stderr)
 	if err != nil && len(line) == 0 {
 		return nil, fmt.Errorf("vault: read passphrase: %w", err)
@@ -104,18 +105,6 @@ func readSecretLine(prompt string) ([]byte, error) {
 func isTerminal(f *os.File) bool {
 	st, err := f.Stat()
 	return err == nil && st.Mode()&os.ModeCharDevice != 0
-}
-
-// setEcho toggles terminal echo through stty; other platforms without
-// stty report an error and callers fall back to --stdin.
-func setEcho(on bool) error {
-	arg := "-echo"
-	if on {
-		arg = "echo"
-	}
-	cmd := exec.Command("stty", arg)
-	cmd.Stdin = os.Stdin
-	return cmd.Run()
 }
 
 // readValueStdin reads the whole standard input as one secret value.

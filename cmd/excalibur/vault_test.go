@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // runVault runs `excalibur vault ...` with stdin and stdout redirected
@@ -38,12 +40,14 @@ func runVault(t *testing.T, stdin string, args ...string) (string, int) {
 	return string(data), code
 }
 
-// writeTestPassphrase writes a passphrase file with mode 0600, the only
-// mode the vault accepts for unattended unlock.
+// writeTestPassphrase creates an owner-only unattended unlock fixture.
 func writeTestPassphrase(t *testing.T, name, value string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := platform.RestrictToOwner(path); err != nil {
 		t.Fatal(err)
 	}
 	return path

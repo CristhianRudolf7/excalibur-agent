@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -33,17 +32,22 @@ func TestCrashChildHelper(t *testing.T) {
 	}
 	defer db.Close()
 	var wg sync.WaitGroup
+	var firstWrite sync.Once
+	written := make(chan struct{})
 	for w := 0; w < 4; w++ {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
 			for i := 0; ; i++ {
 				prio := store.Priority(w % 4)
-				_ = db.Write(ctx, prio, func(_ context.Context, ex store.Execer) error {
+				err := db.Write(ctx, prio, func(_ context.Context, ex store.Execer) error {
 					_, err := ex.Exec(ctx, "INSERT INTO crash_kv(k,v) VALUES(?,?)",
 						fmt.Sprintf("w%d-%d", w, i), i)
 					return err
 				})
+				if err == nil {
+					firstWrite.Do(func() { close(written) })
+				}
 			}
 		}(w)
 	}
@@ -51,6 +55,14 @@ func TestCrashChildHelper(t *testing.T) {
 		payload := bytes.Repeat([]byte(fmt.Sprintf("crash-blob-%d-", i)), 200)
 		if _, err := db.Blob().Put(ctx, bytes.NewReader(payload)); err != nil {
 			t.Fatal(err)
+		}
+		if i == 0 {
+			<-written
+			if ready := os.Getenv("EXCALIBUR_STORE_CRASH_READY"); ready != "" {
+				if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 		if i%50 == 0 {
 			_ = db.Checkpoint(ctx, "PASSIVE")
@@ -67,6 +79,7 @@ func TestPowerCutBlobInvariant(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "t.db")
 	blobDir := filepath.Join(dir, "blobs")
+	ready := filepath.Join(dir, "ready")
 
 	seedOpts := store.DefaultOptions()
 	seedOpts.BlobDir = blobDir
@@ -94,13 +107,29 @@ func TestPowerCutBlobInvariant(t *testing.T) {
 		"EXCALIBUR_STORE_CRASH_CHILD=1",
 		"EXCALIBUR_STORE_CRASH_PATH="+path,
 		"EXCALIBUR_STORE_CRASH_BLOBS="+blobDir,
+		"EXCALIBUR_STORE_CRASH_READY="+ready,
 	)
 	child.Stdout = nil
 	if err := child.Start(); err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	// Re-exec initialization can exceed 1.5 seconds on a loaded race runner.
+	// Confirm both types of durable work before starting the crash window.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("crash child did not commit a write and blob before the deadline")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	time.Sleep(1500 * time.Millisecond) // let group commits and blobs pile up
-	if err := child.Process.Signal(syscall.SIGKILL); err != nil {
+	if err := child.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
 	_ = child.Wait()

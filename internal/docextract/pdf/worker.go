@@ -140,7 +140,7 @@ func ServeWorker(ctx context.Context, in io.Reader, out io.Writer) error {
 		if err := json.Unmarshal(scanner.Bytes(), &q); err != nil {
 			return err
 		}
-		timeout := 30 * time.Second
+		timeout := workerOperationTimeout
 		if q.Operation == "metadata" {
 			timeout = 10 * time.Minute
 		}
@@ -207,7 +207,7 @@ func (w *worker) start() error {
 		return err
 	}
 	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
+	if err := startWorkerProcess(cmd, w.group); err != nil {
 		_ = in.Close()
 		_ = out.Close()
 		return err
@@ -285,3 +285,8 @@ func (w *worker) call(ctx context.Context, q request) (response, error) {
 		}
 	}
 }
+
+// workerOperationTimeout bounds one non-metadata page operation, both in the
+// client and inside the worker. Race builds on macOS run the slower
+// interpreter and extend it.
+var workerOperationTimeout = 30 * time.Second

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
+
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -111,7 +113,7 @@ func (b *blobStore) Put(ctx context.Context, r io.Reader) (string, error) {
 		_ = os.Remove(tmpName)
 		return "", err
 	}
-	if err := fsyncDir(filepath.Dir(dst)); err != nil {
+	if err := platform.SyncDir(filepath.Dir(dst)); err != nil {
 		_ = os.Remove(tmpName)
 		return "", err
 	}
@@ -119,7 +121,7 @@ func (b *blobStore) Put(ctx context.Context, r io.Reader) (string, error) {
 		_ = os.Remove(tmpName)
 		return "", err
 	}
-	if err := fsyncDir(filepath.Dir(dst)); err != nil {
+	if err := platform.SyncDir(filepath.Dir(dst)); err != nil {
 		return "", err
 	}
 	if err := b.upsertRow(ctx, digest, int64(len(raw)), int64(len(compressed))); err != nil {
@@ -393,16 +395,6 @@ func tempFile(dir string) (*os.File, error) {
 		}
 	}
 	return nil, fmt.Errorf("store: temp file: too many collisions")
-}
-
-// fsyncDir persists directory entries after renames.
-func fsyncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
 }
 
 // cleanTemps removes .tmp-* crash leftovers from interrupted Puts.

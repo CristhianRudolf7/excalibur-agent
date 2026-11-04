@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -144,7 +143,7 @@ func (b *SVGDiagramBackend) command(dialect, format, input, output string) (stri
 	if err != nil && dialect == "plantuml" {
 		jar := os.Getenv("EXCALIBUR_PLANTUML_JAR")
 		if jar == "" {
-			for _, candidate := range []string{"/usr/share/plantuml/plantuml.jar", "/usr/share/java/plantuml.jar", "plantuml.jar"} {
+			for _, candidate := range plantUMLJars() {
 				if st, e := os.Stat(candidate); e == nil && st.Mode().IsRegular() {
 					jar, _ = filepath.Abs(candidate)
 					break
@@ -154,7 +153,7 @@ func (b *SVGDiagramBackend) command(dialect, format, input, output string) (stri
 		if jar != "" {
 			if st, e := os.Stat(jar); e == nil && st.Mode().IsRegular() {
 				jar, _ = filepath.Abs(jar)
-				bin, err = b.lookup("java")
+				bin, err = b.lookup(diagramJava())
 				prefix = []string{"-Djava.awt.headless=true", "-DPLANTUML_SECURITY_PROFILE=SANDBOX", "-jar", jar}
 			}
 		}
@@ -201,7 +200,7 @@ func (b *SVGDiagramBackend) run(ctx context.Context, dir, bin string, args []str
 	isolation := "network isolation unavailable"
 	// Namespace support depends on host policy, not just the presence of unshare.
 	// Probe before rendering so a syntax failure never causes an unisolated retry.
-	if runtime.GOOS == "linux" {
+	if namespaceIsolationSupported() {
 		if unshare, err := b.lookup("unshare"); err == nil {
 			probeCtx, stop := context.WithTimeout(ctx, time.Second)
 			probe := exec.CommandContext(probeCtx, unshare, "--user", "--map-current-user", "--net", "--", "true")
@@ -252,7 +251,7 @@ func (b *SVGDiagramBackend) run(ctx context.Context, dir, bin string, args []str
 			}
 		}
 	})
-	err := cmd.Run()
+	err := runDiagramCommand(cmd)
 	// A renderer can leave children holding output pipes after its leader exits.
 	// Stop the remaining process group before cleaning its temporary directory.
 	if cmd.Process != nil {

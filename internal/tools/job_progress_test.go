@@ -50,8 +50,9 @@ func TestRunningProgressAndDuplicateJobs(t *testing.T) {
 }
 
 func TestJobOutputPaths(t *testing.T) {
+	workdir := t.TempDir()
 	for _, cmd := range []string{"cc main.c -o 'result.bin'", "tool --output=result.bin", "tool > result.bin"} {
-		if !jobOutputPaths(cmd, "/work")["/work/result.bin"] {
+		if !jobOutputPaths(cmd, workdir)[filepath.Join(workdir, "result.bin")] {
 			t.Fatal(cmd)
 		}
 	}

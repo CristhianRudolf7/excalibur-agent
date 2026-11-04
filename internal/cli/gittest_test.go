@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,11 @@ func testSleepScript(t *testing.T) string {
 	t.Helper()
 	path := t.TempDir() + "/sleeper.sh"
 	body := "#!/bin/sh\nsleep 30\n"
+	if runtime.GOOS == "windows" {
+		// Windows cannot execute a shebang script directly; a batch file can.
+		path = t.TempDir() + `\sleeper.cmd`
+		body = "@ping -n 31 127.0.0.1 >nul\r\n"
+	}
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

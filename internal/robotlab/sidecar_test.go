@@ -21,7 +21,7 @@ func TestProtocolHelper(t *testing.T) {
 		return
 	}
 	checkChildSecrets()
-	for name, want := range map[string]string{"MUJOCO_GL": "osmesa", "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2"} {
+	for name, want := range map[string]string{"MUJOCO_GL": mujocoGL(), "PYTHONUNBUFFERED": "1", "OMP_NUM_THREADS": "2", "MKL_NUM_THREADS": "2"} {
 		if os.Getenv(name) != want {
 			os.Exit(4)
 		}
@@ -59,8 +59,11 @@ func TestProtocolHelper(t *testing.T) {
 }
 func fakeSidecar(t *testing.T) *ProcessSidecar {
 	t.Helper()
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux runtime")
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("Unix runtime")
+	}
+	if !runtimeSupported() {
+		t.Skip("Robot Lab runtime is unavailable on this platform")
 	}
 	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
 	s := NewSidecar(t.TempDir())

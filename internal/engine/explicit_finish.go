@@ -369,7 +369,10 @@ func lastNonFinishError(run *Run) (output string, isError bool, found bool) {
 // filesystem path mentioned in the reason (via the artifact
 // extractor) must be missing. It returns the first path that exists.
 func (e *Engine) blockedPathsExist(run *Run, reason string) string {
-	reqs := tasks.ExtractArtifactRequirements(reason, 8)
+	run.mu.Lock()
+	workdir := run.Workdir
+	run.mu.Unlock()
+	reqs := tasks.ExtractArtifactRequirementsIn(reason, 8, workdir)
 	if len(reqs) == 0 {
 		return ""
 	}
@@ -377,9 +380,6 @@ func (e *Engine) blockedPathsExist(run *Run, reason string) string {
 	if stat == nil {
 		stat = tasks.DefaultStat
 	}
-	run.mu.Lock()
-	workdir := run.Workdir
-	run.mu.Unlock()
 	for _, r := range reqs {
 		if r.Path == "" {
 			continue

@@ -204,19 +204,21 @@ func TestRelativePathsResolveAgainstRunWorkdir(t *testing.T) {
 }
 
 func TestResolvePathSwitchAndAbsolute(t *testing.T) {
-	deps := &FileDeps{Workdir: "/work/run"}
-	if got := deps.resolvePath("a/b.txt"); got != filepath.Join("/work/run", "a/b.txt") {
+	workdir := t.TempDir()
+	deps := &FileDeps{Workdir: workdir}
+	if got := deps.resolvePath("a/b.txt"); got != filepath.Join(workdir, "a/b.txt") {
 		t.Fatalf("relative path must join the workdir, got %q", got)
 	}
-	if got := deps.resolvePath("/abs/x.txt"); got != "/abs/x.txt" {
+	absolute := filepath.Join(t.TempDir(), "x.txt")
+	if got := deps.resolvePath(absolute); got != absolute {
 		t.Fatalf("absolute path must be kept, got %q", got)
 	}
 	t.Setenv("EXCALIBUR_RUN_WORKDIR", "off")
-	if got := deps.resolvePath("a/b.txt"); got != "a/b.txt" {
+	if got := deps.resolvePath("a/b.txt"); got != filepath.FromSlash("a/b.txt") {
 		t.Fatalf("switch off keeps the process working directory, got %q", got)
 	}
 	var none *FileDeps
-	if got := none.resolvePath("a/b.txt"); got != "a/b.txt" {
+	if got := none.resolvePath("a/b.txt"); got != filepath.FromSlash("a/b.txt") {
 		t.Fatalf("nil deps resolve against the process directory, got %q", got)
 	}
 }

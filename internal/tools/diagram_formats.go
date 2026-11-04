@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"fmt"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,12 +59,7 @@ func (b *SVGDiagramBackend) convertSVG(ctx context.Context, svg, format string) 
 	if path, err := b.lookup("rsvg-convert"); err == nil {
 		bin, args = path, []string{"--format=" + format, "--output=" + output, input}
 	} else {
-		for _, name := range []string{"chromium", "chromium-browser", "google-chrome", "google-chrome-stable"} {
-			if path, err := b.lookup(name); err == nil {
-				bin = path
-				break
-			}
-		}
+		bin, _ = diagramChromium(b.lookup)
 		if bin == "" {
 			return "", "", fmt.Errorf("SVG to %s needs rsvg-convert or an installed headless Chromium; install librsvg2-bin with apt-get, librsvg2-tools with dnf, or librsvg with brew; alternatively use a dialect with native %s output such as graphviz", format, format)
 		}
@@ -76,7 +70,7 @@ func (b *SVGDiagramBackend) convertSVG(ctx context.Context, svg, format string) 
 		} else {
 			args = append(args, "--no-pdf-header-footer", "--print-to-pdf="+output)
 		}
-		args = append(args, (&url.URL{Scheme: "file", Path: input}).String())
+		args = append(args, diagramFileURL(input))
 	}
 	data, isolation, err := b.run(ctx, dir, bin, args, "", output, false)
 	if err != nil {

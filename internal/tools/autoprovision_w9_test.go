@@ -23,6 +23,7 @@ func TestProvisionCompoundDiagnostics(t *testing.T) {
 }
 
 func TestProvisionMultipleAndUpdateSuccess(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	var commands []string
@@ -72,6 +73,7 @@ func TestProvisionInterpreterAndDirectory(t *testing.T) {
 }
 
 func TestProvisionSessionOutputs(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	m := NewSessionManager(TerminalDeps{})
 	s, _, _ := m.Start("default", "sleep 0.3; printf 'sh: 1: file: not found\n'", t.TempDir(), false, 250, nil)
 	// Auto mode, and any command the read path runs is counted: read
@@ -110,6 +112,7 @@ func TestProvisionPipBootstrap(t *testing.T) {
 }
 
 func TestProvisionSuggestionDoesNotConsumeAptUpdate(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	p := &Provisioner{Mode: ProvisionSuggest, LookPath: fakeLookPath("apt-get")}
@@ -134,6 +137,7 @@ func TestProvisionVerificationFailure(t *testing.T) {
 }
 
 func TestProvisionStatusSessionTail(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	// A status read is passive: it reports the session's own tail and
 	// never runs or suggests the provisioner, in any provisioning mode.
 	m := NewSessionManager(TerminalDeps{})
@@ -160,6 +164,7 @@ func TestProvisionStatusSessionTail(t *testing.T) {
 }
 
 func TestProvisionReportPrecedesLargeOutput(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	tool := &ExecTool{Sessions: NewSessionManager(TerminalDeps{}), Provisioner: &Provisioner{Mode: ProvisionSuggest, LookPath: fakeLookPath("apt-get")}}
 	result, err := tool.Invoke(context.Background(), Invocation{Arguments: []byte(`{"command":"printf 'sh: 1: file: not found\n'; printf '%10000s' x"}`)})
 	if err != nil {

@@ -33,6 +33,10 @@ const maxInput = 64 << 20
 
 var compilationCache = newCompilationCache()
 
+// Platforms may select a backend that fits the isolated worker's RSS budget.
+// The default preserves wazero's native compiler on existing platforms.
+var newPDFRuntimeConfig = wazero.NewRuntimeConfig
+
 func newCompilationCache() wazero.CompilationCache {
 	if dir, err := os.UserCacheDir(); err == nil {
 		if cache, err := wazero.NewCompilationCacheWithDir(filepath.Join(dir, "excalibur", "pdf-wasm")); err == nil {
@@ -58,7 +62,7 @@ func openEngine(ctx context.Context, r io.ReaderAt, size int64) (*engine, error)
 	if size > maxInput {
 		return nil, ErrTooLarge
 	}
-	pool, err := webassembly.Init(webassembly.Config{Context: ctx, MaxTotal: 1, FSConfig: wazero.NewFSConfig(), RuntimeConfig: wazero.NewRuntimeConfig().WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling).WithMemoryLimitPages(8192).WithCloseOnContextDone(true).WithCompilationCache(compilationCache), Stdout: io.Discard, Stderr: io.Discard})
+	pool, err := webassembly.Init(webassembly.Config{Context: ctx, MaxTotal: 1, FSConfig: wazero.NewFSConfig(), RuntimeConfig: newPDFRuntimeConfig().WithCoreFeatures(api.CoreFeaturesV2 | experimental.CoreFeaturesExceptionHandling).WithMemoryLimitPages(8192).WithCloseOnContextDone(true).WithCompilationCache(compilationCache), Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		return nil, err
 	}

@@ -70,6 +70,7 @@ func execOutput(t *testing.T, p *Provisioner, command string, timeoutS float64) 
 // output shrinks to a first-run line, so no stale not-found text sits next
 // to the install.
 func TestExecRerunReplacesFirstRun(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	command, marker := missingUntilInstalled(t)
@@ -99,6 +100,7 @@ func TestExecRerunReplacesFirstRun(t *testing.T) {
 // EXCALIBUR_PROVISION_RERUN=off keeps the first run's output with the
 // install note, and never runs the command a second time.
 func TestExecRerunSwitchOff(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	t.Setenv(ProvisionRerunEnv, "off")
@@ -117,6 +119,7 @@ func TestExecRerunSwitchOff(t *testing.T) {
 // A command still running when the call yields cannot be re-run: the
 // output is labelled as predating the install instead.
 func TestExecNoRerunWhileCommandRuns(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	marker := filepath.Join(t.TempDir(), "installed")
@@ -151,6 +154,7 @@ func TestProvisionBudgetFollowsTimeout(t *testing.T) {
 // The whole provisioning step stops at its budget and says so; the
 // caller gets the original output plus the instruction to install by hand.
 func TestProvisionBudgetBoundsSteps(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	p := &Provisioner{Mode: ProvisionAuto, LookPath: fakeLookPath("apt-get"), Network: online,
@@ -174,6 +178,7 @@ func TestProvisionBudgetBoundsSteps(t *testing.T) {
 // apt waits for another apt or dpkg process of the run instead of failing
 // on the lock.
 func TestAptWaitsForOwnPackageManager(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	polls := 0
@@ -202,6 +207,7 @@ func TestAptWaitsForOwnPackageManager(t *testing.T) {
 // When another package manager stays busy until the budget ends, nothing
 // runs and the result says the install did not finish.
 func TestAptBusyForeverIsBounded(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	var commands []string
@@ -222,6 +228,7 @@ func TestAptBusyForeverIsBounded(t *testing.T) {
 
 // EXCALIBUR_PROVISION_APT_LOCK=off restores the immediate apt run.
 func TestAptLockSwitchOff(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	t.Setenv(ProvisionAptLockEnv, "off")
@@ -270,6 +277,7 @@ func TestAptUpdateAtMostOncePerInterval(t *testing.T) {
 // Harness tool names, prose tokens and names apt does not know never reach
 // a package manager. Only a name apt confirms is installed.
 func TestUnconfirmedNamesNeverInstall(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	installed := map[string]bool{}
@@ -318,6 +326,7 @@ func TestUnmappedCommandWithoutAptIsNotRun(t *testing.T) {
 // The curated table covers the tools images lack. Each maps to the package
 // that provides it; python3 never maps to the minimal interpreter.
 func TestCuratedPackageTable(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	defer ResetAptUpdateCache()
 	apt := fakeLookPath("apt-get")
@@ -376,6 +385,7 @@ func TestHarnessToolNamesCoverBuiltins(t *testing.T) {
 
 // Read paths report only, and a name that is not a package gets no line.
 func TestReportOnlyNamesMissingCommands(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	p := &Provisioner{Mode: ProvisionAuto, LookPath: fakeLookPath("apt-get")}
 	if got := p.ReportOnly("read_file", "read_file: command not found"); got != "" {
 		t.Fatalf("tool names are not packages: %q", got)

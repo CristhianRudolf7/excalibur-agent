@@ -105,13 +105,7 @@ func TestExport_FileRoundtrip(t *testing.T) {
 	if err := v.ExportToFile(ctx, path, []byte("file-backup-pp")); err != nil {
 		t.Fatal(err)
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("backup perms = %o", fi.Mode().Perm())
-	}
+	assertPrivateFile(t, path)
 	raw, _ := os.ReadFile(path)
 	if strings.Contains(string(raw), "file-roundtrip-1") {
 		t.Fatal("backup file leaks value")

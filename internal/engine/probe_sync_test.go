@@ -54,6 +54,43 @@ func editTrialCopy(t *testing.T, e *Engine, r *Run, copy, content string) {
 }
 func probeNotes(r *Run) string { return strings.Join(r.VolatileNotes(), "\n") }
 
+func TestProbeSyncLongPathsAndMixedSymlinkSpellings(t *testing.T) {
+	e, r, _, _ := probeRun(t)
+	real := filepath.Join(t.TempDir(), strings.Repeat("long-temp-path-", 12))
+	if err := os.MkdirAll(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	real, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Workdir = alias
+	original := filepath.Join(alias, "result.csv")
+	writeTrialFile(t, original, "alpha\nbeta\n")
+	r.Request = "Edit the required file `" + original + "` in place"
+	copy := filepath.Join(real, "probe", "candidate.csv")
+	// Source, destination and checker deliberately use different spellings.
+	createTrialCopy(t, e, r, filepath.Join(real, "result.csv"), copy)
+	if len(r.probes.copies) != 1 {
+		t.Fatalf("copy not observed: %+v", r.probes)
+	}
+	editTrialCopy(t, e, r, filepath.Join(alias, "probe", "candidate.csv"), "alpha\nfixed\n")
+	check := trialCall("exec", map[string]string{"command": "cd '" + filepath.Join(alias, "probe") + "' && python3 validate.py candidate.csv"})
+	observeTrial(t, e, r, check, "exit: 0\n0 warnings\n", nil)
+	if !strings.Contains(probeNotes(r), "the deliverable at "+original+" is unchanged") {
+		t.Fatalf("missing reminder with requested spelling: %s", probeNotes(r))
+	}
+	writeTrialFile(t, filepath.Join(real, "result.csv"), "alpha\nfixed\n")
+	e.probeSyncCheck(r, r.StartedAt.Add(70*time.Second))
+	if strings.Contains(probeNotes(r), "you are editing a copy") {
+		t.Fatalf("stale reminder after synchronization: %s", probeNotes(r))
+	}
+}
+
 func TestProbeSyncImprovedOrPassingCopy(t *testing.T) {
 	for _, output := range []string{"exit: 0\n0 warnings\n", "exit: 1\n2 warnings\n"} {
 		t.Run(output, func(t *testing.T) {
@@ -208,6 +245,9 @@ func TestTrialFilesBoundsAndSpecialFiles(t *testing.T) {
 	files := readTrialFiles([]string{dir})
 	if len(files) != 1 || files[filepath.Join(dir, "small.dat")] != "small" {
 		t.Fatal("bounds/symlink", files)
+	}
+	if files := canonicalTrialFiles([]string{filepath.Join(dir, "link.dat")}); len(files) != 0 {
+		t.Fatal("canonical observation followed a symlink leaf", files)
 	}
 }
 

@@ -13,7 +13,7 @@ import (
 // per-check dependency versions. Recovered old histories use path overlap.
 func DependencyFreshnessEnabled() bool { return envBool("EXCALIBUR_EVIDENCE_DEPENDENCIES", true) }
 
-var dependencyPathRe = regexp.MustCompile(`[a-zA-Z0-9_./-]+\.[a-zA-Z0-9_.-]+|/[a-zA-Z0-9_./-]+`)
+var dependencyPathRe = regexp.MustCompile(dependencyPathPattern())
 
 func argPath(h HistoryTool) string {
 	var a map[string]string
@@ -27,7 +27,7 @@ func argPath(h HistoryTool) string {
 }
 
 func overlapPath(a, b string) bool {
-	a, b = filepath.Clean(a), filepath.Clean(b)
+	a, b = evidencePathIdentity(a), evidencePathIdentity(b)
 	if a == b {
 		return true
 	}

@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"time"
 
@@ -38,6 +37,7 @@ type processRun struct {
 	ready   chan struct{}
 	done    chan struct{}
 	writes  chan []byte
+	kill    func() error
 	isReady bool
 	pending map[uint64]chan wireReply
 }
@@ -74,7 +74,7 @@ func NewSidecar(dataDir string) *ProcessSidecar {
 		}
 	}
 	if python == "" {
-		python = filepath.Join(dataDir, "robotlab", "venv", "bin", "python")
+		python = venvPython(filepath.Join(dataDir, "robotlab", "venv"))
 	}
 	return &ProcessSidecar{data: dataDir, python: python, subs: map[*eventSubscriber]struct{}{}, stop: make(chan struct{})}
 }
@@ -90,7 +90,7 @@ func (s *ProcessSidecar) Status(context.Context) Status {
 	if len(s.stderr) > 0 && st.Error != "" {
 		st.Error += "\n" + string(s.stderr)
 	}
-	if runtime.GOOS != "linux" {
+	if !runtimeSupported() {
 		st.Error = errors.ErrUnsupported.Error()
 		st.Running = false
 	}
@@ -101,7 +101,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 	if !Enabled() {
 		return nil, &RuntimeError{"unavailable", "Robot Lab is disabled"}
 	}
-	if runtime.GOOS != "linux" {
+	if !runtimeSupported() {
 		return nil, errors.ErrUnsupported
 	}
 	if s.closed {
@@ -153,7 +153,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 	if restarting {
 		s.starts = append(s.starts, now)
 	}
-	if err = cmd.Start(); err != nil {
+	if err = startSidecarCommand(cmd, group); err != nil {
 		in.Close()
 		out.Close()
 		s.err = err.Error()
@@ -163,7 +163,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 		s.starts = append(s.starts, now)
 	}
 	_ = lowerSidecarPriority(cmd.Process.Pid)
-	r := &processRun{cmd: cmd, in: in, ready: make(chan struct{}), done: make(chan struct{}), writes: make(chan []byte, 64), pending: map[uint64]chan wireReply{}}
+	r := &processRun{kill: func() error { return group.Kill(cmd.Process.Pid) }, cmd: cmd, in: in, ready: make(chan struct{}), done: make(chan struct{}), writes: make(chan []byte, 64), pending: map[uint64]chan wireReply{}}
 	s.run = r
 	s.stderr = nil
 	s.err = ""
@@ -180,6 +180,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 		}
 	})
 	safego.Go("robotlab-supervisor", nil, func() {
+		defer cleanupSidecarGroup(group)
 		scan := bufio.NewScanner(out)
 		scan.Buffer(make([]byte, 4096), 8<<20)
 		for scan.Scan() {
@@ -348,7 +349,7 @@ func (s *ProcessSidecar) Close() error {
 		sub.close()
 	}
 	if r != nil {
-		err := sidecarProcessGroup().Kill(r.cmd.Process.Pid)
+		err := r.kill()
 		<-r.done
 		return err
 	}

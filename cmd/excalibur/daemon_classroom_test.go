@@ -17,6 +17,8 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 )
 
+var stopClassroomDaemon = func(cmd *exec.Cmd) error { return cmd.Process.Signal(syscall.SIGTERM) }
+
 // Boot the command's production composition, including provider HTTP encoding,
 // model gateway, intake, chat tool selection and the durable classroom service.
 func TestDaemonClassroomContextThroughModelHTTP(t *testing.T) {
@@ -95,7 +97,7 @@ func TestDaemonClassroomContextThroughModelHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = stopClassroomDaemon(cmd)
 		// Command.Wait blocks on process exit, so bound shutdown independently.
 		stop := time.AfterFunc(10*time.Second, func() { _ = cmd.Process.Kill() })
 		err := cmd.Wait()

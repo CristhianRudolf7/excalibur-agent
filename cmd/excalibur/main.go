@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/cli"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 	// Embedded Mozilla root CAs for the static bench binary (Section
 	// 23.2): the binary runs in arbitrary task images, many without CA
 	// certificates. The fallback roots apply only when the image
@@ -140,6 +141,7 @@ func topUsage(cmds map[string]command) string {
 }
 
 func main() {
+	daemon.CleanupPreviousImage()
 	requestReexec = true
 	os.Exit(run(os.Args[1:]))
 }

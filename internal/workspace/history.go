@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // FileVersion is one recorded agent write: path, preimage and
@@ -488,9 +490,6 @@ func atomicWrite(path string, data []byte) error {
 	if err := os.Rename(name, path); err != nil {
 		return err
 	}
-	if dh, err := os.Open(dir); err == nil {
-		_ = dh.Sync()
-		_ = dh.Close()
-	}
+	_ = platform.SyncDir(dir)
 	return nil
 }

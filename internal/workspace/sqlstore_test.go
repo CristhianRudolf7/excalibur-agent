@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -81,7 +82,13 @@ func TestSQLProjectStoreRoundTrip(t *testing.T) {
 
 func TestSQLLeaseMirror(t *testing.T) {
 	db := openWorkspaceDB(t, filepath.Join(t.TempDir(), "leases.db"))
-	mgr := NewLeaseManager(WithLeaseTimings(50*time.Millisecond, 80*time.Millisecond))
+	heartbeat, expiry := 50*time.Millisecond, 80*time.Millisecond
+	if runtime.GOOS == "windows" {
+		// SQLite commits wait for slow disk flushes on Windows runners; the
+		// test checks persistence across restart, not expiry.
+		heartbeat, expiry = 5*time.Second, 8*time.Second
+	}
+	mgr := NewLeaseManager(WithLeaseTimings(heartbeat, expiry))
 	mgr.AttachLeaseStore(OpenLeaseStore(db))
 
 	rel, err := mgr.Acquire("/tmp/a.go", "run_1", "editing")
@@ -97,7 +104,7 @@ func TestSQLLeaseMirror(t *testing.T) {
 
 	// Crash: a fresh manager restores the live lease but not the
 	// released one.
-	mgr2 := NewLeaseManager(WithLeaseTimings(50*time.Millisecond, 80*time.Millisecond))
+	mgr2 := NewLeaseManager(WithLeaseTimings(heartbeat, expiry))
 	mgr2.AttachLeaseStore(OpenLeaseStore(db))
 	mgr2.RestoreLeases()
 	if _, ok := mgr2.Holding("/tmp/b.go"); !ok {

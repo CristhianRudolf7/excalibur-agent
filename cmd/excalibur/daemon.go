@@ -76,6 +76,11 @@ func runDaemonStart(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	closeStop, err := listenDaemonStop(ctx, stop)
+	if err != nil {
+		return err
+	}
+	defer closeStop()
 
 	// The secrets vault opens first: provider keys and tool secrets
 	// resolve through it (Section 20.1). A declared passphrase file
@@ -464,12 +469,8 @@ func runDaemonStop(args []string) error {
 	if err != nil || pid <= 0 {
 		return fmt.Errorf("daemon stop: bad pid file")
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("daemon stop: %w", err)
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("daemon stop: signal %d: %w", pid, err)
+	if err := stopDaemonProcess(pid, runtime); err != nil {
+		return err
 	}
 	fmt.Printf("stopped daemon %d\n", pid)
 	return nil

@@ -30,6 +30,20 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// Darwin overrides only the fixture's hostname lookup; other platforms keep
+// the original command and all survival assertions.
+var runEndTestServerCommand = func(port int) string {
+	return fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port)
+}
+
+var cleanupRunEndServer = func(pid int) {
+	if proc, err := os.FindProcess(pid); err == nil {
+		_ = proc.Signal(syscall.SIGTERM)
+		time.Sleep(300 * time.Millisecond)
+		_ = proc.Signal(syscall.SIGKILL)
+	}
+}
+
 // TestRunEndBackgroundSurvives is the W10 end-to-end proof: a background
 // HTTP server started during the run still answers after `excalibur
 // exec` returns, and the trial records list the surviving process.
@@ -43,7 +57,7 @@ func TestRunEndBackgroundSurvives(t *testing.T) {
 	port := freePort(t)
 	workdir := t.TempDir()
 	serveArgs, _ := json.Marshal(map[string]any{
-		"command":    fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port),
+		"command":    runEndTestServerCommand(port),
 		"background": true, "workdir": workdir,
 	})
 	verifyArgs, _ := json.Marshal(map[string]string{
@@ -97,6 +111,7 @@ func TestRunEndBackgroundSurvives(t *testing.T) {
 	if pid <= 0 {
 		t.Fatalf("surviving pid must be positive, got %+v", rec.Surviving[0])
 	}
+	defer cleanupRunEndServer(pid)
 	// The server must still answer after the run returned.
 	deadline := time.Now().Add(10 * time.Second)
 	var lastErr error
@@ -116,13 +131,6 @@ func TestRunEndBackgroundSurvives(t *testing.T) {
 	}
 	if lastErr != nil {
 		t.Fatalf("background server on %d must answer after exec returns: %v", port, lastErr)
-	}
-	// Cleanup the detached survivor (the point is it survived; the
-	// test must not leak it).
-	if proc, err := os.FindProcess(pid); err == nil {
-		_ = proc.Signal(syscall.SIGTERM)
-		time.Sleep(300 * time.Millisecond)
-		_ = proc.Signal(syscall.SIGKILL)
 	}
 }
 

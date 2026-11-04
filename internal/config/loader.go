@@ -52,19 +52,6 @@ type LoadOptions struct {
 // SystemDefaultPath is /etc/excalibur/config.toml.
 const SystemDefaultPath = "/etc/excalibur/config.toml"
 
-// UserDefaultPath resolves the XDG user file.
-func UserDefaultPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".config")
-	}
-	return filepath.Join(base, "excalibur", "config.toml")
-}
-
 // FindProjectFile walks up from startDir for .excalibur/config.toml.
 // It returns "" when no project root contains the start.
 func FindProjectFile(startDir string) (string, error) {
@@ -87,7 +74,7 @@ func FindProjectFile(startDir string) (string, error) {
 
 // DefaultPaths reports the system and user layer paths.
 func DefaultPaths() (system, user string) {
-	return SystemDefaultPath, UserDefaultPath()
+	return systemDefaultPath(), UserDefaultPath()
 }
 
 // Load merges every layer and validates the result.
@@ -96,7 +83,7 @@ func Load(opts LoadOptions) (Config, error) {
 	if !opts.SkipFiles {
 		layers := []string{opts.SystemPath, opts.UserPath}
 		if opts.SystemPath == "" {
-			layers[0] = SystemDefaultPath
+			layers[0] = systemDefaultPath()
 		}
 		if opts.UserPath == "" {
 			layers[1] = UserDefaultPath()

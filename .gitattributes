@@ -1,0 +1,5 @@
+# Keep LF everywhere: embedded prompts, skills and fixtures are hashed byte for byte,
+# and Git for Windows would otherwise check them out with CRLF (core.autocrlf=true).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

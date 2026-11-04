@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -117,10 +116,14 @@ func TestDiagramPathConfinement(t *testing.T) {
 		}
 	}
 	got, target, err := tool.diagramPaths("sub")
-	if err != nil || got != root || !strings.HasSuffix(target, "/sub") {
+	wantRoot, resolveErr := filepath.EvalSymlinks(root)
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if err != nil || got != wantRoot || target != filepath.Join(wantRoot, "sub") {
 		t.Fatalf("valid subtree: %q %q %v", got, target, err)
 	}
-	g, rep, err := indexDiagram(context.Background(), root, target, "", false, defaultDiagramIndexLimits)
+	g, rep, err := indexDiagram(context.Background(), got, target, "", false, defaultDiagramIndexLimits)
 	if err != nil {
 		t.Fatal(err)
 	}

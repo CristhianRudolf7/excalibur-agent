@@ -70,6 +70,10 @@ func (t *InspectImageTool) imageOCR(ctx context.Context, img image.Image) string
 		return "OCR: image preparation failed; pixel inspection remains available\n"
 	}
 	defer os.Remove(f.Name())
+	if err := restrictOCRFile(f.Name()); err != nil {
+		_ = f.Close()
+		return "OCR: image preparation failed; pixel inspection remains available\n"
+	}
 	err = png.Encode(imageOCRWriter{ctx, f}, prepared)
 	closeErr := f.Close()
 	if ctx.Err() != nil {

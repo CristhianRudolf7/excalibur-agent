@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -75,7 +74,7 @@ func runExecCmd(args []string) error {
 		request = text
 	} else {
 		request = rest[len(rest)-1]
-		if requestReexec && runtime.GOOS == "linux" && cli.HideInstructionArgvEnabled() {
+		if requestReexec && argvReexecSupported() && cli.HideInstructionArgvEnabled() {
 			// Item 22: the request leaves argv before any other work, so
 			// process listings inside the task never show the task text.
 			// The re-executed process reads it back from the file.

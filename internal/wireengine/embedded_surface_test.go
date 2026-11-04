@@ -105,7 +105,7 @@ func TestEmbeddedSurfaceWired(t *testing.T) {
 	}
 	// Legacy exec forms run locally instead of failing on target.
 	execRes := call("exec", map[string]any{
-		"command": "echo surface-ok", "target": "container", "owner": "main", "workdir": "/tmp",
+		"command": "echo surface-ok", "target": "container", "owner": "main", "workdir": t.TempDir(),
 	})
 	if !strings.Contains(execRes.Output, "surface-ok") || !strings.Contains(execRes.Output, "exit: 0") {
 		t.Fatalf("exec legacy form: %q", execRes.Output)

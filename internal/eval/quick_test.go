@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -189,6 +190,7 @@ func TestQuickVerifiers(t *testing.T) {
 	}
 	for _, task := range tasks {
 		t.Run(task.Name, func(t *testing.T) {
+			requirePOSIXQuickVerifier(t, task.Name)
 			requireTools(t, task.Needs)
 			if task.Category == "docker" {
 				if err := exec.Command("docker", "info").Run(); err != nil {
@@ -342,5 +344,14 @@ func TestQuickCompareAcrossArms(t *testing.T) {
 	}
 	if rep.SwitchDiff["EXCALIBUR_X"] != [2]string{"a-off", "a-on"} {
 		t.Fatalf("switch diff = %v", rep.SwitchDiff)
+	}
+}
+
+// These fixtures deliberately verify Linux executable names and shebangs as
+// used by the evaluation container; native Windows cannot execute that ABI.
+func requirePOSIXQuickVerifier(t *testing.T, name string) {
+	t.Helper()
+	if runtime.GOOS == "windows" && (name == "shell-spaces" || name == "go-build" || name == "c-program") {
+		t.Skip("evaluation container fixture requires POSIX shebang or extensionless executable launch")
 	}
 }

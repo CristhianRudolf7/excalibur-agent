@@ -172,6 +172,7 @@ func TestDetectMissingGoDiagnostics(t *testing.T) {
 }
 
 func TestPlanCuratedMapsAndFlags(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	apt := fakeLookPath("apt-get", "sudo", "python3", "pip3")
 	cases := []struct {
@@ -250,6 +251,7 @@ func TestPlanPipBreaksSystemPackages(t *testing.T) {
 }
 
 func TestPlanAptUpdateOnce(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	apt := fakeLookPath("apt-get")
 	first := PlanInstall(&MissingDep{KindCommand, "ps", ""}, apt)
@@ -308,6 +310,7 @@ func TestPlanNeverUpgradesOrRemoves(t *testing.T) {
 }
 
 func TestProvisionPolicyModes(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	look := fakeLookPath("apt-get", "python3")
 	depOut := "/usr/bin/bash: line 1: file: command not found"
@@ -412,6 +415,7 @@ func TestProvisionModeParsing(t *testing.T) {
 }
 
 func TestExecToolProvisionReporting(t *testing.T) {
+	requirePOSIXFeature(t, "apt provisioning")
 	ResetAptUpdateCache()
 	// Suggest mode surfaces the report without running anything.
 	t.Setenv(AutoProvisionEnv, "suggest")

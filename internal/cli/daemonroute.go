@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
@@ -33,17 +31,7 @@ func daemonAddr() (string, bool) {
 	return "", false
 }
 
-func cliRuntimeDir() string {
-	if v := os.Getenv("XDG_RUNTIME_DIR"); v != "" {
-		return daemon.RuntimeAddrDir(v)
-	}
-	uid := os.Getuid()
-	if dir := "/run/user/" + strconv.Itoa(uid); dirExists(dir) {
-		return daemon.RuntimeAddrDir(dir)
-	}
-	return daemon.RuntimeAddrDir(filepath.Join(os.TempDir(), "excalibur-"+strconv.Itoa(uid)))
-}
-
+//lint:ignore U1000 used by the non-Windows runtime path hooks
 func dirExists(dir string) bool {
 	fi, err := os.Stat(dir)
 	return err == nil && fi.IsDir()

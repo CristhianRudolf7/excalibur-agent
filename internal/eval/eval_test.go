@@ -321,7 +321,7 @@ func TestHarborAgentContext(t *testing.T) {
 	if ctx.OutputTokens != 250 {
 		t.Fatalf("output should include reasoning: %+v", ctx)
 	}
-	if MetricsPath("/logs/agent") != "/logs/agent/excalibur/metrics.json" {
+	if MetricsPath("/logs/agent") != filepath.Join("/logs/agent", "excalibur", "metrics.json") {
 		t.Fatal("metrics path")
 	}
 	if _, err := FromMetricsFile(filepath.Join(dir, "missing.json")); err == nil {

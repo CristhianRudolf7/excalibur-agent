@@ -9,12 +9,10 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -225,7 +223,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	call := t.ledger.begin()
 	if bound, ok := ctx.Value(commandDeadlineKey{}).(time.Duration); ok && bound > 0 {
 		// Quote the entire original command as one shell argument.
-		a.Command = fmt.Sprintf("timeout --signal=TERM --kill-after=1s %.3fs '%s' -c '%s'", max(bound.Seconds(), 0.001), strings.ReplaceAll(DetectShell(), "'", "'\"'\"'"), strings.ReplaceAll(a.Command, "'", "'\"'\"'"))
+		a.Command = wrapCommandDeadline(a.Command, bound)
 		if yield == 0 || time.Duration(yield)*time.Millisecond > bound {
 			yield = int(bound / time.Millisecond)
 		}
@@ -240,7 +238,7 @@ func (t *ExecTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 		if a.Background && !a.TTY && DetachBackgroundEnabled() {
 			// Run-end services (W10): background sessions detach into
 			// their own session so they survive the agent's exit.
-			return t.sessions().StartDetached(owner, a.Command, a.Workdir, env, yield)
+			return t.sessions().startDetachedContext(waitCtx, owner, a.Command, a.Workdir, env, yield)
 		}
 		return t.sessions().StartContext(waitCtx, owner, a.Command, a.Workdir, a.TTY, yield, env)
 	}
@@ -642,16 +640,11 @@ func sessionExit(s *Session) (code int, signal string, exited bool) {
 	err := s.exitErr
 	s.mu.Unlock()
 	if ee, ok := err.(*exec.ExitError); ok {
-		if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-			n := int(ws.Signal())
+		if n, signaled := exitSignalOf(ee); signaled {
 			return 128 + n, signalNames[n], true
 		}
 	}
-	// A shell that reports 128+n itself (the usual case under sh -c).
-	if code > 128 {
-		return code, signalNames[code-128], true
-	}
-	return code, "", true
+	return code, shellExitSignal(code), true
 }
 
 // execCall is the last finished run of one command in one workdir.
@@ -782,7 +775,7 @@ func execStageSplit(cmd string) []string {
 // stageWords returns the words of one stage after leading environment
 // assignments and the "!" prefix.
 func stageWords(stage string) []string {
-	words := strings.Fields(stage)
+	words := commandStageWords(stage)
 	for len(words) > 0 {
 		w := words[0]
 		if w == "!" || w == "(" || w == "{" {
@@ -829,7 +822,7 @@ func stageName(stage string) (string, []string) {
 	if len(words) == 0 {
 		return "", nil
 	}
-	return path.Base(words[0]), words
+	return commandWordBase(words[0]), words
 }
 
 // IsProbeCommand reports whether a command is a probe: a check whose

@@ -30,8 +30,11 @@ func TestPrepareInstructionArgvHandsOffRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("instruction file mode %v, want 0600", info.Mode().Perm())
+	}
+	if private, err := platform.IsOwnerOnly(path); err != nil || !private {
+		t.Fatalf("instruction file is not private: %v", err)
 	}
 	raw, _ := os.ReadFile(path)
 	if string(raw) != request {
@@ -250,7 +253,11 @@ func TestExecScopePathsCoversHarnessLocations(t *testing.T) {
 		}
 		return false
 	}
-	if !has(logs) || !has("/logs/agent") {
+	containerLogs, err := filepath.Abs("/logs/agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !has(logs) || !has(containerLogs) {
 		t.Fatalf("paths %v lack the trial logs or /logs/agent", paths)
 	}
 	for _, p := range paths {

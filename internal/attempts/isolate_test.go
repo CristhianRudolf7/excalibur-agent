@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -71,17 +72,17 @@ func TestCopyDirPreservesModesAndLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	st, err := os.Stat(filepath.Join(dst, "bin", "tool"))
-	if err != nil || st.Mode().Perm() != 0o755 {
+	if err != nil || st.Mode().Perm() != testFileMode(0o755) {
 		t.Fatalf("tool mode = %v, %v; want 0755", st, err)
 	}
 	target, err := os.Readlink(filepath.Join(dst, "link"))
-	if err != nil || target != "bin/tool" {
+	if err != nil || filepath.ToSlash(target) != "bin/tool" {
 		t.Fatalf("link = %q, %v; want bin/tool", target, err)
 	}
-	if st, err := os.Stat(filepath.Join(dst, "data")); err != nil || st.Mode().Perm() != 0o555 {
+	if st, err := os.Stat(filepath.Join(dst, "data")); err != nil || st.Mode().Perm() != testDirMode(0o555) {
 		t.Fatalf("read-only dir mode = %v, %v; want 0555", st, err)
 	}
-	if st, err := os.Stat(filepath.Join(dst, "data", "readonly.txt")); err != nil || st.Mode().Perm() != 0o444 {
+	if st, err := os.Stat(filepath.Join(dst, "data", "readonly.txt")); err != nil || st.Mode().Perm() != testFileMode(0o444) {
 		t.Fatalf("read-only file mode = %v, %v; want 0444", st, err)
 	}
 }
@@ -97,7 +98,7 @@ func TestScanSkipsGitAndHarnessStateAndCountsFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rel := range []string{"a.txt", "d", "d/b.txt"} {
-		if _, ok := m[rel]; !ok {
+		if _, ok := m[filepath.FromSlash(rel)]; !ok {
 			t.Fatalf("manifest lacks %s: %v", rel, m)
 		}
 	}
@@ -135,7 +136,7 @@ func TestPrepareWorkspacesIsolatesCopies(t *testing.T) {
 	}
 	for i, w := range ws {
 		// The copy keeps the real layout under the attempt root.
-		if want := filepath.Join(w.Root, src); w.Dir != want {
+		if want := filepath.Join(w.Root, strings.TrimPrefix(src, filepath.VolumeName(src))); w.Dir != want {
 			t.Fatalf("attempt %d dir = %q, want %q", i, w.Dir, want)
 		}
 		if got := readTestFile(t, filepath.Join(w.Dir, "base.txt")); got != "base" {
@@ -278,7 +279,7 @@ func TestApplyChangesPromotesBuildProducts(t *testing.T) {
 		t.Fatalf("native.so = %q", got)
 	}
 	st, err := os.Stat(filepath.Join(orig, "build", "lib", "native.so"))
-	if err != nil || st.Mode().Perm() != 0o755 {
+	if err != nil || st.Mode().Perm() != testFileMode(0o755) {
 		t.Fatalf("native.so mode = %v, %v; want 0755", st, err)
 	}
 	if got := readTestFile(t, filepath.Join(orig, "__pycache__", "mod.cpython.pyc")); got != "pyc" {
@@ -300,7 +301,11 @@ func TestApplyChangesFileTypesModesAndLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	winner := t.TempDir()
-	writeTestFile(t, winner, "mode", []byte("same"), 0o755)
+	modeChange := os.FileMode(0755)
+	if runtime.GOOS == "windows" {
+		modeChange = 0444
+	}
+	writeTestFile(t, winner, "mode", []byte("same"), modeChange)
 	writeTestFile(t, winner, "file-to-dir/child", []byte{0, 255, 0}, 0o755)
 	writeTestFile(t, winner, "dir-to-file", []byte{255, 0, 1}, 0o644)
 	writeTestFile(t, winner, "target", []byte("untouched"), 0o644)
@@ -310,7 +315,7 @@ func TestApplyChangesFileTypesModesAndLinks(t *testing.T) {
 	if _, err := ApplyChanges(winner, orig, baseline); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := os.Stat(filepath.Join(orig, "mode")); err != nil || st.Mode().Perm() != 0o755 {
+	if st, err := os.Stat(filepath.Join(orig, "mode")); err != nil || st.Mode().Perm() != testFileMode(modeChange) {
 		t.Fatalf("mode-only change not applied: %v, %v", st, err)
 	}
 	if got := readTestFile(t, filepath.Join(orig, "file-to-dir", "child")); got != "\x00\xff\x00" {
@@ -319,7 +324,7 @@ func TestApplyChangesFileTypesModesAndLinks(t *testing.T) {
 	if got := readTestFile(t, filepath.Join(orig, "dir-to-file")); got != "\xff\x00\x01" {
 		t.Fatalf("dir-to-file = %q", got)
 	}
-	if target, err := os.Readlink(filepath.Join(orig, "link")); err != nil || target != "file-to-dir/child" {
+	if target, err := os.Readlink(filepath.Join(orig, "link")); err != nil || filepath.ToSlash(target) != "file-to-dir/child" {
 		t.Fatalf("link = %q, %v", target, err)
 	}
 	// Re-applying the same winner is a no-op: the real tree now matches.
@@ -478,4 +483,21 @@ func TestApplyChangesRefusesToReplaceNonEmptyDirectory(t *testing.T) {
 	if after := mustScan(t, orig); !reflect.DeepEqual(before, after) {
 		t.Fatal("a refused plan must not change the real directory")
 	}
+}
+
+// Windows modes expose the read-only attribute, not Unix execute permissions.
+func testFileMode(mode os.FileMode) os.FileMode {
+	if runtime.GOOS == "windows" {
+		if mode&0200 == 0 {
+			return 0444
+		}
+		return 0666
+	}
+	return mode
+}
+func testDirMode(mode os.FileMode) os.FileMode {
+	if runtime.GOOS == "windows" {
+		return testFileMode(mode) | 0111
+	}
+	return mode
 }

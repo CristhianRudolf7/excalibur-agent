@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path"
 	"sort"
 	"strings"
 	"time"
@@ -203,7 +202,7 @@ func resolveSymbol(g *Graph, symbol, file string) ([]Node, error) {
 		if !ok {
 			continue
 		}
-		if file != "" && n.Path != path.Clean(file) {
+		if file != "" && n.Path != cleanToolPath(file) {
 			continue
 		}
 		out = append(out, n)
@@ -292,7 +291,7 @@ func graphDependencies(g *Graph, file, module string) (string, error) {
 	if file == "" {
 		return "", fmt.Errorf("codeintel: dependencies needs a file or module")
 	}
-	file = path.Clean(file)
+	file = cleanToolPath(file)
 	b.WriteString("dependencies of " + file + ":\n")
 	mods := map[string]bool{}
 	for _, e := range g.OutEdges(FileID(file)) {
@@ -393,7 +392,7 @@ func graphDependents(g *Graph, file, module string) (string, error) {
 		if file == "" {
 			return "", fmt.Errorf("codeintel: dependents needs a file or module")
 		}
-		file = path.Clean(file)
+		file = cleanToolPath(file)
 		// The file provides its directory module; importers of it
 		// depend on the file.
 		mods[providedModuleFor(g, file)] = true
@@ -476,7 +475,7 @@ func graphSymbols(g *Graph, file string) (string, error) {
 	if file == "" {
 		return "", fmt.Errorf("codeintel: symbols needs a file")
 	}
-	file = path.Clean(file)
+	file = cleanToolPath(file)
 	syms := g.FileSymbols(file)
 	var b strings.Builder
 	fmt.Fprintf(&b, "symbols of %s (%d):\n", file, len(syms))
@@ -663,7 +662,7 @@ func isInputError(err error) bool {
 
 func (t *LSPTool) clientFor(ctx context.Context, project, lang, file string) (*Client, string, error) {
 	if lang == "" && file != "" {
-		if l, ok := DetectLanguage(path.Clean(file)); ok && !IsDocLang(l) {
+		if l, ok := DetectLanguage(cleanToolPath(file)); ok && !IsDocLang(l) {
 			lang = l
 		}
 	}
@@ -690,10 +689,10 @@ func (t *LSPTool) positionAction(ctx context.Context, a lspArgs, project string)
 			// caller names the files it touched.
 			return "", fmt.Errorf("codeintel: diagnostics needs a file")
 		}
-		if _, err := cl.EnsureOpen(ctx, project, path.Clean(a.File)); err != nil {
+		if _, err := cl.EnsureOpen(ctx, project, cleanToolPath(a.File)); err != nil {
 			return "", err
 		}
-		out := cl.Diagnostics([]string{path.Clean(a.File)})
+		out := cl.Diagnostics([]string{cleanToolPath(a.File)})
 		if out == "" {
 			return "(no diagnostics)\n", nil
 		}
@@ -702,7 +701,7 @@ func (t *LSPTool) positionAction(ctx context.Context, a lspArgs, project string)
 		if a.File == "" {
 			return "", fmt.Errorf("codeintel: symbols needs a file")
 		}
-		syms, err := cl.DocumentSymbols(ctx, project, path.Clean(a.File))
+		syms, err := cl.DocumentSymbols(ctx, project, cleanToolPath(a.File))
 		if err != nil {
 			return "", err
 		}
@@ -720,13 +719,13 @@ func (t *LSPTool) positionAction(ctx context.Context, a lspArgs, project string)
 		line, ch := a.Line-1, a.Character
 		switch a.Action {
 		case "definition":
-			locs, err := cl.Definition(ctx, project, path.Clean(a.File), line, ch)
+			locs, err := cl.Definition(ctx, project, cleanToolPath(a.File), line, ch)
 			if err != nil {
 				return "", err
 			}
 			return formatLocations(project, locs), nil
 		case "references":
-			locs, err := cl.References(ctx, project, path.Clean(a.File), line, ch, a.IncludeDeclaration)
+			locs, err := cl.References(ctx, project, cleanToolPath(a.File), line, ch, a.IncludeDeclaration)
 			if err != nil {
 				return "", err
 			}
@@ -735,7 +734,7 @@ func (t *LSPTool) positionAction(ctx context.Context, a lspArgs, project string)
 			if a.NewName == "" {
 				return "", fmt.Errorf("codeintel: rename needs a new name")
 			}
-			edit, err := cl.Rename(ctx, project, path.Clean(a.File), line, ch, a.NewName)
+			edit, err := cl.Rename(ctx, project, cleanToolPath(a.File), line, ch, a.NewName)
 			if err != nil {
 				return "", err
 			}
@@ -755,7 +754,7 @@ func (t *LSPTool) workspaceSymbols(ctx context.Context, a lspArgs, project strin
 	if a.Language != "" {
 		langs = []string{a.Language}
 	} else if a.File != "" {
-		if l, ok := DetectLanguage(path.Clean(a.File)); ok && !IsDocLang(l) {
+		if l, ok := DetectLanguage(cleanToolPath(a.File)); ok && !IsDocLang(l) {
 			langs = []string{l}
 		} else {
 			return "", fmt.Errorf("codeintel: workspace_symbols needs a language or a code file")

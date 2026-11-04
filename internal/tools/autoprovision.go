@@ -691,6 +691,9 @@ func plausiblePackageName(name string) bool {
 }
 
 func planCommand(dep *MissingDep, lookPath LookPathFunc) *InstallPlan {
+	if plan, handled := platformCommandPlan(dep, lookPath); handled {
+		return plan
+	}
 	bin := dep.Name
 	pkg, mapped := commandToApt[bin]
 	if !mapped {
@@ -1003,7 +1006,7 @@ func shellQuote(s string) string {
 }
 
 func sudoPrefix(lookPath LookPathFunc) string {
-	if os.Geteuid() == 0 {
+	if !platformSudoAllowed() {
 		return ""
 	}
 	if _, err := lookPath("sudo"); err == nil {
@@ -1117,11 +1120,12 @@ func defaultRunProvisionCommand(ctx context.Context, command, workdir string, ti
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	shell := DetectShell()
-	c := exec.CommandContext(cctx, shell, "-c", command)
+	c := exec.CommandContext(cctx, shell, shellArgs(shell, command)...)
 	if workdir != "" {
 		c.Dir = workdir
 	}
 	c.Env = pipeEnv(nil)
+	prepareShellCommand(c, shell, command)
 	out, err := c.CombinedOutput()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {

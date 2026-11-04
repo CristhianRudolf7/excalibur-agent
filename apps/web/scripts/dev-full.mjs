@@ -1,28 +1,18 @@
-import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { shutdown, spawnManaged } from './processes.mjs'
 
-const grouped = process.platform !== 'win32'
-const children = [
-  spawn('bash', ['scripts/dev-daemon.sh'], { stdio: 'inherit', detached: grouped }),
-  spawn('pnpm', ['dev'], { stdio: 'inherit', detached: grouped }),
-]
-let stopping = false
-function stop(code) {
-  if (stopping) return
-  stopping = true
-  process.exitCode = code
-  for (const child of children) {
-    if (!child.pid) continue
-    try {
-      if (grouped) process.kill(-child.pid, 'SIGTERM')
-      else child.kill('SIGTERM')
-    } catch (error) {
-      if (error.code !== 'ESRCH') process.exitCode = 1
-    }
-  }
+if (process.platform === 'darwin') {
+  process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:/usr/local/go/bin:${process.env.PATH ?? ''}`
 }
-process.on('SIGINT', () => stop(130))
-process.on('SIGTERM', () => stop(143))
+
+const cwd = fileURLToPath(new URL('../', import.meta.url))
+const children = [
+  spawnManaged(process.execPath, [fileURLToPath(new URL('./dev-daemon.mjs', import.meta.url))], {
+    cwd,
+    stdio: ['inherit', 'inherit', 'inherit', 'ipc'],
+  }),
+  spawnManaged('pnpm', ['dev'], { cwd, shell: process.platform === 'win32' }),
+]
 for (const child of children) {
-  child.on('error', () => stop(1))
-  child.on('exit', (code) => stop(code ?? 1))
+  child.once('close', (code) => shutdown(code ?? 1))
 }

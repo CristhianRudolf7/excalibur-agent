@@ -30,3 +30,6 @@ func cleanupScriptProcess(cmd *exec.Cmd) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 }
+
+func scriptInvocation(binary string) (string, []string, error) { return binary, nil, nil }
+func runScriptProcess(cmd *exec.Cmd) error                     { return cmd.Run() }

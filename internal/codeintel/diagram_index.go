@@ -101,7 +101,7 @@ func indexDiagram(ctx context.Context, root, target, focus string, includeTests 
 	budget := errors.New("diagram index budget reached")
 	walk := func(start string) error {
 		return filepath.WalkDir(start, func(p string, d fs.DirEntry, walkErr error) error {
-			if err := indexCtx.Err(); err != nil {
+			if err := diagramIndexContextError(indexCtx); err != nil {
 				return err
 			}
 			entries++

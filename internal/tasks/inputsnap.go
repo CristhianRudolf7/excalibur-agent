@@ -81,7 +81,7 @@ func TakeInputSnapshot(root string, hashBudget int64) (*InputSnapshot, error) {
 // A tree above 64 MB or the file-count bound gets metadata only. copyDir must
 // be a run-private destination; an empty destination disables byte copying.
 func TakeInputSnapshotWithCopies(root string, hashBudget int64, copyDir string) (*InputSnapshot, error) {
-	if root == "" || filepath.Dir(root) == root {
+	if snapshotFilesystemRoot(root) {
 		return nil, nil
 	}
 	info, err := os.Stat(root)

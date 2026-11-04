@@ -82,7 +82,7 @@ func (e *Engine) observeManualTrials(r *Run, calls []providers.ToolCall, results
 	for _, tc := range calls {
 		paths = append(paths, trialOperands(tc, dir)...)
 	}
-	after := readTrialFiles(paths)
+	after := canonicalTrialFiles(paths)
 	changed, small := smallTrialEdit(before.files, after)
 	r.mu.Lock()
 	defer r.mu.Unlock()

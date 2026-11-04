@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Brief is one deterministic exploration pass. Lines holds the
@@ -63,7 +64,7 @@ func (c *Collector) Collect(ctx context.Context, workdir, instruction string) Br
 	fi, err := os.Stat(workdir)
 	if err != nil || !fi.IsDir() {
 		return Brief{Workdir: workdir, Empty: true, Lines: []string{
-			"Repo brief (read-only explorer): workdir " + workdir + " is not a readable directory.",
+			singleLine("Repo brief (read-only explorer): workdir "+workdir+" is not a readable directory.", 160),
 			"Verify the working directory with tools before acting.",
 		}}
 	}
@@ -871,7 +872,15 @@ func readFileBounded(path string, maxBytes int) string {
 func singleLine(s string, max int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if max > 0 && len(s) > max {
-		return s[:max-1] + "…"
+		const ellipsis = "…"
+		if max < len(ellipsis) {
+			return strings.Repeat(".", max)
+		}
+		end := max - len(ellipsis)
+		for end > 0 && !utf8.RuneStart(s[end]) {
+			end--
+		}
+		return s[:end] + ellipsis
 	}
 	return s
 }

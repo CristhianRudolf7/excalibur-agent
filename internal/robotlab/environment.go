@@ -3,7 +3,6 @@ package robotlab
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -21,7 +20,7 @@ func childEnvironment(install bool) []string {
 		case "MUJOCO_GL", "EXCALIBUR_ROBOT_SKILLS_DIR", "PATH", "HOME", "USER", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR":
 			allowed = true
 		}
-		allowed = allowed || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "EXCALIBUR_ROBOTLAB")
+		allowed = allowed || platformEnvAllowed(name) || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "EXCALIBUR_ROBOTLAB")
 		if install {
 			switch name {
 			case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy":
@@ -34,8 +33,8 @@ func childEnvironment(install bool) []string {
 		}
 	}
 	// Fixed values are not inherited: PYTHONPATH/PYTHONHOME can inject host code.
-	if os.Getenv("MUJOCO_GL") == "" && runtime.GOOS == "linux" {
-		env = append(env, "MUJOCO_GL=osmesa")
+	if gl := mujocoGL(); os.Getenv("MUJOCO_GL") == "" && gl != "" {
+		env = append(env, "MUJOCO_GL="+gl)
 	}
 	env = append(env, "PYTHONUNBUFFERED=1", "OMP_NUM_THREADS=2", "MKL_NUM_THREADS=2", "PYTHONDONTWRITEBYTECODE=1")
 	if install {

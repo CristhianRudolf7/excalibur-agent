@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -129,7 +130,7 @@ func TestLeaseSnapshotAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	snap := m.Snapshot()
-	if len(snap) != 2 || snap[0].Path != "/a.go" || snap[1].Path != "/b.go" {
+	if len(snap) != 2 || snap[0].Path != filepath.FromSlash("/a.go") || snap[1].Path != filepath.FromSlash("/b.go") {
 		t.Fatalf("snapshot must be sorted by path: %+v", snap)
 	}
 	cur = cur.Add(2 * time.Minute)

@@ -44,6 +44,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // ArtifactKind names what a requirement points at.
@@ -78,8 +80,19 @@ type ArtifactRequirement struct {
 	Expect []string
 	// Detail is the human-readable statement for notes.
 	Detail string
-	// Source is the request sentence the requirement came from.
+	// Source is the bounded request sentence used in notes and records.
 	Source string
+	// sentence retains full intent without changing serialized requirements.
+	sentence string `json:"-" yaml:"-"`
+}
+
+// IntentSource returns the full request sentence for intent classification.
+// Requirements constructed directly or decoded from records fall back to Source.
+func (r ArtifactRequirement) IntentSource() string {
+	if r.sentence != "" {
+		return r.sentence
+	}
+	return r.Source
 }
 
 // ArtifactConfig gates the required-artifact mechanism. It defaults
@@ -211,7 +224,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 	sentences := splitSentences(text)
 	seen := map[string]bool{}
 	var out []ArtifactRequirement
-	add := func(kind ArtifactKind, path string, port int, url, detail, source string, expect []string) {
+	add := func(kind ArtifactKind, path string, port int, url, detail, sent string, expect []string) {
 		if DeliverableChecksEnabled() && installedDeliverablesEnabled() && installedDeliverablePath(path) {
 			sentence := sentenceWith(sentences, path)
 			if !installedCreateRe.MatchString(sentence) || installedNegationRe.MatchString(sentence) || isExampleUse(sentence, path) {
@@ -230,14 +243,16 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		}
 		seen[norm] = true
 		id := "A" + strconv.Itoa(len(out)+1)
+		// Keep the whole sentence for intent classification: long paths must
+		// not hide a trailing output verb or negation. Preserve bounded notes.
 		out = append(out, ArtifactRequirement{
 			ID: id, Kind: kind, Path: path, Port: port, URL: url,
 			Expect: append([]string(nil), expect...),
-			Detail: detail, Source: source,
+			Detail: detail, Source: trimLen(sent, 120), sentence: sent,
 		})
 	}
 	// Absolute paths first: the strongest, most checkable items.
-	absPaths := absPathRe.FindAllString(text, -1)
+	absPaths := absolutePaths(text)
 	if DeliverableChecksEnabled() {
 		absPaths = StrictAbsolutePaths(text, workdir)
 	}
@@ -249,7 +264,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		}
 		kind := classifyPath(sent, cleaned)
 		add(kind, cleaned, 0, "", string(kind)+" "+cleaned+" exists as stated",
-			trimLen(sent, 120), nil)
+			sent, nil)
 	}
 	// Relative paths.
 	for _, m := range relPathRe.FindAllStringSubmatch(text, -1) {
@@ -263,7 +278,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		}
 		kind := classifyPath(sent, p)
 		add(kind, p, 0, "", string(kind)+" "+p+" exists as stated",
-			trimLen(sent, 120), nil)
+			sent, nil)
 	}
 	// Quoted spans that name a file or command output.
 	for _, m := range quotedRe.FindAllStringSubmatch(text, -1) {
@@ -296,7 +311,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		// path requirement, never a content expectation.
 		add(classifyPath(sent, span), span, 0, "",
 			string(classifyPath(sent, span))+" "+span+" exists as stated",
-			trimLen(sent, 120), nil)
+			sent, nil)
 	}
 	// Bare file names with known extensions: only when quoted or in
 	// an imperative, non-negated sentence, so prose examples and
@@ -324,7 +339,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 		}
 		kind := classifyPath(sent, f)
 		add(kind, f, 0, "", string(kind)+" "+f+" exists as stated",
-			trimLen(sent, 120), nil)
+			sent, nil)
 	}
 	// Ports: explicit port numbers and localhost endpoints.
 	for _, m := range portRe.FindAllStringSubmatch(text, -1) {
@@ -340,7 +355,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 			continue
 		}
 		add(ArtifactPort, "", n, "", "service on port "+m[1]+" responds",
-			trimLen(sent, 120), nil)
+			sent, nil)
 	}
 	for _, u := range urlRe.FindAllString(text, -1) {
 		cleaned := strings.TrimRight(u, ".,;:)]}")
@@ -349,11 +364,11 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 			continue
 		}
 		add(ArtifactURL, "", 0, cleaned, "service at "+cleaned+" responds",
-			trimLen(sent, 120), nil)
+			sent, nil)
 		if m := regexp.MustCompile(`:(\d{2,5})\b`).FindStringSubmatch(cleaned); len(m) == 2 {
 			if n, err := strconv.Atoi(m[1]); err == nil && n >= 1 && n <= 65535 {
 				add(ArtifactPort, "", n, "", "service on port "+m[1]+" responds",
-					trimLen(sent, 120), nil)
+					sent, nil)
 			}
 		}
 	}
@@ -368,7 +383,7 @@ func ExtractArtifactRequirementsIn(request string, maxArtifacts int, workdir str
 // DeliverableRoots are the directories a required absolute path may
 // live under (D3a). Anything else is not checked as a deliverable,
 // except paths under the run workdir.
-var DeliverableRoots = []string{"/app", "/home", "/tmp", "/root", "/srv", "/opt", "/data", "/workspace", "/output", "/var/www"}
+var DeliverableRoots = deliverableRoots()
 
 // dateShapeRe matches a date-shaped segment that is a value rather than
 // a deliverable location.
@@ -384,7 +399,7 @@ func StrictAbsolutePaths(text, workdir string) []string {
 		text = omitPathTemplates(text)
 	}
 	var out []string
-	for _, loc := range absPathRe.FindAllStringIndex(text, -1) {
+	for _, loc := range absolutePathIndices(text) {
 		p := strings.TrimRight(text[loc[0]:loc[1]], ".,;:")
 		if loc[0] > 0 && (unicode.IsLetter(rune(text[loc[0]-1])) || unicode.IsDigit(rune(text[loc[0]-1])) || strings.ContainsRune("_.:/-", rune(text[loc[0]-1]))) {
 			continue
@@ -392,7 +407,7 @@ func StrictAbsolutePaths(text, workdir string) []string {
 		if dateShapeRe.MatchString(p) {
 			continue
 		}
-		if len(strings.Split(strings.Trim(p, "/"), "/")) < 2 || !underKnownRoot(filepath.Clean(p), workdir) {
+		if len(strings.Split(strings.Trim(filepath.ToSlash(p), "/"), "/")) < 2 || !underKnownRoot(filepath.Clean(p), workdir) {
 			continue
 		}
 		out = append(out, p)
@@ -406,11 +421,26 @@ func underKnownRoot(p, workdir string) bool {
 	if installedDeliverablesEnabled() && installedDeliverablePath(p) {
 		return true
 	}
-	if w := strings.TrimRight(workdir, "/"); w != "" && (p == w || strings.HasPrefix(p, w+"/")) {
+	if w := strings.TrimRight(workdir, "/"); w != "" && rootPathPrefix(p, w) {
 		return true
 	}
 	for _, root := range DeliverableRoots {
-		if p == root || strings.HasPrefix(p, root+"/") {
+		if rootPathPrefix(p, root) {
+			return true
+		}
+	}
+	// Compare identities as well as request spellings: macOS /var and /tmp
+	// resolve under /private, and an output's parent may be a symlink.
+	resolved := platform.CanonicalPath(p)
+	for _, root := range append([]string{workdir}, DeliverableRoots...) {
+		if root == "" {
+			continue
+		}
+		base := strings.TrimRight(platform.CanonicalPath(root), string(filepath.Separator))
+		if base == "" {
+			continue
+		}
+		if resolved == base || strings.HasPrefix(resolved, base+string(filepath.Separator)) {
 			return true
 		}
 	}
@@ -527,7 +557,7 @@ func isBarePatternToken(tok string) bool {
 // output, or a plain path from its sentence and location.
 func classifyPath(sentence, path string) ArtifactKind {
 	if DeliverableChecksEnabled() && installedDeliverablesEnabled() && installedDeliverablePath(path) {
-		if strings.Contains(filepath.Clean(path), "/bin/") {
+		if strings.Contains(filepath.ToSlash(filepath.Clean(path)), "/bin/") {
 			return ArtifactExecutable
 		}
 		return ArtifactPath
@@ -559,7 +589,7 @@ func installedDeliverablesEnabled() bool {
 }
 
 func installedDeliverablePath(path string) bool {
-	path = filepath.Clean(path)
+	path = filepath.ToSlash(filepath.Clean(path))
 	for _, root := range []string{"/usr/local/bin", "/usr/local/lib", "/usr/local/share", "/opt"} {
 		if strings.HasPrefix(path, root+"/") {
 			return true
@@ -569,7 +599,7 @@ func installedDeliverablePath(path string) bool {
 }
 
 func installedPathFragment(text string, start, end int) bool {
-	for _, loc := range absPathRe.FindAllStringIndex(text, -1) {
+	for _, loc := range absolutePathIndices(text) {
 		if loc[0] <= start && end <= loc[1] && installedDeliverablePath(strings.TrimRight(text[loc[0]:loc[1]], ".,;:")) {
 			return true
 		}
@@ -642,7 +672,7 @@ func DefaultStat(path string) (ArtifactFS, error) {
 		return fs, nil
 	}
 	fs.NonEmpty = fi.Size() > 0
-	fs.Executable = fi.Mode().Perm()&0o111 != 0
+	fs.Executable = artifactExecutable(path, fi.Mode())
 	return fs, nil
 }
 
@@ -1052,7 +1082,8 @@ func HardArtifactRequirement(r ArtifactRequirement) bool {
 	if !StrictArtifactGateEnabled() || r.Path == "" {
 		return true
 	}
-	return filepath.IsAbs(r.Path) && installedCreateRe.MatchString(r.Source) && !installedNegationRe.MatchString(r.Source) && !isExampleUse(r.Source, r.Path)
+	source := r.IntentSource()
+	return filepath.IsAbs(r.Path) && installedCreateRe.MatchString(source) && !installedNegationRe.MatchString(source) && !isExampleUse(source, r.Path)
 }
 
 // Reject the whole lexical token before any path/basename extraction. Removing

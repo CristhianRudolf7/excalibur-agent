@@ -64,7 +64,7 @@ func ResolveAddr(runtimeDir string) (string, bool) {
 	if addr := ReadAddrFile(runtimeDir); addr != "" {
 		return addr, true
 	}
-	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" && dir != runtimeDir {
+	if dir := rendezvousRuntimeRoot(); dir != "" && dir != runtimeDir {
 		if addr := ReadAddrFile(filepath.Join(dir, "excalibur")); addr != "" {
 			return addr, true
 		}

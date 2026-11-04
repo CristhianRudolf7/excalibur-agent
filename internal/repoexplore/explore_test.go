@@ -6,7 +6,45 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
+
+func TestCollectLongSymlinkedTemporaryPath(t *testing.T) {
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), strings.Repeat("temporary", 12))
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	long := filepath.Join(alias, strings.Repeat("directory", 12), strings.Repeat("界", 40))
+	if err := os.MkdirAll(long, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(long, "go.mod"), "module example.com/longpath\n\ngo 1.22\n")
+	for _, workdir := range []string{long, filepath.Join(long, "missing")} {
+		collector := NewCollector(testConfig(workdir))
+		a := collector.Collect(context.Background(), workdir, "inspect the project")
+		b := collector.Collect(context.Background(), workdir, "inspect the project")
+		if a.Render() != b.Render() {
+			t.Fatal("long-path brief is not deterministic")
+		}
+		for _, line := range a.Lines {
+			if len(line) > 160 || !utf8.ValidString(line) || strings.ContainsAny(line, "\r\n") {
+				t.Errorf("invalid brief line (%d bytes): %q", len(line), line)
+			}
+		}
+	}
+}
+
+func TestSingleLineByteLimit(t *testing.T) {
+	for _, input := range []string{strings.Repeat("a", 200), strings.Repeat("界", 100), "a\n" + strings.Repeat("界", 100)} {
+		for _, limit := range []int{1, 2, 3, 4, 5, 159, 160} {
+			got := singleLine(input, limit)
+			if len(got) > limit || !utf8.ValidString(got) || strings.ContainsAny(got, "\r\n") {
+				t.Errorf("singleLine with limit %d = %q (%d bytes)", limit, got, len(got))
+			}
+		}
+	}
+}
 
 func testConfig(workdir string) Config {
 	cfg := DefaultConfig()

@@ -57,7 +57,7 @@ func TestFilesOpenWorkspaceAndKinds(t *testing.T) {
 		data []byte
 		kind string
 	}{
-		{"empty.txt", nil, "text"}, {"code.go", []byte("package main\n"), "text"}, {"bad.txt", []byte{255, 0}, "binary"}, {"nul.txt", []byte("a\x00b"), "binary"}, {"large.txt", bytes.Repeat([]byte("x"), (2<<20)+1), "binary"}, {"image.png", []byte{137, 80, 78, 71, 13, 10, 26, 10}, "image"},
+		{"empty.txt", nil, "text"}, {"code.go", []byte("package main\n"), "text"}, {"bad.txt", []byte{255, 0}, "binary"}, {"embedded-nul.txt", []byte("a\x00b"), "binary"}, {"large.txt", bytes.Repeat([]byte("x"), (2<<20)+1), "binary"}, {"image.png", []byte{137, 80, 78, 71, 13, 10, 26, 10}, "image"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(root, tc.name), tc.data, 0600); err != nil {
@@ -71,7 +71,11 @@ func TestFilesOpenWorkspaceAndKinds(t *testing.T) {
 			if err := json.Unmarshal(response.Result, &got); err != nil {
 				t.Fatal(err)
 			}
-			if got.Kind != tc.kind || got.Size != int64(len(tc.data)) || got.Path != filepath.Join(root, tc.name) {
+			wantPath, err := filepath.EvalSymlinks(filepath.Join(root, tc.name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Kind != tc.kind || got.Size != int64(len(tc.data)) || got.Path != wantPath {
 				t.Fatalf("%+v", got)
 			}
 			if tc.kind == "text" && (got.Content == nil || *got.Content != string(tc.data)) {

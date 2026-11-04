@@ -59,7 +59,7 @@ func digest(path string) (string, error) {
 	if _, err = io.Copy(h, f); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x:%o", h.Sum(nil), info.Mode().Perm()), nil
+	return fmt.Sprintf("%x:%o", h.Sum(nil), fingerprintMode(info.Mode())), nil
 }
 
 func (g *Guard) resolve(p string) string {
@@ -224,16 +224,16 @@ func Start(root, instruction string) (*Guard, error) {
 			continue
 		}
 		if dir == "" {
-			if e = os.MkdirAll("/tmp/excalibur-originals", 0700); e != nil {
+			if e = os.MkdirAll(originalsDir(), 0700); e != nil {
 				return nil, e
 			}
-			dir, e = os.MkdirTemp("/tmp/excalibur-originals", "run-")
+			dir, e = os.MkdirTemp(originalsDir(), "run-")
 			if e != nil {
 				return nil, e
 			}
 		}
 		// Preserve relative layout, including database companion filenames.
-		dst := filepath.Join(dir, strings.TrimPrefix(filepath.Clean(p), string(filepath.Separator)))
+		dst := filepath.Join(dir, backupRelativePath(p))
 		if e = os.MkdirAll(filepath.Dir(dst), 0700); e != nil {
 			return nil, e
 		}

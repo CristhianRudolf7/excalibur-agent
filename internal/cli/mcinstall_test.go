@@ -99,6 +99,7 @@ func TestInstallPrintValidates(t *testing.T) {
 func TestInstallWritesAndSkill(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	var buf bytes.Buffer
 	if err := InstallMCP(ClientOpenCode, false, true, &buf); err != nil {
 		t.Fatal(err)

@@ -156,7 +156,7 @@ func TestAttemptsLosersNeverReachRealDirectory(t *testing.T) {
 		t.Fatalf("attempts ran %d times, want 2", len(seen))
 	}
 	for _, dir := range seen {
-		if dir == proj || !strings.HasSuffix(dir, proj) {
+		if dir == proj || !strings.HasSuffix(dir, proj[len(filepath.VolumeName(proj)):]) {
 			t.Fatalf("attempt workdir %q must be a copy under the attempt root", dir)
 		}
 	}

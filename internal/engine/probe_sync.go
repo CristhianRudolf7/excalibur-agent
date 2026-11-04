@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tasks"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
@@ -28,7 +29,7 @@ const trialFileLimit = 256
 const trialByteLimit = 4 << 20
 const trialSingleFileLimit = 1 << 20
 
-type trialFiles map[string]string // literal path -> complete content (bounded)
+type trialFiles map[string]string // observed path -> complete content (bounded)
 type probeCopy struct {
 	deliverable, copy, original string
 	improved                    bool
@@ -42,8 +43,16 @@ type probeSyncState struct {
 	reminders map[string]*probeReminder
 }
 type trialObservation struct {
-	required trialFiles
-	files    trialFiles
+	required      trialFiles
+	files         trialFiles
+	requiredNames map[string]string // canonical identity -> requested spelling
+}
+
+func (o trialObservation) requiredName(path string) string {
+	if name := o.requiredNames[path]; name != "" {
+		return name
+	}
+	return path
 }
 
 // Autonomous exec/eval pacing must not change interactive assistant behavior.
@@ -64,15 +73,17 @@ func (e *Engine) captureTrialObservation(r *Run, calls []providers.ToolCall) tri
 	request, dir := r.Request, r.Workdir
 	r.mu.Unlock()
 	var paths []string
+	names := map[string]string{}
 	for _, d := range e.deliverables(r, request, nil) {
 		paths = append(paths, d.Path)
+		names[platform.CanonicalPath(d.Path)] = d.Path
 	}
-	required := readTrialFiles(paths)
+	required := canonicalTrialFiles(paths)
 	paths = nil
 	for _, tc := range calls {
 		paths = append(paths, trialOperands(tc, dir)...)
 	}
-	return trialObservation{required: required, files: readTrialFiles(paths)}
+	return trialObservation{required: required, files: canonicalTrialFiles(paths), requiredNames: names}
 }
 
 func literalTrialWord(w *syntax.Word) string {
@@ -181,6 +192,17 @@ func readTrialFiles(paths []string) trialFiles {
 		})
 	}
 	return files
+}
+
+// Compare observations by identity while retaining requested names for advice.
+// Resolve only parents before walking: a symlink leaf must still be skipped,
+// just like symlink entries encountered by WalkDir.
+func canonicalTrialFiles(paths []string) trialFiles {
+	roots := make([]string, 0, len(paths))
+	for _, path := range paths {
+		roots = append(roots, filepath.Join(platform.CanonicalPath(filepath.Dir(path)), filepath.Base(path)))
+	}
+	return canonicalTrialIdentities(readTrialFiles(roots))
 }
 
 func trialDigest(body string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(body))) }
@@ -296,7 +318,7 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 	for _, tc := range calls {
 		paths = append(paths, trialOperands(tc, dir)...)
 	}
-	after := readTrialFiles(paths)
+	after := canonicalTrialFiles(paths)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	state := &r.probes
@@ -321,7 +343,7 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 			}
 			key := source + "\x00" + dest
 			if state.copies[key] == nil && len(state.copies) < trialFileLimit {
-				state.copies[key] = &probeCopy{deliverable: source, copy: dest, original: trialDigest(before.required[source])}
+				state.copies[key] = &probeCopy{deliverable: before.requiredName(source), copy: dest, original: trialDigest(before.required[source])}
 			}
 		}
 	}
@@ -338,7 +360,7 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 			}
 			key := original + "\x00" + path
 			if state.copies[key] == nil && len(state.copies) < trialFileLimit {
-				state.copies[key] = &probeCopy{deliverable: original, copy: path, original: trialDigest(body)}
+				state.copies[key] = &probeCopy{deliverable: before.requiredName(original), copy: path, original: trialDigest(body)}
 			}
 		}
 	}
@@ -349,7 +371,7 @@ func (e *Engine) observeProbeCopies(r *Run, calls []providers.ToolCall, results 
 		}
 		measurement := measureTrialCheck(tc, results[i])
 		old, seen := state.checks[command]
-		operands := readTrialFiles(trialCheckOperands(command, dir))
+		operands := canonicalTrialFiles(trialCheckOperands(command, dir))
 		for _, copy := range state.copies {
 			// Only literal files actually used by this check qualify, not another
 			// sibling with the same basename in an unrelated directory.
@@ -382,14 +404,14 @@ func (e *Engine) probeSyncCheck(r *Run, now time.Time) {
 	for _, copy := range r.probes.copies {
 		paths = append(paths, copy.deliverable, copy.copy)
 	}
-	files := readTrialFiles(paths)
+	files := canonicalTrialFiles(paths)
 	total := time.Duration(r.Tracker.Limit.MaxSeconds) * time.Second
 	explicit := r.Profile.WallSource != "default" && total > 0 && !r.StartedAt.IsZero()
 	half := explicit && now.Sub(r.StartedAt) >= total/2
 	reserve := explicit && now.Sub(r.StartedAt) >= total*70/100
 	eligible := map[string]bool{}
 	for _, copy := range r.probes.copies {
-		original, exists := files[copy.deliverable]
+		original, exists := files[platform.CanonicalPath(copy.deliverable)]
 		content, readable := files[copy.copy]
 		if exists && readable && trialDigest(original) == copy.original && trialDigest(content) != copy.original {
 			eligible[copy.deliverable] = eligible[copy.deliverable] || copy.improved
@@ -479,7 +501,8 @@ func trialCopyEdges(tc providers.ToolCall, workdir string, required trialFiles) 
 		if len(operands) != 2 {
 			return true
 		}
-		source, dest := resolveFinishPath(workdir, operands[0]), resolveFinishPath(workdir, operands[1])
+		source := platform.CanonicalPath(resolveFinishPath(workdir, operands[0]))
+		dest := platform.CanonicalPath(resolveFinishPath(workdir, operands[1]))
 		for path := range required {
 			target := ""
 			if path == source {

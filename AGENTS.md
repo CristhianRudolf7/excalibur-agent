@@ -26,11 +26,11 @@ for your sections: every responsibility, algorithm, state, error case,
 interruption behavior and every row of its verification tables must
 exist in code and be covered by Go tests.
 
-Scope already fixed: Go, single module, Linux only (other OSes via
-`internal/platform` stubs returning `errors.ErrUnsupported`; the binary
-must still build with `GOOS=darwin` and `GOOS=windows`), security
-deferred except the secrets vault (20.1), no autopoiesis, no automatic
-skill learning, no mobile.
+Scope already fixed: Go, single module, Linux, Windows and macOS
+(Windows and macOS support in progress). OS-specific code lives in
+`internal/platform` and OS-suffixed files; the binary must build for all
+three platforms. Security is deferred except the secrets vault (20.1), no
+autopoiesis, no automatic skill learning, no mobile.
 
 ## Contract rules
 

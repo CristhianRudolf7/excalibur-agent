@@ -25,11 +25,7 @@ func ExtensionsRoot() string {
 	if dir := os.Getenv("EXCALIBUR_EXTENSIONS_DIR"); dir != "" {
 		return dir
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(os.TempDir(), "excalibur-extensions")
-	}
-	return filepath.Join(home, ".local", "share", "excalibur", "extensions")
+	return defaultExtensionsRoot()
 }
 
 // RunExt dispatches one excalibur ext subcommand and returns its

@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -36,8 +35,9 @@ func (r execRunner) Run(ctx context.Context, name string, args ...string) (strin
 	var out tailWriter
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	err := cmd.Start()
+	err := startSidecarCommand(cmd, group)
 	if err == nil {
+		defer cleanupSidecarGroup(group)
 		_ = lowerSidecarPriority(cmd.Process.Pid)
 		err = cmd.Wait()
 	}
@@ -76,7 +76,7 @@ type Installer struct {
 func (i *Installer) Start() error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	if !Enabled() || runtime.GOOS != "linux" || i.closed {
+	if !Enabled() || !runtimeSupported() || i.closed {
 		return &RuntimeError{"unavailable", "Robot Lab installation unavailable"}
 	}
 	if i.done != nil {
@@ -126,10 +126,14 @@ func (i *Installer) install(ctx context.Context) error {
 	if runner == nil {
 		runner = execRunner{}
 	}
-	i.progress("checking", "Checking Python and OSMesa", 0, false)
-	version, err := runner.Run(ctx, "python3", "-c", "import sys; print('%d.%d' % sys.version_info[:2])")
+	i.progress("checking", prerequisiteMessage(), 0, false)
+	bootstrap, prefix, err := bootstrapPython()
 	if err != nil {
-		return fmt.Errorf("python3: %w", err)
+		return err
+	}
+	version, err := runner.Run(ctx, bootstrap, append(append([]string{}, prefix...), "-c", "import sys; print('%d.%d' % sys.version_info[:2])")...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", bootstrap, err)
 	}
 	var major, minor int
 	if _, err := fmt.Sscanf(strings.TrimSpace(version), "%d.%d", &major, &minor); err != nil || major < 3 || (major == 3 && minor < 10) {
@@ -144,17 +148,20 @@ func (i *Installer) install(ctx context.Context) error {
 		return err
 	}
 	lock := filepath.Join(source, "requirements.lock")
-	_, err = os.ReadFile(lock)
+	b, err := os.ReadFile(lock)
 	if err != nil {
 		return fmt.Errorf("embedded requirements.lock missing: %w", err)
+	}
+	if lock, _, err = prepareRuntimeRequirements(lock, b); err != nil {
+		return fmt.Errorf("prepare runtime requirements: %w", err)
 	}
 	venv := filepath.Join(i.DataDir, "robotlab", "venv")
 	i.progress("venv", "Creating the Robot Lab Python environment", 10, false)
 	_ = os.Remove(filepath.Join(venv, ".robotlab-installed"))
-	if _, err = runner.Run(ctx, "python3", "-m", "venv", venv); err != nil {
+	if _, err = runner.Run(ctx, bootstrap, append(append([]string{}, prefix...), "-m", "venv", venv)...); err != nil {
 		return fmt.Errorf("create venv: %w", err)
 	}
-	python := filepath.Join(venv, "bin", "python")
+	python := venvPython(venv)
 	if i.Runner == nil {
 		runner = execRunner{Dir: source}
 	}

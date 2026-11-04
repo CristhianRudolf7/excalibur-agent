@@ -105,11 +105,7 @@ func userStateDir() (string, error) {
 	if home := os.Getenv("EXCALIBUR_HOME"); home != "" {
 		return filepath.Join(home, "state"), nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cli: home directory: %w", err)
-	}
-	return filepath.Join(home, ".local", "share", "excalibur"), nil
+	return defaultUserStateDir()
 }
 
 // ResolveLogsDir picks the trial log directory for exec/eval output

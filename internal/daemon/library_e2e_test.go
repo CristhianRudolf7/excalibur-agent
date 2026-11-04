@@ -120,9 +120,14 @@ func (f *libraryE2E) upload(t *testing.T, name, mime string, data []byte) api.Do
 	f.rpc(t, api.MethodLibraryIngest, api.LibraryIngestParams{BlobDigest: digest, Name: name, MIME: mime}, &result)
 	return result.Document
 }
+
+// Darwin race builds override the wait for the interpreted PDF worker.
+// All other builds retain the original deadline and readiness assertions.
+var libraryE2EWaitTimeout = 45 * time.Second
+
 func (f *libraryE2E) wait(t *testing.T, id, status string) api.DocumentInfo {
 	t.Helper()
-	deadline := time.Now().Add(45 * time.Second)
+	deadline := time.Now().Add(libraryE2EWaitTimeout)
 	for {
 		var result api.LibraryDocumentResult
 		f.rpc(t, api.MethodLibraryGet, api.LibraryIDParams{ID: id}, &result)

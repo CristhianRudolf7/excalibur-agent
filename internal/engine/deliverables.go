@@ -107,6 +107,7 @@ var modifyVerbRe = regexp.MustCompile(`(?i)\b(modify|update|fix|edit|patch|chang
 // sentence names it (full path or file name) together with a modify verb.
 func asksToModify(request, path string) bool {
 	base := filepath.Base(path)
+	path, base, request = fileTextIdentity(path), fileTextIdentity(base), fileTextIdentity(request)
 	for _, s := range requestSentences(request) {
 		if (strings.Contains(s, path) || strings.Contains(s, base)) && modifyVerbRe.MatchString(s) {
 			return true
@@ -155,7 +156,7 @@ func isProgramPath(path string) bool {
 		return true
 	}
 
-	if info, err := os.Stat(path); err == nil && !info.IsDir() && info.Mode().Perm()&0111 != 0 {
+	if info, err := os.Stat(path); err == nil && !info.IsDir() && executableProgram(path, info.Mode()) {
 		return true
 	}
 	f, err := os.Open(path)
@@ -257,6 +258,7 @@ func (e *Engine) deliverables(run *Run, request string, history []tasks.HistoryT
 
 // mentionsFile reports whether text names the file base as a token.
 func mentionsFile(text, base string) bool {
+	text, base = fileTextIdentity(text), fileTextIdentity(base)
 	if base == "" || !strings.Contains(text, base) {
 		return false
 	}
@@ -274,7 +276,7 @@ func lastEditOf(history []tasks.HistoryTool, f deliverable) int {
 			matches := mentionsFile(h.Args, f.Base)
 			if tasks.DependencyFreshnessEnabled() {
 				target := writtenPath(h.Args)
-				matches = target != "" && filepath.Clean(target) == filepath.Clean(f.Path)
+				matches = target != "" && sameArtifactPath(target, f.Path)
 				if target != "" && !filepath.IsAbs(target) {
 					matches = strings.HasSuffix(filepath.ToSlash(f.Path), "/"+filepath.ToSlash(filepath.Clean(target)))
 				}
@@ -629,7 +631,7 @@ var portProbe = func(port int) bool {
 func declaredServiceReasons(request, workdir string, maxArtifacts int) []string {
 	var out []string
 	for _, r := range tasks.ExtractArtifactRequirementsIn(request, maxArtifacts, workdir) {
-		if !serviceSentenceRe.MatchString(r.Source) {
+		if !serviceSentenceRe.MatchString(r.IntentSource()) {
 			continue
 		}
 		port := r.Port

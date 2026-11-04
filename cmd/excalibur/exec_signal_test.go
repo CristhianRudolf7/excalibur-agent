@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"syscall"
 	"testing"
@@ -17,6 +18,7 @@ import (
 )
 
 func TestExecCommandSignal(t *testing.T) {
+	requirePOSIXExecSignals(t)
 	if os.Getenv("EXCALIBUR_COMMAND_SIGNAL_HELPER") == "1" {
 		// TestMain deliberately pins stub wiring; this subprocess uses only its
 		// parent's simulated HTTP server and a synthetic credential.
@@ -88,5 +90,12 @@ func TestExecCommandSignal(t *testing.T) {
 				t.Fatal(string(raw))
 			}
 		})
+	}
+}
+
+func requirePOSIXExecSignals(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX SIGTERM/SIGINT delivery via os.Process.Signal is unavailable on Windows")
 	}
 }

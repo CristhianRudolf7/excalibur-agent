@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -25,11 +24,14 @@ type ResourceReader struct {
 // ResourceLimits separates host capacity from the effective container budget.
 // CPUs may be fractional; MemoryBytes includes memory.high as a usable budget.
 type ResourceLimits struct {
-	HostCPUs      int
-	CPUs          float64
-	HostMemory    int64
-	MemoryBytes   int64
-	MemoryLimited bool
+	HostCPUs   int
+	CPUs       float64
+	HostMemory int64
+	// AvailableMemory is the estimated reclaimable host memory on Darwin.
+	// Zero means unavailable; it does not replace the physical memory budget.
+	AvailableMemory int64
+	MemoryBytes     int64
+	MemoryLimited   bool
 }
 
 // ParallelJobs reserves 1.5 GiB per build/test worker and respects fractional
@@ -74,7 +76,7 @@ type cgroupLocation struct {
 // locations resolves membership through mountinfo, including subtree mounts
 // and cgroup namespaces. Ancestors up to the visible mount remain effective.
 func (r ResourceReader) locations() []cgroupLocation {
-	if runtime.GOOS != "linux" && r.ProcRoot == "" && r.SysRoot == "" {
+	if !cgroupsSupported() && r.ProcRoot == "" && r.SysRoot == "" {
 		return nil
 	}
 	proc, sys := r.roots()
@@ -109,16 +111,16 @@ func (r ResourceReader) locations() []cgroupLocation {
 			// Remap only sysfs paths when a fake root is supplied.
 			if r.SysRoot != "" {
 				rel, err := filepath.Rel("/sys", mountPoint)
-				if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+				if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 					continue
 				}
 				mountPoint = filepath.Join(sys, rel)
 			}
 			rel, err := filepath.Rel(mountRoot, member)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				// A cgroup namespace reports membership relative to its own
 				// root even when mountinfo retains the host subtree root.
-				rel = strings.TrimPrefix(filepath.Clean("/"+member), "/")
+				rel = strings.TrimPrefix(filepath.Clean("/"+member), string(filepath.Separator))
 				if st, statErr := os.Stat(filepath.Join(mountPoint, rel)); statErr != nil || !st.IsDir() {
 					continue
 				}
@@ -163,20 +165,7 @@ func (c cgroupLocation) ancestors() []string {
 // Limits returns best-effort facts, retaining host values on missing, malformed
 // or unlimited controls. Reading host facts also works with the switch disabled.
 func (r ResourceReader) Limits() ResourceLimits {
-	proc, sys := r.roots()
-	l := ResourceLimits{HostCPUs: runtime.NumCPU()}
-	if n := cpuSetCount(readResource(filepath.Join(sys, "devices/system/cpu/online"))); n > 0 {
-		l.HostCPUs = n
-	}
-	for _, line := range strings.Split(readResource(filepath.Join(proc, "meminfo")), "\n") {
-		f := strings.Fields(line)
-		if len(f) == 3 && f[0] == "MemTotal:" && f[2] == "kB" {
-			kb := positiveLimit(f[1])
-			if kb <= math.MaxInt64/1024 {
-				l.HostMemory = kb * 1024
-			}
-		}
-	}
+	l := r.hostResources()
 	l.CPUs, l.MemoryBytes = float64(l.HostCPUs), l.HostMemory
 	if !EffectiveLimitsEnabled() {
 		return l

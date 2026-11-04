@@ -33,7 +33,7 @@ func (m *SessionManager) trySurvivablePTY(s *Session, command, dir string, env [
 		return true
 	}
 	defer log.Close()
-	c := exec.Command(DetectShell(), "-c", command)
+	c := exec.Command(DetectShell(), shellArgs("", command)...)
 	c.Dir = dir
 	c.Env = ptyEnv(env)
 	// creack/pty supplies setsid and the controlling terminal. Parent-death

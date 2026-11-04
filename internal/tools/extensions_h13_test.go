@@ -133,7 +133,15 @@ func TestFourRoutesHotAdd(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	build := osexec.Command("go", "build", "-o", filepath.Join(work, "server"), filepath.Join(mcpSrc, "server"))
+	serverName := "server"
+	buildArgs := []string{"build"}
+	if runtime.GOOS == "windows" {
+		serverName += ".exe"
+		// Instrument the native fixture too on the Windows race-test host.
+		buildArgs = append(buildArgs, "-race")
+	}
+	buildArgs = append(buildArgs, "-o", filepath.Join(work, serverName), filepath.Join(mcpSrc, "server"))
+	build := osexec.Command("go", buildArgs...)
 	build.Dir = root
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build example server: %v\n%s", err, out)
@@ -145,6 +153,7 @@ func TestFourRoutesHotAdd(t *testing.T) {
 	if err := loader.Activate(mcpExt); err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = loader.Disable(mcpExt.Manifest.ID) }()
 
 	if got := cat.PrefixHash(); got != before {
 		t.Fatal("hot add must not change the fixed prefix hash")

@@ -463,7 +463,7 @@ func (c *Client) EnsureOpen(ctx context.Context, rootDir, rel string) (string, e
 	if err != nil {
 		return "", fmt.Errorf("codeintel: lsp open %s: %w", rel, err)
 	}
-	uri := dirToURI(rootDir) + "/" + uriEscapeRel(rel)
+	uri := joinDocumentURI(dirToURI(rootDir), uriEscapeRel(rel), windowsPaths())
 	version := len(src)
 	c.openMu.Lock()
 	cur, ok := c.opened[uri]
@@ -973,8 +973,7 @@ func dirToURI(dir string) string {
 	if err != nil {
 		abs = dir
 	}
-	u := url.URL{Scheme: "file", Path: abs}
-	return strings.TrimSuffix(u.String(), "/")
+	return dirToURIFlavor(abs, windowsPaths())
 }
 
 func uriEscapeRel(rel string) string {
@@ -995,17 +994,5 @@ func langOfRel(rel string) string {
 // uriToRel maps a file URI back to a project-relative path when the
 // URI sits under rootDir, else to the absolute path.
 func uriToRel(rootDir, uri string) string {
-	u, err := url.Parse(uri)
-	if err != nil || u.Scheme != "file" {
-		return uri
-	}
-	p, err := url.PathUnescape(u.Path)
-	if err != nil {
-		return uri
-	}
-	rel, err := filepath.Rel(rootDir, filepath.FromSlash(p))
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return p
-	}
-	return filepath.ToSlash(rel)
+	return uriToRelFlavor(rootDir, uri, windowsPaths())
 }

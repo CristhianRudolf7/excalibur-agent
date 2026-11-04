@@ -58,7 +58,7 @@ func TestInstalledDeliverableHardChecks(t *testing.T) {
 		{"The tool lives at /usr/local/bin/mytool.", ArtifactFS{}, ""},
 	} {
 		t.Run(tc.request+tc.want, func(t *testing.T) {
-			reqs := ExtractArtifactRequirements(tc.request, 8)
+			reqs := nativeFixtureRequirements(ExtractArtifactRequirements(tc.request, 8))
 			checks := 0
 			pending := CheckArtifactFiles(reqs, nil, "/work", func(path string) (ArtifactFS, error) {
 				checks++

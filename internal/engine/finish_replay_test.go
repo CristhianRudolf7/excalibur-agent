@@ -124,9 +124,9 @@ func programTurns(target string) (*fakeRunner, []providers.ChatResponse) {
 	runner.add("exec", types.EffectExec, types.IdemNonIdempotent,
 		tools.Result{Status: tools.StatusOK, Output: "exit: 0  duration: 0.1s  session: sess-1  alive: false\n3"})
 	turns := []providers.ChatResponse{
-		toolResp(toolCall("w1", "write_file", `{"path":"`+target+`","content":"print(3)\n"}`)),
+		toolResp(toolCall("w1", "write_file", `{"path":`+strconvQuote(target)+`,"content":"print(3)\n"}`)),
 		toolResp(toolCall("f1", "finish", finishArgs("wrote the script", "file written"))),
-		toolResp(toolCall("e1", "exec", `{"command":"python3 `+target+`"}`)),
+		toolResp(toolCall("e1", "exec", `{"command":`+strconvQuote("python3 "+target)+`}`)),
 		toolResp(toolCall("f2", "finish", finishArgs("ran the script", "exit 0 printed 3"))),
 		toolResp(toolCall("f3", "finish", finishArgs("ran the script", "exit 0 printed 3"))),
 	}
@@ -156,6 +156,7 @@ func TestFinishReplayRecordedRunReachesSameState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = rec.Close() })
 	runner, turns := programTurns(target)
 	live := &fakeEndpoint{responses: turns}
 	e, js := finishE2EEngine(t, &recordingModels{inner: live, rec: rec}, runner)
@@ -224,6 +225,7 @@ func TestFinishReplayStopsAtFirstDivergence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = rec.Close() })
 	runner, turns := programTurns(target)
 	e, js := finishE2EEngine(t, &recordingModels{inner: &fakeEndpoint{responses: turns}, rec: rec}, runner)
 	run := NewRun("run_div", "task_div", Profile{ExplicitFinish: true, Role: types.RoleExecutor})
@@ -268,10 +270,10 @@ func TestFinishRefusalsNeverEndTheRun(t *testing.T) {
 	live := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("f1", "finish", finishArgs("done", "none yet"))),
 		toolResp(toolCall("f2", "finish", finishArgs("done", "again"))),
-		toolResp(toolCall("c1", "exec", `{"command":"ls `+dir+`"}`)),
+		toolResp(toolCall("c1", "exec", `{"command":`+strconvQuote("ls "+dir)+`}`)),
 		toolResp(toolCall("f3", "finish", finishBlockedArgs("stuck", "tried", "the directory is read only"))),
-		toolResp(toolCall("w1", "write_file", `{"path":"`+target+`","content":"summary\n"}`)),
-		toolResp(toolCall("c2", "exec", `{"command":"cat `+target+`"}`)),
+		toolResp(toolCall("w1", "write_file", `{"path":`+strconvQuote(target)+`,"content":"summary\n"}`)),
+		toolResp(toolCall("c2", "exec", `{"command":`+strconvQuote("cat "+target)+`}`)),
 		toolResp(toolCall("f4", "finish", finishArgs("written", "file exists"))),
 		toolResp(toolCall("f5", "finish", finishArgs("written", "file exists"))),
 	}}

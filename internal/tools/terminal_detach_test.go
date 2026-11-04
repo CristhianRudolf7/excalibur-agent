@@ -101,6 +101,12 @@ func TestFinishMentionsKeepRunning(t *testing.T) {
 	}
 }
 
+// Darwin replaces only the HTTP fixture's slow hostname lookup. Other
+// platforms retain the original command and the same survival assertions.
+var detachedTestServerCommand = func(port int) string {
+	return fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port)
+}
+
 // The run-end proof: a detached HTTP server started by a helper that
 // immediately exits still answers afterwards. The helper is this test
 // binary re-executed with a marker env var; it starts the detached
@@ -112,7 +118,7 @@ func TestDetachedSurvivesParentExit(t *testing.T) {
 		port, _ := strconv.Atoi(os.Getenv("EXCALIBUR_DETACH_PORT"))
 		workdir := os.Getenv("EXCALIBUR_DETACH_WORKDIR")
 		m := NewSessionManager(TerminalDeps{})
-		_, _, alive := m.StartDetached("helper", fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port), workdir, nil)
+		_, _, alive := m.StartDetached("helper", detachedTestServerCommand(port), workdir, nil)
 		if !alive {
 			os.Exit(2)
 		}
@@ -132,6 +138,7 @@ func TestDetachedSurvivesParentExit(t *testing.T) {
 	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close()
 	workdir := t.TempDir()
+	prepareDetachedServerCleanup(t, workdir)
 	cmd := exec.Command(os.Args[0], "-test.run=TestDetachedSurvivesParentExit", "-test.count=1")
 	cmd.Env = append(os.Environ(),
 		"EXCALIBUR_DETACH_HELPER=1",

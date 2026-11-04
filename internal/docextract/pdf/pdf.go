@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"runtime"
 	"strconv"
 	"time"
 
@@ -52,13 +51,13 @@ func (e *Extractor) pageTimeout() time.Duration {
 	if e.options.PageTimeout > 0 {
 		return e.options.PageTimeout
 	}
-	return 30 * time.Second
+	return workerOperationTimeout
 }
 func (e *Extractor) session(ctx context.Context) (session, error) {
 	if e.options.InProcess {
 		return &localSession{root: ctx}, nil
 	}
-	if runtime.GOOS != "linux" {
+	if !workerSupported() {
 		return nil, ErrUnsupported
 	}
 	return newWorker(e.options)

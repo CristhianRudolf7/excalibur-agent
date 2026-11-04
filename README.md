@@ -53,6 +53,10 @@ verification harness. No milestone behavior is implemented yet; see
 
 ## Development
 
+Platforms: Linux, Windows (in progress) and macOS (in progress). See [Windows development](docs/development/windows.md)
+for PowerShell commands and the Windows platform design, and the
+[macOS build and runtime guide](docs/development/macos.md) for macOS.
+
 See [Adding functionality safely](docs/development/extending.md) for extension
 contracts, registration paths, store limitations and pre-merge checks.
 

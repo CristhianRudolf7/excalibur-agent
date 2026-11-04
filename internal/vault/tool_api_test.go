@@ -168,10 +168,7 @@ func TestInject_Paths(t *testing.T) {
 	if string(raw) != "inject-value-009" {
 		t.Fatal("file content mismatch")
 	}
-	fi, _ := os.Stat(path)
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("secret file perms = %o", fi.Mode().Perm())
-	}
+	assertPrivateFile(t, path)
 	fcleanup()
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("temp secret file not removed")

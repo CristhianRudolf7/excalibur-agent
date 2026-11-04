@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -70,15 +68,11 @@ func NewManager(cfg Config) (*Manager, error) {
 		cfg.Now = time.Now
 	}
 	if cfg.WorkDir == "" {
-		root := os.Getenv("XDG_DATA_HOME")
-		if root == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, err
-			}
-			root = filepath.Join(home, ".local", "share")
+		dir, err := defaultWorkDir()
+		if err != nil {
+			return nil, err
 		}
-		cfg.WorkDir = filepath.Join(root, "excalibur", "automations")
+		cfg.WorkDir = dir
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{cfg: cfg, records: map[string]*record{}, running: map[string]activeRun{}, listeners: map[int]func(Event){}, wake: make(chan struct{}, 1), eventWake: make(chan struct{}, 1), ctx: ctx, cancel: cancel}

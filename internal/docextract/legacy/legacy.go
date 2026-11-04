@@ -8,11 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/docextract"
@@ -29,7 +27,7 @@ type Extractor struct {
 func New(format string) *Extractor     { return &Extractor{Format: format} }
 func (e *Extractor) Formats() []string { return []string{e.Format} }
 func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts docextract.Options) (docextract.Document, error) {
-	if runtime.GOOS != "linux" {
+	if !conversionSupported() {
 		return docextract.Document{}, errors.ErrUnsupported
 	}
 	target := map[string]string{"xls": "xlsx", "doc": "docx", "ppt": "pptx"}[e.Format]
@@ -42,10 +40,7 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 	binary := e.Binary
 	if binary == "" {
 		var err error
-		binary, err = exec.LookPath("libreoffice")
-		if err != nil {
-			binary, err = exec.LookPath("soffice")
-		}
+		binary, err = officeExecutable()
 		if err != nil {
 			return docextract.Document{}, fmt.Errorf("legacy Office extraction requires LibreOffice: %w", errors.ErrUnsupported)
 		}
@@ -65,10 +60,10 @@ func (e *Extractor) Extract(ctx context.Context, r io.ReaderAt, size int64, opts
 	if err = os.WriteFile(input, data, 0600); err != nil {
 		return docextract.Document{}, err
 	}
-	profile := (&url.URL{Scheme: "file", Path: filepath.Join(dir, "profile")}).String()
+	profile := officeProfileURL(filepath.Join(dir, "profile"))
 	cmd := exec.CommandContext(ctx, binary, "-env:UserInstallation="+profile, "--headless", "--convert-to", target, "--outdir", dir, input)
 	// Do not include converter diagnostics: documents may contain private text.
-	if err = cmd.Run(); err != nil {
+	if err = runOfficeCommand(cmd); err != nil {
 		if ctx.Err() != nil {
 			return docextract.Document{}, ctx.Err()
 		}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // WorkdirMap maps the real working directory onto one attempt's copy.
@@ -26,7 +28,7 @@ func (m WorkdirMap) Enabled() bool {
 	if m.Real == "" || m.Attempt == "" || !filepath.IsAbs(m.Real) || !filepath.IsAbs(m.Attempt) {
 		return false
 	}
-	if m.Real == m.Attempt {
+	if sameWorkdir(m.Real, m.Attempt) {
 		return false
 	}
 	return filepath.Dir(m.Real) != m.Real
@@ -40,6 +42,9 @@ func (m WorkdirMap) Path(p string) string {
 		return p
 	}
 	rel, ok := relWithin(m.Real, filepath.Clean(p))
+	if !ok {
+		rel, ok = relWithin(platform.CanonicalPath(m.Real), platform.CanonicalPath(p))
+	}
 	if !ok {
 		return p
 	}
@@ -64,13 +69,13 @@ func (m WorkdirMap) Resolve(p string) string {
 // in "cd /app && make", "cp /app/x y" and "'/app'", but not in
 // "/application" or "/app.bak".
 func (m WorkdirMap) Command(cmd string) string {
-	if !m.Enabled() || !strings.Contains(cmd, m.Real) {
+	if !m.Enabled() || commandPathIndex(cmd, m.Real) < 0 {
 		return cmd
 	}
 	var b strings.Builder
 	i := 0
 	for {
-		j := strings.Index(cmd[i:], m.Real)
+		j := commandPathIndex(cmd[i:], m.Real)
 		if j < 0 {
 			break
 		}
@@ -201,10 +206,7 @@ func resolvePath(p string) string {
 	if err != nil {
 		abs = filepath.Clean(p)
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		return resolved
-	}
-	return abs
+	return resolveAttemptPath(abs)
 }
 
 // boundaryBefore reports whether the byte before at (if any) ends a

@@ -233,10 +233,7 @@ func draftMentioned(d DraftCriterion, corpus string) bool {
 	if strings.Contains(corpus, key) {
 		return true
 	}
-	base := key
-	if i := strings.LastIndex(key, "/"); i >= 0 {
-		base = key[i+1:]
-	}
+	base := draftPathBase(key)
 	if base != "" && base != key && strings.Contains(corpus, base) {
 		return true
 	}
@@ -777,6 +774,9 @@ func ExercisesDeliverable(command string) bool {
 		if seg == "" || nonExercisingSegment(seg) {
 			continue
 		}
+		if nativeExecutableExercise(seg) {
+			return true
+		}
 		lower := strings.ToLower(seg)
 		for _, m := range exerciseMarkers {
 			if strings.Contains(lower, m) {
@@ -802,9 +802,9 @@ func nonExercisingSegment(seg string) bool {
 		return true
 	}
 	program := toks[0]
-	prog := program
-	if i := strings.LastIndex(prog, "/"); i >= 0 {
-		prog = prog[i+1:]
+	prog := commandPathBase(program)
+	if nativeObservationProgram(prog) {
+		return true
 	}
 	args := toks[1:]
 	switch prog {
@@ -819,7 +819,7 @@ func nonExercisingSegment(seg string) bool {
 	// -h and -V mean help or version for interpreters and local
 	// programs; for other tools they mean something else (grep -h,
 	// tar -h), so they do not count there.
-	localOrInterpreter := strings.HasPrefix(program, "./") || pythonProgram.MatchString(prog) ||
+	localOrInterpreter := strings.HasPrefix(program, "./") || nativeExecutableProgram(program) || pythonProgram.MatchString(prog) ||
 		prog == "node" || prog == "ruby" || prog == "perl" || prog == "php" || prog == "bash" || prog == "sh"
 	if localOrInterpreter && (hasArgWord(args, "-h") || hasArgWord(args, "-V")) {
 		return true

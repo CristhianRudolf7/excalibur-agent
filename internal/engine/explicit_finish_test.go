@@ -263,7 +263,7 @@ func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
 	// no-change rule answers an unchanged finish from the same reasons).
 	model := &fakeEndpoint{responses: []providers.ChatResponse{
 		toolResp(toolCall("f1", "finish", blocked)),
-		toolResp(toolCall("c1", "exec", `{"command":"ls `+dir+`"}`)),
+		toolResp(toolCall("c1", "exec", `{"command":`+strconvQuote("ls "+dir)+`}`)),
 		toolResp(toolCall("f2", "finish", okArgs)),
 		toolResp(toolCall("f3", "finish", okArgs)),
 	}}
@@ -289,6 +289,27 @@ func TestExplicitFinishBlockedPathExistsRefused(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("existing-path refusal missing: %v", historyContents(run))
+	}
+}
+
+func TestBlockedPathExistsThroughSymlinkWorkdir(t *testing.T) {
+	e, run, _ := earlyOutputRun(t)
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	path := filepath.Join(alias, "present.txt")
+	writeTrialFile(t, path, "input")
+	realPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Workdir = alias
+	for _, named := range []string{path, realPath} {
+		if got := e.blockedPathsExist(run, "need "+named+" which is missing"); got != named {
+			t.Errorf("blocked path %q = %q", named, got)
+		}
 	}
 }
 

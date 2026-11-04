@@ -11,6 +11,46 @@ import (
 
 const deliverRequest = "Write the final report to `/app/out/report.txt` and build the tool at /app/bin/tool. Port 8080 must serve traffic."
 
+func TestCheckDeliverablesMapsSymlinkAliasesOntoCopy(t *testing.T) {
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("directory symlinks unavailable: %v", err)
+	}
+	real, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy := t.TempDir()
+	for _, roots := range [][2]string{{alias, real}, {real, alias}} {
+		m := WorkdirMap{Real: roots[0], Attempt: copy}
+		output := filepath.Join(roots[1], "future", "report.txt")
+		mapped := filepath.Join(copy, "future", "report.txt")
+		if got := m.Path(output); got != mapped {
+			t.Fatalf("mapped path = %q, want %q", got, mapped)
+		}
+		if sibling := roots[1] + "-sibling/report.txt"; m.Path(sibling) != sibling {
+			t.Fatal("mapped a sibling prefix")
+		}
+		reqs := []tasks.ArtifactRequirement{{Kind: tasks.ArtifactOutput, Path: output, Source: "Write " + output}}
+		if pend := CheckDeliverables(reqs, m, copy); len(pend) == 0 {
+			t.Fatal("missing aliased output passed")
+		}
+		if err := os.MkdirAll(filepath.Dir(mapped), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(mapped, []byte("report"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if pend := CheckDeliverables(reqs, m, copy); len(pend) != 0 {
+			t.Fatalf("copy output failed: %v", pend)
+		}
+		if err := os.Remove(mapped); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestDeliverableRequirementsKeepsOutputKinds(t *testing.T) {
 	reqs := DeliverableRequirements(deliverRequest)
 	var paths []string

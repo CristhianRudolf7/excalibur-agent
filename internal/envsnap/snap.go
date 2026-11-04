@@ -203,10 +203,10 @@ func presentOnly(names []string) []string {
 	return out
 }
 
-// detectShells lists usable Bourne-compatible shells.
+// detectShells lists usable platform shells.
 func detectShells() []string {
 	var out []string
-	for _, sh := range []string{"bash", "zsh", "fish", "sh", "dash"} {
+	for _, sh := range shellCandidates() {
 		if _, err := exec.LookPath(sh); err == nil {
 			out = append(out, sh)
 		}
@@ -221,7 +221,7 @@ func pickDefaultShell(shells []string) string {
 	for _, s := range shells {
 		have[s] = true
 	}
-	for _, pref := range []string{"bash", "zsh", "sh"} {
+	for _, pref := range shellPreferences() {
 		if have[pref] {
 			if p, err := exec.LookPath(pref); err == nil {
 				return p
@@ -234,7 +234,7 @@ func pickDefaultShell(shells []string) string {
 			return sh
 		}
 	}
-	return "/bin/sh"
+	return shellFallback()
 }
 
 // applyResources keeps legacy integer CPU consumers conservative while the

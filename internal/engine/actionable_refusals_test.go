@@ -19,21 +19,21 @@ func TestActionableRefusalSequences(t *testing.T) {
 			model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp(`{"false_requirement":false,"reason":"Explicit deliverable remains required"}`)}}
 			e, _ := testEngine(model, scriptedRunner(), passingGate())
 			r := explicitRun()
-			r.Request = "Create /tmp/report."
+			r.Request = nativeFixtureText("Create /tmp/report.")
 			last := ""
 			for i := 0; i < n; i++ {
-				note := e.refuseFinish(context.Background(), r, []string{"required artifact missing: /tmp/report"})
+				note := e.refuseFinish(context.Background(), r, []string{nativeFixtureText("required artifact missing: /tmp/report")})
 				if note == last {
 					t.Fatal("consecutive duplicate refusal")
 				}
 				last = note
 				// D1: the refusal is numbered text; the first refusal names the
 				// check, repeats name what is next.
-				wantPrefix := fmt.Sprintf("finish refused (attempt %d): 1) required artifact missing: /tmp/report", i+1)
+				wantPrefix := fmt.Sprintf(nativeFixtureText("finish refused (attempt %d): 1) required artifact missing: /tmp/report"), i+1)
 				if !strings.HasPrefix(note, wantPrefix) {
 					t.Fatalf("refusal %d = %q, want prefix %q", i+1, note, wantPrefix)
 				}
-				if i == 0 && !strings.Contains(note, "(check: test -s '/tmp/report')") {
+				if i == 0 && !strings.Contains(note, nativeFixtureText("(check: test -s '/tmp/report')")) {
 					t.Fatalf("first refusal must carry its check: %q", note)
 				}
 				if i > 0 && !strings.Contains(note, "Next: run the first check above") {
@@ -56,7 +56,7 @@ func TestFalseRequirementReview(t *testing.T) {
 		name, reply string
 		fail, drop  bool
 	}{
-		{"false", `{"false_requirement":true,"reason":"Example file is optional","instruction_quote":"Optionally create /tmp/example."}`, false, true},
+		{"false", nativeFixtureText(`{"false_requirement":true,"reason":"Example file is optional","instruction_quote":"Optionally create /tmp/example."}`), false, true},
 		{"real", `{"false_requirement":false,"reason":"Keep explicit requirement"}`, false, false},
 		{"bad quote", `{"false_requirement":true,"reason":"Not required","instruction_quote":"invented"}`, false, false},
 		{"malformed", `not json`, false, false},
@@ -69,9 +69,9 @@ func TestFalseRequirementReview(t *testing.T) {
 			}
 			e, _ := testEngine(model, scriptedRunner(), passingGate())
 			r := explicitRun()
-			r.Request = "Optionally create /tmp/example."
+			r.Request = nativeFixtureText("Optionally create /tmp/example.")
 			for i := 0; i < 3; i++ {
-				note := e.refuseFinish(context.Background(), r, []string{"required artifact missing: /tmp/example"})
+				note := e.refuseFinish(context.Background(), r, []string{nativeFixtureText("required artifact missing: /tmp/example")})
 				r.recordFinishRefusal(note)
 			}
 			if r.requirementDropped("A1") != tc.drop {
@@ -85,7 +85,7 @@ func TestFalseRequirementReview(t *testing.T) {
 			if gate.OK != tc.drop {
 				t.Fatalf("artifact gate %+v", gate)
 			}
-			r.Request = "Create /tmp/example."
+			r.Request = nativeFixtureText("Create /tmp/example.")
 			if r.requirementDropped("A1") {
 				t.Fatal("instruction change must invalidate withdrawal")
 			}
@@ -131,7 +131,7 @@ func TestActionableFinishReturnsChecklistInHistory(t *testing.T) {
 	cfg.EnableStrong = false
 	e.deps.SelfVerify = &cfg
 	r := explicitRun()
-	r.Request = "Create /tmp/uncreated"
+	r.Request = nativeFixtureText("Create /tmp/uncreated")
 	r.Workdir = t.TempDir()
 	startRun(t, e, r, js)
 	for i := 0; i < 2; i++ {
@@ -175,13 +175,13 @@ func TestActionableFinishReturnsChecklistInHistory(t *testing.T) {
 func TestExerciseRefusalUsesExecutableCheck(t *testing.T) {
 	e, _ := testEngine(&fakeEndpoint{}, scriptedRunner(), passingGate())
 	r := explicitRun()
-	r.Request = "Create /tmp/report.py."
-	r.drafts = []tasks.DraftCriterion{{ID: "D1", Key: "/tmp/report.py", Check: "python3 /tmp/report.py"}}
-	items := e.refusalItems(r, []string{`deliverable not exercised: no passing run of "/tmp/report.py"`})
-	if len(items) != 1 || items[0].ID != "D1" || items[0].Check != "python3 /tmp/report.py" {
+	r.Request = nativeFixtureText("Create /tmp/report.py.")
+	r.drafts = []tasks.DraftCriterion{{ID: "D1", Key: nativeFixtureText("/tmp/report.py"), Check: nativeFixtureText("python3 /tmp/report.py")}}
+	items := e.refusalItems(r, []string{nativeFixtureText(`deliverable not exercised: no passing run of "/tmp/report.py"`)})
+	if len(items) != 1 || items[0].ID != "D1" || items[0].Check != nativeFixtureText("python3 /tmp/report.py") {
 		t.Fatalf("exercise must not suggest existence probe: %+v", items)
 	}
-	items = e.refusalItems(r, []string{"required artifact missing: /tmp/report.py"})
+	items = e.refusalItems(r, []string{nativeFixtureText("required artifact missing: /tmp/report.py")})
 	for _, item := range items {
 		if item.ID == "A2" {
 			t.Fatalf("basename matched inside absolute path: %+v", items)
@@ -191,13 +191,13 @@ func TestExerciseRefusalUsesExecutableCheck(t *testing.T) {
 
 func TestRefusalReplayPreservesThresholdAndWithdrawal(t *testing.T) {
 	ctx := context.Background()
-	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp(`{"false_requirement":true,"reason":"Example is optional","instruction_quote":"Optionally create /tmp/example."}`)}}
+	model := &fakeEndpoint{responses: []providers.ChatResponse{finalResp(nativeFixtureText(`{"false_requirement":true,"reason":"Example is optional","instruction_quote":"Optionally create /tmp/example."}`))}}
 	e, js := testEngine(model, scriptedRunner(), passingGate())
 	r := explicitRun()
-	r.Request = "Optionally create /tmp/example."
+	r.Request = nativeFixtureText("Optionally create /tmp/example.")
 	startRun(t, e, r, js)
 	for i := 0; i < 2; i++ {
-		note := e.refuseFinish(ctx, r, []string{"required artifact missing: /tmp/example"})
+		note := e.refuseFinish(ctx, r, []string{nativeFixtureText("required artifact missing: /tmp/example")})
 		r.recordFinishRefusal(note)
 	}
 	resumed := explicitRun()
@@ -207,7 +207,7 @@ func TestRefusalReplayPreservesThresholdAndWithdrawal(t *testing.T) {
 	if resumed.FinishRefusals != 2 || len(resumed.RefusalRecords()) != 2 {
 		t.Fatalf("replay count: %d %+v", resumed.FinishRefusals, resumed.RefusalRecords())
 	}
-	note := e.refuseFinish(ctx, resumed, []string{"required artifact missing: /tmp/example"})
+	note := e.refuseFinish(ctx, resumed, []string{nativeFixtureText("required artifact missing: /tmp/example")})
 	resumed.recordFinishRefusal(note)
 	if !resumed.requirementDropped("A1") || model.calls() != 1 {
 		t.Fatal("third refusal after restart must review extraction")
@@ -219,7 +219,7 @@ func TestRefusalReplayPreservesThresholdAndWithdrawal(t *testing.T) {
 	if !again.requirementDropped("A1") || again.FinishRefusals != 3 {
 		t.Fatal("withdrawal must survive restart")
 	}
-	again.Request = "Create /tmp/example."
+	again.Request = nativeFixtureText("Create /tmp/example.")
 	e.restoreRefusals(ctx, again)
 	if again.requirementDropped("A1") {
 		t.Fatal("old instruction withdrawal replayed")

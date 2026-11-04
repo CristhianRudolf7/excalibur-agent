@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // TaskBoundarySwitch gates the task-boundary refusals (item 93). Default ON.
@@ -74,18 +76,19 @@ func boundaryActive() bool {
 // runtime storage, the harness's own logs and state, nsenter, chroot into a
 // host root and bind mounts of host paths. The check is lexical on the words
 // of the command, which covers quoted paths, redirections and chained
-// commands; a path assembled at run time cannot be seen and is not refused.
+// commands. Literal absolute paths also have their symlinks resolved; a path
+// assembled at run time cannot be seen and is not refused.
 func CheckCommandBoundary(command string) error {
 	if !boundaryActive() {
 		return nil
 	}
-	words := boundaryWords(command)
-	harness := CurrentExecScope().HarnessPaths
+	words := boundaryCommandWords(command)
+	harness := canonicalHarnessRoots(CurrentExecScope().HarnessPaths)
 	for i, w := range words {
-		if pathOutsideBoundary(w, harness) {
+		if pathOutsideBoundary(w, harness) || (filepath.IsAbs(w) && pathOutsideBoundary(platform.CanonicalPath(w), harness)) {
 			return errBoundary
 		}
-		switch path.Base(w) {
+		switch commandWordBase(w) {
 		case "nsenter":
 			return errBoundary
 		case "chroot":
@@ -108,18 +111,37 @@ func CheckPathBoundary(p string) error {
 	if !boundaryActive() {
 		return nil
 	}
-	harness := CurrentExecScope().HarnessPaths
+	harness := canonicalHarnessRoots(CurrentExecScope().HarnessPaths)
 	if pathOutsideBoundary(filepath.Clean(p), harness) {
 		return errBoundary
 	}
-	if resolved, err := filepath.EvalSymlinks(p); err == nil && pathOutsideBoundary(resolved, harness) {
+	if pathOutsideBoundary(platform.CanonicalPath(p), harness) {
 		return errBoundary
 	}
 	return nil
 }
 
+// canonicalHarnessRoots returns the harness roots in both their lexical and
+// symlink-resolved spellings. A candidate path is resolved before it is
+// judged, so a root reached through a symlink (macOS /var -> /private/var,
+// Windows junctions and short names) must also be compared resolved.
+func canonicalHarnessRoots(harness []string) []string {
+	out := append([]string(nil), harness...)
+	for _, h := range harness {
+		if h == "" {
+			continue
+		}
+		if resolved := platform.CanonicalPath(h); resolved != filepath.Clean(h) {
+			out = append(out, resolved)
+		}
+	}
+	return out
+}
+
 // boundaryWords splits a command into the words that may name a path or a
 // command. Quotes, separators, redirections and assignments all split.
+//
+//lint:ignore U1000 used by the non-Windows boundary hooks
 func boundaryWords(command string) []string {
 	return strings.FieldsFunc(command, func(r rune) bool {
 		switch r {
@@ -134,6 +156,9 @@ func boundaryWords(command string) []string {
 // outside the task. Relative paths are not judged here: they resolve against
 // the working directory, which the boundary does not restrict by itself.
 func pathOutsideBoundary(p string, harness []string) bool {
+	if handled, outside := platformBoundaryPath(p, harness); handled {
+		return outside
+	}
 	if p == "" {
 		return false
 	}

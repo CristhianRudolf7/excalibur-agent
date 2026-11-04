@@ -334,7 +334,7 @@ func (e *Engine) start() error {
 		return err
 	}
 	e.cfg.ProfileDir = profile
-	driver, err := pw.Run()
+	driver, err := runBrowserDriver()
 	if err != nil {
 		return errors.New("browser: driver unavailable; run browser.Install first")
 	}
@@ -349,6 +349,10 @@ func (e *Engine) start() error {
 		}
 		launch.Channel = nil
 		launch.ExecutablePath = pw.String(path)
+	}
+	if err := platformBrowserLaunch(&launch); err != nil {
+		_ = driver.Stop()
+		return err
 	}
 	browser, err := driver.Chromium.LaunchPersistentContext(profile, launch)
 	if err != nil {

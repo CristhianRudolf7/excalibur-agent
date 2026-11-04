@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/CristhianRudolf7/excalibur-agent/internal/platform"
 )
 
 // Window defaults from Section 13.4: 200-line windows with numbers.
@@ -795,10 +797,7 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return err
 	}
 	// fsync the directory so the rename survives a crash.
-	if dh, err := os.Open(dir); err == nil {
-		_ = dh.Sync()
-		_ = dh.Close()
-	}
+	_ = platform.SyncDir(dir)
 	return nil
 }
 

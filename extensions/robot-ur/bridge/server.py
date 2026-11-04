@@ -4,6 +4,7 @@ import json
 import multiprocessing
 import os
 import signal
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -188,6 +189,14 @@ class Bridge:
 class Server(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    if sys.platform == "win32":
+        def server_bind(self):
+            # HTTPServer's reverse lookup can stall Windows before listen().
+            # This bridge binds numeric loopback and does not need a DNS name.
+            from socketserver import TCPServer
+            TCPServer.server_bind(self)
+            self.server_name, self.server_port = self.server_address[:2]
 
     def __init__(self, address, bridge):
         self.bridge = bridge

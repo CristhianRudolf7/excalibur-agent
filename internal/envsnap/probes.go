@@ -14,6 +14,9 @@ import (
 // detectDistro reads PRETTY_NAME from /etc/os-release (Linux). Empty
 // elsewhere or when unreadable: absence, not an error.
 func detectDistro() string {
+	if distro, ok := platformDistro(); ok {
+		return distro
+	}
 	raw, err := os.ReadFile("/etc/os-release")
 	if err != nil {
 		return ""
@@ -52,7 +55,7 @@ func probeVersion(parent context.Context, timeout time.Duration, bin string) str
 // on any failure (absence, timeout, non-zero exit with no output).
 func runCapture(ctx context.Context, bin string, args ...string) string {
 	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
+	cmd.Env = probeEnvironment()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(out) == 0 {
 		return ""

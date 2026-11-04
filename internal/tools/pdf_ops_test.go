@@ -61,7 +61,11 @@ func TestPDFOpsDefaultAndSecretHook(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.Output), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Path != filepath.Join(dir, "encrypted.pdf") || out.PageCount != 3 || len(out.SHA256) != 64 {
+	wantPath, err := filepath.EvalSymlinks(filepath.Join(dir, "encrypted.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Path != wantPath || out.PageCount != 3 || len(out.SHA256) != 64 {
 		t.Fatal(out)
 	}
 	if strings.Contains(r.Output, "private-test-password") {
@@ -125,7 +129,11 @@ func TestPDFOpsConfinementAndResourceKeys(t *testing.T) {
 	}
 	raw := json.RawMessage(`{"action":"split","inputs":["input.pdf"],"output_dir":"parts"}`)
 	keys, err := tool.ResourceKeys(raw)
-	if err != nil || len(keys) != 2 || keys[0] != "file:"+filepath.Join(root, "input.pdf") || keys[1] != "file:"+filepath.Join(root, "parts") {
+	wantRoot, resolveErr := filepath.EvalSymlinks(root)
+	if resolveErr != nil {
+		t.Fatal(resolveErr)
+	}
+	if err != nil || len(keys) != 2 || keys[0] != "file:"+filepath.Join(wantRoot, "input.pdf") || keys[1] != "file:"+filepath.Join(wantRoot, "parts") {
 		t.Fatalf("%v %v", keys, err)
 	}
 }

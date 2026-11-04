@@ -113,10 +113,10 @@ func TestResolveUnknownFile(t *testing.T) {
 
 func TestDuplicateNamesRejected(t *testing.T) {
 	r := NewRegistry()
-	if _, err := r.Register(Project{Name: "A", Roots: []string{"/tmp/a"}}); err != nil {
+	if _, err := r.Register(Project{Name: "A", Roots: []string{t.TempDir()}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Register(Project{Name: "a", Roots: []string{"/tmp/b"}}); err == nil {
+	if _, err := r.Register(Project{Name: "a", Roots: []string{t.TempDir()}}); err == nil {
 		t.Fatal("want duplicate name rejection")
 	}
 }

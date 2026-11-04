@@ -113,17 +113,17 @@ func TestCheckOutputLogIsNotAnInputDependency(t *testing.T) {
 }
 
 func TestDiagnosticContentsDoNotEditNamedProgram(t *testing.T) {
-	f := deliverable{Path: "/work/main.py", Base: "main.py", Program: true}
+	f := deliverable{Path: nativeFixtureText("/work/main.py"), Base: "main.py", Program: true}
 	history := []tasks.HistoryTool{
-		{Name: "write_file", Args: `{"path":"/work/main.py","content":"print(1)"}`, Output: "written"},
-		{Name: "exec", Args: `{"command":"python3 /work/main.py"}`, Output: "exit: 0\n1"},
-		{Name: "write_file", Args: `{"path":"/work/diagnostics.log","content":"main.py passed"}`, Output: "written"},
-		{Name: "write_file", Args: `{"path":"/work/other/main.py","content":"unrelated"}`, Output: "written"},
+		{Name: "write_file", Args: nativeFixtureText(`{"path":"/work/main.py","content":"print(1)"}`), Output: "written"},
+		{Name: "exec", Args: nativeFixtureText(`{"command":"python3 /work/main.py"}`), Output: "exit: 0\n1"},
+		{Name: "write_file", Args: nativeFixtureText(`{"path":"/work/diagnostics.log","content":"main.py passed"}`), Output: "written"},
+		{Name: "write_file", Args: nativeFixtureText(`{"path":"/work/other/main.py","content":"unrelated"}`), Output: "written"},
 	}
 	if last := lastEditOf(history, f); last != 0 {
 		t.Fatalf("unrelated write became deliverable edit at %d", last)
 	}
-	if reasons := unexecutedProgramReasons("Create /work/main.py", history, []deliverable{f}); len(reasons) > 0 {
+	if reasons := unexecutedProgramReasons(nativeFixtureText("Create /work/main.py"), history, []deliverable{f}); len(reasons) > 0 {
 		t.Fatal(reasons)
 	}
 	t.Setenv("EXCALIBUR_EVIDENCE_DEPENDENCIES", "0")
@@ -133,15 +133,15 @@ func TestDiagnosticContentsDoNotEditNamedProgram(t *testing.T) {
 }
 
 func TestReceiptOverridesAmbiguousRelativeWriteInference(t *testing.T) {
-	f := deliverable{Path: "/work/pkg/main.py", Base: "main.py", Program: true}
+	f := deliverable{Path: nativeFixtureText("/work/pkg/main.py"), Base: "main.py", Program: true}
 	history := []tasks.HistoryTool{
-		{Name: "write_file", Args: `{"path":"/work/pkg/main.py"}`, Output: "written"},
+		{Name: "write_file", Args: nativeFixtureText(`{"path":"/work/pkg/main.py"}`), Output: "written"},
 		{Name: "exec", Args: `{"command":"python3 pkg/main.py"}`, Output: "exit: 0\n1", Dependencies: map[string]string{f.Path: "same version"}},
 		{Name: "write_file", Args: `{"path":"main.py","content":"different workspace file"}`, Output: "written"},
 	}
 	// The engine's receipt says the inspected /work/pkg/main.py is unchanged;
 	// a basename-only inference cannot supersede that filesystem fact.
-	if reasons := unexecutedProgramReasons("Create /work/pkg/main.py", history, []deliverable{f}); len(reasons) > 0 {
+	if reasons := unexecutedProgramReasons(nativeFixtureText("Create /work/pkg/main.py"), history, []deliverable{f}); len(reasons) > 0 {
 		t.Fatal(reasons)
 	}
 }
@@ -255,7 +255,7 @@ func TestYieldedCompilerReceiptFollowsSessionExit(t *testing.T) {
 }
 
 func TestCompilerExitChains(t *testing.T) {
-	for _, command := range []string{"cc main.c -o app", "cd src && cc main.c -o app && ./app"} {
+	for _, command := range []string{"cc main.c -o app", nativeFixtureText("cd src && cc main.c -o app && ./app")} {
 		if !compilerExitUnmasked(command) {
 			t.Fatal(command)
 		}
@@ -330,19 +330,19 @@ func TestLoadedLibraryInheritsCompilerReceipt(t *testing.T) {
 
 func TestCompilerOutputAssociation(t *testing.T) {
 	for _, tc := range []struct{ command, want string }{
-		{"cc main.c", "/work/a.out"},
+		{"cc main.c", nativeFixtureText("/work/a.out")},
 		{"cc -c main.c", ""},
 		{"cc -E main.c", ""},
-		{"rustc main.rs", "/work/main"},
-		{"cc main.c -o result", "/work/result"},
+		{"rustc main.rs", nativeFixtureText("/work/main")},
+		{"cc main.c -o result", nativeFixtureText("/work/result")},
 	} {
 		args, _ := json.Marshal(map[string]string{"command": tc.command})
-		info := compilerFor(tasks.HistoryTool{Name: "exec", Args: string(args)}, "/work")
+		info := compilerFor(tasks.HistoryTool{Name: "exec", Args: string(args)}, nativeFixtureText("/work"))
 		got := ""
 		if len(info.outputs) > 0 {
 			got = info.outputs[0]
 		}
-		if got != tc.want {
+		if got != filepath.Clean(tc.want) && !(got == "" && tc.want == "") {
 			t.Fatalf("%s: output %q want %q", tc.command, got, tc.want)
 		}
 	}

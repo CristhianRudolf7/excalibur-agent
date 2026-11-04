@@ -313,7 +313,13 @@ func (b *CPUPDFBackend) ExecutePDF(ctx context.Context, a PDFRequest) (any, erro
 	case "flatten", "form_flatten":
 		return nil, errors.New("flatten is not supported by this backend; form_lock preserves fields and their appearances")
 	}
-	err = pdfPublish(ctx, a.Output, a.Overwrite, func(w *os.File) error {
+	err = pdfPublish(ctx, a.Output, a.Overwrite, func(w *os.File) (err error) {
+		// Windows cannot replace a destination while its input reader is open.
+		defer func() {
+			if closeErr := closePDFInputForPublish(f); err == nil {
+				err = closeErr
+			}
+		}()
 		switch a.Action {
 		case "merge":
 			if len(a.Inputs) < 2 {

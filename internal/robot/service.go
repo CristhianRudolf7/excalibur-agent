@@ -81,15 +81,13 @@ func New(opts Options) *Service {
 	if opts.Python == "" {
 		opts.Python = os.Getenv("EXCALIBUR_ROBOT_PYTHON")
 		if opts.Python == "" {
-			home, _ := os.UserHomeDir()
-			opts.Python = filepath.Join(home, ".local/share/excalibur/robot-venv/bin/python")
+			opts.Python = defaultRobotPython()
 		}
 	}
 	if opts.Script == "" {
 		opts.Script = os.Getenv("EXCALIBUR_ROBOT_BRIDGE_SCRIPT")
 		if opts.Script == "" {
-			home, _ := os.UserHomeDir()
-			opts.Script = filepath.Join(home, ".local/share/excalibur/robot-bridge/server.py")
+			opts.Script = defaultRobotScript()
 			if _, err := os.Stat(opts.Script); err != nil {
 				opts.Script = filepath.Join("extensions", "robot-ur", "bridge", "server.py")
 			}
@@ -267,7 +265,7 @@ func (s *Service) ensure(ctx context.Context) error {
 	command := s.opts.Command(context.WithoutCancel(processCtx), s.opts.Python, s.opts.Script)
 	configureProcess(command)
 	// No stdout/stderr forwarding: errors are returned through HTTP and status.
-	if err = command.Start(); err != nil {
+	if err = startRobotProcess(command); err != nil {
 		s.retryLater()
 		return s.fail(fmt.Errorf("start robot bridge: %w", err))
 	}
@@ -276,7 +274,7 @@ func (s *Service) ensure(ctx context.Context) error {
 	s.cmd = command
 	s.processDone = done
 	s.mu.Unlock()
-	safego.Go("robot.bridge", nil, func() { defer close(done); _ = command.Wait() })
+	safego.Go("robot.bridge", nil, func() { defer close(done); defer cleanupRobotProcess(command); _ = command.Wait() })
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(50 * time.Millisecond)
