@@ -430,12 +430,14 @@ type Services struct {
 	// ReviewScopes arms the daily-review loop (21.9); empty disables it.
 	ReviewScopes  []string
 	masterAgentID types.AgentID
+
+	workspaceDataDir string
 }
 
 // AssembleOptions overrides pieces of the assembled stack. Nil pieces
 // get working defaults; DB-backed callers pass their handles.
 type AssembleOptions struct {
-	// DataDir owns the lazy Robot Lab runtime and its explicitly installed venv.
+	// DataDir owns managed chat workspaces and the lazy Robot Lab runtime.
 	DataDir        string
 	RobotLab       *robotlab.Service
 	RobotLabTool   *robotlab.Tool
@@ -483,7 +485,7 @@ type AssembleOptions struct {
 // default registry, memory over its service, skills over the builtin
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
-	s := &Services{previews: newPreviewManager(opts.DataDir), Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
+	s := &Services{previews: newPreviewManager(opts.DataDir), Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider, workspaceDataDir: opts.DataDir}
 	if s.Robot != nil {
 		if err := s.Robot.BindDataDir(opts.DataDir); err != nil {
 			return nil, err

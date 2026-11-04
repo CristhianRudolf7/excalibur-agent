@@ -179,6 +179,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	runner.spawn = func(args json.RawMessage, child string) {
 		a.services.delegations.spawn(conv, "", args, child, looksSpanish(msg.Text), msg.Context, msg.Channel)
 	}
+	runner.prepareSpawn = a.services.chatWorkspacePreparer()
 	var defs []providers.ToolDefinition
 	var names []string
 	for _, name := range a.services.Tools.Names() {
@@ -320,14 +321,15 @@ type assistantToolRunner struct {
 	activity func(string, string)
 	browser  chatBrowser
 	daemonToolRunner
-	allowed   map[string]bool
-	runID     string
-	root      types.AgentID
-	mu        sync.Mutex
-	children  []types.AgentID
-	childRuns []string
-	spawn     func(json.RawMessage, string)
-	timing    *assistantTurnTiming
+	allowed      map[string]bool
+	runID        string
+	root         types.AgentID
+	mu           sync.Mutex
+	children     []types.AgentID
+	childRuns    []string
+	spawn        func(json.RawMessage, string)
+	prepareSpawn func(context.Context, json.RawMessage, string) (json.RawMessage, error)
+	timing       *assistantTurnTiming
 
 	robotLabCalls int
 }
@@ -388,6 +390,13 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 		args, _ = json.Marshal(fields)
 	}
 	args = normalizeChatRecallArgs(name, args)
+	if name == "subagent" && r.prepareSpawn != nil {
+		var err error
+		args, err = r.prepareSpawn(ctx, args, opts.IdempotencyKey)
+		if err != nil {
+			return tools.Result{Status: tools.StatusToolError, Output: "Subagent workspace: " + err.Error()}, nil
+		}
+	}
 	res, err := r.daemonToolRunner.Execute(ctx, name, args, opts)
 	res = annotateChatRecallResult(name, res)
 	res = r.withEarlierConversations(ctx, name, args, res, opts)
@@ -500,11 +509,6 @@ func (a *assistantTurns) snapshot(ctx context.Context, conv string, msg master.N
 			snap.AgentProfile += fmt.Sprintf("\nAgent name: %s\nTitle: %s\nDescription: %s\nPersonality instructions: %s", agent.Name, agent.Title, agent.Description, agent.Personality)
 		}
 	}
-	if a.services.Projects != nil {
-		for _, project := range a.services.Projects.List() {
-			snap.AgentProfile += fmt.Sprintf("\nRegistered project: %s; scope: %s; roots: %v. Use this scope when delegating work in these directories.", project.Name, project.Scope().String(), project.Roots)
-		}
-	}
 	rows := a.backend.Master.TurnHistory(conv, 20)
 	remaining := 24000
 	// Keep the most recent messages within a hard character budget.
@@ -578,6 +582,9 @@ func (a *assistantTurns) snapshot(ctx context.Context, conv string, msg master.N
 		}
 	}
 	if note := a.appContextNote(ctx, msg.Context); note != "" {
+		snap.Activity = append(snap.Activity, ctxcompiler.ActivityEvent{Role: providers.RoleSystem, Content: note})
+	}
+	if note := a.projectContextNote(msg.Text); note != "" {
 		snap.Activity = append(snap.Activity, ctxcompiler.ActivityEvent{Role: providers.RoleSystem, Content: note})
 	}
 	return snap

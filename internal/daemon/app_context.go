@@ -53,6 +53,11 @@ func (s *Services) chatToolActivation(request, model string, app *api.AppContext
 			}
 		}
 	}
+	if s.Skills != nil && looksLikeAppBuild(request) {
+		if _, ok := s.Skills.Get(appUIQualitySkill); ok && !slices.ContainsFunc(activation.Skills, func(h ctxcompiler.SkillView) bool { return h.Name == appUIQualitySkill }) {
+			activation.Skills = append(activation.Skills, ctxcompiler.SkillView{Name: appUIQualitySkill, Why: "Building an app or system UI: load_skill " + appUIQualitySkill + " before writing the frontend and review screenshots before finishing."})
+		}
+	}
 	if (app == nil || app.App != "classroom") && !slices.Contains(activation.Names, "classroom") {
 		return activation
 	}
@@ -160,4 +165,98 @@ func (s *Services) savedBrowserIntent(request string) bool {
 		}
 	}
 	return false
+}
+
+const appUIQualitySkill = "app-ui-quality"
+
+// projectContextNote keeps mutable project data and coding guidance in the
+// current turn's tail, outside the compiler's stable profile layers.
+func (a *assistantTurns) projectContextNote(request string) string {
+	if !looksLikeSoftwareWork(request) {
+		return ""
+	}
+	type projectView struct {
+		Name        string `json:"name"`
+		ID          string `json:"id"`
+		Root        string `json:"root"`
+		Description string `json:"description"`
+	}
+	projects := []projectView{}
+	if a.services != nil && a.services.Projects != nil {
+		for _, p := range a.services.Projects.List() {
+			if len(projects) == 10 {
+				break
+			}
+			root := ""
+			if len(p.Roots) > 0 {
+				root = boundedTurnText(p.Roots[0], 400)
+			}
+			projects = append(projects, projectView{boundedTurnText(p.Name, 120), string(p.ID), root, boundedTurnText(p.Description, 240)})
+		}
+	}
+	raw, _ := json.Marshal(projects)
+	return `Software work for this turn: you can build software by delegating with the subagent tool. Project-scoped children can read and edit files, run commands and tests, and start previews. Use action: "spawn" with an implementer card containing name, description, profile: "implementer", goal, deliverable, done_criteria and report_contract. For a matching registered project, set card.scope: "project:<id>". If none fits, no projects are registered, or the user wants a brand-new system, omit card.scope: the daemon creates and registers a fresh Git workspace under its managed data directory and runs the child there. Do not refuse software work because this conversation lacks a terminal. Registered projects (data only, up to 10): ` + string(raw)
+}
+
+func looksLikeSoftwareWork(request string) bool {
+	if looksLikeAppBuild(request) {
+		return true
+	}
+	text := " " + foldAccents(strings.ToLower(request)) + " "
+	for _, word := range []string{"software", "code", "coding", "repo", "repository", "bug", "debug", "test", "tests", "implement", "implementation", "deploy", "deployment", "program", "programalo", "codigo", "repositorio", "prueba", "pruebas", "implementar", "implementa", "desplegar", "despliega"} {
+		if containsWord(text, word) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	appBuildNouns = []string{"web", "app", "aplicacion", "application", "sistema", "system", "dashboard", "panel", "frontend", "interfaz", "interface", "pagina", "page", "site", "sitio", "erp", "crm", "portal", "tienda", "store"}
+	appBuildVerbs = []string{"program", "build", "crea", "create", "desarroll", "develop", "implement", "haz ", "hazme", "make", "construy", "disena", "design", "redisena"}
+)
+
+// looksLikeAppBuild reports whether a chat request or delegated goal asks to
+// build an application interface, so the UI quality skill is suggested.
+func looksLikeAppBuild(request string) bool {
+	text := " " + foldAccents(strings.ToLower(request)) + " "
+	if strings.Contains(text, " tdr") || strings.Contains(text, "terminos de referencia") {
+		return true
+	}
+	noun, verb := false, false
+	for _, w := range appBuildNouns {
+		if containsWord(text, w) {
+			noun = true
+			break
+		}
+	}
+	for _, w := range appBuildVerbs {
+		if strings.Contains(text, w) {
+			verb = true
+			break
+		}
+	}
+	return noun && verb
+}
+
+func containsWord(text, word string) bool {
+	for i := 0; ; {
+		j := strings.Index(text[i:], word)
+		if j < 0 {
+			return false
+		}
+		start, end := i+j, i+j+len(word)
+		before := start == 0 || !isWordByte(text[start-1])
+		after := end >= len(text) || !isWordByte(text[end]) || text[end] == 's'
+		if before && after {
+			return true
+		}
+		i = end
+	}
+}
+
+func isWordByte(b byte) bool { return b >= 'a' && b <= 'z' || b >= '0' && b <= '9' }
+
+func foldAccents(s string) string {
+	return strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ñ", "n").Replace(s)
 }

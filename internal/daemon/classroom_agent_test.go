@@ -171,7 +171,7 @@ func (m classroomDelegationModel) Chat(ctx context.Context, role types.ModelRole
 func TestClassroomDelegationInheritsMessageContextAndService(t *testing.T) {
 	b, _ := assistantTestWiring(t, false, nil)
 	model := classroomDelegationModel{t: t}
-	s, err := Assemble(AssembleOptions{Models: model, ClassroomAgent: contextService()})
+	s, err := Assemble(AssembleOptions{DataDir: t.TempDir(), Models: model, ClassroomAgent: contextService()})
 	if err != nil {
 		t.Fatal(err)
 	}

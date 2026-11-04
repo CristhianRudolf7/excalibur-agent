@@ -13,6 +13,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/ctxcompiler"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/engine"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/orchestrator"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
@@ -50,6 +51,7 @@ func (d *chatDelegations) stop() {
 
 func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, channels ...string) {
 	app = api.CloneAppContext(app)
+	attachmentIDs := delegationDocumentIDs(d.owner.backend.Master.TurnHistory(conv, 0), string(args))
 	d.mu.Lock()
 	if d.stopped || d.jobs[id] {
 		d.mu.Unlock()
@@ -62,12 +64,12 @@ func (d *chatDelegations) spawn(conv, inheritedDir string, args json.RawMessage,
 		defer d.wg.Done()
 		d.finish(conv, id, types.RunFailed, fmt.Sprintf("Subagent failed: %v", recovered))
 	}, func() {
-		d.run(conv, inheritedDir, args, id, spanish, app, channels...)
+		d.run(conv, inheritedDir, args, id, spanish, app, attachmentIDs, channels...)
 		d.wg.Done()
 	})
 }
 
-func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, channels ...string) {
+func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, id string, spanish bool, app *api.AppContext, attachmentIDs []string, channels ...string) {
 	ctx, cancel := context.WithTimeout(whiteboard.WithConversation(d.ctx, conv), 30*time.Minute)
 	defer cancel()
 	channel := ""
@@ -188,6 +190,7 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 	} else {
 		activation = wireengine.ToolActivation{}
 	}
+	allowDelegationDocumentTools(runner.allowed, profile, agent.Level, input.Card.Tools, len(attachmentIDs) > 0)
 	// Generic deferred dispatch cannot widen a role's explicit tool grant.
 	delete(runner.allowed, "call_tool")
 	var names []string
@@ -204,6 +207,15 @@ func (d *chatDelegations) run(conv, inheritedDir string, args json.RawMessage, i
 		language = "Spanish"
 	}
 	prompt += "\nAnswer in " + language + "."
+	var documents delegationDocuments
+	if s.Memory != nil {
+		documents = s.Memory
+	}
+	var blobs gateway.BlobStore
+	if d.owner.backend.Services != nil {
+		blobs = d.owner.backend.Services.FileBlobs
+	}
+	prompt += delegationAttachmentSection(ctx, documents, attachmentIDs, blobs, dir)
 	snap := ctxcompiler.Snapshot{Task: ctxcompiler.TaskView{SuggestedSkills: activation.Skills}, Role: "child", AgentProfile: "Answer in " + language + ". Complete the delegated work with the available tools. Verify the done criteria and report the result.", Activity: []ctxcompiler.ActivityEvent{{Role: providers.RoleUser, Content: prompt}}}
 	if note := d.owner.appContextNote(ctx, app); note != "" {
 		snap.Activity = append(snap.Activity, ctxcompiler.ActivityEvent{Role: providers.RoleSystem, Content: note})

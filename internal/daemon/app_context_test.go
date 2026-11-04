@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -17,6 +18,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/gateway"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/master"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/workspace"
 )
 
 func contextService() *fake.Agent {
@@ -153,5 +155,87 @@ func TestAppContextClassroomHome(t *testing.T) {
 	note := a.appContextNote(context.Background(), &api.AppContext{App: "classroom"})
 	if !strings.Contains(note, "classroom home") {
 		t.Fatal(note)
+	}
+}
+
+func TestProjectContextNoteOnlyInSoftwareTurnTail(t *testing.T) {
+	b, s := assistantTestWiring(t, false, nil)
+	a := &assistantTurns{backend: b, services: s}
+	before := a.snapshot(context.Background(), "projects", master.Normalized{Text: "Build the app"})
+	p, err := s.Projects.Register(workspace.Project{Name: "Distribuidora Andina", Roots: []string{t.TempDir()}, Description: "Inventory and sales"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []string{"Mi cliente aprobó estos TDR. Prográmalo todo.", "Build an app", "Fix the repo bug", "Write code and tests", "Implement and deploy the service", "Prográmalo todo"} {
+		snap := a.snapshot(context.Background(), "projects", master.Normalized{Text: request})
+		if snap.AgentProfile != before.AgentProfile || !reflect.DeepEqual(snap.Task, before.Task) {
+			t.Fatal("project inventory changed stable profile or task")
+		}
+		note := snap.Activity[len(snap.Activity)-1]
+		if note.Role != providers.RoleSystem {
+			t.Fatalf("note role: %s", note.Role)
+		}
+		for _, want := range []string{string(p.ID), p.Name, p.Roots[0], p.Description, "subagent", `card.scope: "project:<id>"`, "edit files", "commands and tests", "previews", "done_criteria"} {
+			if !strings.Contains(note.Content, want) {
+				t.Errorf("%q omitted %q: %s", request, want, note.Content)
+			}
+		}
+	}
+	for _, request := range []string{"Hello", "Tell me a joke", "What is the capital of Peru?", "What is a system?"} {
+		if note := a.projectContextNote(request); note != "" {
+			t.Errorf("unrelated chat %q received project note: %s", request, note)
+		}
+	}
+	if len(b.Master.TurnHistory("projects", 0)) != 0 {
+		t.Fatal("turn note persisted as conversation history")
+	}
+}
+
+func TestProjectContextNoteBoundsInventory(t *testing.T) {
+	a := &assistantTurns{services: &Services{Projects: workspace.NewRegistry()}}
+	for i := 0; i < 12; i++ {
+		_, err := a.services.Projects.Register(workspace.Project{Name: fmt.Sprintf("%02d-%s", i, strings.Repeat("N", 500)), Roots: []string{t.TempDir()}, Description: strings.Repeat("D", 1000)})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	note := a.projectContextNote("Fix code")
+	if strings.Count(note, `"id":`) != 10 || len(note) > 14000 || strings.Contains(note, strings.Repeat("D", 241)) || strings.Contains(note, strings.Repeat("N", 121)) {
+		t.Fatalf("project note exceeds bounds: %s", note)
+	}
+}
+
+func TestProjectContextNoteReachesMasterModel(t *testing.T) {
+	for _, registered := range []bool{false, true} {
+		t.Run(fmt.Sprint(registered), func(t *testing.T) {
+			t.Setenv("EXCALIBUR_MASTER_ENGINE_TURNS", "1")
+			requests := make(chan providers.ChatRequest, 1)
+			b, s := assistantTestWiring(t, false, func(_ context.Context, req providers.ChatRequest) (providers.ChatResponse, error) {
+				requests <- req
+				return textReply("Delegation guidance received"), nil
+			})
+			projectID := ""
+			if registered {
+				p, err := s.Projects.Register(workspace.Project{Name: "Distribuidora Andina", Roots: []string{t.TempDir()}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				projectID = string(p.ID)
+			}
+			if _, _, err := b.ConversationSend(context.Background(), "test", "tdr", "project-guidance", "Mi cliente aprobó estos TDR. Prográmalo todo."); err != nil {
+				t.Fatal(err)
+			}
+			awaitAssistant(t, b, "project-guidance", 1)
+			req := <-requests
+			found := false
+			for _, msg := range req.Messages {
+				if msg.Role == providers.RoleSystem && strings.Contains(msg.Content, "Software work for this turn") {
+					found = strings.Contains(msg.Content, projectID) && strings.Contains(msg.Content, "omit card.scope") && strings.Contains(msg.Content, "fresh Git workspace")
+				}
+			}
+			if !found {
+				t.Fatal("master model did not receive project coding guidance")
+			}
+		})
 	}
 }

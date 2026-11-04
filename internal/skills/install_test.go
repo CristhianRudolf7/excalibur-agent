@@ -34,7 +34,7 @@ func TestBuiltinCatalogValid(t *testing.T) {
 	wantGroups := map[string]int{
 		"planning": 7, "verification": 2, "communication": 5, "delegation": 2,
 		"memory": 3, "debugging": 4, "testing": 2,
-		"software-engineering": 31, "design": 14, "security": 13, "google-cloud": 6,
+		"software-engineering": 31, "design": 15, "security": 13, "google-cloud": 6,
 		"personal-assistant": 8, "research": 7, "browser": 16, "documents": 13,
 		"diagrams": 16, "automation": 3, "creative-tools": 15,
 		"science": 20, "marketing": 7, "compliance": 5, "finance": 5,
