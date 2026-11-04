@@ -115,16 +115,9 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 		timeout = 6 * time.Minute
 	}
 	activation := a.services.chatToolActivation(msg.Text, a.modelID, msg.Context)
-	for _, def := range activation.Definitions {
-		if def.Name == "request_credentials" || strings.HasPrefix(def.Name, "browser_") {
-			timeout = max(timeout, credentialWaitTimeout+2*time.Minute)
-			if os.Getenv("EXCALIBUR_MASTER_STEPS") == "" {
-				// A login needs a fresh wait/snapshot around each form action.
-				steps = 24
-			}
-		}
-	}
-	// An explicit operator deadline also bounds time spent waiting for credentials.
+	// Browser work defaults to enough time for login and subsequent reading.
+	steps, timeout = browserAssistantLimits(activation.Definitions, steps, timeout)
+	// Preserve the operator's explicit deadline, including secure-form waits.
 	if value, err := time.ParseDuration(os.Getenv("EXCALIBUR_MASTER_TIMEOUT")); err == nil && value > 0 && value <= 10*time.Minute {
 		timeout = value
 	}
@@ -202,6 +195,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	snap := a.snapshot(ctx, conv, msg)
 	snap.Task.SuggestedSkills = activation.Skills
 	if allow["request_credentials"] {
+		snap.AgentProfile += savedLoginHint(a.services.Credentials.savedLogins(ctx))
 		snap.AgentProfile += "\nFor login or OTP needs, call request_credentials with the exact page host. Use its secret:// refs with browser_act type after browser_wait_ready and a fresh snapshot. Never ask for values in chat. CAPTCHA and site access blocks still require the user."
 	}
 	builder := &engine.DefaultBuilder{Config: ctxcompiler.DefaultConfig(), ModelID: a.modelID,

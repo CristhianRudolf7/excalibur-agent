@@ -1,0 +1,150 @@
+.browser-live {
+  width: 100%;
+  min-width: 0;
+  padding: 16px;
+  color: var(--foreground);
+  background: var(--surface);
+  animation: browser-live-enter var(--dur-base) var(--ease-out);
+}
+.browser-live-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+.browser-live-location {
+  min-width: 0;
+  flex: 1;
+}
+.browser-live-url,
+.browser-live-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-live-url span,
+.browser-live-title {
+  color: var(--muted-foreground);
+}
+.browser-live-title {
+  font-size: 11px;
+  margin-top: 4px;
+}
+.browser-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.browser-live-badge i,
+.browser-live-reopen i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.browser-live-ended .browser-live-badge i {
+  background: var(--muted-foreground);
+}
+.browser-live-stage {
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--muted);
+  isolation: isolate;
+}
+.browser-live-stage canvas,
+.browser-live-stage img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.browser-live-stage [hidden] {
+  display: none;
+}
+.browser-live-stage,
+.browser-live-stage * {
+  pointer-events: none;
+  user-select: none;
+}
+.browser-live-ended canvas,
+.browser-live-ended img {
+  opacity: 0.45;
+}
+.browser-live-skeleton {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+  background: var(--muted);
+}
+.browser-live-highlight {
+  position: absolute;
+  border: 2px solid var(--primary);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  transition:
+    left var(--dur-base),
+    top var(--dur-base),
+    width var(--dur-base),
+    height var(--dur-base);
+}
+.browser-live-action {
+  display: table;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  min-height: 28px;
+  margin-top: 10px;
+  padding: 5px 9px;
+  background: var(--muted);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.browser-live-notice {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.browser-live-reopen {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted-foreground);
+}
+.browser-live-reopen i {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+@keyframes browser-live-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-live {
+    animation: none;
+  }
+  .browser-live-highlight {
+    transition: none;
+  }
+}

@@ -1,3 +1,8 @@
+import type {
+  BrowserSessionEvent,
+  BrowserActivityEvent,
+  BrowserLiveState,
+} from '@/features/browserlive/types'
 import type { AgentMethods, AgentEvents } from '@/features/agents/types'
 import type { CredentialMethods, CredentialEvents } from './credentials'
 import type { ClassroomMethods, ClassroomContext } from './classroom'
@@ -57,6 +62,7 @@ export const clientMethods = [
   'robotlab.mesh.get',
   'robotlab.session.resume',
   // END GENERATED ROBOT LAB METHODS
+  'browser.live_state',
   'credentials.pending',
   'credentials.submit',
   'credentials.cancel',
@@ -1180,3 +1186,11 @@ export interface RpcEvents {
   }
 }
 // END GENERATED ROBOT LAB
+
+export interface RpcMethods {
+  'browser.live_state': { params: { conversation_id: string }; result: BrowserLiveState }
+}
+export interface RpcEvents {
+  'browser.session': BrowserSessionEvent
+  'browser.activity': BrowserActivityEvent
+}

@@ -176,12 +176,40 @@
   width: 16px;
   height: 16px;
 }
+.composer-call-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.composer-call-bar .call-controls {
+  flex-shrink: 0;
+}
+.composer-call-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: left;
+}
+.composer-call-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-call-caption {
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
 .composer-call-live {
+  flex: 1;
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 30px;
-  padding: 0 10px;
+  min-height: 34px;
+  padding: 2px 8px;
   border: 0;
   border-radius: 999px;
   background: var(--accent-tint, var(--muted));
@@ -192,6 +220,7 @@
   cursor: pointer;
 }
 .composer-call-dot {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -234,6 +263,7 @@
   .call-orb-halo,
   .call-caption p,
   .composer-call-dot {
+    flex-shrink: 0;
     animation: none !important;
     transition: none;
   }

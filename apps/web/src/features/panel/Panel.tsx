@@ -1,8 +1,10 @@
+import { useBrowserLive } from '@/features/browserlive/store'
 import { emptyArtifacts, useArtifacts } from '@/features/artifacts/store'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
+  Globe,
   ArrowUpRight,
   Bot,
   Check,
@@ -120,7 +122,21 @@ export function PanelHome({
   const pendingArtifacts = artifacts.items.filter((item) =>
     artifacts.pendingTurns.includes(item.turn_id),
   ).length
+  const browserActive = useBrowserLive(
+    (state) => state.conversations[session]?.session?.state === 'active',
+  )
   const cards = [
+    ...(browserActive
+      ? [
+          {
+            view: 'browser' as const,
+            icon: Globe,
+            title: 'browser',
+            hint: 'browserHint',
+            badge: t('browserLive'),
+          },
+        ]
+      : []),
     {
       view: 'activity',
       icon: Activity,

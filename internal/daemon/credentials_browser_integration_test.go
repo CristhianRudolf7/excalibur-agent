@@ -29,6 +29,14 @@ import (
 )
 
 func TestCredentialBrowserSecureLogin(t *testing.T) {
+	credentialBrowserSecureLogin(t, false)
+}
+
+func TestSavedLoginBrowserSecureLogin(t *testing.T) {
+	credentialBrowserSecureLogin(t, true)
+}
+
+func credentialBrowserSecureLogin(t *testing.T, saved bool) {
 	if os.Getenv("EXCALIBUR_BROWSER_TESTS") != "1" {
 		t.Skip("set EXCALIBUR_BROWSER_TESTS=1")
 	}
@@ -98,22 +106,6 @@ func TestCredentialBrowserSecureLogin(t *testing.T) {
 	}
 	delete(args, "action")
 	delete(args, "url")
-	requested := make(chan api.CredentialsRequestedEvent, 1)
-	origin := ctx.Value(credentialOriginKey{}).(credentialOrigin)
-	origin.requested = func(e api.CredentialsRequestedEvent) { requested <- e }
-	requestCtx := context.WithValue(ctx, credentialOriginKey{}, origin)
-	done := make(chan tools.Result, 1)
-	safego.Go("credential-browser-request", nil, func() {
-		raw, _ := json.Marshal(credentialArgs{Site: parsed.Hostname(), Purpose: "Local browser login"})
-		out, _ := svc.Exec.Execute(requestCtx, "request_credentials", raw, tools.ExecuteOptions{})
-		done <- out
-	})
-	var event api.CredentialsRequestedEvent
-	select {
-	case event = <-requested:
-	case <-ctx.Done():
-		t.Fatal("credential request missing")
-	}
 	backend := NewDaemonBackend(nil, nil, bus)
 	backend.credentials = svc.Credentials
 	gate := gateway.New(gateway.DefaultConfig(), backend, gateway.NewMemoryBlobs(), bus)
@@ -122,22 +114,53 @@ func TestCredentialBrowserSecureLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer gate.Stop(context.Background())
-	_, err = gateway.Dial(addr, "browser-test").Call(ctx, "submit", api.MethodCredentialsSubmit, api.CredentialsSubmitParams{RequestID: event.RequestID, Values: map[string]string{"username": "browser-user-sentinel", "password": "browser-password-sentinel"}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var result tools.Result
-	select {
-	case result = <-done:
-	case <-ctx.Done():
-		t.Fatal("credential tool did not resume")
+	expectedStatus := "provided"
+	if saved {
+		expectedStatus = "stored"
+		_, err = gateway.Dial(addr, "browser-test").Call(ctx, "save-login", api.MethodCredentialsSaveLogin, api.CredentialsSaveLoginParams{Site: parsed.Hostname(), Label: "Local login", StartURL: site.URL, Values: map[string]string{"username": "browser-user-sentinel", "password": "browser-password-sentinel"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(credentialArgs{Site: parsed.Hostname()})
+		result, err = svc.Exec.Execute(ctx, "request_credentials", raw, tools.ExecuteOptions{})
+		if err != nil || len(svc.Credentials.Pending("").Requests) != 0 {
+			t.Fatal("saved login opened a form", err)
+		}
+	} else {
+		requested := make(chan api.CredentialsRequestedEvent, 1)
+		origin := ctx.Value(credentialOriginKey{}).(credentialOrigin)
+		origin.requested = func(e api.CredentialsRequestedEvent) { requested <- e }
+		requestCtx := context.WithValue(ctx, credentialOriginKey{}, origin)
+		done := make(chan tools.Result, 1)
+		safego.Go("credential-browser-request", nil, func() {
+			raw, _ := json.Marshal(credentialArgs{Site: parsed.Hostname(), Purpose: "Local browser login"})
+			out, _ := svc.Exec.Execute(requestCtx, "request_credentials", raw, tools.ExecuteOptions{})
+			done <- out
+		})
+		var event api.CredentialsRequestedEvent
+		select {
+		case event = <-requested:
+		case <-ctx.Done():
+			t.Fatal("credential request missing")
+		}
+		_, err = gateway.Dial(addr, "browser-test").Call(ctx, "submit", api.MethodCredentialsSubmit, api.CredentialsSubmitParams{RequestID: event.RequestID, Values: map[string]string{"username": "browser-user-sentinel", "password": "browser-password-sentinel"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		select {
+		case result = <-done:
+		case <-ctx.Done():
+			t.Fatal("credential tool did not resume")
+		}
+		if result.Status != tools.StatusOK {
+			t.Fatal("credential request failed")
+		}
+		outputs = append(outputs, result.Output)
 	}
-	if result.Status != tools.StatusOK {
-		t.Fatal("credential request failed")
-	}
-	outputs = append(outputs, result.Output)
 	var provided credentialResult
-	if json.Unmarshal([]byte(result.Output), &provided) != nil || provided.Status != "provided" {
+	if json.Unmarshal([]byte(result.Output), &provided) != nil || provided.Status != expectedStatus {
 		t.Fatal("credential refs missing")
 	}
 	snapshot := func() map[string]any { call("browser_wait_ready", args); return object(call("browser_snapshot", args)) }
@@ -200,7 +223,11 @@ func TestCredentialBrowserSecureLogin(t *testing.T) {
 	}
 	svc.Credentials.EndRun("browser-run")
 	for _, ref := range provided.Refs {
-		if _, err := v.Describe(ctx, credentialEntry(ref)); err != vault.ErrNotFound {
+		_, err := v.Describe(ctx, credentialEntry(ref))
+		if saved && err != nil {
+			t.Fatal("saved login removed at run end")
+		}
+		if !saved && err != vault.ErrNotFound {
 			t.Fatal("run credential retained")
 		}
 	}

@@ -10,12 +10,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/capabilities"
 	pw "github.com/mxschmitt/playwright-go"
 )
 
 func (e *Engine) execute(ctx context.Context, op string, a arguments, job *task) capabilities.TaskResult {
+	defer e.refreshLive()
 	if e.closed {
 		return failed("browser: engine is closed", capabilities.ErrPermanent)
 	}
@@ -45,6 +47,8 @@ func (e *Engine) execute(ctx context.Context, op string, a arguments, job *task)
 				}
 			}
 			delete(e.sessions, id)
+			e.refreshLive()
+			e.emitLive(LiveEvent{Type: "session_closed", Session: id})
 		}
 		if len(e.sessions) == 0 {
 			_ = e.suspend()
@@ -84,6 +88,8 @@ func (e *Engine) execute(ctx context.Context, op string, a arguments, job *task)
 			profile = "default"
 		}
 		e.sessions[id] = &session{id: id, profile: profile, headed: !*e.cfg.Headless, tabs: map[string]*tab{}}
+		e.refreshLive()
+		e.emitLive(LiveEvent{Type: "session_opened", Session: id})
 		return complete(id, map[string]any{"session_id": id, "profile": profile})
 	}
 	s := e.sessions[a.str("session_id")]
@@ -117,11 +123,12 @@ func (e *Engine) execute(ctx context.Context, op string, a arguments, job *task)
 	}
 	t.page.SetDefaultTimeout(timeout)
 	t.page.SetDefaultNavigationTimeout(timeout)
+	e.refreshLive()
 	switch op {
 	case "browser_navigate":
-		return e.navigate(t, a)
+		return e.observed(ctx, t, a, "navigate", func() capabilities.TaskResult { return e.navigate(t, a) })
 	case "browser_wait_ready":
-		r := e.wait(t, a)
+		r := e.observed(ctx, t, a, "wait", func() capabilities.TaskResult { return e.wait(t, a) })
 		if r.State == capabilities.StateInputRequired {
 			taskID := e.id("wait")
 			r.TaskID = taskID
@@ -132,7 +139,7 @@ func (e *Engine) execute(ctx context.Context, op string, a arguments, job *task)
 		}
 		return r
 	case "browser_snapshot":
-		return e.snapshot(ctx, t)
+		return e.observed(ctx, t, a, "read", func() capabilities.TaskResult { return e.snapshot(ctx, t) })
 	case "browser_act":
 		return e.act(ctx, t, a)
 	case "browser_download":
@@ -179,7 +186,7 @@ func (e *Engine) tabs(s *session, a arguments) capabilities.TaskResult {
 		if err := allowedURL(rawURL); err != nil {
 			return failed(err.Error(), capabilities.ErrPermanent)
 		}
-		t := &tab{id: e.id("tab"), url: rawURL}
+		t := &tab{id: e.id("tab"), url: rawURL, session: s.id}
 		if err := e.restore(t); err != nil {
 			return failed(err.Error(), capabilities.ErrTransient)
 		}
@@ -321,6 +328,9 @@ func (e *Engine) ref(t *tab, a arguments) (pw.Locator, capabilities.TaskResult, 
 	return t.page.Locator(`[data-excalibur-ref="` + t.snapshot + "-" + a.str("ref") + `"]`), capabilities.TaskResult{}, true
 }
 func (e *Engine) action(ctx context.Context, t *tab, locator pw.Locator, action, value string, a arguments) error {
+	return e.actionWithTyping(ctx, t, locator, action, value, a, nil)
+}
+func (e *Engine) actionWithTyping(ctx context.Context, t *tab, locator pw.Locator, action, value string, a arguments, plan *liveTyping) error {
 	switch action {
 	case "click":
 		return locator.Click()
@@ -350,8 +360,33 @@ func (e *Engine) action(ctx context.Context, t *tab, locator pw.Locator, action,
 			e.secrets = append(e.secrets, resolved)
 			e.secretsMu.Unlock()
 			t.private = true
+			if plan != nil {
+				if plan.withhold && t.live != nil {
+					t.live.withheld.Store(true)
+				}
+				if plan.animate {
+					//lint:ignore SA1019 Secret entry stays bound to the original document.
+					if err := handle.Fill(""); err != nil {
+						return err
+					}
+					delay := typingDelay(resolved)
+					//lint:ignore SA1019 Secret entry stays bound to the original document.
+					return handle.Type(resolved, pw.ElementHandleTypeOptions{Delay: pw.Float(float64(delay) / float64(time.Millisecond))})
+				}
+			}
 			//lint:ignore SA1019 Fill must target the original document-bound element for secret domain safety.
 			return handle.Fill(resolved)
+		}
+		if plan != nil && plan.animate {
+			if err := locator.Fill(""); err == nil {
+				err = locator.PressSequentially(value, pw.LocatorPressSequentiallyOptions{Delay: pw.Float(float64(plan.delay) / float64(time.Millisecond))})
+				if err == nil {
+					actual, verifyErr := locator.InputValue(pw.LocatorInputValueOptions{Timeout: pw.Float(1000)})
+					if verifyErr == nil && actual == value {
+						return nil
+					}
+				}
+			}
 		}
 		return locator.Fill(value)
 	case "select":
@@ -396,7 +431,16 @@ func actionFailure(err error) capabilities.TaskResult {
 	}
 	return failed("browser: action failed or timed out", capabilities.ErrTransient)
 }
-func (e *Engine) act(ctx context.Context, t *tab, a arguments) capabilities.TaskResult {
+func (e *Engine) act(ctx context.Context, t *tab, a arguments) (r capabilities.TaskResult) {
+	kind, target := a.str("action"), ""
+	var box *LiveRect
+	started := false
+	defer func() {
+		if !started {
+			e.activity(t, kind, "start", target, nil)
+		}
+		e.activity(t, kind, livePhase(r), target, box)
+	}()
 	locator, r, ok := e.ref(t, a)
 	if !ok {
 		return r
@@ -405,14 +449,38 @@ func (e *Engine) act(ctx context.Context, t *tab, a arguments) capabilities.Task
 	if action == "" {
 		return failed("browser: action is required", capabilities.ErrInput)
 	}
+	watched := e.LiveWatched(t.session)
+	var plan *liveTyping
+	if action == "type" && (watched || e.hasLiveObserver()) {
+		decision := typingPlan(a.str("value"), livePassword(locator))
+		if decision.password {
+			kind = "type_password"
+		}
+		// Withholding also applies unwatched, because a viewer can join later and
+		// a page can keep showing the value. Only animation requires a viewer.
+		decision.animate = decision.animate && watched
+		plan = &decision
+	}
+	target = t.refs[a.str("ref")].Name
+	if watched {
+		box = liveBox(locator)
+	}
+	e.activity(t, kind, "start", target, box)
+	started = true
+	if watched && !liveDelay(ctx.Done(), 350*time.Millisecond) {
+		return capabilities.TaskResult{State: capabilities.StateCancelled}
+	}
 	before := t.page.URL()
-	err := e.action(ctx, t, locator, action, a.str("value"), a)
+	err := e.actionWithTyping(ctx, t, locator, action, a.str("value"), a, plan)
 	if err != nil {
 		return actionFailure(err)
 	}
 	t.ready, t.snapshot = false, ""
 	t.refs = nil
 	e.detect(t)
+	if submitsForm(action, a.str("value")) {
+		e.settleLogin(ctx, t, before)
+	}
 	if t.blocked != "" {
 		return e.blocked(t)
 	}
@@ -422,10 +490,29 @@ func (e *Engine) act(ctx context.Context, t *tab, a arguments) capabilities.Task
 	}
 	return complete(t.id, payload)
 }
-func (e *Engine) download(ctx context.Context, t *tab, a arguments) capabilities.TaskResult {
+func (e *Engine) download(ctx context.Context, t *tab, a arguments) (r capabilities.TaskResult) {
+	target := ""
+	var box *LiveRect
+	started := false
+	defer func() {
+		if !started {
+			e.activity(t, "download", "start", target, nil)
+		}
+		e.activity(t, "download", livePhase(r), target, box)
+	}()
 	locator, r, ok := e.ref(t, a)
 	if !ok {
 		return r
+	}
+	watched := e.LiveWatched(t.session)
+	target = t.refs[a.str("ref")].Name
+	if watched {
+		box = liveBox(locator)
+	}
+	e.activity(t, "download", "start", target, box)
+	started = true
+	if watched && !liveDelay(ctx.Done(), 350*time.Millisecond) {
+		return capabilities.TaskResult{State: capabilities.StateCancelled}
 	}
 	download, err := t.page.ExpectDownload(func() error { return locator.Click() })
 	if err != nil {

@@ -4,9 +4,10 @@ import { Mic, MicOff, PhoneOff, Volume2, VolumeX } from 'lucide-react'
 import { Dialog } from '@/components/ui/dialog'
 import { PixelAvatar } from '@/components/shared'
 import { callActive, useCall } from './callStore'
+import { speakableText } from './speech'
 import './voice.css'
 
-const stateLabels = {
+export const stateLabels = {
   ready: 'callConnecting',
   listening: 'callListening',
   transcribing: 'callTranscribing',
@@ -102,7 +103,7 @@ export function CallOverlay() {
         <div className="call-caption" role="log" aria-label={t('callTranscript')}>
           {snapshot.transcript.map((line, index) => (
             <p key={index} className={`call-line-${line.role}`} hidden={line !== lastLine}>
-              {line.text}
+              {line.role === 'assistant' ? speakableText(line.text) : line.text}
             </p>
           ))}
           {snapshot.partial && (

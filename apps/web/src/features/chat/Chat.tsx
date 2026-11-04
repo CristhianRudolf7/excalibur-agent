@@ -63,7 +63,22 @@ export function Chat({
   const typing = useChat((s) => s.typing[stateKey] ?? false)
   const setTyping = useChat((s) => s.setTyping)
   const parent = useRef<HTMLDivElement>(null)
+  const history = useRef<HTMLDivElement>(null)
   const atBottom = useRef(true)
+  const lastScrollTop = useRef(0)
+  useEffect(() => {
+    const node = parent.current
+    const content = history.current
+    if (!node || !content || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      // Preserve the previous scroll intent as wrapping and virtual measurements
+      // change. Correct layout immediately, including with reduced motion.
+      if (atBottom.current) node.scrollTo({ top: node.scrollHeight, behavior: 'instant' })
+    })
+    observer.observe(node)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [])
   const revealCredentials = useCallback(() => {
     if (atBottom.current && parent.current) parent.current.scrollTop = parent.current.scrollHeight
   }, [])
@@ -155,7 +170,13 @@ export function Chat({
         className="messages"
         onScroll={() => {
           const node = parent.current
-          if (node) atBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 100
+          if (!node) return
+          // Content growing below the viewport also fires scroll events far from the
+          // bottom. Only the user moving up stops following; reaching the end resumes it.
+          const movedUp = node.scrollTop < lastScrollTop.current - 1
+          lastScrollTop.current = node.scrollTop
+          if (node.scrollHeight - node.scrollTop - node.clientHeight < 100) atBottom.current = true
+          else if (movedUp) atBottom.current = false
         }}
       >
         {!known && loading.visible && <ChatHistorySkeleton />}
@@ -186,6 +207,7 @@ export function Chat({
           </div>
         )}
         <div
+          ref={history}
           className="message-history"
           style={{ height: virtual.getTotalSize(), position: 'relative' }}
         >

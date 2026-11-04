@@ -1,3 +1,4 @@
+import { browserLiveMessages } from '@/features/browserlive/i18n'
 import { myDataMessages } from '@/features/mydata/i18n'
 import { agentMessages } from '@/features/agents/i18n'
 import { credentialMessages } from '@/features/credentials/i18n'
@@ -24,6 +25,7 @@ const entries = {
   ...robotMessages,
   ...robotlabMessages,
   ...panelMessages,
+  ...browserLiveMessages,
   ...errorMessages,
   ...automationMessages,
   ...workMessages,

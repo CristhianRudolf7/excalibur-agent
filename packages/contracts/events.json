@@ -22,6 +22,8 @@
 
     {"type":"credentials.requested","payload":"CredentialsRequestedEvent","summary":"A run needs secure credentials."},
     {"type":"credentials.resolved","payload":"CredentialsResolvedEvent","summary":"A secure credential request was resolved."},
+    {"type":"browser.session","payload":"BrowserSessionEvent","summary":"A conversation's live browser started or ended."},
+    {"type":"browser.activity","payload":"BrowserActivityEvent","summary":"The agent acted in its live browser."},
     { "type": "task.updated", "payload": "TaskUpdatedEvent", "summary": "A task changed." },
     { "type": "reminder.updated", "payload": "ReminderEvent", "summary": "A reminder changed." },
     { "type": "reminder.fired", "payload": "ReminderEvent", "summary": "A reminder fired." },
@@ -280,6 +282,9 @@
     "CredentialsCancelParams": {"additionalProperties":false,"properties":{"request_id":{"type":"string"}},"required":["request_id"],"type":"object"},
     "CredentialsOKResult": {"additionalProperties":false,"properties":{"ok":{"type":"boolean"}},"required":["ok"],"type":"object"},
     "CredentialsRequestedEvent": {"additionalProperties":false,"properties":{"conversation_id":{"type":"string"},"created_at":{"type":"string"},"fields":{"items":{"type":"string"},"type":"array"},"purpose":{"type":"string"},"remember_default":{"type":"boolean"},"request_id":{"type":"string"},"run_id":{"type":"string"},"site":{"type":"string"}},"required":["request_id","conversation_id","run_id","site","purpose","fields","remember_default","created_at"],"type":"object"},
+    "BrowserRect": {"additionalProperties":false,"properties":{"height":{"type":"number"},"width":{"type":"number"},"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y","width","height"],"type":"object"},
+    "BrowserSessionEvent": {"additionalProperties":false,"properties":{"conversation_id":{"type":"string"},"run_id":{"type":"string"},"session_id":{"type":"string"},"state":{"enum":["active","ended"],"type":"string"},"title":{"type":"string"},"url":{"type":"string"}},"required":["conversation_id","run_id","session_id","state"],"type":"object"},
+    "BrowserActivityEvent": {"additionalProperties":false,"properties":{"box":{"$ref":"#/$defs/BrowserRect"},"conversation_id":{"type":"string"},"kind":{"type":"string"},"phase":{"enum":["start","done","failed"],"type":"string"},"run_id":{"type":"string"},"seq":{"minimum":0,"type":"integer"},"session_id":{"type":"string"},"tab_id":{"type":"string"},"target":{"type":"string"},"title":{"type":"string"},"url":{"type":"string"}},"required":["conversation_id","run_id","session_id","seq","phase","kind"],"type":"object"},
     "CredentialsResolvedEvent": {"additionalProperties":false,"properties":{"request_id":{"type":"string"},"status":{"type":"string"}},"required":["request_id","status"],"type":"object"}
   }
 }

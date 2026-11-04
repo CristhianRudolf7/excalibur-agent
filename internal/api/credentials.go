@@ -3,11 +3,12 @@ package api
 import "github.com/CristhianRudolf7/excalibur-agent/internal/types"
 
 const (
-	MethodCredentialsPending                  = "credentials.pending"
-	MethodCredentialsSubmit                   = "credentials.submit"
-	MethodCredentialsCancel                   = "credentials.cancel"
-	EventCredentialsRequested types.EventType = "credentials.requested"
-	EventCredentialsResolved  types.EventType = "credentials.resolved"
+	MethodCredentialsPending                   = "credentials.pending"
+	MethodCredentialsSubmit                    = "credentials.submit"
+	MethodCredentialsSaveLogin                 = "credentials.save_login"
+	MethodCredentialsCancel                    = "credentials.cancel"
+	EventCredentialsRequested  types.EventType = "credentials.requested"
+	EventCredentialsResolved   types.EventType = "credentials.resolved"
 )
 
 // CredentialRequest contains only display metadata; values use a separate RPC.
@@ -55,4 +56,13 @@ type CredentialsRequestedEvent struct {
 type CredentialsResolvedEvent struct {
 	RequestID string `json:"request_id"`
 	Status    string `json:"status"`
+}
+
+// CredentialsSaveLoginParams must never pass through conversation intake or
+// logging. Site is the exact login host; StartURL is where a visit begins.
+type CredentialsSaveLoginParams struct {
+	Site     string            `json:"site"`
+	Label    string            `json:"label,omitempty"`
+	StartURL string            `json:"start_url,omitempty"`
+	Values   map[string]string `json:"values"`
 }

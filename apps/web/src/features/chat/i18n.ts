@@ -74,6 +74,9 @@ export const chatMessages = {
     'La voz del servidor falló; cambié a la del navegador. Repite tu último mensaje, por favor.',
     'The server voice failed; switched to the browser voice. Please repeat your last message.',
   ],
+  callAckFirst: ['Déjame revisarlo.', 'Let me check that.'],
+  callAckWorking: ['Sigo trabajando en ello.', 'Still working on it.'],
+  callAckMoment: ['Un momento más, por favor.', 'One moment, please.'],
   callUnavailable: ['Las llamadas de voz no están disponibles.', 'Voice calls are unavailable.'],
   callPermission: [
     'Permite el acceso al micrófono para hablar.',

@@ -169,6 +169,8 @@ var Methods = []MethodInfo{
 	{MethodCredentialsPending, "credentials", "List pending secure credential requests for a conversation."},
 	{MethodCredentialsSubmit, "credentials", "Write requested values directly to the vault and resume the waiting tool."},
 	{MethodCredentialsCancel, "credentials", "Cancel a pending secure credential request."},
+	{MethodCredentialsSaveLogin, "credentials", "Store a website login in the vault for reuse by reference."},
+	{MethodBrowserLiveState, "browser", "Read the live browser state of a conversation."},
 	{MethodRobotStatus, "robot", "Read robot bridge, arm and camera status."},
 	{MethodRobotConnect, "robot", "Connect to a robot by IP."},
 	{MethodRobotDisconnect, "robot", "Disconnect the robot."},

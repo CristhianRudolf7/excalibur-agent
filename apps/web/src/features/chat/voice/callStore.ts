@@ -32,13 +32,13 @@ export function callActive(snapshot: CallSnapshot) {
   return snapshot.state !== 'ready' && snapshot.state !== 'ended'
 }
 
-async function voiceMode(): Promise<VoiceMode | undefined> {
+export async function voiceMode(): Promise<VoiceMode | undefined> {
   const server = await rpc
     .call('voice.status', undefined, { timeoutMs: 8000 })
     .then((status) => status.available)
     .catch(() => false)
   // Without voice credentials the call runs on the browser's own STT and TTS.
-  return server ? 'server' : browserVoiceSupported() ? 'browser' : undefined
+  return server ? 'realtime' : browserVoiceSupported() ? 'browser' : undefined
 }
 
 export const useCall = create<CallStore>((set, get) => ({

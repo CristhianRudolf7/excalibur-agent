@@ -30,6 +30,17 @@ function wav(seconds = 0.2) {
   data.writeUInt32LE(length * 2, 40)
   return data
 }
+async function serverFallback(page: import('@playwright/test').Page) {
+  // These regression cases exercise the recorded server fallback without browser recognition.
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>
+    delete w.SpeechRecognition
+    delete w.webkitSpeechRecognition
+  })
+  await page.routeWebSocket('**/ws/voice/listen**', (socket) =>
+    socket.send(JSON.stringify({ type: 'error', code: 'unavailable' })),
+  )
+}
 async function controlEnergy(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     const state = window as unknown as { micEnergy: number; pauses: number; tracksStopped: number }
@@ -64,6 +75,7 @@ test('phone call segments speech, transcribes, sends, speaks sentences in order 
   page,
 }) => {
   await controlEnergy(page)
+  await serverFallback(page)
   const chat = await mockChat(page)
   const spoken: string[] = []
   let uploads = 0
@@ -141,6 +153,7 @@ test('phone call segments speech, transcribes, sends, speaks sentences in order 
 
 test('barge-in stops playback and starts the next utterance', async ({ page }) => {
   await controlEnergy(page)
+  await serverFallback(page)
   const chat = await mockChat(page)
   let transcriptions = 0
   await page.route('**/blobs', (route) => route.fulfill({ json: { ref: 'input' } }))

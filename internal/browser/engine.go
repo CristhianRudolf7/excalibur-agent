@@ -35,6 +35,8 @@ func (a arguments) action(fallback string) string {
 }
 
 type tab struct {
+	session                           string
+	live                              *livePage
 	id, url, title, snapshot, blocked string
 	ready                             bool
 	emulation                         pw.CDPSession
@@ -66,6 +68,7 @@ type outcome struct {
 
 // Engine serializes profile mutations while allowing concurrent task polling and cancellation.
 type Engine struct {
+	live              liveState
 	cfg               Config
 	opMu              sync.Mutex
 	mu                sync.Mutex
@@ -424,6 +427,7 @@ func (e *Engine) restore(t *tab) error {
 		return errors.New("browser: could not open tab")
 	}
 	t.page = page
+	t.live = &livePage{page: page, session: t.session, tab: t.id}
 	t.emulation = nil
 	t.events = &eventLog{}
 	e.listen(t)
@@ -443,6 +447,7 @@ func (e *Engine) restore(t *tab) error {
 	return nil
 }
 func (e *Engine) suspend() error {
+	defer e.refreshLive()
 	if e.browser == nil {
 		e.suspended = true
 		return nil
@@ -456,6 +461,8 @@ func (e *Engine) suspend() error {
 			t.refs = nil
 		}
 	}
+	e.suspended = true
+	e.refreshLive()
 	err := e.browser.Close()
 	stopErr := e.driver.Stop()
 	e.browser, e.driver = nil, nil
@@ -489,6 +496,10 @@ func (e *Engine) Close() error {
 		return nil
 	}
 	e.closed = true
+	for id := range e.sessions {
+		e.emitLive(LiveEvent{Type: "session_closed", Session: id})
+	}
+	e.refreshLive()
 	close(e.stop)
 	err := e.suspend()
 	done := e.idleDone

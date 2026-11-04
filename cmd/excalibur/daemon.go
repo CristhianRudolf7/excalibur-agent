@@ -279,6 +279,7 @@ func runDaemonStart(args []string) error {
 		}
 	}
 	defer func() { _ = svc.BrowserWeb.Close() }()
+	defer svc.CloseBrowserLive()
 	defer func() { _ = svc.RobotLab.Close() }()
 
 	// Agenda over SQLite when available, memory stores otherwise.
@@ -363,6 +364,7 @@ func runDaemonStart(args []string) error {
 	}
 	workspaceRoot, _ := os.Getwd()
 	backend.AttachServices(daemon.BackendServices{
+		BrowserLive: svc.BrowserLive,
 		Collections: collectionRoutes,
 		Google:      googleAccount,
 		Agents:      personalAgents,

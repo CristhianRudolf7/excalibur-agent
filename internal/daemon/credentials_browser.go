@@ -58,7 +58,7 @@ func (t *credentialBrowserTool) Invoke(ctx context.Context, inv tools.Invocation
 				Ref    string `json:"ref"`
 			}
 			_ = json.Unmarshal(inv.Arguments, &action)
-			raw, _ := json.Marshal(map[string]any{"action": action.Action, "ref": action.Ref, "resnapshot": true, "authentication": need, "next": "The action succeeded. Call browser_wait_ready and take a fresh browser_snapshot, then fill the remaining fields or click the submit button. Do not repeat a completed action just because the form still requires authentication. " + guidance})
+			raw, _ := json.Marshal(map[string]any{"action": action.Action, "ref": action.Ref, "resnapshot": true, "authentication": need, "next": "The action succeeded. Call browser_wait_ready and take a fresh browser_snapshot, then fill the remaining fields or click the submit button. Do not repeat a completed action just because the form still requires authentication. A submitted login can take several seconds: after submitting, call browser_wait_ready with mode network_idle and read the page again before concluding that it failed. " + guidance})
 			result.Output = string(raw)
 		} else {
 			result.Output = "input_required: " + need + ". The login form is loaded; keep this session and tab. " + guidance + " Then call browser_wait_ready, browser_snapshot, and browser_act type using the returned secret:// refs, with a fresh snapshot before each action. Do not navigate again to fill this form."

@@ -52,7 +52,8 @@ keys, nonpositive idle/tab limits and unsupported channels are rejected.
 `excalibur install` installs only the Playwright driver, using system Chrome.
 It prints `browser: ready`, a missing Chrome note or a driver failure note;
 browser problems never fail installation. The codebase has no doctor command.
-There is no web UI, live view or takeover. Browser blocks tell the model to
+The web interface has a watch-only live view (see
+[live browser view](browser-live.md)); there is no takeover. Browser blocks tell the model to
 notify the user and continue with other sources or reading/search tools.
 
 ## Retention and public reading

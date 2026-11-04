@@ -33,10 +33,11 @@ function createEventBus() {
           socket.send(JSON.stringify({ jsonrpc: '2.0', method: 'event', params: event }))
     },
     connected: (type: string) => [...subscriptions.values()].some((types) => types.includes(type)),
-    async ready(type: string) {
+    /** Several features can subscribe to one type; wait for as many as the test needs. */
+    async ready(type: string, subscribers = 1) {
       await expect
-        .poll(() => [...subscriptions.values()].some((types) => types.includes(type)))
-        .toBe(true)
+        .poll(() => [...subscriptions.values()].filter((types) => types.includes(type)).length)
+        .toBeGreaterThanOrEqual(subscribers)
     },
     pause(type: string) {
       paused.add(type)

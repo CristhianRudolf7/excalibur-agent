@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -72,15 +73,10 @@ func (r *CredentialRegistry) rememberedLocked(ctx context.Context, a credentialA
 	return nil
 }
 
-// Submit is the only value-bearing request path. Values go directly into the
+// Submit receives values from a pending secure form. Values go directly into the
 // vault and are zeroed even on validation, lock, cancellation or storage errors.
 func (r *CredentialRegistry) Submit(ctx context.Context, id string, values map[string][]byte, remember bool) error {
-	defer func() {
-		for field, value := range values {
-			vault.ZeroBytes(value)
-			delete(values, field)
-		}
-	}()
+	defer clearCredentialValues(values)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	w, ok := r.pending[id]
@@ -117,36 +113,9 @@ func (r *CredentialRegistry) Submit(ctx context.Context, id string, values map[s
 	sum := sha256.Sum256([]byte(id))
 	base := credentialHostName(w.request.Site) + "-" + hex.EncodeToString(sum[:6])
 	expires := time.Now().UTC().Add(credentialLifetime)
-	refs := map[string]string{}
-	created := []string{}
-	rollback := func() {
-		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		for _, name := range created {
-			if err := r.vault.Delete(cleanup, name); err != nil && !errors.Is(err, vault.ErrNotFound) {
-				r.ephemeral[name] = ephemeralCredential{run: w.run, expires: time.Now()}
-				r.startCleanerLocked()
-			}
-		}
-	}
-	for _, f := range w.request.Fields {
-		persistent := remember && f != "otp"
-		meta := map[string]string{"credential_bundle": base, "credential_site": w.request.Site, "credential_field": f, "credential_remembered": "false", "credential_run": w.run}
-		var expiry *time.Time
-		if persistent {
-			meta["credential_remembered"] = "true"
-			delete(meta, "credential_run")
-		} else {
-			expiry = &expires
-		}
-		name := base + "-" + f
-		_, err := r.vault.Create(ctx, vault.CreateParams{Name: name, Type: vault.TypeWebsitePassword, Value: values[f], Metadata: meta, AllowedTools: []string{"browser_act"}, Domains: []string{w.request.Site}, ExpiresAt: expiry})
-		if err != nil {
-			rollback()
-			return credentialVaultError(err)
-		}
-		created = append(created, name)
-		refs[f] = "secret://" + base + "." + f
+	refs, err := r.storeBundleLocked(ctx, base, w.request.Site, w.run, values, remember, nil, expires)
+	if err != nil {
+		return err
 	}
 	for _, f := range w.request.Fields {
 		if !remember || f == "otp" {
@@ -158,6 +127,58 @@ func (r *CredentialRegistry) Submit(ctx context.Context, id string, values map[s
 	}
 	r.resolveLocked(w, "provided", refs)
 	return nil
+}
+
+func clearCredentialValues(values map[string][]byte) {
+	for field, value := range values {
+		vault.ZeroBytes(value)
+		delete(values, field)
+	}
+}
+
+// storeBundleLocked creates a complete bundle or removes its partial entries.
+// Callers hold r.mu and erase their owned values on every exit path.
+func (r *CredentialRegistry) storeBundleLocked(ctx context.Context, base, site, run string, values map[string][]byte, remember bool, extra map[string]string, expires time.Time) (map[string]string, error) {
+	fields := make([]string, 0, len(values))
+	for field := range values {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	refs := map[string]string{}
+	created := []string{}
+	rollback := func() {
+		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		for _, name := range created {
+			if err := r.vault.Delete(cleanup, name); err != nil && !errors.Is(err, vault.ErrNotFound) {
+				r.ephemeral[name] = ephemeralCredential{run: run, expires: time.Now()}
+				r.startCleanerLocked()
+			}
+		}
+	}
+	for _, f := range fields {
+		persistent := remember && f != "otp"
+		meta := map[string]string{"credential_bundle": base, "credential_site": site, "credential_field": f, "credential_remembered": "false", "credential_run": run}
+		var expiry *time.Time
+		if persistent {
+			meta["credential_remembered"] = "true"
+			delete(meta, "credential_run")
+		} else {
+			expiry = &expires
+		}
+		for key, value := range extra {
+			meta[key] = value
+		}
+		name := base + "-" + f
+		_, err := r.vault.Create(ctx, vault.CreateParams{Name: name, Type: vault.TypeWebsitePassword, Value: values[f], Metadata: meta, AllowedTools: []string{"browser_act"}, Domains: []string{site}, ExpiresAt: expiry})
+		if err != nil {
+			rollback()
+			return nil, credentialVaultError(err)
+		}
+		created = append(created, name)
+		refs[f] = "secret://" + base + "." + f
+	}
+	return refs, nil
 }
 
 func credentialVaultError(err error) error {

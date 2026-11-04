@@ -91,6 +91,8 @@ var EventTypes = []EventTypeInfo{
 
 	{EventCredentialsRequested, "CredentialsRequestedEvent", "A run needs secure credentials."},
 	{EventCredentialsResolved, "CredentialsResolvedEvent", "A secure credential request was resolved."},
+	{EventBrowserSession, "BrowserSessionEvent", "A conversation's live browser started or ended."},
+	{EventBrowserActivity, "BrowserActivityEvent", "The agent acted in its live browser."},
 	{EventRobotState, "RobotStateEvent", "Robot state changed or connected heartbeat."},
 	{EventArtifactCreated, "ArtifactCreatedEvent", "A visual artifact was persisted."},
 	{EventArtifactReady, "ArtifactReadyEvent", "A turn finished with visual artifacts."},

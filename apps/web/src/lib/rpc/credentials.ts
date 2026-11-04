@@ -29,6 +29,86 @@ export interface VaultMetadata {
   updated_at: string
   expires_at?: string
 }
+export function siteHosts(entry: VaultMetadata): string[] {
+  const hosts = entry.domains?.length
+    ? entry.domains
+    : [
+        entry.metadata?.credential_site ??
+          entry.metadata?.host ??
+          entry.metadata?.domain ??
+          entry.metadata?.site ??
+          '',
+      ]
+  if (hosts.some(Boolean)) return hosts.filter(Boolean)
+  try {
+    return entry.metadata?.url ? [new URL(entry.metadata.url).host] : []
+  } catch {
+    return []
+  }
+}
+/** Derive exact hosts locally; the secure RPC never accepts a URL as site. */
+export function loginAddress(address: string, loginHost = '') {
+  const parse = (value: string) => {
+    const trimmed = value.trim()
+    if (
+      !trimmed ||
+      /\s/.test(trimmed) ||
+      (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) && !/^https?:\/\//i.test(trimmed))
+    )
+      throw new Error('Invalid address')
+    const full = /^https?:\/\//i.test(trimmed)
+    const url = new URL(full ? trimmed : `https://${trimmed}`)
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      !url.hostname
+    )
+      throw new Error('Invalid address')
+    return { host: url.hostname.replace(/^\[|\]$/g, '').toLowerCase(), start: full ? trimmed : '' }
+  }
+  const parsed = parse(address)
+  return { site: loginHost.trim() ? parse(loginHost).host : parsed.host, start_url: parsed.start }
+}
+
+export interface LoginCard {
+  id: string
+  label: string
+  host: string[]
+  entries: VaultMetadata[]
+  username: boolean
+  email: boolean
+}
+export function loginCards(entries: VaultMetadata[]): LoginCard[] {
+  const cards = new Map<string, LoginCard>()
+  for (const entry of entries) {
+    const bundle = entry.metadata?.credential_bundle
+    const id = bundle ? `bundle:${bundle}` : `entry:${entry.id}`
+    let card = cards.get(id)
+    if (!card) {
+      const host = siteHosts(entry)
+      card = {
+        id,
+        label: bundle
+          ? entry.metadata?.credential_label ||
+            entry.metadata?.credential_site ||
+            host[0] ||
+            entry.name
+          : entry.name,
+        host,
+        entries: [],
+        username: false,
+        email: false,
+      }
+      cards.set(id, card)
+    }
+    card.entries.push(entry)
+    card.username ||= entry.metadata?.credential_field === 'username'
+    card.email ||= entry.metadata?.credential_field === 'email'
+  }
+  return [...cards.values()]
+}
+
 export interface CredentialMethods {
   'credentials.pending': {
     params: { conversation_id: string }
@@ -39,6 +119,15 @@ export interface CredentialMethods {
       request_id: string
       values: Partial<Record<CredentialField, string>>
       remember: boolean
+    }
+    result: { ok: boolean }
+  }
+  'credentials.save_login': {
+    params: {
+      site: string
+      label?: string
+      start_url?: string
+      values: { username?: string; email?: string; password: string }
     }
     result: { ok: boolean }
   }

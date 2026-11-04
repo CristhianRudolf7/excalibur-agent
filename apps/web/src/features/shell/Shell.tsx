@@ -1,3 +1,7 @@
+import { BrowserLivePanel } from '@/features/browserlive/BrowserLivePanel'
+import { BrowserReopen } from '@/features/browserlive/BrowserReopen'
+import { useBrowserLiveEvents } from '@/features/browserlive/events'
+import { useBrowserLive } from '@/features/browserlive/store'
 import { CollectionNav } from '@/features/mydata/CollectionNav'
 import { useCollections, useCollectionEvents } from '@/features/mydata/api'
 import { AgentSwitcher } from '@/features/agents/AgentSwitcher'
@@ -277,6 +281,35 @@ export function Shell() {
     return () => registerPanelOpener(null)
   }, [setPanel])
   useArtifactEvents(location.pathname.startsWith('/agents/') ? conversationId(agent.id) : undefined)
+  const browserConversation = conversationId(agent.id)
+  const browserVisible =
+    location.pathname.startsWith('/agents/') && !isWorld && shell.panelOpen && panel === 'browser'
+  useBrowserLiveEvents(location.pathname.startsWith('/agents/') ? agent.id : undefined, () => {
+    if (overlayPanel && useShell.getState().panelOpen) useShell.getState().togglePanel()
+  })
+  const previousBrowser = useRef({
+    visible: false,
+    conversation: browserConversation,
+    open: shell.panelOpen,
+    panel,
+  })
+  useEffect(() => {
+    const previous = previousBrowser.current
+    const dismissed =
+      previous.conversation === browserConversation &&
+      ((previous.open && !shell.panelOpen) || (previous.panel !== panel && panel !== 'browser'))
+    if (
+      dismissed ||
+      (previous.visible && (!browserVisible || previous.conversation !== browserConversation))
+    )
+      useBrowserLive.getState().dismiss(previous.conversation)
+    previousBrowser.current = {
+      visible: browserVisible,
+      conversation: browserConversation,
+      open: shell.panelOpen,
+      panel,
+    }
+  }, [browserVisible, browserConversation, shell.panelOpen, panel])
   const panelData = usePanelData(agent.id)
   const go = (path: string) => {
     shell.setDrawer(false)
@@ -739,6 +772,7 @@ export function Shell() {
                       })
                     }}
                   />
+                  <BrowserReopen conversation={browserConversation} visible={browserVisible} />
                   <ChatHeaderActions
                     onMode={(mode) => changeMode(mode === 'world')}
                     onNotice={setNotice}
@@ -824,6 +858,8 @@ export function Shell() {
                           session={conversationId(agent.id)}
                           onView={setPanel}
                         />
+                      ) : panel === 'browser' ? (
+                        <BrowserLivePanel conversation={browserConversation} />
                       ) : panel === 'activity' ? (
                         <PanelActivity data={panelData} />
                       ) : panel === 'changes' ? (

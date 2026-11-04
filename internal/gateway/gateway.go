@@ -86,6 +86,9 @@ func New(cfg Config, backend Backend, blobs BlobStore, bus *telemetry.Bus) *Serv
 	mux := http.NewServeMux()
 	mux.HandleFunc("/rpc", s.serveRPC)
 	mux.HandleFunc("/ws", s.serveWS)
+	mux.HandleFunc("/ws/browser", newBrowserLiveHandler(s).serveBrowserLive)
+	mux.HandleFunc("/ws/voice/listen", newVoiceLiveHandler(s).serveListen)
+	mux.HandleFunc("/ws/voice/speak", newVoiceLiveHandler(s).serveSpeak)
 	mux.HandleFunc("/blobs/", s.serveBlobs)
 	mux.HandleFunc("/blobs", s.uploadBlob)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -150,6 +153,11 @@ func (s *Server) Start() (string, error) {
 func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	srv := s.srv
+	select {
+	case <-s.done:
+	default:
+		close(s.done)
+	}
 	s.mu.Unlock()
 	s.closeAllSubs()
 	if srv == nil {
@@ -246,7 +254,7 @@ func (s *Server) dispatch(ctx context.Context, raw json.RawMessage) *api.Respons
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"})
 	}
-	if req.Method == api.MethodCredentialsSubmit {
+	if req.Method == api.MethodCredentialsSubmit || req.Method == api.MethodCredentialsSaveLogin {
 		defer clear(raw)
 		defer clear(req.Params)
 	}
@@ -258,7 +266,7 @@ func (s *Server) dispatch(ctx context.Context, raw json.RawMessage) *api.Respons
 	}
 	notification := len(req.ID) == 0
 	result, apiErr := s.route(ctx, req.Method, req.Params, clientIDOf(ctx))
-	if req.Method == api.MethodCredentialsSubmit {
+	if req.Method == api.MethodCredentialsSubmit || req.Method == api.MethodCredentialsSaveLogin {
 		clear(req.Params)
 	}
 	if apiErr != nil {
@@ -455,7 +463,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := req.Validate(); err != nil {
-			if req.Method == api.MethodCredentialsSubmit {
+			if req.Method == api.MethodCredentialsSubmit || req.Method == api.MethodCredentialsSaveLogin {
 				clear(req.Params)
 			}
 			_ = peer.write(ctx, api.NewError(req.ID, &api.Error{Code: api.CodeInvalidRequest, Message: err.Error()}))
@@ -496,7 +504,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		result, apiErr := s.route(ctx, req.Method, req.Params, clientIDOf(ctx))
-		if req.Method == api.MethodCredentialsSubmit {
+		if req.Method == api.MethodCredentialsSubmit || req.Method == api.MethodCredentialsSaveLogin {
 			clear(req.Params)
 		}
 		if len(req.ID) == 0 {

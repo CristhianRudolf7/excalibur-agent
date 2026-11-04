@@ -203,7 +203,8 @@ test('requested events show a Spanish card and external resolution clears its in
 }) => {
   const api = await mock(page, { pending: false, language: 'es' })
   await page.goto('/agents/excalibur?view=chat')
-  await api.events.ready('credentials.requested')
+  // The credential card and the live browser panel both subscribe.
+  await api.events.ready('credentials.requested', 2)
   api.events.emit('credentials.requested', {
     ...initial,
     conversation_id: 'cnv_web_excalibur',
@@ -259,7 +260,8 @@ test('an arriving card stays visible at the bottom of a long conversation', asyn
     })
   })
   await page.goto('/agents/excalibur?view=chat')
-  await api.events.ready('credentials.requested')
+  // The credential card and the live browser panel both subscribe.
+  await api.events.ready('credentials.requested', 2)
   await expect(page.locator('.message').first()).toBeVisible()
   await page.locator('.messages').evaluate((node) => {
     node.scrollTop = node.scrollHeight
@@ -308,3 +310,84 @@ test('credential cards stay in the requesting agent chat and its unread badge up
     page.getByRole('region', { name: 'Credentials for accounts.example.org' }),
   ).toBeFocused()
 })
+
+for (const theme of ['light', 'dark']) {
+  test(`password settings save a grouped login securely on mobile in ${theme} theme`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await mock(page, { pending: false })
+    let saved = false
+    let valid = false
+    await page.addInitScript((theme) => localStorage.setItem('excalibur-ui-theme', theme), theme)
+    await page.route('**/rpc', async (route) => {
+      const request = route.request().postDataJSON()
+      if (request.method === 'credentials.save_login') {
+        const p = request.params
+        valid =
+          p.site === 'accounts.example.org' &&
+          p.start_url === 'https://start.example.org/home' &&
+          p.label === 'Office' &&
+          p.values.username === 'saved-user-sentinel' &&
+          p.values.password === 'saved-password-sentinel'
+        saved = true
+        await route.fulfill({ json: { jsonrpc: '2.0', id: request.id, result: { ok: true } } })
+        return
+      }
+      if (request.method === 'vault.list_metadata') {
+        const entries = saved
+          ? ['username', 'password'].map((field) => ({
+              id: `saved-${field}`,
+              name: `credentials-bundle-${field}`,
+              type: 'website_password',
+              domains: ['accounts.example.org'],
+              created_at: initial.created_at,
+              updated_at: initial.created_at,
+              metadata: {
+                credential_bundle: 'credentials-bundle',
+                credential_label: 'Office',
+                credential_site: 'accounts.example.org',
+                credential_field: field,
+              },
+            }))
+          : []
+        await route.fulfill({
+          json: { jsonrpc: '2.0', id: request.id, result: { entries, locked: false } },
+        })
+        return
+      }
+      await route.fallback()
+    })
+    await page.goto('/settings?section=passwords')
+    await expect(page.getByText('Vault unlocked', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Add login', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByLabel('Name (optional)', { exact: true }).fill('Office')
+    await dialog.getByLabel('Address', { exact: true }).fill('https://start.example.org/home')
+    await dialog
+      .getByLabel('Login host (optional)', { exact: true })
+      .fill('ACCOUNTS.example.org:443/login')
+    expect(await dialog.evaluate((node) => node.scrollWidth <= node.clientWidth)).toBe(true)
+    await dialog.getByLabel('Username', { exact: true }).fill('saved-user-sentinel')
+    await dialog.getByLabel('Password', { exact: true }).fill('saved-password-sentinel')
+    await dialog.getByRole('button', { name: 'Save login', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    expect(valid).toBe(true)
+    await expect(page.getByText('Office', { exact: true })).toHaveCount(1)
+    await expect(page.getByText('accounts.example.org', { exact: true })).toHaveCount(1)
+    await expect(page.getByText('Username saved', { exact: true })).toBeVisible()
+    const surface = await page.evaluate(() =>
+      JSON.stringify({
+        html: document.body.innerHTML,
+        values: [...document.querySelectorAll('input')].map((input) => input.value),
+        local: { ...localStorage },
+        session: { ...sessionStorage },
+      }),
+    )
+    expect(
+      surface.includes('saved-password-sentinel') || surface.includes('saved-user-sentinel'),
+    ).toBe(false)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: test.info().outputPath(`saved-login-${theme}.png`) })
+  })
+}

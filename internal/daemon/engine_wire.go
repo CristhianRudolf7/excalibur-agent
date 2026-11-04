@@ -51,6 +51,7 @@ func (unconfiguredModels) Chat(context.Context, types.ModelRole, providers.ChatR
 // engineWiring carries the collaborators of one daemon engine.
 type engineWiring struct {
 	Credentials  *CredentialRegistry
+	BrowserLive  *browserLiveHub
 	RobotLabTool *robotlab.Tool
 	Classroom    classroom.AgentService
 	Robot        *robot.Service
@@ -173,7 +174,11 @@ func buildEngine(w engineWiring) (*engine.Engine, *daemonTools, error) {
 		if strings.HasPrefix(name, "browser_") {
 			t, _ := emb.Registry.Get(name)
 			emb.Registry.Unregister(name)
-			if err := emb.Registry.Register(&credentialBrowserTool{Tool: t, registry: w.Credentials}); err != nil {
+			t = &credentialBrowserTool{Tool: t, registry: w.Credentials}
+			if w.BrowserLive != nil {
+				t = &liveBrowserTool{Tool: t, hub: w.BrowserLive}
+			}
+			if err := emb.Registry.Register(t); err != nil {
 				return nil, nil, err
 			}
 		}

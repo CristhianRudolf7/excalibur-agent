@@ -48,7 +48,8 @@ waking Chrome. An idle worker suspends the process after `IdleTimeout`.
   overflow devtools records are retrievable from the configured blob store.
 
 CAPTCHA, login, OTP and access-denied detection reports the fake's blocked
-states and `Need` wording. There is **no live view or human takeover** here.
+states and `Need` wording. A **watch-only live view** streams the active tab while a viewer is attached.
+Human takeover is not implemented.
 `Update` ignores claims in its answer and checks the actual page again; it
 cannot bypass a block. Detection is heuristic, not a guarantee of site access.
 
@@ -203,9 +204,27 @@ and synchronous install cancellation follow the limitations described above.
 
 ## Future work
 
-- Live view and human takeover (not implemented).
+- Human takeover (not implemented).
 - Prompt-injection defenses: untrusted-content marking, plan-then-execute,
   confirmations for sensitive actions, and an injection detector.
 - Process confinement using Landlock/seccomp through
   `internal/platform.Isolator`.
 - An egress policy.
+
+## Watch-only live view
+
+`SetLiveObserver` reports session lifecycle and activity. `WatchLive` attaches
+viewers without waiting for an in-progress action, streams JPEG frames from the
+active tab at up to 10 fps, and returns an idempotent stop function. The last
+viewer stops capture. Streams follow tab switches and resume after suspension;
+closing a session ends its viewers. Frames stay in memory and never enter the
+capture blob store or event log. A late viewer receives the latest cached frame.
+
+Watched actions include a viewport highlight and a cancellable 350 ms pause.
+Short ordinary values and username/email secret references type visibly;
+password fields and other secret references use Fill. Secret entry remains bound
+to the original document and permitted host. Filling a protected secret into a
+visible field withholds that tab's frames until main-frame navigation. Activity
+metadata contains no typed values; URLs omit credentials, queries and fragments.
+The view has no input or takeover controls. Routine replay retains its existing
+behavior.

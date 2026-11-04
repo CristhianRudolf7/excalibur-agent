@@ -11,9 +11,9 @@ import { composerHeight, shouldSend } from './composer-logic'
 import { useTranslation } from 'react-i18next'
 import { Plus, Mic, ArrowUp, Square } from 'lucide-react'
 import { useDictation } from './voice/useDictation'
-import { speechLang } from './voice/speech'
+import { speakableText, speechLang } from './voice/speech'
 import { IconButton } from '@/components/shared'
-import { CallControls, useCallElapsed } from './voice/CallOverlay'
+import { CallControls, stateLabels, useCallElapsed } from './voice/CallOverlay'
 import { callActive, useCall } from './voice/callStore'
 export function Composer({
   agent,
@@ -34,6 +34,11 @@ export function Composer({
   const onCall = useCall((state) => callActive(state.snapshot) || state.connecting)
   const showCall = useCall((state) => state.open)
   const elapsed = useCallElapsed()
+  const callSnapshot = useCall((state) => state.snapshot)
+  const lastLine = callSnapshot.transcript.at(-1)
+  const caption =
+    callSnapshot.partial ||
+    (lastLine?.role === 'assistant' ? speakableText(lastLine.text) : lastLine?.text)
   const context = useAutomationContext()
   const area = useRef<HTMLDivElement>(null)
   // The composer floats over the conversation: reserve exactly its height below
@@ -182,9 +187,9 @@ export function Composer({
               e.target.value = ''
             }}
           />
-          <span className="toolbar-spacer" />
+          {!onCall && <span className="toolbar-spacer" />}
           {onCall ? (
-            <>
+            <div className="composer-call-bar">
               <button
                 type="button"
                 className="composer-call-live"
@@ -193,10 +198,15 @@ export function Composer({
                 onClick={showCall}
               >
                 <span className="composer-call-dot" aria-hidden="true" />
-                {t('callLive')} · {elapsed}
+                <span className="composer-call-text">
+                  <span>
+                    {t(stateLabels[callSnapshot.state])} · {elapsed}
+                  </span>
+                  {caption && <span className="composer-call-caption">{caption}</span>}
+                </span>
               </button>
               <CallControls compact />
-            </>
+            </div>
           ) : (
             <>
               {dictation.supported && (

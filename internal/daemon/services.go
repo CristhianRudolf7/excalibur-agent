@@ -392,6 +392,7 @@ type Services struct {
 	Whiteboard     *whiteboard.Service
 	Classroom      *classroom.Service
 	BrowserWeb     *wireengine.BrowserWeb
+	BrowserLive    *browserLiveHub
 	Robot          *robot.Service
 
 	robotLabContinue *robotLabContinuations
@@ -557,6 +558,10 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 			return nil, err
 		}
 	}
+	if s.BrowserWeb != nil && s.BrowserWeb.Browser != nil {
+		s.BrowserLive = newBrowserLiveHub(s.BrowserWeb.Browser, s.Bus)
+		s.BrowserWeb.Browser.SetLiveObserver(s.BrowserLive.observe)
+	}
 	var orchStore *orchestrator.MemoryStore
 	if ms, ok := s.Store.(*orchestrator.MemoryStore); ok {
 		orchStore = ms
@@ -573,6 +578,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 	}
 	wiring := engineWiring{
 		Credentials:  s.Credentials,
+		BrowserLive:  s.BrowserLive,
 		RobotLabTool: s.RobotLabTool,
 		Classroom:    s.ClassroomAgent, Whiteboard: s.Whiteboard, BrowserWeb: s.BrowserWeb, Caps: s.Caps, Models: opts.Models, ModelID: opts.ModelID, Media: opts.Media,
 		Robot: s.Robot,

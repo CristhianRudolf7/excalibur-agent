@@ -269,7 +269,7 @@ type RobotConfig struct {
 func Default() Config {
 	return Config{
 		Robot:   RobotConfig{Enabled: true},
-		Voice:   VoiceConfig{Provider: "openai", STTModel: "gpt-4o-mini-transcribe", TTSModel: "gpt-4o-mini-tts", Voice: "alloy"},
+		Voice:   VoiceConfig{Provider: "openai", STTModel: "gpt-4o-mini-transcribe", TTSModel: "gpt-4o-mini-tts", Voice: "alloy", LiveSTTModel: "gpt-realtime-whisper", LiveVoice: "marin"},
 		Browser: defaultBrowser(),
 		Search:  defaultSearch(),
 		Master: MasterConfig{
@@ -361,9 +361,11 @@ func (c Config) Validate() error {
 
 // VoiceConfig configures client audio operations; nil Enabled follows key availability.
 type VoiceConfig struct {
-	Provider string `json:"provider" toml:"provider"`
-	STTModel string `json:"stt_model" toml:"stt_model"`
-	TTSModel string `json:"tts_model" toml:"tts_model"`
-	Voice    string `json:"voice" toml:"voice"`
-	Enabled  *bool  `json:"enabled,omitempty" toml:"enabled"`
+	LiveSTTModel string `json:"live_stt_model" toml:"live_stt_model"`
+	LiveVoice    string `json:"live_voice" toml:"live_voice"`
+	Provider     string `json:"provider" toml:"provider"`
+	STTModel     string `json:"stt_model" toml:"stt_model"`
+	TTSModel     string `json:"tts_model" toml:"tts_model"`
+	Voice        string `json:"voice" toml:"voice"`
+	Enabled      *bool  `json:"enabled,omitempty" toml:"enabled"`
 }

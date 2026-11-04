@@ -15,7 +15,7 @@ const types = [
 /** One socket with bounded reconnect delay and replay deduplication across daemon restarts. */
 export function subscribeEvents(options: {
   types?: string[]
-  event: (event: ConversationEvent) => void
+  event: (event: ConversationEvent, replayed?: boolean) => void
   ready: () => void
   offline: () => void
 }) {
@@ -60,18 +60,18 @@ export function subscribeEvents(options: {
           }),
         )
       }
-      const deliver = (event: ConversationEvent) => {
+      const deliver = (event: ConversationEvent, replayed = false) => {
         if (!event || !event.payload) return
         // Live-only events (Robot Lab frames) carry no sequence or identity and
         // never enter replay, so they bypass the resume cursor.
         if (event.seq === 0 && !event.id) {
-          options.event(event)
+          options.event(event, replayed)
           return
         }
         if (!Number.isSafeInteger(event.seq) || event.seq <= seq) return
         seq = event.seq
         if (event.id && seen.has(event.id)) return
-        options.event(event)
+        options.event(event, replayed)
         if (event.id) seen.add(event.id)
         if (seen.size > 4096) seen.delete(seen.values().next().value!)
       }
@@ -92,7 +92,7 @@ export function subscribeEvents(options: {
             }
             clearTimeout(timer)
             delay = 1000
-            for (const event of result.events ?? []) deliver(event)
+            for (const event of result.events ?? []) deliver(event, true)
             options.ready()
           } else if (frame.method === 'event') deliver(frame.params)
         } catch {

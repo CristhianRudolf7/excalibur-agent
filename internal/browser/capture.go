@@ -203,6 +203,10 @@ func short(s string) string {
 	return s
 }
 func (e *Engine) listen(t *tab) {
+	e.listenLiveClose(t.live)
+	if e.hasLiveObserver() || e.LiveWatched(t.session) {
+		e.listenLive(t.live)
+	}
 	events := t.events
 	t.page.OnConsole(func(message pw.ConsoleMessage) {
 		events.mu.Lock()

@@ -111,6 +111,15 @@ func TestBlockFixtures(t *testing.T) {
 	}{
 		{"https://x/", "<script src='https://www.google.com/recaptcha/api.js'></script>", 200, capabilities.BlockedCaptcha},
 		{"https://x/", "<iframe src='https://hcaptcha.com/challenge'></iframe>", 200, capabilities.BlockedCaptcha},
+		// Score-based reCAPTCHA has no challenge, so a login page stays a login page.
+		{"https://x/", `<script src="https://www.google.com/recaptcha/api.js?render=site-key"></script><script src="https://www.gstatic.com/recaptcha/releases/abc/recaptcha__en.js"></script><iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?ar=1&k=site-key&size=invisible"></iframe><input type="password">`, 200, capabilities.BlockedLogin},
+		{"https://x/", `<script src="https://www.google.com/recaptcha/enterprise.js?render=site-key"></script><p>Catalog</p>`, 200, ""},
+		// Challenge-capable embeds remain blocks, even beside score-based tags.
+		{"https://x/", `<script src="https://www.google.com/recaptcha/api.js?render=explicit"></script>`, 200, capabilities.BlockedCaptcha},
+		{"https://x/", `<script src="https://www.google.com/recaptcha/api.js?onload=start&render=onload"></script>`, 200, capabilities.BlockedCaptcha},
+		{"https://x/", `<iframe title="reCAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?k=site-key&size=normal"></iframe>`, 200, capabilities.BlockedCaptcha},
+		{"https://x/", `<iframe title="recaptcha challenge" src="https://www.google.com/recaptcha/api2/bframe?k=site-key"></iframe>`, 200, capabilities.BlockedCaptcha},
+		{"https://x/", `<script src="https://www.gstatic.com/recaptcha/releases/abc/recaptcha__en.js"></script><script src="https://www.google.com/recaptcha/api.js"></script>`, 200, capabilities.BlockedCaptcha},
 		{"https://x/", "<script src='https://challenges.cloudflare.com/turnstile/v0/api.js'></script>", 200, capabilities.BlockedCaptcha},
 		{"https://x/", "<h1>Verify you are human</h1>", 200, capabilities.BlockedCaptcha},
 		{"https://x/", "<input TYPE = 'password'>", 200, capabilities.BlockedLogin},
