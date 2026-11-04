@@ -102,6 +102,45 @@ func officeDecode(raw json.RawMessage, v any) error {
 	}
 	return json.Unmarshal(raw, v)
 }
+
+// runtimeInputSchema accepts presentation extensions without changing the
+// pinned, model-visible document_create definition. Other formats keep the
+// original validation, and unknown properties remain errors.
+func (t *DocumentCreateTool) runtimeInputSchema(args json.RawMessage) json.RawMessage {
+	base := officeSchema(false)
+	var request struct {
+		Format string `json:"format"`
+	}
+	if json.Unmarshal(args, &request) != nil || request.Format != "pptx" {
+		return base
+	}
+	var schema map[string]any
+	_ = json.Unmarshal(base, &schema)
+	spec := schema["properties"].(map[string]any)["spec"].(map[string]any)["properties"].(map[string]any)
+	str := map[string]any{"type": "string"}
+	spec["theme"] = map[string]any{
+		"type": "object", "additionalProperties": false,
+		"properties": map[string]any{
+			"accent": str,
+			"style":  map[string]any{"type": "string", "enum": []string{"light", "dark"}},
+		},
+	}
+	slide := spec["slides"].(map[string]any)["items"].(map[string]any)["properties"].(map[string]any)
+	slide["kind"] = map[string]any{"type": "string", "enum": []string{"title", "bullets", "two_column", "image", "table", "section", "cards", "quote"}}
+	for _, field := range []string{"caption", "quote", "attribution"} {
+		slide[field] = str
+	}
+	slide["cards"] = map[string]any{
+		"type": "array", "minItems": 2, "maxItems": 4,
+		"items": map[string]any{
+			"type": "object", "additionalProperties": false, "required": []string{"title", "text"},
+			"properties": map[string]any{"title": str, "text": str, "value": str},
+		},
+	}
+	runtimeSchema, _ := json.Marshal(schema)
+	return runtimeSchema
+}
+
 func (t *DocumentCreateTool) Invoke(ctx context.Context, inv Invocation) (Result, error) {
 	if !OfficeWriteEnabled() {
 		return Result{Status: StatusDenied, Output: "Office writes are disabled by EXCALIBUR_OFFICE_WRITE"}, nil

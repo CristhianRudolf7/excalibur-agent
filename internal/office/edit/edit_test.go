@@ -336,3 +336,44 @@ func TestSheetEditsPreserveOpaqueFormulaLikeXML(t *testing.T) {
 		t.Fatal("opaque part changed")
 	}
 }
+
+func TestThemedPresentationEditsPreserveLayout(t *testing.T) {
+	f, h := prepare(t, "pptx", create.Spec{Theme: create.Theme{Style: "dark", Accent: "#14B8A6"}, Slides: []create.Slide{
+		{Kind: "section", Title: "Chapter", Subtitle: "Before"},
+		{Kind: "cards", Title: "Results", Cards: []create.Card{{Title: "Tests", Text: "All passing", Value: "38"}, {Title: "Platforms", Text: "One experience", Value: "3"}}, Notes: "Original notes"},
+		{Kind: "quote", Title: "Feedback", Quote: "A clearer workflow", Attribution: "Customer"},
+	}})
+	before := read(t, f)
+	h = apply(t, f, h,
+		Operation{Action: "replace_text", Anchor: "slide:1/shape:2", Match: "Chapter", Text: "Next chapter"},
+		Operation{Action: "replace_text", Anchor: "slide:1/shape:3", Match: "Before", Text: "After"},
+		Operation{Action: "replace_text", Anchor: "slide:2/shape:3", Match: "38", Text: "39"},
+		Operation{Action: "replace_text", Anchor: "slide:2/shape:4", Match: "Platforms", Text: "Systems"},
+		Operation{Action: "replace_text", Anchor: "slide:3/shape:3", Match: "clearer", Text: "simpler"},
+		Operation{Action: "set_notes", Slide: 2, Text: "Updated notes"},
+	)
+	after := read(t, f)
+	for part, raw := range before.Parts {
+		want := string(raw)
+		switch part {
+		case "ppt/slides/slide1.xml":
+			want = strings.Replace(want, ">Chapter<", ">Next chapter<", 1)
+			want = strings.Replace(want, ">Before<", ">After<", 1)
+		case "ppt/slides/slide2.xml":
+			want = strings.Replace(want, ">38<", ">39<", 1)
+			want = strings.Replace(want, ">Platforms<", ">Systems<", 1)
+		case "ppt/slides/slide3.xml":
+			want = strings.Replace(want, "clearer", "simpler", 1)
+		case "ppt/notesSlides/notesSlide2.xml":
+			want = strings.Replace(want, "Original notes", "Updated notes", 1)
+		}
+		if string(after.Parts[part]) != want {
+			t.Fatal("edit changed unrelated layout or package bytes", part)
+		}
+	}
+	apply(t, f, h, Operation{Action: "duplicate_slide", Slide: 2}, Operation{Action: "set_notes", Slide: 3, Text: "Independent notes"})
+	p := read(t, f)
+	if !strings.Contains(string(p.Parts["ppt/notesSlides/notesSlide2.xml"]), "Updated notes") {
+		t.Fatal("duplicated themed slide shared notes")
+	}
+}

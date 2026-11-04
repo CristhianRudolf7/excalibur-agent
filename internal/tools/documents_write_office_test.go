@@ -110,3 +110,85 @@ func TestOfficeToolConfinementOverwriteSwitchAndCancel(t *testing.T) {
 		t.Fatal(r)
 	}
 }
+
+func TestStyledPresentationThroughDeferredTools(t *testing.T) {
+	root := t.TempDir()
+	reg := NewMapRegistry()
+	cat := NewDeferredCatalog(reg)
+	if err := RegisterDeferredMedia(reg, cat, &MediaDeps{Workdir: root}); err != nil {
+		t.Fatal(err)
+	}
+	call := CallToolTool{Catalog: cat, Executor: NewExecutor(reg)}
+	res, err := call.Invoke(context.Background(), Invocation{Arguments: json.RawMessage(`{"name":"document_create","arguments":{"path":"brief.pptx","format":"pptx","spec":{"theme":{"accent":"#14B8A6","style":"dark"},"slides":[{"kind":"title","title":"Project brief"},{"kind":"section","title":"Evidence","subtitle":"The next chapter"},{"kind":"cards","title":"Results","cards":[{"title":"Tests","text":"All passing","value":"38"},{"title":"Platforms","text":"A consistent experience","value":"3"}],"notes":"Supporting detail"},{"kind":"quote","title":"Feedback","quote":"A clearer workflow","attribution":"Customer"}]}}}`)})
+	if err != nil || res.Status != StatusOK {
+		t.Fatal(res, err)
+	}
+	var result edit.Result
+	if err := json.Unmarshal([]byte(res.Output), &result); err != nil || result.SHA256 == "" || len(result.Issues) != 0 {
+		t.Fatal(res, err)
+	}
+	if !strings.Contains(strings.Join(result.Anchors, " "), "slide:3/shape:3") {
+		t.Fatal("main body anchor missing", result.Anchors)
+	}
+	args, err := json.Marshal(map[string]any{"name": "document_edit", "arguments": map[string]any{
+		"path": "brief.pptx", "expected_sha256": result.SHA256,
+		"ops": []any{map[string]any{"action": "replace_text", "anchor": "slide:3/shape:3", "match": "38", "text": "39"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = call.Invoke(context.Background(), Invocation{Arguments: args})
+	if err != nil || res.Status != StatusOK {
+		t.Fatal(res, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "brief.pptx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := opc.Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issues := p.Validate(); len(issues) != 0 {
+		t.Fatal(issues)
+	}
+	for part, want := range map[string]string{
+		"ppt/theme/theme1.xml":            `val="14B8A6"`,
+		"ppt/slides/slide3.xml":           `<a:t>39</a:t>`,
+		"ppt/slides/slide4.xml":           "A clearer workflow",
+		"ppt/notesSlides/notesSlide3.xml": "Supporting detail",
+	} {
+		if !strings.Contains(string(p.Parts[part]), want) {
+			t.Fatal("styled presentation lost content", part, want)
+		}
+	}
+}
+
+func TestPresentationRuntimeValidationKeepsDiscoverySchemaPinned(t *testing.T) {
+	tool := &DocumentCreateTool{}
+	before := string(tool.Definition().InputSchema)
+	valid := json.RawMessage(`{"path":"brief.pptx","format":"pptx","spec":{"theme":{"accent":"#6366F1"},"slides":[{"kind":"quote","quote":"Simple","attribution":"Customer"}]}}`)
+	if ValidateAgainstSchema(valid, tool.Definition().InputSchema) == nil {
+		t.Fatal("new fields leaked into the pinned discovery schema")
+	}
+	if err := ValidateAgainstSchema(valid, tool.runtimeInputSchema(valid)); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"path":"brief.pptx","format":"pptx","spec":{"theme":{"unexpected":true}}}`,
+		`{"path":"brief.pptx","format":"pptx","spec":{"theme":{"style":"invalid"}}}`,
+		`{"path":"brief.pptx","format":"pptx","spec":{"slides":[{"kind":"quote","quote":42}]}}`,
+		`{"path":"brief.pptx","format":"pptx","spec":{"slides":[{"kind":"quote","unknown":"value"}]}}`,
+		`{"path":"brief.pptx","format":"pptx","spec":{"slides":[{"kind":"cards","cards":[{"title":"Fact","text":"Detail","unknown":true},{"title":"Fact","text":"Detail"}]}]}}`,
+		`{"path":"brief.pptx","format":"pptx","spec":{"slides":[{"kind":"cards","cards":[{"title":"Fact"},{"title":"Fact","text":"Detail"}]}]}}`,
+		`{"path":"brief.docx","format":"docx","spec":{"theme":{"style":"dark"}}}`,
+	} {
+		args := json.RawMessage(raw)
+		if err := ValidateAgainstSchema(args, tool.runtimeInputSchema(args)); err == nil {
+			t.Fatal("runtime schema accepted invalid extension", raw)
+		}
+	}
+	if string(tool.Definition().InputSchema) != before {
+		t.Fatal("runtime validation mutated discovery schema")
+	}
+}

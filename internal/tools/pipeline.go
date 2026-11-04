@@ -254,11 +254,19 @@ func (e *Executor) ExecuteTuned(ctx context.Context, name string, rawArgs json.R
 	def := tool.Definition()
 
 	repaired := RepairJSON(rawArgs)
-	normalized, repairs := NormalizeSchemaArgs(repaired, def.InputSchema, tune.TolerantArgs)
+	inputSchema := def.InputSchema
+	// A tool may accept skill-documented extensions at execution time while
+	// keeping its discovery schema stable for existing model prefixes.
+	if provider, ok := tool.(interface {
+		runtimeInputSchema(json.RawMessage) json.RawMessage
+	}); ok {
+		inputSchema = provider.runtimeInputSchema(repaired)
+	}
+	normalized, repairs := NormalizeSchemaArgs(repaired, inputSchema, tune.TolerantArgs)
 	normalized = NormalizeArgs(name, normalized, tune)
-	normalized, moreRepairs := NormalizeSchemaArgs(normalized, def.InputSchema, tune.TolerantArgs)
+	normalized, moreRepairs := NormalizeSchemaArgs(normalized, inputSchema, tune.TolerantArgs)
 	repairs = append(repairs, moreRepairs...)
-	if err := ValidateAgainstSchema(normalized, def.InputSchema); err != nil {
+	if err := ValidateAgainstSchema(normalized, inputSchema); err != nil {
 		out := "invalid arguments: " + err.Error() + schemaHint(def.InputSchema)
 		if tune.ActionableErrors {
 			out += "\n" + RepairHint(name, repaired)

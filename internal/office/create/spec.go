@@ -14,6 +14,13 @@ type Spec struct {
 	Page   PageSetup `json:"page,omitempty"`
 	Sheets []Sheet   `json:"sheets,omitempty"`
 	Slides []Slide   `json:"slides,omitempty"`
+	Theme  Theme     `json:"theme,omitempty"`
+}
+
+// Theme customizes the presentation palette. The zero value selects light indigo.
+type Theme struct {
+	Accent string `json:"accent,omitempty"`
+	Style  string `json:"style,omitempty"`
 }
 type PageSetup struct {
 	Size        string `json:"size,omitempty"`
@@ -58,17 +65,28 @@ type Bullet struct {
 	Level int    `json:"level,omitempty"`
 }
 
-// Slide.Kind is title, bullets, two_column, image or table.
+// Slide.Kind is title, bullets, two_column, image, table, section, cards or quote.
 type Slide struct {
-	Kind     string     `json:"kind"`
-	Title    string     `json:"title,omitempty"`
-	Subtitle string     `json:"subtitle,omitempty"`
-	Bullets  []Bullet   `json:"bullets,omitempty"`
-	Left     []Bullet   `json:"left,omitempty"`
-	Right    []Bullet   `json:"right,omitempty"`
-	Image    string     `json:"image,omitempty"`
-	Rows     [][]string `json:"rows,omitempty"`
-	Notes    string     `json:"notes,omitempty"`
+	Kind        string     `json:"kind"`
+	Title       string     `json:"title,omitempty"`
+	Subtitle    string     `json:"subtitle,omitempty"`
+	Bullets     []Bullet   `json:"bullets,omitempty"`
+	Left        []Bullet   `json:"left,omitempty"`
+	Right       []Bullet   `json:"right,omitempty"`
+	Image       string     `json:"image,omitempty"`
+	Rows        [][]string `json:"rows,omitempty"`
+	Notes       string     `json:"notes,omitempty"`
+	Caption     string     `json:"caption,omitempty"`
+	Cards       []Card     `json:"cards,omitempty"`
+	Quote       string     `json:"quote,omitempty"`
+	Attribution string     `json:"attribution,omitempty"`
+}
+
+// Card is a fact or metric on a cards slide, with an optional prominent value.
+type Card struct {
+	Title string `json:"title"`
+	Text  string `json:"text"`
+	Value string `json:"value,omitempty"`
 }
 
 // ImageLoader lets callers enforce workspace confinement before reading images.
@@ -134,7 +152,7 @@ func validateBudget(s Spec) error {
 	if len(s.Blocks) > 2000 || len(s.Sheets) > 100 || len(s.Slides) > 500 {
 		return fmt.Errorf("spec exceeds block/sheet/slide limits (2000/100/500)")
 	}
-	text, cells := len(s.Title), 0
+	text, cells := len(s.Title)+len(s.Theme.Accent)+len(s.Theme.Style), 0
 	addRows := func(rows [][]string) {
 		for _, row := range rows {
 			cells += len(row)
@@ -158,7 +176,11 @@ func validateBudget(s Spec) error {
 		}
 	}
 	for _, sl := range s.Slides {
-		text += len(sl.Title) + len(sl.Subtitle) + len(sl.Notes)
+		text += len(sl.Title) + len(sl.Subtitle) + len(sl.Notes) + len(sl.Caption) + len(sl.Quote) + len(sl.Attribution)
+		cells += len(sl.Cards)
+		for _, card := range sl.Cards {
+			text += len(card.Title) + len(card.Text) + len(card.Value)
+		}
 		for _, list := range [][]Bullet{sl.Bullets, sl.Left, sl.Right} {
 			cells += len(list)
 			for _, b := range list {
