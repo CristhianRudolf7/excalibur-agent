@@ -379,6 +379,7 @@ func (w *RAMWatchdog) once(tm time.Time) {
 // the architecture mandates stand-ins); callers override pieces for
 // tests.
 type Services struct {
+	previews       *previewManager
 	Collections    *CollectionRoutes
 	Google         googleapi.TokenProvider
 	Credentials    *CredentialRegistry
@@ -482,7 +483,7 @@ type AssembleOptions struct {
 // default registry, memory over its service, skills over the builtin
 // index and workspace over its registry.
 func Assemble(opts AssembleOptions) (*Services, error) {
-	s := &Services{Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
+	s := &Services{previews: newPreviewManager(opts.DataDir), Credentials: newCredentialRegistry(opts.Bus), Robot: opts.Robot, Bus: opts.Bus, Decider: opts.Decider}
 	if s.Robot != nil {
 		if err := s.Robot.BindDataDir(opts.DataDir); err != nil {
 			return nil, err

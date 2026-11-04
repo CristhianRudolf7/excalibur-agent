@@ -41,5 +41,5 @@ func wireGoogleTools(b *DaemonBackend, s *Services) error {
 			s.Catalog.MarkDeferred(name)
 		}
 	}
-	return nil
+	return wirePublicPreviewTool(b, s)
 }

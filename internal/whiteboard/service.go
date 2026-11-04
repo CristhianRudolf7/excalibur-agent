@@ -154,16 +154,18 @@ func (s *Service) Apply(ctx context.Context, id string, base int64, key, author 
 		return Board{}, invalid(err.Error())
 	}
 	ops = owned
-	b, dup, err := s.Store.mutate(ctx, id, key, author, ops, func(b *Board) error {
+	b, dup, err := s.Store.mutate(ctx, id, key, author, &ops, func(b *Board) error {
 		if b.ID == "" {
 			return missing()
 		}
 		if base >= 0 && base != b.Version {
 			return &api.Error{Code: api.CodeConflict, Message: "stale whiteboard version", Data: json.RawMessage(fmt.Sprintf(`{"current_version":%d}`, b.Version))}
 		}
-		if err := applyOps(b, ops, author); err != nil {
+		normalized, err := applyOps(b, ops, author)
+		if err != nil {
 			return invalid(err.Error())
 		}
+		ops = normalized
 		b.Version++
 		b.UpdatedAt = time.Now().UTC()
 		return nil

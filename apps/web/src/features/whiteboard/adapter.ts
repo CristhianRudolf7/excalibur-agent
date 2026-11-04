@@ -37,7 +37,7 @@ export function toExcalidraw(elements: readonly Element[]): ExcalidrawElement[] 
     strokeWidth: element.style?.stroke_width ?? 2,
     strokeStyle: element.style?.stroke_style ?? 'solid',
     roughness: element.style?.roughness ?? 1,
-    opacity: element.style?.opacity ?? 100,
+    opacity: (element.style?.opacity ?? 1) * 100,
     fontSize: element.style?.font_size ?? 20,
     fontFamily: fontID(element.style?.font_family),
     textAlign: element.style?.text_align ?? 'left',
@@ -114,7 +114,7 @@ export function fromExcalidraw(elements: readonly ExcalidrawElement[]): Element[
           stroke_width: element.strokeWidth,
           stroke_style: element.strokeStyle,
           roughness: element.roughness,
-          opacity: element.opacity,
+          opacity: element.opacity / 100,
           ...('fontSize' in element
             ? {
                 font_size: element.fontSize,

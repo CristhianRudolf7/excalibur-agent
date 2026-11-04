@@ -144,7 +144,7 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 			allow[name] = true
 		}
 	}
-	for _, name := range []string{"gmail", "drive", "docs", "my_data"} {
+	for _, name := range []string{"gmail", "drive", "docs", "my_data", "public_preview"} {
 		allow[name] = true
 	}
 	if a.services.Robot != nil {
@@ -387,7 +387,10 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 		}
 		args, _ = json.Marshal(fields)
 	}
+	args = normalizeChatRecallArgs(name, args)
 	res, err := r.daemonToolRunner.Execute(ctx, name, args, opts)
+	res = annotateChatRecallResult(name, res)
+	res = r.withEarlierConversations(ctx, name, args, res, opts)
 	if name == "subagent" && err == nil && res.Status == tools.StatusOK {
 		var input struct {
 			Action string `json:"action"`

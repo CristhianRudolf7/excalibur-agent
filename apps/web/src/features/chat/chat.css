@@ -48,3 +48,60 @@
   border-radius: 999px;
   background: var(--muted);
 }
+
+.public-preview-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  width: 100%;
+  max-width: 28rem;
+  min-width: 0;
+  box-sizing: border-box;
+  margin-block: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--foreground);
+}
+.public-preview-card > svg {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+.public-preview-details {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+.public-preview-details strong {
+  font-size: 0.875rem;
+}
+.public-preview-details a {
+  color: var(--primary);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.public-preview-card .public-preview-details time,
+.public-preview-details small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.public-preview-copy {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.4rem;
+  color: var(--muted-foreground);
+}
+.public-preview-copy:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.public-preview-copy:focus-visible,
+.public-preview-details a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}

@@ -53,7 +53,7 @@ func validElement(e Element) error {
 	}
 	return nil
 }
-func applyOps(b *Board, ops []Op, author string) error {
+func applyNativeOps(b *Board, ops []Op, author string) error {
 	if len(ops) == 0 || len(ops) > 500 {
 		return fmt.Errorf("ops must contain 1 to 500 operations")
 	}
@@ -124,6 +124,7 @@ func applyOps(b *Board, ops []Op, author string) error {
 					old, _ := json.Marshal(b.Elements[idx])
 					var fields map[string]json.RawMessage
 					_ = json.Unmarshal(old, &fields)
+					mergeStyle(fields, patch)
 					// Merge only supplied properties: rebasing leaves unrelated elements and fields intact.
 					for k, v := range patch {
 						if k != "author" {
@@ -132,9 +133,7 @@ func applyOps(b *Board, ops []Op, author string) error {
 					}
 					raw, _ = json.Marshal(fields)
 				}
-				decoder := json.NewDecoder(bytes.NewReader(raw))
-				decoder.DisallowUnknownFields()
-				if err := decoder.Decode(&e); err != nil {
+				if err := decodeNative(raw, &e); err != nil {
 					return err
 				}
 				if op.Op != "update" {
@@ -184,4 +183,10 @@ func applyOps(b *Board, ops []Op, author string) error {
 		return fmt.Errorf("board exceeds 2 MiB")
 	}
 	return nil
+}
+
+func decodeNative(raw json.RawMessage, e *Element) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	return inputFieldsError(decoder.Decode(e))
 }

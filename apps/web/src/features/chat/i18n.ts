@@ -1,4 +1,10 @@
 export const chatMessages = {
+  publicPreviewTitle: ['Vista previa pública', 'Public preview'],
+  publicPreviewCopy: ['Copiar enlace público', 'Copy public link'],
+  publicPreviewCopied: ['Enlace copiado', 'Link copied'],
+  publicPreviewCopyError: ['No se pudo copiar el enlace.', 'Could not copy the link.'],
+  publicPreviewExpires: ['Caduca: {{time}}', 'Expires: {{time}}'],
+  publicPreviewExpired: ['Caducó: {{time}}', 'Expired: {{time}}'],
   changesCount_one: ['{{count}} archivo modificado', '{{count}} file changed'],
   changesCount_other: ['{{count}} archivos modificados', '{{count}} files changed'],
   changeAdded: ['nuevo', 'new'],

@@ -11,4 +11,4 @@ __pycache__/
 /excalibur
 
 # JavaScript workspace
-node_modules/
+node_modules

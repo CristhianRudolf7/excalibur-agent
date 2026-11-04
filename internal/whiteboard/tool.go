@@ -22,7 +22,7 @@ type Tool struct {
 
 func (t *Tool) Definition() tools.Definition {
 	return tools.Definition{
-		Name: "whiteboard", Description: `Open and control an interactive teaching whiteboard shared with the user. Use it to explain diagrams, mathematics, architecture and step-by-step processes during text or voice conversations. Open before drawing; add native shapes, arrows, labels, math (latex), mermaid, code or sticky notes. Use animate:true and step_ms:300 to reveal elements progressively, then focus or highlight while explaining. Read include_image:true to inspect the user's freehand drawing (waits up to 8 seconds for UI PNG). Example: {"action":"open","title":"How requests flow"}, then {"action":"add","elements":[{"id":"client","type":"rect","x":20,"y":20,"width":160,"height":80,"text":"Client","author":"agent"}]}, then {"action":"highlight","ids":["client"],"style":"pulse"}. Read before editing user work; clear keep_user:true preserves it. Close after checking understanding.`,
+		Name: "whiteboard", Description: `Draw on the user's shared whiteboard with native shapes, labels, math, mermaid, code or sticky notes. Draw a labelled chart in ONE call (opens a board automatically): {"action":"add","elements":[{"id":"expenses","type":"chart","x":40,"y":80,"width":560,"height":340,"chart":{"kind":"bar","title":"Weekly expenses","unit":"S/","labels":["Food","Travel"],"values":[69.5,20]}}]}. Chart kinds: bar, column, line, pie (percentage legend); 1–24 labels/values, optional colors. Update with a new chart payload or remove by chart id to affect the whole group. Primitive styles use style:{"fill":"#4f86e8","font_size":20}; common top-level style shortcuts also work. Otherwise open before drawing. Use animate:true, step_ms:300 for reveals, focus/highlight while explaining. Read before editing user work; include_image:true waits up to 8s for a UI PNG. clear keep_user:true preserves user work.`,
 		InputSchema: json.RawMessage(`{"type":"object","required":["action"],"properties":{"action":{"type":"string","enum":["open","close","add","update","remove","clear","set_scene","focus","highlight","annotate","step","read","export","list","rename","delete"]},"board_id":{"type":"string"},"title":{"type":"string"},"layout":{"enum":["panel","fullscreen"]},"elements":{"type":"array","maxItems":500,"items":{"type":"object"}},"ids":{"type":"array","maxItems":500,"items":{"type":"string"}},"animate":{"type":"boolean"},"step_ms":{"type":"integer","minimum":0,"maximum":10000},"keep_user":{"type":"boolean"},"rect":{"type":"object"},"zoom":{"type":"number","exclusiveMinimum":0},"style":{"enum":["laser","pulse","box"]},"duration_ms":{"type":"integer","minimum":0,"maximum":60000},"target_id":{"type":"string"},"text":{"type":"string"},"steps":{"type":"array","maxItems":500,"items":{"type":"object"}},"delay_ms":{"type":"integer","minimum":0,"maximum":10000},"include_image":{"type":"boolean"},"format":{"enum":["png","svg","json"]}},"additionalProperties":false}`),
 		Effect:      types.EffectWriteLocal, Idempotency: types.IdemNonIdempotent, Cancel: types.CancelCooperative, Timeout: 2 * time.Minute, OutputBudget: 32000, Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"}, Group: "creative-tools", Keywords: []string{"teach", "explain", "diagram", "draw", "whiteboard"},
 	}
@@ -125,7 +125,42 @@ func (t *Tool) execute(ctx context.Context, conv string, a action) (any, error) 
 			return nil, err
 		}
 		if a.BoardID == "" {
-			return nil, invalid("open a board first")
+			chartRequest := false
+			chartTitle := ""
+			if a.Action == "add" || a.Action == "set_scene" {
+				for _, raw := range a.Elements {
+					var element struct {
+						Type  string `json:"type"`
+						Chart struct {
+							Title string `json:"title"`
+						} `json:"chart"`
+					}
+					if json.Unmarshal(raw, &element) == nil && element.Type == "chart" {
+						chartRequest = true
+						if chartTitle == "" {
+							chartTitle = strings.TrimSpace(element.Chart.Title)
+						}
+					}
+				}
+			}
+			if !chartRequest {
+				return nil, invalid("open a board first")
+			}
+			// Validate before creating a board so invalid charts leave no empty board.
+			if _, err := applyOps(&Board{}, []Op{{Op: a.Action, Elements: a.Elements}}, "agent"); err != nil {
+				return nil, invalid(err.Error())
+			}
+			title := a.Title
+			if title == "" {
+				// An automatically opened board takes the chart's own title
+				// instead of the generic default.
+				title = chartTitle
+			}
+			opened, err := s.Open(ctx, conv, "", title, "panel")
+			if err != nil {
+				return nil, err
+			}
+			a.BoardID = opened.ID
 		}
 	}
 

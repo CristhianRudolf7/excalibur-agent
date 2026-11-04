@@ -1,6 +1,7 @@
 import { CredentialRequests } from '@/features/credentials/CredentialRequests'
 import type { ClassroomContext } from '@/lib/rpc/classroom'
 import { ChangesCard } from './ChangesCard'
+import { PublicPreviewMessage } from './PublicPreviewCard'
 import { visibleAutomationMessage } from '@/features/automations/context'
 import { InlineInteraction } from './InlineInteraction'
 import './chat.css'
@@ -14,7 +15,6 @@ import { Button } from '@/components/ui/button'
 import { useAgent, useAgents } from '@/features/agents/store'
 import { markAgentRead } from '@/features/agents/api'
 import { useChat } from './store'
-import { Markdown } from '@/components/markdown/Markdown'
 import { Composer } from './Composer'
 import { MessageCopy } from './MessageCopy'
 import { MessageSpeak } from './MessageSpeak'
@@ -245,9 +245,9 @@ export function Chat({
                     </div>
                   )}
                   {message.sender === 'agent' ? (
-                    <Markdown sources={message.sources}>
+                    <PublicPreviewMessage sources={message.sources}>
                       {message.literal ? message.text : t(message.text)}
-                    </Markdown>
+                    </PublicPreviewMessage>
                   ) : (
                     <p>
                       {visibleAutomationMessage(

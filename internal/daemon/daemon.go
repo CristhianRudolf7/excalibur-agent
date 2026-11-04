@@ -166,6 +166,11 @@ func (d *Daemon) Start(ctx context.Context) (string, error) {
 			return "", err
 		}
 	}
+	if d.dep.Services != nil && d.dep.Services.previews != nil {
+		d.dep.Services.previews.mu.Lock()
+		d.dep.Services.previews.dataDir = d.cfg.DataDir
+		d.dep.Services.previews.mu.Unlock()
+	}
 	d.checkCrashHistory(time.Now())
 	now := time.Now()
 	cl := d.crashLog()
@@ -320,6 +325,7 @@ func waitDone(chans []<-chan struct{}, timeout time.Duration) bool {
 // Runs persist in the journal; boot re-adopts them (Section 17.3).
 func (d *Daemon) Stop(ctx context.Context) error {
 	if d.dep.Services != nil {
+		defer d.dep.Services.previews.Close()
 		defer func() { _ = d.dep.Services.BrowserWeb.Close() }()
 		defer d.dep.Services.CloseBrowserLive()
 		defer func() { _ = d.dep.Services.Collections.Close() }()

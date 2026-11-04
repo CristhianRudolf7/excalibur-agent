@@ -21,7 +21,7 @@ func (s *Services) chatToolActivation(request, model string, app *api.AppContext
 	activation := wireengine.SuggestTools(s.Catalog, s.Skills, request, model, "default")
 	// Personal-agent actions must remain discoverable even when broad words
 	// such as "create" rank unrelated deferred tools ahead of them.
-	for _, name := range []string{"manage_agents", "send_to_agent", "search_agent_chats", "design_avatar"} {
+	for _, name := range []string{"manage_agents", "send_to_agent", "search_agent_chats", "design_avatar", "public_preview"} {
 		if slices.Contains(activation.Names, name) {
 			continue
 		}

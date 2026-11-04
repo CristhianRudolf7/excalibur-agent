@@ -230,3 +230,127 @@ test('shows an honest offline state when the method is unavailable', async ({ pa
   ).toBeVisible()
   await expect(page.locator('.excalidraw')).toHaveCount(0)
 })
+
+for (const theme of ['light', 'dark'])
+  test(`native chart labels and fills render in ${theme} mode`, async ({ page }, testInfo) => {
+    const group = { author: 'agent' as const, group_id: 'expenses' }
+    const board: Board = {
+      id: 'chart-board',
+      conversation_id: 'cnv_web_excalibur',
+      title: 'Weekly expenses',
+      version: 1,
+      updated_at: '2026-11-04T00:00:00Z',
+      elements: [
+        {
+          ...group,
+          id: 'expenses',
+          type: 'rect',
+          x: 40,
+          y: 80,
+          width: 560,
+          height: 340,
+          style: { fill: '#ffffff', stroke: '#cbd5e1', roughness: 0 },
+        },
+        {
+          ...group,
+          id: 'expenses-title',
+          type: 'text',
+          x: 60,
+          y: 94,
+          width: 520,
+          height: 27.5,
+          text: 'Weekly expenses',
+          style: { stroke: '#1e293b', font_size: 22, font_family: 'Helvetica' },
+        },
+        {
+          ...group,
+          id: 'expenses-bar-0',
+          type: 'rect',
+          x: 144,
+          y: 141,
+          width: 300,
+          height: 22,
+          style: { fill: '#4f86e8', stroke: '#4f86e8', roughness: 0 },
+        },
+        {
+          ...group,
+          id: 'expenses-label-0',
+          type: 'text',
+          x: 56,
+          y: 138,
+          width: 80,
+          height: 20,
+          text: 'Food',
+          style: { stroke: '#1e293b', font_size: 16 },
+        },
+        {
+          ...group,
+          id: 'expenses-value-0',
+          type: 'text',
+          x: 454,
+          y: 138,
+          width: 100,
+          height: 20,
+          text: 'S/ 69.50',
+          style: { stroke: '#1e293b', font_size: 16 },
+        },
+        {
+          ...group,
+          id: 'expenses-axis',
+          type: 'line',
+          x: 144,
+          y: 136,
+          width: 0,
+          height: 248,
+          points: [
+            [0, 0],
+            [0, 248],
+          ],
+          style: { stroke: '#64748b', roughness: 0 },
+        },
+      ],
+    }
+    const events = await mockEvents(page)
+    await page.route('**/rpc', async (route) => {
+      const request = route.request().postDataJSON()
+      if (!request.method.startsWith('whiteboard.')) return route.fallback()
+      await route.fulfill({
+        json: {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: request.method === 'whiteboard.list' ? { boards: [board] } : board,
+        },
+      })
+    })
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.goto('/agents/excalibur?view=chat')
+    await events.ready('whiteboard.opened')
+    await page.evaluate(
+      (dark) => document.documentElement.classList.toggle('dark', dark),
+      theme === 'dark',
+    )
+    events.emit('whiteboard.opened', {
+      conversation_id: board.conversation_id,
+      board_id: board.id,
+      board,
+      layout: 'fullscreen',
+    })
+    const surface = page.getByTestId('whiteboard-surface')
+    await expect(surface).toBeVisible({ timeout: 45000 })
+    await expect(surface).toHaveAttribute('data-elements', /expenses-value-0/)
+    if (theme === 'dark') await expect(surface.locator('.excalidraw')).toHaveClass(/theme--dark/)
+    else await expect(surface.locator('.excalidraw')).not.toHaveClass(/theme--dark/)
+    // Native SVG export exercises Excalidraw's actual text and shape renderer.
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', { name: /Export SVG|Exportar SVG/, exact: true }).click()
+    const exported = await download
+    const stream = await exported.createReadStream()
+    const chunks: Buffer[] = []
+    for await (const chunk of stream!) chunks.push(Buffer.from(chunk))
+    const svg = Buffer.concat(chunks).toString()
+    expect(svg).toContain('S/ 69.50')
+    expect(svg).toContain('Food')
+    expect(svg).toContain('Weekly expenses')
+    expect(svg).toContain('#4f86e8')
+    await surface.screenshot({ path: testInfo.outputPath(`chart-${theme}.png`) })
+  })

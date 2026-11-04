@@ -77,7 +77,7 @@ func (b *DaemonBackend) configureAssistantOutput() {
 					sources = append(sources, source)
 				}
 			}
-			return text, sources, dropped
+			return b.previews.messageLinks(tree, text), sources, dropped
 		},
 		Publish: func(ev api.MessageEvent) {
 			if b.Bus != nil {
