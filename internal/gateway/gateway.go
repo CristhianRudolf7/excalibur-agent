@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -192,10 +193,16 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxMediaUploadRPCBodyBytes)
+	body, err := io.ReadAll(r.Body)
+	defer clear(body)
+	if err != nil {
+		writeResponse(w, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
+		return
+	}
 	var raw json.RawMessage
 	defer func() { clear(raw) }()
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&raw); err != nil || !rpcBodySizeAllowed(raw, len(body)) {
 		writeResponse(w, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
 		return
 	}
@@ -222,6 +229,26 @@ func (s *Server) serveRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeResponse(w, resp)
+}
+
+const (
+	maxRPCBodyBytes            = 4 << 20
+	maxMediaUploadRPCBodyBytes = 48 << 20
+)
+
+// Only a single media upload receives the larger envelope allowance. Batches
+// retain the ordinary total body limit, regardless of their constituent methods.
+func rpcBodySizeAllowed(raw []byte, size int) bool {
+	if size <= maxRPCBodyBytes {
+		return true
+	}
+	if size > maxMediaUploadRPCBodyBytes {
+		return false
+	}
+	var envelope struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(raw, &envelope) == nil && envelope.Method == api.MethodRobotLabMediaUpload
 }
 
 func writeResponse(w http.ResponseWriter, resp *api.Response) {
@@ -427,6 +454,7 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { _ = conn.Close(websocket.StatusNormalClosure, "") }()
+	conn.SetReadLimit(maxMediaUploadRPCBodyBytes)
 	ctx := r.Context()
 	peer := &wsPeer{conn: conn}
 	sub := s.newSub(nil)
@@ -435,6 +463,11 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		_, raw, err := conn.Read(ctx)
 		if err != nil {
 			return
+		}
+		if !rpcBodySizeAllowed(raw, len(raw)) {
+			clear(raw)
+			_ = peer.write(ctx, api.NewError(nil, &api.Error{Code: api.CodeParseError, Message: "parse error"}))
+			continue
 		}
 		var req api.Request
 		decodeErr := json.Unmarshal(raw, &req)
@@ -470,12 +503,19 @@ func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 			sub.mu.Unlock()
 			past := s.replay(cursor, p.Types)
 			ack, _ := api.NewResult(req.ID, map[string]any{"events": past, "cursor": cursor.String()})
-			if err := peer.write(ctx, ack); err != nil {
+			ackRaw, err := json.Marshal(ack)
+			if err != nil {
 				return
 			}
-			// The live tail runs beside the read loop so the socket
-			// keeps serving RPC and answers the close handshake.
+			// Register the live tail before acknowledging readiness. Hold the
+			// writer so a live push cannot overtake the subscribe response.
+			peer.mu.Lock()
 			sub.attach(ctx, s, peer)
+			err = peer.writeRawLocked(ctx, ackRaw)
+			peer.mu.Unlock()
+			if err != nil {
+				return
+			}
 			continue
 		}
 		result, apiErr := s.route(ctx, req.Method, req.Params, clientIDOf(ctx))
@@ -520,6 +560,10 @@ func (p *wsPeer) write(ctx context.Context, v any) error {
 func (p *wsPeer) writeRaw(ctx context.Context, buf []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	return p.writeRawLocked(ctx, buf)
+}
+
+func (p *wsPeer) writeRawLocked(ctx context.Context, buf []byte) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return p.conn.Write(ctx, websocket.MessageText, buf)

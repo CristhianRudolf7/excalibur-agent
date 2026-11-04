@@ -1,0 +1,852 @@
+{
+  "version": 1,
+  "commit": "98a70c569c4c1b6da467a20012f766ee1f8dc521",
+  "models": {
+    "universal_robots_ur10e": {
+      "upstream": "universal_robots_ur10e",
+      "license": "BSD-3-Clause"
+    },
+    "robotiq_2f85": {
+      "upstream": "robotiq_2f85",
+      "license": "BSD-2-Clause"
+    },
+    "unitree_go2": {
+      "upstream": "unitree_go2",
+      "license": "BSD-3-Clause"
+    },
+    "unitree_z1": {
+      "upstream": "unitree_z1",
+      "license": "BSD-3-Clause"
+    },
+    "skydio_x2": {
+      "upstream": "skydio_x2",
+      "license": "Apache-2.0"
+    },
+    "unitree_g1": {
+      "upstream": "unitree_g1",
+      "license": "BSD-3-Clause"
+    }
+  },
+  "files": [
+    {
+      "path": "universal_robots_ur10e/CHANGELOG.md",
+      "size": 217,
+      "sha256": "d3b71a203f953fafe76eae71cd5046591c547d56351acbefc39fc5dd040c334e"
+    },
+    {
+      "path": "universal_robots_ur10e/LICENSE",
+      "size": 1470,
+      "sha256": "5ec71ccf66c8d03261448f2441a586765b97f2248c860a1ae19689fb1c45cee6"
+    },
+    {
+      "path": "universal_robots_ur10e/README.md",
+      "size": 2106,
+      "sha256": "69af5118815feba60c683415231fcd2c27d4a240c9e613731596583440a96ed3"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/base_0.obj",
+      "size": 578010,
+      "sha256": "bf32c8c773792ef5d77733faca78f76aac09253d1f27e5d6550d016de7c71805"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/base_1.obj",
+      "size": 656746,
+      "sha256": "849a788074d7670d9ba736f80b36622777d533eff883ccc973c916e1662a4fc1"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/forearm_0.obj",
+      "size": 3055054,
+      "sha256": "7bdcfc8879ee27eedbcf9bda49133209a8988869ca810abed12510da52aec6ce"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/forearm_1.obj",
+      "size": 1154387,
+      "sha256": "add3f9150c7a39f9619d7a13cb730f836b0f5bb0538d22998b2ef2531ccb231d"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/forearm_2.obj",
+      "size": 300496,
+      "sha256": "e7a4ef8ebc423dc89f3b709de5331e6546ba619515ab4e9f4173e1c4df50928c"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/forearm_3.obj",
+      "size": 114804,
+      "sha256": "7963bc45f0caa7891e16e0e3aaf1b8255ccb31c45eb2e7189ae41ab79d769c6c"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/shoulder_0.obj",
+      "size": 3491586,
+      "sha256": "dc2cb7d3c9a89fd5a7cc954f72448e0b096b8a55bd2552fbb5012cb63a8665ad"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/shoulder_1.obj",
+      "size": 552402,
+      "sha256": "29300890574301e471272b609462df7ce4c740c94b28d5d397742344884034dd"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/shoulder_2.obj",
+      "size": 3692490,
+      "sha256": "c9d28de31d417e478e807ac181ca713ae85cd3e2ec7e2ee59411ffa441a1ea7c"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/upperarm_0.obj",
+      "size": 978812,
+      "sha256": "443e65b87bd6494ce60e1020750b8d12d75fb647b15a0a20c46cf6bcdd367189"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/upperarm_1.obj",
+      "size": 3920017,
+      "sha256": "1faf80f2049a7d5f423ee5cb64b3660ffe7a7268952e547e0c41b0d8a8381280"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/upperarm_2.obj",
+      "size": 5538225,
+      "sha256": "6bcadcbab26e2c93b6e6d1148d9f1ec3afbaed601d4b1c33e3ac655cd2713fce"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/upperarm_3.obj",
+      "size": 130018,
+      "sha256": "19b05ed2b694965b8aae32495297223f03c2c0fa21db9baa5283f3225abcc311"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist1_0.obj",
+      "size": 560118,
+      "sha256": "29c7986338deaaac9c08e178cae1f6a6b72d35baeab9e431e0c9e0c94ad098d9"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist1_1.obj",
+      "size": 3345961,
+      "sha256": "793966ed9435327bbf6321bf519b20b5a5fc224af7b6cc3d77c5aa55facd97a2"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist1_2.obj",
+      "size": 241142,
+      "sha256": "9f4ee5635420d34e25a4daa776a5c2eb0b9b5b16e952b98f298eee77bf9755aa"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist2_0.obj",
+      "size": 866932,
+      "sha256": "a0a095dcd76a4658124530de86c5fe578d7a82d0dd2843345f75f2c37951d4b5"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist2_1.obj",
+      "size": 3618395,
+      "sha256": "613d0933859d74cef3afce04023c7bec7e600fef8461bd5a8fa687fc73b5297c"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist2_2.obj",
+      "size": 268250,
+      "sha256": "8c3a94f34998629636c0b947d6f0122dbb675e51fa8885502d20cc1d7fdb7a3c"
+    },
+    {
+      "path": "universal_robots_ur10e/assets/wrist3.obj",
+      "size": 230756,
+      "sha256": "7d125e3585fe8a208042ea1dfd39e178efa946604e0e89c4f7dc1467a6354b22"
+    },
+    {
+      "path": "universal_robots_ur10e/scene.xml",
+      "size": 862,
+      "sha256": "884a32fb66c9bf464e93efc2224741e9d525d1be454645d7c154d1a1e7468ca7"
+    },
+    {
+      "path": "universal_robots_ur10e/ur10e.png",
+      "size": 1997579,
+      "sha256": "d2b5d0884bef58d7cb91696599d199a916592423947f506900a102139f769a3f"
+    },
+    {
+      "path": "universal_robots_ur10e/ur10e.xml",
+      "size": 6852,
+      "sha256": "50775329294a1ad999c663600ac57979bc23ee64f3f09e541ea3298341625658"
+    },
+    {
+      "path": "robotiq_2f85/2f85.png",
+      "size": 1140430,
+      "sha256": "cce07123183ffe562768aadcdbaa487336c0c2a485c2a26c47697750630bc912"
+    },
+    {
+      "path": "robotiq_2f85/2f85.xml",
+      "size": 9540,
+      "sha256": "d48aca5f9151798ffd38111ce4e8b2081f3ec2d4f525161b33643451580010de"
+    },
+    {
+      "path": "robotiq_2f85/CHANGELOG.md",
+      "size": 146,
+      "sha256": "38082db6de93a95ef85a319c2a8cac8b1dbcff597a718d8cdf843c339e7b23a6"
+    },
+    {
+      "path": "robotiq_2f85/LICENSE",
+      "size": 1297,
+      "sha256": "3d5edd18d1e22a17666e9bb84270171ed5ac90b192d24e0177fd171708ea2316"
+    },
+    {
+      "path": "robotiq_2f85/README.md",
+      "size": 1367,
+      "sha256": "a10f34027d417f8f7b9102b74b42976031f0246f3090444728ab322bc4632aaf"
+    },
+    {
+      "path": "robotiq_2f85/assets/base.stl",
+      "size": 1712484,
+      "sha256": "1c7b9f2bd92d705fc4e897c94e905973a3c05f406845e942229433deb7041453"
+    },
+    {
+      "path": "robotiq_2f85/assets/base_mount.stl",
+      "size": 1091784,
+      "sha256": "87971dfdd6e5311b5a723e7b73c4701ebf5c2364df671500f30dfc1c53c8e61a"
+    },
+    {
+      "path": "robotiq_2f85/assets/coupler.stl",
+      "size": 89084,
+      "sha256": "d5ee95e62f8415bf5b6e503c831a958f5fc1990bf9b2865329ec38a28932727c"
+    },
+    {
+      "path": "robotiq_2f85/assets/driver.stl",
+      "size": 67084,
+      "sha256": "bbd6e868b1778bead60d2516c7ede581d7ad4e431744b1828757d6ea5129c112"
+    },
+    {
+      "path": "robotiq_2f85/assets/follower.stl",
+      "size": 110484,
+      "sha256": "633793332c081641ce200df27a40643cc293b29956e3cb5cb29cb811c33ef1c7"
+    },
+    {
+      "path": "robotiq_2f85/assets/pad.stl",
+      "size": 15084,
+      "sha256": "4af1fa8d9bb285abecbf5dfc88e74cb30f059a7a074c2030dc35e9ee4316019d"
+    },
+    {
+      "path": "robotiq_2f85/assets/silicone_pad.stl",
+      "size": 15084,
+      "sha256": "ca20c0fa61e6d3ce7b04bed25360e048e31dfd88ace04187aa6d9e8f4ca3fd0f"
+    },
+    {
+      "path": "robotiq_2f85/assets/spring_link.stl",
+      "size": 84884,
+      "sha256": "4fb74a8a0d76c0e471cf19fd48bc676fd5b19123798e7a39eb6aa56869354283"
+    },
+    {
+      "path": "robotiq_2f85/scene.xml",
+      "size": 1393,
+      "sha256": "dbc7255f3e1a5539e59cffac3000a49f19aa3cae384061aa74ec787e6a5760ff"
+    },
+    {
+      "path": "unitree_go2/CHANGELOG.md",
+      "size": 460,
+      "sha256": "5d35e51b35ee779ac9cacf10599b440a51509c9fa3aa9c067bd9dc775ed11bd3"
+    },
+    {
+      "path": "unitree_go2/LICENSE",
+      "size": 1537,
+      "sha256": "7e2dfda59b98e38d123f539b59ecb637ffd8908d19e09f7765884a309f010d40"
+    },
+    {
+      "path": "unitree_go2/README.md",
+      "size": 2435,
+      "sha256": "b1384664f8bd60ef4333e340aa06c6f2b1175a5329e3ea9345da3dde20362069"
+    },
+    {
+      "path": "unitree_go2/assets/base_0.obj",
+      "size": 1330465,
+      "sha256": "8cdc53719002a5ee737d867904e534a6d6fa930b616bdcc1b3131e577d4e46c0"
+    },
+    {
+      "path": "unitree_go2/assets/base_1.obj",
+      "size": 811791,
+      "sha256": "39d2f4724ff64dd5a0640c308fd98902a2946660a8d033ec8dbf368fd5af0dd6"
+    },
+    {
+      "path": "unitree_go2/assets/base_2.obj",
+      "size": 294090,
+      "sha256": "29cae463f95d678e4ede863c36c9b19b0d356b8340412add10670d70bdcc3095"
+    },
+    {
+      "path": "unitree_go2/assets/base_3.obj",
+      "size": 379093,
+      "sha256": "f51ba43bf300e68957a0c1aa83eaf3e4926f4ac7e64a0d6c33ae5d21fcbcf5f6"
+    },
+    {
+      "path": "unitree_go2/assets/base_4.obj",
+      "size": 7776234,
+      "sha256": "49ddec0129546e5dd2075d5beacf7f207baa2860aeff7626818e64d2efbf3821"
+    },
+    {
+      "path": "unitree_go2/assets/calf_0.obj",
+      "size": 877174,
+      "sha256": "4a818cd563c5b7e2a271504442d05fd777d38cbaa028d4a10ad29c9f87bb355e"
+    },
+    {
+      "path": "unitree_go2/assets/calf_1.obj",
+      "size": 326865,
+      "sha256": "51950c3a153ae3208592df86ea11c9d6756f8f645ebca5caf6910c61aeb03817"
+    },
+    {
+      "path": "unitree_go2/assets/calf_mirror_0.obj",
+      "size": 876538,
+      "sha256": "6dc0406207a1c08a5953fd5962aca1a270fd06593d30d100205e05c1b32d4af2"
+    },
+    {
+      "path": "unitree_go2/assets/calf_mirror_1.obj",
+      "size": 327261,
+      "sha256": "f84f5af90b914633165beb3a5493ee499169144c5797dcf04c6eb5842f74b31a"
+    },
+    {
+      "path": "unitree_go2/assets/foot.obj",
+      "size": 1144729,
+      "sha256": "df9e78a7c0110d02557439010f2a5f11f0ec4fd907b32704145dbd6aa7affc0b"
+    },
+    {
+      "path": "unitree_go2/assets/hip_0.obj",
+      "size": 2863864,
+      "sha256": "cc29932ab4d251ce3f72389ec4c1f757e44eee138b87e772b648c2bc76b506cd"
+    },
+    {
+      "path": "unitree_go2/assets/hip_1.obj",
+      "size": 2767918,
+      "sha256": "3fd5bd9b2ef6abe622c0739d3c67eaa1679b19b47132951972c4892a779ea7cf"
+    },
+    {
+      "path": "unitree_go2/assets/thigh_0.obj",
+      "size": 2841868,
+      "sha256": "bb3edfe6a7b04f4f4dff1ce7b05d426ddce941e276cc6372fb542055893c71ec"
+    },
+    {
+      "path": "unitree_go2/assets/thigh_1.obj",
+      "size": 1491320,
+      "sha256": "3a631822f9f7d2114b1b79dcdff5abf95103630abb7d91d1f3b8b18117132ed2"
+    },
+    {
+      "path": "unitree_go2/assets/thigh_mirror_0.obj",
+      "size": 2817674,
+      "sha256": "07abaedce761f1dd48647384ac14ba1959276bc78d5a2a62051e8f1c6093933b"
+    },
+    {
+      "path": "unitree_go2/assets/thigh_mirror_1.obj",
+      "size": 1482261,
+      "sha256": "db984a3e983eabbc9b38183427cca9ab0bb3bdb049f9eab030e06edda36579d6"
+    },
+    {
+      "path": "unitree_go2/go2.png",
+      "size": 1896586,
+      "sha256": "838924da23e5034f7210a14e3540194750ab1469110c6d3832909dc55968a5e9"
+    },
+    {
+      "path": "unitree_go2/go2.xml",
+      "size": 11678,
+      "sha256": "50adb09a4365293e2acdaf2010ae35a82b0f09fea18ae51806fef91e310ed04a"
+    },
+    {
+      "path": "unitree_go2/go2_mjx.png",
+      "size": 540342,
+      "sha256": "6f2cdfa110b0826122b296bc7db4fd5212f688b177ea70d65a9331bee11ca469"
+    },
+    {
+      "path": "unitree_go2/go2_mjx.xml",
+      "size": 13979,
+      "sha256": "fd3d459f22c02187334ab8877c664e5d9e33b513d75312a615368e8a215621c6"
+    },
+    {
+      "path": "unitree_go2/scene.xml",
+      "size": 816,
+      "sha256": "b56123ea2bf09070bf4054f0be9aa418e49041ddddce44dbbf7ab35e8b732641"
+    },
+    {
+      "path": "unitree_go2/scene_mjx.xml",
+      "size": 820,
+      "sha256": "e6754ed3a6e7fbf031edfdffbcc70583a3c46f10d2510f0ac9314789573acf21"
+    },
+    {
+      "path": "unitree_z1/CHANGELOG.md",
+      "size": 143,
+      "sha256": "a745d384a31aeca4cfc54d2528bfb0818dd63b6b45f1292f073433c209036200"
+    },
+    {
+      "path": "unitree_z1/LICENSE",
+      "size": 1559,
+      "sha256": "2b794acf1e250f5545ae5a47d81e5685ea5488ce077d1087ed8be5f81e9ba5c0"
+    },
+    {
+      "path": "unitree_z1/README.md",
+      "size": 1096,
+      "sha256": "ff2cd205cbdc07b7c2089097948f02950ee510280dcbc2903bb1f307bbec8c00"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover.stl",
+      "size": 1152684,
+      "sha256": "7b88f56bd0c92448713ce167286cf1a8a27df027081bbcfec68650449fe2aa09"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover_col_1.stl",
+      "size": 2484,
+      "sha256": "e5f3f92d4444d58d5bb438af3bb554e3415b822f38d15a00af3f0cda22d6baef"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover_col_2.stl",
+      "size": 2484,
+      "sha256": "2c236c4bd283c4ad8370ad80a01a778c9f629a72876303cab2c0bbad044d3e5f"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover_col_3.stl",
+      "size": 2484,
+      "sha256": "e7cc5f0a728855a6611a8c9545315058a476478675841dcf33f9d4d6f9f8eab8"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover_col_4.stl",
+      "size": 4284,
+      "sha256": "a0a330f50af07470bc61a7aa5046e2ef74dfeffb75ea0542c4ea171df51d6ebb"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperMover_col_5.stl",
+      "size": 4284,
+      "sha256": "13b959c18081ea848b022662ef51c4c9778231ae3393fd197db7290dfb091ad8"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator.stl",
+      "size": 2170284,
+      "sha256": "9f5dc7cc40f53de018c9bc201c14e2602eb10fedbd130609a3ddcb162ed9cee7"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_1.stl",
+      "size": 684,
+      "sha256": "14e70222863b725f462381cf1cc3b1bb7c078611a7deaa928bac58fca77d5576"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_2.stl",
+      "size": 2484,
+      "sha256": "6eff356928ad4f76fe82aa69d7f755ad402ca5b50428dee9aab7ddc4374da0c9"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_3.stl",
+      "size": 2484,
+      "sha256": "a20f5d9c651e3eda86af3f78dcaabd6a2e906bfd0285f80849bdbca21db58885"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_4.stl",
+      "size": 1284,
+      "sha256": "10d12c40f52841b250a9aa7d3078e8ee26faad027e7b0098f471bf4364c61b61"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_5.stl",
+      "size": 6284,
+      "sha256": "8589982f430e2cf49f34a7fb6910e6881321f4d80ad2d46962200e843f4e9030"
+    },
+    {
+      "path": "unitree_z1/assets/z1_GripperStator_col_6.stl",
+      "size": 6284,
+      "sha256": "385bd1ee96796b8756b208e8b474a0064daf83d334f90097122e54724b285f3d"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link00.stl",
+      "size": 818684,
+      "sha256": "d75a404679bd85795b09fdc95cfd490211d1bced9a8b9228b2e737394f8dccbf"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link01.stl",
+      "size": 2813284,
+      "sha256": "489238d3af107b967e57d260887363b3ffc635b2005e378b8f6d881f796da649"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link02.stl",
+      "size": 1306284,
+      "sha256": "20b767758fce2d00991180abb5893cb1208c99ca912b9d787821ee3f28214949"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link03.stl",
+      "size": 1679084,
+      "sha256": "bc367e92accb5653e7f59ce8f92c67f6fe5ca58adb6f34b58b10e2c98ac3adf1"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link04.stl",
+      "size": 1263884,
+      "sha256": "cf597837f10e7c062f24234f80c443f1ccd5f29db0eb8acd47f639612248e804"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link05.stl",
+      "size": 901584,
+      "sha256": "11672541c399a9fe93621f30f323f012d8216a064749dabf437bf849c0ea81bc"
+    },
+    {
+      "path": "unitree_z1/assets/z1_Link06.stl",
+      "size": 114584,
+      "sha256": "c6f401da94b1dd329ff3ab4cc094fcab034f514db8edaa95a3e84d457d313431"
+    },
+    {
+      "path": "unitree_z1/scene.xml",
+      "size": 813,
+      "sha256": "fbbdd2d5bca491178e864c51414cd9a6f0771f0adea3be06be3be9316ed5572c"
+    },
+    {
+      "path": "unitree_z1/z1.png",
+      "size": 1276742,
+      "sha256": "c69072e2d5a9bc25ee3de12465fd362918069b2fa4f7316aa9757bf2885fd5d6"
+    },
+    {
+      "path": "unitree_z1/z1.xml",
+      "size": 4779,
+      "sha256": "152e97e9df6c35ea846a6b60582ac835720b6e365fd01bd9eb202b776883a33c"
+    },
+    {
+      "path": "unitree_z1/z1_gripper.xml",
+      "size": 8137,
+      "sha256": "b7cf72ca30b53808f70f96e1a01758cbde4912d4541abba7d24ce63b63e8e86d"
+    },
+    {
+      "path": "skydio_x2/CHANGELOG.md",
+      "size": 204,
+      "sha256": "3ed28367c5094ed3719c3ea91b7144cb6a2e1c869e6bfd0ef23a8b5dd56eea65"
+    },
+    {
+      "path": "skydio_x2/LICENSE",
+      "size": 11355,
+      "sha256": "d42cae9a0f292b7a713597ba26e1e1e23d50df906c488f0d36fd3538af200bc1"
+    },
+    {
+      "path": "skydio_x2/README.md",
+      "size": 560,
+      "sha256": "7b1b354ffdd2e9f243b211cc6ea9b5dab17614a13fc567378ded2b7676c13394"
+    },
+    {
+      "path": "skydio_x2/assets/X2_lowpoly.obj",
+      "size": 540699,
+      "sha256": "4d6df3d7b26676a6ade8cbc320599961321ac3e3c52474d7c98dd7adc8152411"
+    },
+    {
+      "path": "skydio_x2/assets/X2_lowpoly_texture_SpinningProps_1024.png",
+      "size": 298668,
+      "sha256": "24153733dd01f9ddd37a3c79fad5e24ac876228812e3a8e95f60ccd8cedb66e1"
+    },
+    {
+      "path": "skydio_x2/scene.xml",
+      "size": 918,
+      "sha256": "0a81cc0a15091cc3a91f7abf5a2694aeef555fbf94ed79876896eef38b1dad88"
+    },
+    {
+      "path": "skydio_x2/x2.png",
+      "size": 1520333,
+      "sha256": "512021031d29096eb793c225331bfbd132488aa5b7b76f652d34587f78aaed9e"
+    },
+    {
+      "path": "skydio_x2/x2.xml",
+      "size": 2750,
+      "sha256": "b1cc5d68eb8ff154ab93a9958b58f69210865e1793eb96b30a32f46c68cc7e71"
+    },
+    {
+      "path": "unitree_g1/CHANGELOG.md",
+      "size": 1330,
+      "sha256": "6988f6caccbc0152af5136a8a2aaf5bb5bd84fea3293661202162f2f8aa92408"
+    },
+    {
+      "path": "unitree_g1/LICENSE",
+      "size": 1537,
+      "sha256": "98335465f43a20b5850e4651db6e74c4aa1e9fc8e8813d38f345178045c0da50"
+    },
+    {
+      "path": "unitree_g1/README.md",
+      "size": 2202,
+      "sha256": "e0ca5e85f68ff9554631c3ea6ac624b469d6018a37e273daa1234e43e3ad4395"
+    },
+    {
+      "path": "unitree_g1/assets/head_link.STL",
+      "size": 932784,
+      "sha256": "005fb67fbd3eff94aa8bf4a6e83238174e9f91b6721f7111594322f223724411"
+    },
+    {
+      "path": "unitree_g1/assets/left_ankle_pitch_link.STL",
+      "size": 71184,
+      "sha256": "d49e3abc6f5b12e532062cd575b87b5ef40cd2a3fc18f54a1ca5bba4f773d51d"
+    },
+    {
+      "path": "unitree_g1/assets/left_ankle_roll_link.STL",
+      "size": 653384,
+      "sha256": "c4092af943141d4d9f74232f3cfa345afc6565f46a077793b8ae0e68b39dc33f"
+    },
+    {
+      "path": "unitree_g1/assets/left_elbow_link.STL",
+      "size": 88784,
+      "sha256": "fa752198accd104d5c4c3a01382e45165b944fbbc5acce085059223324e5bed3"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_index_0_link.STL",
+      "size": 475984,
+      "sha256": "6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_index_1_link.STL",
+      "size": 1521784,
+      "sha256": "9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_middle_0_link.STL",
+      "size": 475984,
+      "sha256": "6b35f2f77211d5a366f0b9a4e47c4ee35e536731266f1a34e9efa12db579b892"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_middle_1_link.STL",
+      "size": 1521784,
+      "sha256": "9e315ebc8a7a0cb98e033985b586b20d81cf8aa761181ae61ce56fcb14077a06"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_palm_link.STL",
+      "size": 2140184,
+      "sha256": "23a486b75bd78a9bf03cec25d84d87f97f3dae038cf21a743b6d469b337e4004"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_thumb_0_link.STL",
+      "size": 8884,
+      "sha256": "a90c721661c0622685488a3c74d1e122c7da89242d3a1daef75edb83422d05e0"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_thumb_1_link.STL",
+      "size": 475984,
+      "sha256": "445c54a45bc13ce36001556f66bc0f49c83cb40321205ae4d676bb2874325684"
+    },
+    {
+      "path": "unitree_g1/assets/left_hand_thumb_2_link.STL",
+      "size": 1521784,
+      "sha256": "3d8dbe5085acfc213d21aa8b0782e89cd79084e9678f3a85fc7b04a86b029db5"
+    },
+    {
+      "path": "unitree_g1/assets/left_hip_pitch_link.STL",
+      "size": 181684,
+      "sha256": "4725168105ee768ee31638ef22b53f6be2d7641bfd7cfefe803488d884776fa4"
+    },
+    {
+      "path": "unitree_g1/assets/left_hip_roll_link.STL",
+      "size": 192184,
+      "sha256": "91f25922ee8a7c3152790051bebad17b4d9cd243569c38fe340285ff93a97acf"
+    },
+    {
+      "path": "unitree_g1/assets/left_hip_yaw_link.STL",
+      "size": 296284,
+      "sha256": "a16d88aa6ddac8083aa7ad55ed317bea44b1fa003d314fba88965b7ed0f3b55b"
+    },
+    {
+      "path": "unitree_g1/assets/left_knee_link.STL",
+      "size": 854884,
+      "sha256": "8d92b9e3d3a636761150bb8025e32514c4602b91c7028d523ee42b3e632de477"
+    },
+    {
+      "path": "unitree_g1/assets/left_rubber_hand.STL",
+      "size": 2287484,
+      "sha256": "cff2221a690fa69303f61fce68f2d155c1517b52efb6ca9262dd56e0bc6e70fe"
+    },
+    {
+      "path": "unitree_g1/assets/left_shoulder_pitch_link.STL",
+      "size": 176784,
+      "sha256": "f0d1cfd02fcf0d42f95e678eeca33da3afbcc366ffba5c052847773ec4f31d52"
+    },
+    {
+      "path": "unitree_g1/assets/left_shoulder_roll_link.STL",
+      "size": 400284,
+      "sha256": "fb9df21687773522598dc384f1a2945c7519f11cbc8bd372a49170316d6eee88"
+    },
+    {
+      "path": "unitree_g1/assets/left_shoulder_yaw_link.STL",
+      "size": 249184,
+      "sha256": "1aa97e9748e924336567992181f78c7cd0652fd52a4afcca3df6b2ef6f9e712e"
+    },
+    {
+      "path": "unitree_g1/assets/left_wrist_pitch_link.STL",
+      "size": 85984,
+      "sha256": "b251d8e05047f695d0f536cd78c11973cfa4e78d08cfe82759336cc3471de3a9"
+    },
+    {
+      "path": "unitree_g1/assets/left_wrist_roll_link.STL",
+      "size": 356184,
+      "sha256": "edc387c9a0ba8c2237e9b296d32531426fabeb6f53e58df45c76106bca74148c"
+    },
+    {
+      "path": "unitree_g1/assets/left_wrist_yaw_link.STL",
+      "size": 318684,
+      "sha256": "83f8fb3a726bf9613d65dd14f0f447cb918c3c95b3938042a0c9c09749267d3b"
+    },
+    {
+      "path": "unitree_g1/assets/logo_link.STL",
+      "size": 243384,
+      "sha256": "8571a0a19bc4916fa55f91449f51d5fdefd751000054865a842449429d5f155b"
+    },
+    {
+      "path": "unitree_g1/assets/pelvis.STL",
+      "size": 1060884,
+      "sha256": "5ba6bbc888e630550140d3c26763f10206da8c8bd30ed886b8ede41c61f57a31"
+    },
+    {
+      "path": "unitree_g1/assets/pelvis_contour_link.STL",
+      "size": 1805184,
+      "sha256": "5cc5c2c7a312329e3feeb2b03d3fc09fc29705bd01864f6767e51be959662420"
+    },
+    {
+      "path": "unitree_g1/assets/right_ankle_pitch_link.STL",
+      "size": 71184,
+      "sha256": "15be426539ec1be70246d4d82a168806db64a41301af8b35c197a33348c787a9"
+    },
+    {
+      "path": "unitree_g1/assets/right_ankle_roll_link.STL",
+      "size": 653784,
+      "sha256": "4b66222ea56653e627711b56d0a8949b4920da5df091da0ceb343f54e884e3a5"
+    },
+    {
+      "path": "unitree_g1/assets/right_elbow_link.STL",
+      "size": 88784,
+      "sha256": "1be925d7aa268bb8fddf5362b9173066890c7d32092c05638608126e59d1e2ab"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_index_0_link.STL",
+      "size": 475984,
+      "sha256": "12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_index_1_link.STL",
+      "size": 1521784,
+      "sha256": "c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_middle_0_link.STL",
+      "size": 475984,
+      "sha256": "12ab4300c95e437e834f9aef772b3b431c671bf34338930b52ad11aef73bbd0d"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_middle_1_link.STL",
+      "size": 1521784,
+      "sha256": "c9c34efce4563cacdcfd29fc838a982976d40f5442c71219811dcbbf3923a33d"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_palm_link.STL",
+      "size": 2140184,
+      "sha256": "86c0b231cc44477d64a6493e5a427ba16617a00738112dd187c652675b086fb9"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_thumb_0_link.STL",
+      "size": 8884,
+      "sha256": "544298d0ea1088f5b276a10cc6a6a9e533efdd91594955fdc956c46211d07f83"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_thumb_1_link.STL",
+      "size": 475984,
+      "sha256": "0a9a820da8dd10f298778b714f1364216e8a5976f4fd3a05689ea26327d44bf6"
+    },
+    {
+      "path": "unitree_g1/assets/right_hand_thumb_2_link.STL",
+      "size": 1521784,
+      "sha256": "3f1bfb37668e8f61801c8d25f171fa1949e08666be86c67acad7e0079937cc45"
+    },
+    {
+      "path": "unitree_g1/assets/right_hip_pitch_link.STL",
+      "size": 181284,
+      "sha256": "e4f3c99d7f4a7d34eadbef9461fc66e3486cb5442db1ec50c86317d459f1a9c6"
+    },
+    {
+      "path": "unitree_g1/assets/right_hip_roll_link.STL",
+      "size": 192684,
+      "sha256": "4c254ef66a356f492947f360dd931965477b631e3fcc841f91ccc46d945d54f6"
+    },
+    {
+      "path": "unitree_g1/assets/right_hip_yaw_link.STL",
+      "size": 296284,
+      "sha256": "e479c2936ca2057e9eb2f7dff6c189b7419d7b8484dea0b298cbb36a2a6aa668"
+    },
+    {
+      "path": "unitree_g1/assets/right_knee_link.STL",
+      "size": 852284,
+      "sha256": "63c4008449c9bbe701a6e2b557b7a252e90cf3a5abcf54cee46862b9a69f8ec8"
+    },
+    {
+      "path": "unitree_g1/assets/right_rubber_hand.STL",
+      "size": 2192684,
+      "sha256": "99533b778bca6246144fa511bb9d4e555e075c641f2a0251e04372869cd99d67"
+    },
+    {
+      "path": "unitree_g1/assets/right_shoulder_pitch_link.STL",
+      "size": 176784,
+      "sha256": "24cdb387e0128dfe602770a81c56cdce3a0181d34d039a11d1aaf8819b7b8c02"
+    },
+    {
+      "path": "unitree_g1/assets/right_shoulder_roll_link.STL",
+      "size": 401884,
+      "sha256": "962b97c48f9ce9e8399f45dd9522e0865d19aa9fd299406b2d475a8fc4a53e81"
+    },
+    {
+      "path": "unitree_g1/assets/right_shoulder_yaw_link.STL",
+      "size": 249984,
+      "sha256": "a0b76489271da0c72461a344c9ffb0f0c6e64f019ea5014c1624886c442a2fe5"
+    },
+    {
+      "path": "unitree_g1/assets/right_wrist_pitch_link.STL",
+      "size": 79584,
+      "sha256": "d22f8f3b3127f15a63e5be1ee273cd5075786c3142f1c3d9f76cbf43d2a26477"
+    },
+    {
+      "path": "unitree_g1/assets/right_wrist_roll_link.STL",
+      "size": 356084,
+      "sha256": "a7ee9212ff5b94d6cb7f52bb1bbf3f352194d5b598acff74f4c77d340c5b344f"
+    },
+    {
+      "path": "unitree_g1/assets/right_wrist_yaw_link.STL",
+      "size": 341484,
+      "sha256": "bc9dece2d12509707e0057ba2e48df8f3d56db0c79410212963a25e8a50f61a6"
+    },
+    {
+      "path": "unitree_g1/assets/torso_link_rev_1_0.STL",
+      "size": 2570584,
+      "sha256": "11ddb46f2098efbbd8816b1d65893632d8e78be936376c7cdcd6771899ccc723"
+    },
+    {
+      "path": "unitree_g1/assets/waist_roll_link_rev_1_0.STL",
+      "size": 85884,
+      "sha256": "b67c347a05abc3e8ddae600d98a082bee273bb39f8e651647708b0a7140a8a97"
+    },
+    {
+      "path": "unitree_g1/assets/waist_yaw_link_rev_1_0.STL",
+      "size": 619984,
+      "sha256": "ec6db442b11f25eed898b5add07940c85d804f300de24dcbd264ccd8be7d554c"
+    },
+    {
+      "path": "unitree_g1/g1.png",
+      "size": 1781215,
+      "sha256": "72bb2dd0bf7fab732229554d1bd80b561aa161a9dabe45778ffa70193e05e1e7"
+    },
+    {
+      "path": "unitree_g1/g1.xml",
+      "size": 23057,
+      "sha256": "106adfe8ad759da081d4eaef3a34fc28d6c4c99f3c7f4a385decbac402a51489"
+    },
+    {
+      "path": "unitree_g1/g1_mjlab.xml",
+      "size": 22396,
+      "sha256": "aa5cf933abefb329235da4c2e3d3334c00535660b89075a8dfef4addf34a0b19"
+    },
+    {
+      "path": "unitree_g1/g1_mjx.xml",
+      "size": 27597,
+      "sha256": "34de7721f57df7e93e5f43251451018ba661fbfe34a62fb7bd79c69162fffebe"
+    },
+    {
+      "path": "unitree_g1/g1_mjx_colliders.png",
+      "size": 14340,
+      "sha256": "3dd0142a0fcd8f0a1f961c2f95e46b8f07b56a30b89fc78b8969d6c3aea2cc7e"
+    },
+    {
+      "path": "unitree_g1/g1_with_hands.png",
+      "size": 1786643,
+      "sha256": "4fd1714729f70cacd6859960b80affff75cc6e50c0f7e92eeabb8f8d2fee14e8"
+    },
+    {
+      "path": "unitree_g1/g1_with_hands.xml",
+      "size": 34372,
+      "sha256": "a6d88c9efde50e9715c71e590ce1a8d3515a0099df7f36e62add8204dae758ad"
+    },
+    {
+      "path": "unitree_g1/scene.xml",
+      "size": 833,
+      "sha256": "eee015f65b1049bb1ff55eb971cda22c260b9da7fd57c0bd7f63d85141c9db17"
+    },
+    {
+      "path": "unitree_g1/scene_mjx.xml",
+      "size": 7466,
+      "sha256": "3dc43a7ef6f232b60e4fb65a456c3b6aeb54afb141f2a45170cb522f81d0636c"
+    },
+    {
+      "path": "unitree_g1/scene_with_hands.xml",
+      "size": 854,
+      "sha256": "8c42984b0c53a71792758be8f4623c14283bb01473b48f2f5176b990617eee4c"
+    }
+  ]
+}

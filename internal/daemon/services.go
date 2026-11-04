@@ -394,6 +394,8 @@ type Services struct {
 	BrowserWeb     *wireengine.BrowserWeb
 	Robot          *robot.Service
 
+	robotLabContinue *robotLabContinuations
+
 	Automations AutomationLifecycle
 	Agenda      *agenda.Agenda
 	Triggers    *agenda.TriggerPump
@@ -513,11 +515,7 @@ func Assemble(opts AssembleOptions) (*Services, error) {
 		}
 	}()
 	if s.RobotLabTool == nil {
-		var asker robotlab.VisionAsker
-		if opts.Media != nil {
-			asker, _ = opts.Media.Vision.(robotlab.VisionAsker)
-		}
-		s.RobotLabTool = robotlab.NewTool(s.RobotLab.Sidecar, s.RobotLab, asker, &s.RobotLab.VisionStep)
+		s.RobotLabTool = robotlab.NewTool(s.RobotLab.Sidecar, s.RobotLab, nil, &s.RobotLab.VisionStep)
 	}
 	s.Whiteboard = opts.Whiteboard
 	if s.Whiteboard == nil {

@@ -1,9 +1,8 @@
-// Package robotlab runs Robot Lab: physics scenarios, reinforcement-learning
-// experiments and live robot control, served by an embedded Python sidecar.
+// Package robotlab runs deterministic robot training sessions through an embedded Python sidecar.
 //
 // The sidecar protocol and JSON shapes are fixed by the Robot Lab contract;
 // this file holds the seams shared by the service (process lifecycle, client
-// API, events) and the model tool (agent actions, vision loop).
+// API, events) and the training tool.
 package robotlab
 
 import (
@@ -14,8 +13,8 @@ import (
 )
 
 // Sidecar is a running Robot Lab runtime. Call sends one request and waits for
-// its result; Events delivers sidecar events (frame, metrics, experiment, log,
-// teleop) until the sidecar stops. Implementations start the process lazily
+// its result; Subscribe delivers frame, session and log events until shutdown.
+// Implementations start the process lazily
 // and restart it after a crash.
 type Sidecar interface {
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
@@ -31,6 +30,9 @@ type Event struct {
 
 // Status reports whether Robot Lab can run on this host.
 type Status struct {
+	LiveSession  *string      `json:"live_session"`
+	Robots       int          `json:"robots"`
+	Environments int          `json:"environments"`
 	Enabled      bool         `json:"enabled"`
 	Installed    bool         `json:"installed"`
 	Python       string       `json:"python"`

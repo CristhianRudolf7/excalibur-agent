@@ -1,3 +1,5 @@
+Superseded by [0097: Robot Lab v2](0097-robot-lab-v2.md).
+
 # 0095: Robot Lab agent tool, vision loop and skill
 
 Sections 12–14 permit a deferred domain tool for an application with its own UI.

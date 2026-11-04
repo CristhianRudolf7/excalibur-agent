@@ -50,7 +50,7 @@ func installerFixture(t *testing.T, f *fakeRunner) (*Installer, <-chan map[strin
 	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
 	data := t.TempDir()
 	source := t.TempDir()
-	if err := os.WriteFile(filepath.Join(source, "requirements.lock"), []byte("torch==2.15.0+cpu\nnumpy==2.5.4\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "requirements.lock"), []byte("mujoco==3.3.7\nnumpy==2.5.4\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	events := make(chan map[string]any, 16)
@@ -95,16 +95,16 @@ func TestInstallFlowAndCoalescing(t *testing.T) {
 	if len(calls) != 5 {
 		t.Fatalf("coalescing/commands: %v", calls)
 	}
-	want := []string{"-m", "pip", "install", "--index-url", "https://download.pytorch.org/whl/cpu", "torch==2.15.0+cpu"}
-	if !reflect.DeepEqual(calls[2][1:], want) {
-		t.Fatalf("torch command: %v", calls[2])
+	want := []string{"-m", "robotlab.assets", "fetch", "--dest", filepath.Join(i.DataDir, "robotlab", "menagerie")}
+	if !reflect.DeepEqual(calls[3][1:], want) {
+		t.Fatalf("asset command: %v", calls[3])
 	}
 	if _, err := os.Stat(filepath.Join(i.DataDir, "robotlab", "venv", ".robotlab-installed")); err != nil {
 		t.Fatal(err)
 	}
 }
 func TestInstallFailures(t *testing.T) {
-	for _, tt := range []struct{ name, version, fail string }{{"old Python", "3.9", ""}, {"pip failure", "3.12", "pip"}} {
+	for _, tt := range []struct{ name, version, fail string }{{"old Python", "3.9", ""}, {"pip failure", "3.12", "pip"}, {"asset failure", "3.12", "robotlab.assets"}, {"import failure", "3.12", "import mujoco"}} {
 		t.Run(tt.name, func(t *testing.T) {
 			i, events := installerFixture(t, &fakeRunner{version: tt.version, fail: tt.fail})
 			if err := i.Start(); err != nil {

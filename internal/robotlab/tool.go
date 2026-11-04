@@ -5,137 +5,193 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/CristhianRudolf7/excalibur-agent/internal/providers"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Tool is the deferred model surface. Nil collaborators return install guidance.
+// Tool exposes deterministic training actions. Vision is retained for callers
+// compiled against the previous composition API; images now travel in Results.
 type Tool struct {
 	Sidecar   Sidecar
 	Publisher Publisher
 	Vision    *VisionLoop
 }
-type toolAction struct{ method, fields, required, view string }
+
+type toolAction struct {
+	method string
+	omit   []string
+}
 
 var toolActions = map[string]toolAction{
-	"scenarios":          {method: "scenarios.list"},
-	"open":               {"session.open", "scenario params seed", "scenario", "scene"},
-	"control":            {"session.control", "session mode inputs pose", "session mode", "scene"},
-	"reset":              {"session.reset", "session seed", "session", "scene"},
-	"set_params":         {"session.set_params", "session params", "session params", "scene"},
-	"snapshot":           {"session.snapshot", "session camera width height", "session", "scene"},
-	"create_experiment":  {"experiment.create", "name scenario params runs total_steps reward_weights code", "name scenario runs", "experiment"},
-	"write_code":         {"experiment.write_code", "experiment code", "experiment code", "experiment"},
-	"read_code":          {"experiment.get", "experiment", "experiment", "experiment"},
-	"start":              {"experiment.start", "experiment", "experiment", "experiment"},
-	"stop":               {"experiment.stop", "experiment", "experiment", "experiment"},
-	"status":             {"experiment.get", "experiment", "", ""},
-	"metrics":            {"experiment.metrics", "experiment run since", "experiment", ""},
-	"load_policy":        {"session.load_policy", "session experiment run checkpoint pretrained", "session", "scene"},
-	"vision_step":        {"", "session instruction", "session instruction", "vision"},
-	"set_teleop_mapping": {"teleop.set_mapping", "session code", "session", "teleop"},
+	"robots": {method: "robots.list"}, "environments": {method: "env.list"},
+	"environment_get": {method: "env.get"}, "environment_create": {method: "env.save", omit: []string{"create"}}, "environment_update": {method: "env.save", omit: []string{"create"}},
+	"environment_delete": {method: "env.delete"}, "environment_preview": {method: "env.preview"}, "media": {method: "media.get"},
+	"session_start": {method: "session.start", omit: []string{"conversation"}}, "session_status": {method: "session.get"}, "session_stop": {method: "session.stop", omit: []string{"by"}},
+	"attempt_reset": {method: "attempt.reset"}, "act": {method: "robot.act"}, "look": {method: "robot.look"},
+	"skills": {method: "skills.list"}, "skill_read": {method: "skills.read"}, "skill_write": {method: "skills.write"}, "skill_use": {method: "skills.use"}, "skill_run": {method: "skills.run"},
+	"skills_copy": {method: "skills.copy"}, "note": {method: "log.note"},
 }
 
 func (*Tool) Definition() tools.Definition {
-	return tools.Definition{Name: "robot_lab", Description: `Open Robot Lab, a programmable physics and reinforcement-learning lab shared with the user. Six scenarios: cartpole (1–3 links), ballplate, arm (reach/pick_place/sort), quadruped, drone, rocket. First list scenarios for parameters, reward terms and recommended algorithms. Open a session for live controls, reset, policy playback or webcam teleoperation. Create experiments with named algorithm runs, total_steps and reward_weights; all runs execute the same editable Python script with their own hyperparameters. SDK: from robotlab import sdk; ctx=sdk.context(); env=sdk.make_env(); model=sdk.algorithm(ctx.algorithm,env,**ctx.hyperparams); model.learn(ctx.total_steps,callback=sdk.callback()); sdk.save(model). Use write_code/read_code for the script, start/stop/status for lifecycle, metrics for per-run last/best return, steps and trend. Experiments persist across conversations and restarts and are not orchestrator tasks: whenever the user asks about training, results, a comparison or whether something finished, call status without an experiment to list them before answering. Training usually outlives one reply: after start, report progress and offer to check again. Use vision_step on the arm when an instruction requires seeing and sorting objects: see numbered marks, decide, perform pick_place and verify with a second image. Snapshot returns marks without labels; images stay in the UI. set_teleop_mapping accepts Python map_pose. Training start and physical actions must not be blindly retried. Installation requires explicit user action.`, InputSchema: toolSchema(), Effect: types.EffectExec, Idempotency: types.IdemNonIdempotent, Cancel: types.CancelCooperative, Timeout: 95 * time.Second, OutputBudget: 32000, Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"}, Group: "science", Keywords: []string{"robot", "physics", "simulation", "reinforcement learning", "experiment", "teleop", "vision"}}
+	return tools.Definition{Name: "robot_lab", Description: `Train simulated robots by building reusable skills with deterministic tools. Robots: arm (table), dog (room, with arm), drone (room), humanoid (room). Physics advances only during act/skill_run; it is frozen between calls. Training loop: (1) session_start, read the returned body card, list skills (skills), and skill_use relevant ones. (2) note(kind=plan). (3) act/look in small steps; before navigating, read environment_get for furniture footprints (pos ± size/2) and plan waypoints with ≥ 0.35 m clearance from the robot base (walk_to moves in a straight line and stops when blocked); look again before fine manipulation because objects can be pushed by the robot; inspect state, goal and attempt. (4) After EVERY failed or abandoned attempt, reflect (note kind=reflection), then skill_write a concrete lesson in instructions with failures:[N] (attempt number); add Python code when a sequence of tool calls is reusable, or improve an existing skill. (5) Only then attempt_reset(reflection); if no skill can be written, pass an explicit no_skill_reason (max 2000 characters). Repeat until the goal or attempt limit. (6) At the end, summarize which skills were created/improved and their success rates (skills). Never claim success unless goal.met=true or the session succeeded. Skills belong to one session; reuse via copy_skills_from on session_start or skills_copy(from,to). skill_use reads instructions and marks use. skill_run executes optional Python def run(robot, **args), composing predefined tools, robot.look(), state(), objects(), log(text). Only math imports; no file/process access; 60 second simulation limit. Regression checks can reject a version. Grasp assist attaches only when the closing gripper is within 0.04 m; opening releases.
+Environment actions accept version 1 JSON: {version:1,id:"room-slug",name:"Room",kind:"room"|"table",size:[x,y],objects:[{id,name,shape:"box"|"sphere"|"cylinder"|"capsule",size:[full dimensions in meters],pos:[x,y,z?],yaw:degrees,color:"#rrggbb",dynamic:true}],spawn:{x,y,yaw},source:{type:"text"|"image"|"video",media_id?,notes?}}. Use realistic sizes; small graspable things are 0.05-0.10 m and set mass (e.g. ball 0.07 m, 0.1 kg; default mass is volume*500). Sphere size [diameter], box [x,y,z], cylinder/capsule [diameter,height]; omitted z rests on floor or table. Room size is 1–30 m per side, at most 200 objects, unique ids, spawn outside fixed furniture. Tables default to 1.2×0.8 m, 0.75 m high. For environments from media, call media to see image/video frames and the user's spec; ask the user about ambiguous measurements. Use reference objects (doors about 0.9×2.0 m, tables about 0.75 m high) and the user's specification rather than inventing exact dimensions. environment_preview and look return images for inspection.
+Goals: object_near(object,target,radius), robot_near(target,radius), object_held(object), object_on(object,target:{object}), all(goals:[...]); target is {point:[x,y]}, {object:id}, or {robot_start:true}. Distances are horizontal. session_stop ends training. act, skill_run and session tools must not be blindly retried. Installation is an explicit user action.`, InputSchema: toolSchema(), Effect: types.EffectExec, Idempotency: types.IdemNonIdempotent, Cancel: types.CancelCooperative, Timeout: 95 * time.Second, OutputBudget: 32000, Platforms: []string{"linux"}, Profiles: []string{"default", "delegate"}, Group: "science", Keywords: []string{"robot", "physics", "simulation", "training", "environment", "skills", "arm", "dog", "drone", "humanoid", "simulación", "simulacion", "entrenamiento", "laboratorio", "brazo", "perro", "dron", "humanoide"}}
 }
+
+var toolSchemaOnce sync.Once
+var toolSchemaRaw json.RawMessage
+var toolValidator *jsonschema.Resolved
+var toolSchemaErr error
+
 func toolSchema() json.RawMessage {
-	props := map[string]any{}
-	for _, n := range strings.Fields("action session experiment run scenario name camera instruction checkpoint mode") {
-		props[n] = map[string]any{"type": "string", "minLength": 1}
-	}
-	props["action"] = map[string]any{"type": "string", "enum": []string{"scenarios", "open", "control", "reset", "set_params", "snapshot", "create_experiment", "write_code", "read_code", "start", "stop", "status", "metrics", "load_policy", "vision_step", "set_teleop_mapping"}}
-	props["scenario"] = map[string]any{"type": "string", "enum": []string{"cartpole", "ballplate", "arm", "quadruped", "drone", "rocket"}}
-	props["mode"] = map[string]any{"type": "string", "enum": []string{"idle", "manual", "policy", "pose", "paused"}}
-	props["checkpoint"] = map[string]any{"type": "string", "enum": []string{"best", "last"}}
-	for _, n := range strings.Fields("params inputs pose reward_weights") {
-		props[n] = map[string]any{"type": "object"}
-	}
-	props["code"] = map[string]any{"type": []string{"string", "null"}, "maxLength": 24000}
-	props["pretrained"] = map[string]any{"type": "boolean"}
-	for _, n := range strings.Fields("seed since total_steps width height") {
-		props[n] = map[string]any{"type": "integer"}
-	}
-	for _, n := range []string{"width", "height"} {
-		props[n] = map[string]any{"type": "integer", "minimum": 1, "maximum": 1920}
-	}
-	props["since"] = map[string]any{"type": "integer", "minimum": 0}
-	props["total_steps"] = map[string]any{"type": "integer", "minimum": 1, "maximum": 100000000}
-	props["runs"] = map[string]any{"type": "array", "minItems": 1, "maxItems": 16, "items": map[string]any{"type": "object", "required": []string{"label", "algorithm"}, "properties": map[string]any{"label": map[string]any{"type": "string", "minLength": 1}, "algorithm": map[string]any{"type": "string", "minLength": 1}, "hyperparams": map[string]any{"type": "object"}}, "additionalProperties": false}}
-	raw, _ := json.Marshal(map[string]any{"type": "object", "required": []string{"action"}, "properties": props, "additionalProperties": false})
-	return raw
+	toolSchemaOnce.Do(func() {
+		schemaOnce.Do(loadSchemas)
+		if schemaErr != nil {
+			toolSchemaErr = schemaErr
+			return
+		}
+		actions := make([]string, 0, len(toolActions))
+		for action := range toolActions {
+			actions = append(actions, action)
+		}
+		sort.Strings(actions)
+		properties := map[string]any{"action": map[string]any{"type": "string", "enum": actions}}
+		branches := []any{}
+		for _, action := range actions {
+			spec := toolActions[action]
+			params := contract.Methods["robotlab."+spec.method].Params
+			fields := map[string]any{"action": map[string]any{"const": action}}
+			omitted := map[string]bool{}
+			for _, key := range spec.omit {
+				omitted[key] = true
+			}
+			for key, value := range params["properties"].(map[string]any) {
+				if !omitted[key] {
+					fields[key] = value
+					properties[key] = map[string]any{}
+				}
+			}
+			required := []string{"action"}
+			for _, value := range params["required"].([]any) {
+				key := value.(string)
+				if !omitted[key] {
+					required = append(required, key)
+				}
+			}
+			branches = append(branches, map[string]any{"type": "object", "properties": fields, "required": required, "additionalProperties": false})
+		}
+		schema := map[string]any{"type": "object", "properties": properties, "required": []string{"action"}, "additionalProperties": false, "oneOf": branches, "$defs": inputDefinitions(branches)}
+		toolSchemaRaw, toolSchemaErr = json.Marshal(schema)
+		if toolSchemaErr != nil {
+			return
+		}
+		var parsed jsonschema.Schema
+		toolSchemaErr = json.Unmarshal(toolSchemaRaw, &parsed)
+		if toolSchemaErr == nil {
+			toolValidator, toolSchemaErr = parsed.Resolve(nil)
+		}
+	})
+	return toolSchemaRaw
 }
+
+// inputDefinitions avoids sending unrelated replay/result shapes in every turn.
+func inputDefinitions(root any) map[string]any {
+	defs := map[string]any{}
+	var visit func(any)
+	visit = func(value any) {
+		switch node := value.(type) {
+		case map[string]any:
+			if reference, ok := node["$ref"].(string); ok {
+				name := strings.TrimPrefix(reference, "#/$defs/")
+				if _, seen := defs[name]; !seen {
+					defs[name] = contract.Defs[name]
+					visit(defs[name])
+				}
+			}
+			for _, child := range node {
+				visit(child)
+			}
+		case []any:
+			for _, child := range node {
+				visit(child)
+			}
+		}
+	}
+	visit(root)
+	return defs
+}
+
 func (*Tool) ResourceKeys(raw json.RawMessage) ([]string, error) {
-	var a map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &a); err != nil {
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
 	return []string{"robotlab"}, nil
 }
 func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, error) {
-	fail := func(s tools.ResultStatus, e error) (tools.Result, error) {
-		return tools.Result{Status: s, Output: e.Error()}, nil
+	fail := func(status tools.ResultStatus, err error) (tools.Result, error) {
+		return tools.Result{Status: status, Output: err.Error()}, nil
 	}
-	if len(inv.Arguments) > 64000 {
-		return fail(tools.StatusInputError, fmt.Errorf("robotlab: input exceeds 64 KB"))
+	if len(inv.Arguments) > 8<<20 {
+		return fail(tools.StatusInputError, fmt.Errorf("robotlab: input exceeds 8 MiB"))
 	}
-	if err := tools.ValidateAgainstSchema(inv.Arguments, toolSchema()); err != nil {
+	toolSchema()
+	if toolSchemaErr != nil {
+		return fail(tools.StatusToolError, toolSchemaErr)
+	}
+	var value any
+	if err := json.Unmarshal(inv.Arguments, &value); err != nil {
 		return fail(tools.StatusInputError, err)
 	}
-	var a map[string]json.RawMessage
-	if err := json.Unmarshal(inv.Arguments, &a); err != nil {
+	if err := toolValidator.Validate(value); err != nil {
 		return fail(tools.StatusInputError, err)
 	}
-	var action string
-	_ = json.Unmarshal(a["action"], &action)
-	if raw, exists := a["code"]; exists && string(raw) != "null" {
-		var code string
-		if err := json.Unmarshal(raw, &code); err != nil || len(code) > 24000 {
-			return fail(tools.StatusInputError, fmt.Errorf("code must be a string of at most 24000 bytes or null"))
-		}
-	}
-	if raw, exists := a["inputs"]; exists {
-		var inputs map[string]float64
-		if err := json.Unmarshal(raw, &inputs); err != nil {
-			return fail(tools.StatusInputError, fmt.Errorf("inputs must map actuators to numbers"))
-		}
-		for _, value := range inputs {
-			if value < -1 || value > 1 {
-				return fail(tools.StatusInputError, fmt.Errorf("inputs must be in [-1,1]"))
+	args := value.(map[string]any)
+	action := args["action"].(string)
+	delete(args, "action")
+	// look is a core observation, not a robot tool; accept act(tool=look) as an alias.
+	if action == "act" && args["tool"] == "look" {
+		action = "look"
+		lookArgs := map[string]any{"session": args["session"]}
+		if extra, ok := args["args"].(map[string]any); ok {
+			for _, key := range []string{"camera", "width", "height"} {
+				if v, ok := extra[key]; ok {
+					lookArgs[key] = v
+				}
 			}
 		}
+		args = lookArgs
 	}
-	spec, ok := toolActions[action]
-	if !ok {
-		return fail(tools.StatusInputError, fmt.Errorf("unknown action"))
-	}
-	for key := range a {
-		if key != "action" && !containsField(spec.fields, key) {
-			return fail(tools.StatusInputError, fmt.Errorf("%s does not accept %s", action, key))
+	spec := toolActions[action]
+	switch action {
+	case "environment_create":
+		args["create"] = true
+	case "environment_update":
+		args["create"] = false
+	case "session_start":
+		if conversation := whiteboard.Conversation(ctx); conversation != "" {
+			args["conversation"] = conversation
 		}
+	case "session_stop":
+		args["by"] = "agent"
 	}
-	for _, key := range strings.Fields(spec.required) {
-		if len(a[key]) == 0 || string(a[key]) == "null" {
-			return fail(tools.StatusInputError, fmt.Errorf("%s requires %s", action, key))
-		}
-	}
-	if action == "write_code" && string(a["code"]) == "null" {
-		return fail(tools.StatusInputError, fmt.Errorf("write_code requires a string"))
-	}
-	if action == "load_policy" && string(a["pretrained"]) != "true" && (len(a["experiment"]) == 0 || len(a["run"]) == 0) {
-		return fail(tools.StatusInputError, fmt.Errorf("load_policy requires pretrained:true or experiment and run"))
+	raw, _ := json.Marshal(args)
+	params, err := decodeParams("robotlab."+spec.method, raw)
+	if err != nil {
+		return fail(tools.StatusInputError, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 95*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		status := tools.StatusCanceled
-		if errors.Is(err, context.DeadlineExceeded) {
-			status = tools.StatusTimeout
-		}
-		return fail(status, err)
+		return fail(toolErrorStatus(err), err)
 	}
 	if !Enabled() || t.Sidecar == nil {
 		return unavailableResult()
@@ -144,179 +200,57 @@ func (t *Tool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Result, 
 	if !status.Enabled || !status.Installed {
 		return unavailableResult()
 	}
-	delete(a, "action")
-	str := func(key string) string { var s string; _ = json.Unmarshal(a[key], &s); return s }
-	var out any
-	var err error
-	if action == "status" && str("experiment") == "" {
-		// Runtime state plus every stored experiment, so questions such as
-		// "did it finish?" are answerable after restarts and in new replies.
-		var listed struct {
-			Experiments []json.RawMessage `json:"experiments"`
-		}
-		raw, listErr := t.Sidecar.Call(ctx, "experiment.list", map[string]any{})
-		if listErr == nil {
-			listErr = json.Unmarshal(raw, &listed)
-		}
-		summary := map[string]any{"runtime": status}
-		if listErr != nil {
-			summary["experiments_error"] = listErr.Error()
-		} else {
-			exps := make([]any, 0, len(listed.Experiments))
-			for _, e := range listed.Experiments {
-				var v any
-				if json.Unmarshal(e, &v) == nil {
-					exps = append(exps, compactToolOutput("status", v))
-				}
-			}
-			summary["experiments"] = exps
-		}
-		out = summary
-	} else if action == "vision_step" {
-		loop := t.Vision
-		if loop == nil {
-			loop = &VisionLoop{Sidecar: t.Sidecar, Publisher: t.Publisher}
-		}
-		out, err = loop.VisionStep(ctx, str("session"), str("instruction"))
-	} else {
-		if action == "snapshot" {
-			a["marks"] = json.RawMessage(`true`)
-		}
-		var raw json.RawMessage
-		raw, err = t.Sidecar.Call(ctx, spec.method, a)
-		// A stale installed status can precede a failed lazy start or crash.
-		// Preserve cancellation/timeouts, but give stopped-runtime failures
-		// the same installation guidance as an absent sidecar.
-		if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			state := t.Sidecar.Status(ctx)
-			if !state.Enabled || !state.Installed || !state.Running {
-				return unavailableResult()
-			}
-		}
-		if err == nil {
-			err = json.Unmarshal(raw, &out)
-		}
-		if err == nil {
-			out = compactToolOutput(action, out)
-		}
-	}
+	// Mutating operations are sent exactly once, even if runtime state is stale.
+	result, err := t.Sidecar.Call(ctx, spec.method, params)
 	if err != nil {
-		s := tools.StatusToolError
-		if errors.Is(err, context.DeadlineExceeded) {
-			s = tools.StatusTimeout
-		} else if errors.Is(err, context.Canceled) {
-			s = tools.StatusCanceled
-		}
-		return fail(s, err)
+		return fail(toolErrorStatus(err), err)
 	}
-	if spec.view != "" && t.Publisher != nil {
-		focus := map[string]any{"view": spec.view}
-		for _, key := range []string{"session", "experiment"} {
-			if s := str(key); s != "" {
-				focus[key] = s
+	var out map[string]any
+	if err = json.Unmarshal(result, &out); err != nil {
+		return fail(tools.StatusToolError, err)
+	}
+	if action == "session_start" && t.Publisher != nil {
+		if session, ok := out["session"].(map[string]any); ok {
+			if id, ok := session["id"].(string); ok && id != "" {
+				t.Publisher.Publish("robotlab.focus", map[string]any{"session": id, "robot": params["robot"], "environment": params["environment"]})
 			}
 		}
-		if m, ok := out.(map[string]any); ok {
-			for _, key := range []string{"session", "id"} {
-				if v, ok := m[key]; ok {
-					target := key
-					if key == "id" {
-						target = "experiment"
-					}
-					focus[target] = v
+	}
+	images := []providers.ImageInput{}
+	if action == "look" || action == "environment_preview" {
+		if png, ok := out["png"].(string); ok && png != "" {
+			images = append(images, providers.ImageInput{URL: "data:image/png;base64," + png})
+		}
+		delete(out, "png")
+	}
+	if action == "media" {
+		if frames, ok := out["frames"].([]any); ok {
+			for _, frame := range frames {
+				if png, ok := frame.(string); ok && png != "" {
+					images = append(images, providers.ImageInput{URL: "data:image/png;base64," + png})
 				}
 			}
 		}
-		t.Publisher.Publish("robotlab.focus", focus)
+		out["frame_count"] = len(images)
+		delete(out, "frames")
 	}
-	raw, err := json.Marshal(out)
-	return tools.Result{Status: tools.StatusOK, Output: string(raw)}, err
+	if session, ok := out["session"].(map[string]any); ok {
+		// Full histories belong in replay/log RPCs; keep turn text focused on progress.
+		delete(session, "attempts")
+		delete(session, "skill_events")
+	}
+	raw, err = json.Marshal(out)
+	return tools.Result{Status: tools.StatusOK, Output: string(raw), Images: images}, err
 }
-func containsField(fields, key string) bool {
-	for _, f := range strings.Fields(fields) {
-		if f == key {
-			return true
-		}
+func toolErrorStatus(err error) tools.ResultStatus {
+	if errors.Is(err, context.Canceled) {
+		return tools.StatusCanceled
 	}
-	return false
+	if errors.Is(err, context.DeadlineExceeded) {
+		return tools.StatusTimeout
+	}
+	return tools.StatusToolError
 }
 func unavailableResult() (tools.Result, error) {
-	return tools.Result{Status: tools.StatusToolError, Output: `{"status":"unavailable","detail":"Robot Lab is unavailable. Enable EXCALIBUR_ROBOTLAB and use the Robot Lab Install card to install Python dependencies and OSMesa; installation requires an explicit user action."}`}, nil
-}
-func compactToolOutput(action string, out any) any {
-	m, ok := out.(map[string]any)
-	if !ok {
-		return out
-	}
-	if action == "metrics" {
-		return summarizeMetrics(m)
-	}
-	if action == "read_code" {
-		return map[string]any{"experiment": m["id"], "code": m["code"]}
-	}
-	if action == "snapshot" {
-		raw, _ := json.Marshal(m)
-		var s visionSnapshot
-		_ = json.Unmarshal(raw, &s)
-		return map[string]any{"width": m["width"], "height": m["height"], "marks": s.Marks}
-	}
-	delete(m, "scene")
-	delete(m, "code")
-	delete(m, "image_png_b64")
-	delete(m, "frames")
-	return m
-}
-func summarizeMetrics(m map[string]any) any {
-	type summary struct {
-		Run   string   `json:"run"`
-		Steps float64  `json:"steps"`
-		Last  *float64 `json:"last_return,omitempty"`
-		Best  *float64 `json:"best_return,omitempty"`
-		Trend string   `json:"trend"`
-		first *float64
-	}
-	runs := map[string]*summary{}
-	order := []string{}
-	points, _ := m["points"].([]any)
-	for _, p := range points {
-		v, ok := p.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := v["run"].(string)
-		r := runs[id]
-		if r == nil {
-			r = &summary{Run: id, Trend: "unknown"}
-			runs[id] = r
-			order = append(order, id)
-		}
-		step, _ := v["step"].(float64)
-		if step > r.Steps {
-			r.Steps = step
-		}
-		if val, ok := v["episode_return"].(float64); ok {
-			v := val
-			if r.first == nil {
-				r.first = &v
-			}
-			r.Last = &v
-			if r.Best == nil || v > *r.Best {
-				r.Best = &v
-			}
-		}
-	}
-	result := []*summary{}
-	for _, id := range order {
-		r := runs[id]
-		if r.Last != nil {
-			r.Trend = "flat"
-			if *r.Last > *r.first {
-				r.Trend = "improving"
-			} else if *r.Last < *r.first {
-				r.Trend = "declining"
-			}
-		}
-		result = append(result, r)
-	}
-	return map[string]any{"runs": result, "next": m["next"]}
+	return tools.Result{Status: tools.StatusToolError, Output: `{"status":"unavailable","detail":"Enable EXCALIBUR_ROBOTLAB and use the Robot Lab install action to install the runtime and robot assets."}`}, nil
 }

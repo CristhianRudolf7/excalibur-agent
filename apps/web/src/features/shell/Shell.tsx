@@ -12,7 +12,7 @@ import { extensionCatalog } from '@/features/extensions/catalog'
 import { useExtensions } from '@/features/extensions/store'
 import { primaryNavigation } from './navigation'
 import './navigation.css'
-import { FocusConnection } from '@/features/robotlab/FocusConnection'
+import { LabConnection } from '@/features/robotlab/LabConnection'
 import { Classroom } from '@/features/classroom/Classroom'
 import { Robot } from '@/features/robot/Robot'
 import { Artifacts } from '@/features/artifacts/Artifacts'
@@ -613,7 +613,7 @@ export function Shell() {
         )}
       </div>
       <main className="main-panel" ref={main}>
-        <FocusConnection />
+        <LabConnection />
         <ErrorBoundary resetKey={location.pathname + location.searchStr}>
           {isWorld && mobile && (
             <div className="world-sidebar-toggle">
@@ -648,7 +648,7 @@ export function Shell() {
             </LoadingFallback>
           ) : isLab ? (
             <Suspense fallback={<WorldSkeleton />}>
-              <RobotLab agentId={agent.id} mobile={mobile} />
+              <RobotLab mobile={mobile} />
             </Suspense>
           ) : isRobot ? (
             <Robot />

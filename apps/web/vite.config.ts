@@ -14,15 +14,6 @@ export default defineConfig(({ mode }) => {
 
   return {
     define: {
-      'import.meta.env.EXCALIBUR_WEB_ROBOTLAB_TELEOP': JSON.stringify(
-        env.EXCALIBUR_WEB_ROBOTLAB_TELEOP ?? '1',
-      ),
-      'import.meta.env.EXCALIBUR_WEB_ROBOTLAB_VISION': JSON.stringify(
-        env.EXCALIBUR_WEB_ROBOTLAB_VISION ?? '1',
-      ),
-      'import.meta.env.EXCALIBUR_ROBOTLAB_MODEL_BASE': JSON.stringify(
-        env.EXCALIBUR_ROBOTLAB_MODEL_BASE ?? 'https://storage.googleapis.com/mediapipe-models',
-      ),
       'import.meta.env.EXCALIBUR_WEB_ROBOTLAB': JSON.stringify(env.EXCALIBUR_WEB_ROBOTLAB ?? '1'),
       'import.meta.env.EXCALIBUR_WEB_WORK_EVENTS': JSON.stringify(
         env.EXCALIBUR_WEB_WORK_EVENTS ?? '1',
@@ -36,20 +27,28 @@ export default defineConfig(({ mode }) => {
         env.EXCALIBUR_DOCUMENT_VIEWER ?? '1',
       ),
     },
-    plugins: [tanstackRouter({ target: 'react', autoCodeSplitting: true }), react(), tailwindcss()],
+    plugins: [
+      ...(mode === 'test'
+        ? [
+            {
+              name: 'robotlab-viewer-test-contract',
+              enforce: 'pre' as const,
+              resolveId(source: string, importer?: string) {
+                if (source === './viewer' && importer?.includes('/features/robotlab/'))
+                  return fileURLToPath(
+                    new URL('./e2e/fixtures/robotlab-viewer.tsx', import.meta.url),
+                  )
+              },
+            },
+          ]
+        : []),
+      tanstackRouter({ target: 'react', autoCodeSplitting: true }),
+      react(),
+      tailwindcss(),
+    ],
     resolve: {
       alias: {
-        ...(env.EXCALIBUR_WEB_ROBOTLAB_TEST_TRACKER === '1'
-          ? {
-              '@mediapipe/tasks-vision': fileURLToPath(
-                new URL('./src/features/robotlab/teleop/tracker.fixture.ts', import.meta.url),
-              ),
-            }
-          : {}),
         '@': fileURLToPath(new URL('./src', import.meta.url)),
-        '@robotlab-mediapipe-wasm': fileURLToPath(
-          new URL('./node_modules/@mediapipe/tasks-vision/wasm', import.meta.url),
-        ),
       },
     },
     server: {

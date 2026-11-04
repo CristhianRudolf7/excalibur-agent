@@ -22,13 +22,13 @@ type labRuntimeFake struct {
 
 func (f *labRuntimeFake) Call(_ context.Context, m string, p any) (json.RawMessage, error) {
 	f.calls++
-	if m == "teleop.get_mapping" {
-		return json.RawMessage(`{"source":"default","code":"def map_pose(pose): return {}"}`), nil
+	if m == "settings.get" {
+		return json.RawMessage(`{"max_attempts":20,"sim_speed":1}`), nil
 	}
-	if m != "session.open" {
+	if m != "session.start" {
 		return nil, &robotlab.RuntimeError{Code: "not_found", Message: "missing"}
 	}
-	return json.RawMessage(`{"session":"ses_test","scene":{}}`), nil
+	return json.RawMessage(`{"session":{"id":"ses-test","status":"live"}}`), nil
 }
 func (f *labRuntimeFake) Subscribe(func(robotlab.Event)) func() { return func() {} }
 func (f *labRuntimeFake) Status(context.Context) robotlab.Status {
@@ -60,23 +60,23 @@ func TestRobotLabGatewayRoutingAndDisabled(t *testing.T) {
 	if res := call("status", "{}"); res.Error != nil {
 		t.Fatal(res.Error)
 	}
-	if res := call("session.open", `{"scenario":"cartpole"}`); res.Error != nil {
+	if res := call("session.start", `{"robot":"dog","environment":"room","task":"Go","goal":{"type":"robot_near","target":{"point":[1,0]},"radius":0.3}}`); res.Error != nil {
 		t.Fatal(res.Error)
 	}
-	if res := call("session.open", `{"scenario":"cartpole","unknown":1}`); res.Error == nil || res.Error.Code != api.CodeInvalidParams {
+	if res := call("session.start", `{"robot":"dog","environment":"room","task":"Go","goal":{"type":"robot_near","target":{"point":[1,0]},"radius":0.3},"unknown":1}`); res.Error == nil || res.Error.Code != api.CodeInvalidParams {
 		t.Fatalf("invalid: %+v", res)
 	}
-	if res := call("teleop.get", `{"session":"ses_test"}`); res.Error != nil || !bytes.Contains(res.Result, []byte(`"source":"default"`)) || !bytes.Contains(res.Result, []byte(`"code":`)) {
+	if res := call("settings.get", `{}`); res.Error != nil || !bytes.Contains(res.Result, []byte(`"max_attempts":20`)) {
 		t.Fatalf("mapping: %+v", res)
 	}
-	if res := call("teleop.get", `{"session":"ses_test","unknown":1}`); res.Error == nil || res.Error.Code != api.CodeInvalidParams {
+	if res := call("settings.get", `{"unknown":1}`); res.Error == nil || res.Error.Code != api.CodeInvalidParams {
 		t.Fatalf("mapping validation: %+v", res)
 	}
-	if res := call("experiment.get", `{"experiment":"missing"}`); res.Error == nil || res.Error.Code != api.CodeUnknownTarget {
+	if res := call("session.get", `{"session":"missing"}`); res.Error == nil || res.Error.Code != api.CodeUnknownTarget {
 		t.Fatalf("missing: %+v", res)
 	}
 	t.Setenv("EXCALIBUR_ROBOTLAB", "off")
-	if res := call("scenarios", "{}"); res.Error == nil || res.Error.Code != api.CodeRobotLabUnavailable {
+	if res := call("robots.list", "{}"); res.Error == nil || res.Error.Code != api.CodeRobotLabUnavailable {
 		t.Fatalf("disabled: %+v", res)
 	}
 	if runtime.calls != 3 {

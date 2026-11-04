@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/api"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/safego"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/coder/websocket"
 )
@@ -44,10 +45,28 @@ func TestEphemeralFramesRequireExplicitSubscription(t *testing.T) {
 	}
 	frames := connect([]string{"robotlab.frame"})
 	all := connect(nil)
-	if err := s.bus.PublishEphemeral("robotlab.frame", map[string]any{"session": "s"}); err != nil {
-		t.Fatal(err)
-	}
+	// Frames are deliberately lossy: an RPC writer may still hold its lock
+	// after the client reads the barrier response. Stream at the live cadence
+	// until a frame arrives instead of requiring that particular frame to win.
+	frameCtx, stopFrames := context.WithCancel(ctx)
+	defer stopFrames()
+	framesStopped := make(chan struct{})
+	safego.Go("gateway-test-frames", nil, func() {
+		defer close(framesStopped)
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			_ = s.bus.PublishEphemeral("robotlab.frame", map[string]any{"session": "s"})
+			select {
+			case <-frameCtx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	})
 	_, raw, err := frames.Read(ctx)
+	stopFrames()
+	<-framesStopped
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +77,7 @@ func TestEphemeralFramesRequireExplicitSubscription(t *testing.T) {
 	if err = json.Unmarshal(raw, &push); err != nil || push.Params.Type != "robotlab.frame" {
 		t.Fatalf("frame: %s %v", raw, err)
 	}
-	_, err = s.bus.Publish("robotlab.focus", nil, nil, map[string]any{"view": "scene"})
+	_, err = s.bus.Publish("robotlab.focus", nil, nil, map[string]any{"session": "s", "robot": "dog", "environment": "room"})
 	if err != nil {
 		t.Fatal(err)
 	}

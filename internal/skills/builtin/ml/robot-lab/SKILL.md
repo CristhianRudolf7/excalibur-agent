@@ -1,10 +1,10 @@
 ---
 name: robot-lab
-description: Run physics and reinforcement-learning experiments in Robot Lab, compare policies, map webcam poses, and guide the robot arm with vision.
+description: Train simulated robots with deterministic tools, inspect images, improve session skills, and build environments from text or media.
 metadata:
   excalibur:
     group: ml
-    version: 1.0.0
+    version: 2.0.0
     platforms:
     - linux
     tools:
@@ -14,115 +14,133 @@ metadata:
 
 ## When to use
 
-Use Robot Lab for simulated robot control, reinforcement-learning comparisons,
-webcam pose mapping, or vision-guided arm manipulation.
-
-Discover `robot_lab` with `search_tools`. Its actions share one flat schema;
-provide only fields relevant to the chosen action. Retain session, experiment
-and run IDs. If unavailable, explain the Install card and prerequisites to the
-user; the agent does not install Robot Lab automatically.
+Use `robot_lab` for simulated training sessions with the arm, dog with arm, drone,
+or humanoid. Discover it with `search_tools`. Installation is an explicit user
+operation. If unavailable, explain how to enable the lab and install its runtime
+and robot assets. Physics advances only while a predefined action or skill runs;
+the world remains frozen between calls.
 
 ## Procedure
 
-### Plan an experiment
+### Run a training session
 
-Call `scenarios` before choosing parameters. Choose cartpole for balancing
-(1–3 links), ballplate for continuous stabilization, arm for reach/pick_place/sort,
-quadruped for locomotion, drone for flight, or rocket for controlled landing.
-Use the returned parameter schema, reward terms and recommended algorithms.
-Translate the user's goal into an observable outcome, select an algorithm,
-set a bounded `total_steps` budget and choose `reward_weights` by returned term
-names. Explain what each weight encourages and the tradeoffs it creates.
+1. Call `robots` and read the selected body's card, tools, argument schemas,
+   cameras and limits. Use `environments` and `environment_get` to choose a world.
+   The `arm` needs a `table`; `dog`, `drone` and `humanoid` need a `room`.
+2. Translate the user's task into a simulator goal. Call `session_start` with
+   `robot`, `environment`, `task` and `goal`. Retain the returned session ID.
+3. Read the returned body card and session skills. Use `skill_read` for details,
+   and `skill_use` before following an existing skill's instructions. Write a
+   short plan with `note`, `kind: "plan"`.
+4. Alternate `act` and `look`. `act` takes `session`, the predefined `tool` name
+   and its `args` object. `look` returns an image, visible object estimates and
+   state without advancing physics. Inspect the actual goal and attempt status.
+5. After a failure, explain the observed cause with a `reflection` note. Write or
+   improve a skill with `skill_write` and `failures: [attempt_number]` so its
+   failure evidence is retained. Then call `attempt_reset` with a nonempty
+   `reflection` and try the improved approach.
+6. Continue until simulator truth reports success or the attempt limit ends the
+   session. Never claim success unless `goal.met` is true or session status is
+   `succeeded`. Use `session_status` after uncertain outcomes. `session_stop`
+   ends training; a user stop must never be undone by starting another session.
 
-Create one experiment with named runs to compare algorithms side by side:
+Do not blindly retry `act`, `skill_run`, `session_start`, `session_stop` or
+`attempt_reset` after a timeout or transport failure. Read session status and
+observe before deciding the next action. The lab handles bounded continuation
+between conversational turns; do not treat one completed reply as completed
+training.
+
+Goals use horizontal distances in meters:
 
 ```json
-{"action":"create_experiment","name":"Balance comparison","scenario":"cartpole","params":{"links":1},"total_steps":10000,"runs":[{"label":"PPO baseline","algorithm":"PPO"},{"label":"A2C baseline","algorithm":"A2C"}]}
+{"type":"object_near","object":"ball","target":{"robot_start":true},"radius":0.5}
 ```
 
-Keep scenario, parameters, steps and reward weights the same across runs.
-At most two runs train concurrently. Use `start` once, then `status` and
-`metrics` with `experiment` and optional `run`/`since`; retain the returned
-`next` cursor for incremental reads. `stop` interrupts the experiment.
-Do not restart a run merely because a tool call timed out: inspect status first.
+Other goals are `robot_near` with a target and radius, `object_held` with an
+object, `object_on` with an object and `target: {"object": "bin"}`, or `all` with
+nested `goals`. Targets are `{point: [x,y]}`, `{object: "id"}` or
+`{robot_start: true}`. A fallen robot cannot satisfy a goal.
 
-### Write the training script
+### Write and reuse skills
 
-`read_code` retrieves the current experiment script; `write_code` replaces it
-and checks syntax. Every run executes that same script with its own context.
-When code is omitted at creation, Robot Lab supplies an algorithm script.
-A standard SDK script is:
+Skills belong to a single training session. They are stored outside the
+repository under `<skills-root>/<session>/<skill>/`, with `SKILL.md`, optional
+`skill.py`, version history and `fallos/` failure evidence. To reuse skills from
+another session, pass `copy_skills_from` on `session_start` or call
+`skills_copy` with `from` and `to`. Do not assume skills are globally available.
+
+`skill_write` requires `session`, a slug `name`, `description` and `instructions`.
+Optional `code` defines `run(robot, **args)`, composing the robot's predefined
+tools. Read the body card to get actual tool names and arguments; do not invent
+actuator controls. Example code that inspects state and records a plan:
 
 ```python
-from robotlab import sdk
-ctx = sdk.context()
-env = sdk.make_env()
-model = sdk.algorithm(ctx.algorithm, env, **ctx.hyperparams)
-model.learn(ctx.total_steps, callback=sdk.callback())
-sdk.save(model)
+def run(robot, **args):
+    visible = robot.look()
+    robot.log("Inspect the visible objects before approaching")
+    return {"visible": visible, "state": robot.state()}
 ```
 
-For a from-scratch algorithm, implement the policy and update rule explicitly
-using NumPy or Torch. Follow Gymnasium reset/step semantics: reset returns
-observation/info; step returns observation/reward/terminated/truncated/info.
-Reset on either episode end. Keep training bounded by `ctx.total_steps`, log
-completed episode returns with `sdk.log(step=..., episode_return=...)`, render
-occasional evaluations with `sdk.preview(env, policy_fn)`, and save via
-`sdk.save_policy(policy_fn_or_state)`. Scripts run without network access and
-write only in the experiment directory; do not download packages or datasets.
+The skill API also exposes `robot.objects()` and `robot.<tool>(**args)`. Only
+`math` imports are allowed. File access, arbitrary imports, `exec`, `eval` and
+dunder attributes are rejected. Skill execution is bounded to 60 simulation
+seconds. Goal, fall, safety, user stop and timeout interrupt execution.
 
-### Read and explain results
+When code changes and saved failures exist, the runtime replays each failure for
+at most 30 simulation seconds. It accepts a version only when the new pass count
+is at least the old count. Check `accepted` and `regression`; a rejected candidate
+is archived while the current skill remains unchanged. Versions track uses and
+success rate. Grasp assist is a simulator convenience: closing near an object
+within 0.04 m attaches it; opening releases it.
 
-Use the per-run steps, last return, best return and trend from `metrics`.
-Return means accumulated reward per episode; a higher value reflects the chosen
-reward, which may differ from the user's real goal. Best is one observed peak,
-last is recent behavior, and trend compares the first and last available return
-in the requested window. Missing returns mean insufficient observations.
-Compare at similar step counts. Explain instability, early improvements and
-plateaus in everyday terms, distinguishing observations from hypotheses.
-One short run does not establish reliability; propose repeated seeded trials
-when appropriate. Open a session, then `load_policy` with session, experiment,
-run and `checkpoint:"best"` or `"last"` to inspect actual behavior.
+### Create an environment
 
-### Webcam teleoperation
+Use `environment_create` or `environment_update` with an `environment` object.
+Inspect with `environment_preview`, which returns an image for the agent.
+Environments consist of simple shapes; dimensions are full dimensions in meters,
+positions are centers, and yaw is in degrees.
 
-Open the scenario and use `set_teleop_mapping` with session and Python `code`
-defining `map_pose(pose, state)`. It returns actuator inputs in [-1,1], using
-actuator names returned by `scenarios`. The pose has 33 normalized landmarks
-[x,y,z,visibility], optional world positions, hands, selected arm and calibration.
-Map relative displacement from neutral calibration to bounded actuator values;
-use visibility thresholds, dead zones and state for smoothing. Handle absent
-hands/world/calibration and low visibility by returning neutral inputs. Do not
-assume image coordinates are meters. Passing `code:null` restores the scenario
-mapping. The browser sends landmarks; webcam video stays on the user's device.
-Use `control` mode `pose` to enable mapping and `paused` to stop motion.
+```json
+{
+  "version": 1,
+  "id": "practice-room",
+  "name": "Practice room",
+  "kind": "room",
+  "size": [5, 4],
+  "wall_height": 2.5,
+  "objects": [
+    {"id":"ball","name":"Ball","shape":"sphere","size":[0.12],"pos":[1,0],"color":"#ff6600","dynamic":true},
+    {"id":"desk","name":"Desk","shape":"box","size":[1.2,0.6,0.75],"pos":[-1,1],"dynamic":false}
+  ],
+  "spawn": {"x":0,"y":0,"yaw":0},
+  "source": {"type":"text","notes":"Dimensions specified by the user"}
+}
+```
 
-### Vision-guided manipulation
+Sphere size is `[diameter]`, box is `[x,y,z]`, cylinder/capsule is
+`[diameter,height]`. Omit position z to rest on the floor or table. Use unique
+slug IDs, `#rrggbb` colors, at most 200 objects, and room sides between 1 and 30 m.
+Objects must fit inside the world; spawn must be outside fixed furniture. A
+`table` defaults to a 1.2 × 0.8 m top at 0.75 m height.
 
-Open an arm sort/pick_place session and call `vision_step` with session and a
-specific instruction, for example placing one red object in bin A. The arm
-uses bin A (blue), bin B (green), and reject (red, marked X).
-The loop takes a marked top-camera snapshot, asks the vision model for a strict
-JSON decision, executes one pick_place, then takes another image to verify.
-Each call performs at most one move. Inspect `verified` before claiming success;
-false or absent verification is not a successful placement. A null action means
-no move was selected. Model interpretations can be wrong; never infer classes
-from hidden sidecar labels. `snapshot` returns only numbered mark boxes to the
-agent; images and phase updates are shown in the vision panel. If vision is
-unavailable, explain that an image-capable provider and vision model must be
-configured. Do not substitute guessed object classifications.
+For image/video uploads, call `media` with the returned `media_id` to inspect its
+frames and the user's specification. Ask the user about ambiguous measurements.
+Use reference objects such as doors around 0.9 × 2.0 m and tables around 0.75 m
+high, and give the user's stated measurements priority. Record assumptions in
+`source.notes`, preserve `source.media_id`, and preview the result before
+training. Do not silently treat image pixel coordinates as meters.
 
 ## Pitfalls
 
-Changing reward weights between runs makes return values incomparable. A single
-best checkpoint can hide unstable training; inspect last return and playback too.
-Keep webcam values normalized and bounded, and use bin IDs rather than colors
-in vision decisions. A tool timeout does not prove that a training run stopped.
+A completed tool call is not proof that the task succeeded. Check simulator goal
+truth. Do not reuse another session's skill names until copying them. Do not
+reset a failed attempt without recording a reflection and preserving useful
+failure evidence. Avoid blindly retrying uncertain physical actions, guessing
+ambiguous dimensions from media, or restarting a session the user stopped.
 
 ## Verification
 
-Check script syntax results before starting, then confirm run status and advancing
-step counts. Compare metrics at similar budgets and play back a saved checkpoint
-to inspect the intended physical behavior. For teleoperation, check neutral pose,
-low visibility and bounds before enabling movement. For vision, inspect the
-returned verification flag and the second snapshot before reporting placement.
+Read the body card, preview the chosen environment, inspect observations and
+attempt status, and confirm skill regression acceptance. Report the simulator's
+session outcome and the attempt that produced it. Replay and logs preserve
+frame-by-frame evidence; do not infer success from a plausible camera image.

@@ -1,3 +1,5 @@
+Superseded by [0097: Robot Lab v2](0097-robot-lab-v2.md).
+
 # 0094: Robot Lab runtime service and live frame delivery
 
 Robot Lab adds twenty client methods under `robotlab.*`, typed parameters in

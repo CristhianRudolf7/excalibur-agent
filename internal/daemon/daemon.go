@@ -269,7 +269,7 @@ func (d *Daemon) startServices(ctx context.Context) []<-chan struct{} {
 	}
 	if svc.RobotLab != nil && svc.RobotLab.Sidecar != nil {
 		stopped := make(chan struct{})
-		safego.Go("robotlab-lifecycle", nil, func() { defer close(stopped); <-ctx.Done(); _ = svc.RobotLab.Close() })
+		safego.Go("robotlab-lifecycle", nil, func() { defer close(stopped); <-ctx.Done(); svc.robotLabContinue.stop(); _ = svc.RobotLab.Close() })
 		done = append(done, stopped)
 	}
 	if svc.Library != nil {
@@ -338,6 +338,9 @@ func (d *Daemon) Stop(ctx context.Context) error {
 		if err := d.dep.Gate.Stop(drain); err != nil && first == nil {
 			first = err
 		}
+	}
+	if d.dep.Services != nil {
+		d.dep.Services.robotLabContinue.stop()
 	}
 	if d.dep.Master != nil {
 		turnCtx, cancelTurns := context.WithTimeout(ctx, 5*time.Second)

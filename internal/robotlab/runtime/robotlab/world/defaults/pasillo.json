@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "id": "pasillo",
+  "name": "Pasillo",
+  "kind": "room",
+  "description": "",
+  "size": [8.0, 2.0],
+  "wall_height": 1.8,
+  "floor_color": "#b9c5ce",
+  "wall_color": "#dce6e9",
+  "spawn": {"x": -3.2, "y": 0.0, "yaw": 0},
+  "objects": [
+    {"id": "obstaculo", "name": "Obstáculo bajo", "shape": "box", "size": [0.35, 0.8, 0.08], "pos": [-0.4, 0.0], "color": "#d49a66", "dynamic": false},
+    {"id": "meta", "name": "Alfombra de llegada", "shape": "box", "size": [0.7, 0.7, 0.015], "pos": [3.1, 0.0], "color": "#699a81", "dynamic": false, "tags": ["target"]}
+  ],
+  "source": {"type": "text", "notes": "Built-in corridor environment"}
+}

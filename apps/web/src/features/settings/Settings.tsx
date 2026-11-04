@@ -1,3 +1,4 @@
+import { RobotLabSettings } from './RobotLabSettings'
 import { AgentSettings } from '@/features/agents/AgentSettings'
 import { useArtifacts } from '@/features/artifacts/store'
 import { loadingLazy as lazy, LoadingFallback } from '@/features/shell/loading'
@@ -13,6 +14,7 @@ import {
   Sparkles,
   LockKeyhole,
   Users,
+  Microscope,
 } from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
 import { TimeZone } from './TimeZone'
@@ -31,6 +33,7 @@ const sections = [
   { id: 'skills', label: 'skills', icon: Sparkles },
   { id: 'connections', label: 'googleConnections', icon: SlidersHorizontal },
   { id: 'passwords', label: 'passwordsTitle', icon: LockKeyhole },
+  { id: 'robotlab', label: 'lab_title', icon: Microscope },
 ] as const
 function General() {
   const { t, i18n } = useTranslation()
@@ -206,6 +209,8 @@ export default function Settings() {
             <GoogleConnect />
           ) : section.id === 'passwords' ? (
             <Passwords />
+          ) : section.id === 'robotlab' ? (
+            <RobotLabSettings />
           ) : section.id === 'skills' ? (
             <Skills />
           ) : (

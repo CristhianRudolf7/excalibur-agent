@@ -129,7 +129,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(s.python, "-m", "robotlab.server", "--data", filepath.Join(s.data, "robotlab"))
+	cmd := exec.Command(s.python, "-m", "robotlab.server", "--data", filepath.Join(s.data, "robotlab"), "--skills", SkillsDir())
 	if s.Command != nil {
 		cmd = s.Command(s.python, source, filepath.Join(s.data, "robotlab"))
 	}
@@ -181,7 +181,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 	})
 	safego.Go("robotlab-supervisor", nil, func() {
 		scan := bufio.NewScanner(out)
-		scan.Buffer(make([]byte, 4096), 16<<20)
+		scan.Buffer(make([]byte, 4096), 8<<20)
 		for scan.Scan() {
 			var v wireReply
 			if err := json.Unmarshal(scan.Bytes(), &v); err != nil {
@@ -278,7 +278,7 @@ func (s *ProcessSidecar) startLocked() (*processRun, error) {
 }
 
 func (s *ProcessSidecar) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 95*time.Second)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -306,6 +306,9 @@ func (s *ProcessSidecar) Call(ctx context.Context, method string, params any) (j
 	b, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
 	if err != nil {
 		return nil, err
+	}
+	if len(b)+1 > 8<<20 {
+		return nil, &RuntimeError{Code: "invalid_params", Message: "request exceeds 8 MiB protocol line limit"}
 	}
 	b = append(b, '\n')
 	select {

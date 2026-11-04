@@ -11,7 +11,7 @@ import (
 
 func TestChildEnvironmentAllowlist(t *testing.T) {
 	for name, value := range map[string]string{
-		"ROBOTLAB_SENTINEL_SECRET": "private", "OPENAI_API_KEY": "private",
+		"ROBOTLAB_SENTINEL_SECRET": "private", "HARNESS_TEST_CREDENTIAL": "private",
 		"PYTHONPATH": "/untrusted", "PYTHONHOME": "/untrusted",
 		"LD_PRELOAD": "/untrusted.so", "HTTP_PROXY": "http://proxy.invalid",
 		"https_proxy": "http://proxy.invalid", "NO_PROXY": "localhost",
@@ -26,7 +26,7 @@ func TestChildEnvironmentAllowlist(t *testing.T) {
 			name, value, _ := strings.Cut(entry, "=")
 			env[name] = value
 		}
-		for _, name := range []string{"ROBOTLAB_SENTINEL_SECRET", "OPENAI_API_KEY", "PYTHONPATH", "PYTHONHOME", "LD_PRELOAD"} {
+		for _, name := range []string{"ROBOTLAB_SENTINEL_SECRET", "HARNESS_TEST_CREDENTIAL", "PYTHONPATH", "PYTHONHOME", "LD_PRELOAD"} {
 			if _, ok := env[name]; ok {
 				t.Fatalf("install=%v inherited %s", install, name)
 			}
@@ -58,7 +58,7 @@ func TestInstallRunnerChildEnvironment(t *testing.T) {
 
 func TestSidecarChildEnvironment(t *testing.T) {
 	t.Setenv("ROBOTLAB_SENTINEL_SECRET", "private")
-	t.Setenv("OPENAI_API_KEY", "private")
+	t.Setenv("HARNESS_TEST_CREDENTIAL", "private")
 	s := fakeSidecar(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -69,9 +69,29 @@ func TestSidecarChildEnvironment(t *testing.T) {
 
 // The protocol helper calls this inside the actual supervised child.
 func checkChildSecrets() {
-	for _, name := range []string{"ROBOTLAB_SENTINEL_SECRET", "OPENAI_API_KEY"} {
+	for _, name := range []string{"ROBOTLAB_SENTINEL_SECRET", "HARNESS_TEST_CREDENTIAL"} {
 		if _, exists := os.LookupEnv(name); exists {
 			os.Exit(6)
 		}
+	}
+}
+
+func TestRuntimePathsAndRenderingEnvironment(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("EXCALIBUR_ROBOT_SKILLS_DIR", "")
+	if !strings.HasSuffix(SkillsDir(), "/.local/share/excalibur/robot-skills") {
+		t.Fatal(SkillsDir())
+	}
+	t.Setenv("EXCALIBUR_ROBOT_SKILLS_DIR", "/skills")
+	t.Setenv("EXCALIBUR_ROBOTLAB_MENAGERIE", "/assets")
+	t.Setenv("MUJOCO_GL", "egl")
+	env := strings.Join(childEnvironment(false), "\n")
+	for _, want := range []string{"EXCALIBUR_ROBOT_SKILLS_DIR=/skills", "EXCALIBUR_ROBOTLAB_MENAGERIE=/assets", "MUJOCO_GL=egl"} {
+		if !strings.Contains(env, want) {
+			t.Fatal(env)
+		}
+	}
+	if strings.Contains(env, "MUJOCO_GL=osmesa") || SkillsDir() != "/skills" {
+		t.Fatal(env)
 	}
 }

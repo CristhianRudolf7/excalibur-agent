@@ -3,231 +3,280 @@ package robotlab
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/tools"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 )
 
 type toolSidecarFake struct {
 	calls  []string
-	params []string
+	params []map[string]any
 	call   func(context.Context, string, any) (json.RawMessage, error)
 }
 
-func (f *toolSidecarFake) Call(ctx context.Context, m string, p any) (json.RawMessage, error) {
-	f.calls = append(f.calls, m)
-	raw, _ := json.Marshal(p)
-	f.params = append(f.params, string(raw))
+func (f *toolSidecarFake) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	f.calls = append(f.calls, method)
+	raw, _ := json.Marshal(params)
+	var copy map[string]any
+	_ = json.Unmarshal(raw, &copy)
+	f.params = append(f.params, copy)
 	if f.call != nil {
-		return f.call(ctx, m, p)
+		return f.call(ctx, method, params)
 	}
-	switch m {
-	case "session.snapshot":
-		return json.RawMessage(`{"image_png_b64":"image-secret","width":640,"height":480,"marks":[{"id":1,"bbox":[1,2,3,4],"label":"ground-truth-secret","name":"secret"}]}`), nil
-	case "experiment.metrics":
-		return json.RawMessage(`{"points":[{"run":"r","step":1,"episode_return":2},{"run":"r","step":4,"episode_return":5},{"run":"r","step":7,"episode_return":3}],"next":3}`), nil
-	case "session.skill":
-		return json.RawMessage(`{"ok":true}`), nil
+	switch method {
+	case "robot.look":
+		return json.RawMessage(`{"png":"cG5n","visible":[{"id":"ball","distance":1}],"state":{"x":0}}`), nil
+	case "env.preview":
+		return json.RawMessage(`{"png":"cG5n"}`), nil
+	case "media.get":
+		return json.RawMessage(`{"media_id":"m","kind":"video","name":"room.mp4","spec":"Door is two meters","frames":["cG5n","cG5nMg=="]}`), nil
+	case "session.start":
+		return json.RawMessage(`{"session":{"id":"dog-room-abcd","status":"live","attempt":1,"max_attempts":20,"attempts":[],"skill_events":[]},"card":{"id":"dog"},"skills":[]}`), nil
+	default:
+		return json.RawMessage(`{"ok":true,"goal":{"met":false},"attempt":{"n":1,"status":"running"}}`), nil
 	}
-	return json.RawMessage(`{"session":"s","id":"e","code":"print('hello')","scene":{"frames":"secret"}}`), nil
 }
-func (*toolSidecarFake) Subscribe(func(Event)) func()  { return func() {} }
-func (*toolSidecarFake) Status(context.Context) Status { return Status{Enabled: true, Installed: true} }
+func (*toolSidecarFake) Status(context.Context) Status {
+	return Status{Enabled: true, Installed: true, Running: true}
+}
+func (*toolSidecarFake) Subscribe(func(Event)) func() { return func() {} }
 
 type fakePublisher struct {
 	names    []string
-	payloads []string
+	payloads []any
 }
 
-func (f *fakePublisher) Publish(name string, p any) {
-	f.names = append(f.names, name)
-	raw, _ := json.Marshal(p)
-	f.payloads = append(f.payloads, string(raw))
+func (p *fakePublisher) Publish(name string, payload any) {
+	p.names = append(p.names, name)
+	p.payloads = append(p.payloads, payload)
 }
 
-type fakeAsker struct {
-	answers []string
-	prompts []string
-	call    func(context.Context) (string, string, error)
-}
-
-func (f *fakeAsker) AskImage(ctx context.Context, prompt, image string) (string, string, error) {
-	f.prompts = append(f.prompts, prompt)
-	if f.call != nil {
-		return f.call(ctx)
-	}
-	a := f.answers[0]
-	f.answers = f.answers[1:]
-	return a, "fake-vision", nil
-}
-
-const goodDecision = `{"objects":[{"mark":1,"class":"red cube","reason":"red square"}],"action":{"mark":1,"target":"A"},"explanation":"Sort by color"}`
-
-// Every action runs through the direct seam and the real executor/discovery path.
-func TestToolActions(t *testing.T) {
-	cases := []string{`{"action":"scenarios"}`, `{"action":"open","scenario":"arm"}`, `{"action":"control","session":"s","mode":"manual","inputs":{"joint":0.5}}`, `{"action":"reset","session":"s"}`, `{"action":"set_params","session":"s","params":{"task":"sort"}}`, `{"action":"snapshot","session":"s"}`, `{"action":"create_experiment","name":"Compare","scenario":"cartpole","runs":[{"label":"PPO","algorithm":"PPO"}]}`, `{"action":"write_code","experiment":"e","code":"print('hello')"}`, `{"action":"read_code","experiment":"e"}`, `{"action":"start","experiment":"e"}`, `{"action":"stop","experiment":"e"}`, `{"action":"status"}`, `{"action":"status","experiment":"e"}`, `{"action":"metrics","experiment":"e"}`, `{"action":"load_policy","session":"s","pretrained":true}`, `{"action":"vision_step","session":"s","instruction":"Sort red"}`, `{"action":"set_teleop_mapping","session":"s","code":null}`}
-	for _, mode := range []string{"direct", "executor", "call_tool"} {
-		for _, args := range cases {
-			t.Run(mode+args, func(t *testing.T) {
-				s := &toolSidecarFake{}
-				p := &fakePublisher{}
-				tool := &Tool{Sidecar: s, Publisher: p, Vision: &VisionLoop{Sidecar: s, Publisher: p, Asker: &fakeAsker{answers: []string{goodDecision, `{"verified":true}`}}}}
-				reg := tools.NewMapRegistry()
-				if err := tools.RegisterBuiltins(reg, nil); err != nil {
-					t.Fatal(err)
-				}
-				cat := tools.NewDeferredCatalog(reg)
-				if err := cat.RegisterDeferred(tool); err != nil {
-					t.Fatal(err)
-				}
-				ex := tools.NewExecutor(reg)
-				tools.WireSearchCall(reg, cat, ex)
-				var r tools.Result
-				var err error
-				switch mode {
-				case "direct":
-					r, err = tool.Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(args)})
-				case "executor":
-					r, err = ex.Execute(context.Background(), "robot_lab", json.RawMessage(args), tools.ExecuteOptions{})
-				case "call_tool":
-					raw, _ := json.Marshal(map[string]any{"name": "robot_lab", "arguments": json.RawMessage(args)})
-					r, err = ex.Execute(context.Background(), "call_tool", raw, tools.ExecuteOptions{})
-				}
-				if err != nil || r.Status != tools.StatusOK {
-					t.Fatalf("%+v %v", r, err)
-				}
-				if strings.Contains(r.Output, "image-secret") || strings.Contains(r.Output, "ground-truth-secret") {
-					t.Fatal("snapshot leaked image or label")
-				}
-				if strings.Contains(args, `"metrics"`) && !strings.Contains(r.Output, `"trend":"improving"`) {
-					t.Fatal(r.Output)
-				}
-				var input map[string]any
-				_ = json.Unmarshal([]byte(args), &input)
-				if toolActions[input["action"].(string)].view != "" && !strings.Contains(strings.Join(p.names, ","), "robotlab.focus") {
-					t.Fatal("missing focus")
-				}
-			})
+func toolArguments(action string) json.RawMessage {
+	method := toolActions[action].method
+	for _, tc := range forwardingCases {
+		if tc.method != method {
+			continue
 		}
-	}
-}
-func TestToolValidationAndUnavailable(t *testing.T) {
-	for _, args := range []string{`{}`, `{"action":"open"}`, `{"action":"reset","session":"s","code":"bad"}`, `{"action":"load_policy","session":"s"}`, `{"action":"write_code","experiment":"e","code":null}`, `{"action":"control","session":"s","mode":"bad"}`, `{"action":"bogus"}`, `{"action":"open","scenario":"bad"}`, `{"action":"snapshot","session":"s","width":0}`} {
-		r, _ := (&Tool{}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(args)})
-		if r.Status != tools.StatusInputError {
-			t.Fatalf("%s: %+v", args, r)
+		var args map[string]any
+		_ = json.Unmarshal([]byte(tc.params), &args)
+		for _, key := range toolActions[action].omit {
+			delete(args, key)
 		}
+		args["action"] = action
+		raw, _ := json.Marshal(args)
+		return raw
 	}
-	for _, disabled := range []bool{false, true} {
-		t.Run(string(rune('a'+boolInt(disabled))), func(t *testing.T) {
-			if disabled {
-				t.Setenv("EXCALIBUR_ROBOTLAB", "off")
+	panic("no fixture for " + action)
+}
+func TestToolAllActions(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	for action, spec := range toolActions {
+		t.Run(action, func(t *testing.T) {
+			sidecar := &toolSidecarFake{}
+			publisher := &fakePublisher{}
+			tool := NewTool(sidecar, publisher, nil, nil)
+			result, err := tool.Invoke(whiteboard.WithConversation(context.Background(), "conversation"), tools.Invocation{Arguments: toolArguments(action)})
+			if err != nil || result.Status != tools.StatusOK {
+				t.Fatalf("%s: %+v %v", action, result, err)
 			}
-			r, _ := (&Tool{}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"scenarios"}`)})
-			if !strings.Contains(r.Output, "unavailable") || !strings.Contains(r.Output, "Install") {
-				t.Fatal(r)
+			if len(sidecar.calls) != 1 || sidecar.calls[0] != spec.method {
+				t.Fatal(sidecar.calls)
+			}
+			params := sidecar.params[0]
+			switch action {
+			case "session_start":
+				if params["conversation"] != "conversation" || len(publisher.names) != 1 || publisher.names[0] != "robotlab.focus" {
+					t.Fatal(params, publisher)
+				}
+				focus := publisher.payloads[0].(map[string]any)
+				if focus["session"] != "dog-room-abcd" || focus["robot"] != "dog" || focus["environment"] != "room" {
+					t.Fatal(focus)
+				}
+			case "session_stop":
+				if params["by"] != "agent" {
+					t.Fatal(params)
+				}
+			case "environment_create":
+				if params["create"] != true {
+					t.Fatal(params)
+				}
+			case "environment_update":
+				if params["create"] != false {
+					t.Fatal(params)
+				}
+			}
+			if action != "session_start" && len(publisher.names) != 0 {
+				t.Fatal("unexpected focus")
 			}
 		})
 	}
 }
-func boolInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-func TestToolPropagatesCancellationAndTimeout(t *testing.T) {
-	for _, timeout := range []bool{false, true} {
-		t.Run(map[bool]string{false: "cancel", true: "timeout"}[timeout], func(t *testing.T) {
-			var ctx context.Context
-			var cancel context.CancelFunc
-			if timeout {
-				ctx, cancel = context.WithTimeout(context.Background(), time.Millisecond)
-			} else {
-				ctx, cancel = context.WithCancel(context.Background())
-				cancel()
-			}
-			defer cancel()
-			sidecar := &toolSidecarFake{call: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			}}
-			result, err := (&Tool{Sidecar: sidecar}).Invoke(ctx, tools.Invocation{Arguments: json.RawMessage(`{"action":"scenarios"}`)})
-			expected := tools.StatusCanceled
-			if timeout {
-				expected = tools.StatusTimeout
-			}
-			if err != nil || result.Status != expected {
+func TestToolImagesAndConciseText(t *testing.T) {
+	for _, tc := range []struct {
+		action   string
+		images   int
+		contains string
+	}{{"look", 1, "visible"}, {"environment_preview", 1, ""}, {"media", 2, "Door is two meters"}} {
+		t.Run(tc.action, func(t *testing.T) {
+			result, err := (&Tool{Sidecar: &toolSidecarFake{}}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments(tc.action)})
+			if err != nil || result.Status != tools.StatusOK || len(result.Images) != tc.images {
 				t.Fatalf("%+v %v", result, err)
 			}
+			for _, image := range result.Images {
+				if !strings.HasPrefix(image.URL, "data:image/png;base64,") {
+					t.Fatal(image.URL)
+				}
+			}
+			if strings.Contains(result.Output, "cG5n") || strings.Contains(result.Output, `"png"`) || strings.Contains(result.Output, `"frames"`) {
+				t.Fatal("pixels in text")
+			}
+			if !strings.Contains(result.Output, tc.contains) {
+				t.Fatal(result.Output)
+			}
 		})
 	}
 }
 
-func TestMetricsSummaryPreservesRunBoundaries(t *testing.T) {
-	var input map[string]any
-	if err := json.Unmarshal([]byte(`{"points":[{"run":"a","step":1,"episode_return":2},{"run":"b","step":4,"loss":0.2},{"run":"a","step":5,"episode_return":9},{"run":"a","step":8,"episode_return":3}],"next":4}`), &input); err != nil {
-		t.Fatal(err)
+func TestToolAttemptResetSkillReason(t *testing.T) {
+	t.Setenv("EXCALIBUR_ROBOTLAB", "1")
+	for _, tc := range []struct {
+		name   string
+		reason any
+		valid  bool
+	}{
+		{name: "explanation", reason: "The attempt ended before any action.", valid: true},
+		{name: "limit", reason: strings.Repeat("界", 2000), valid: true},
+		{name: "too long", reason: strings.Repeat("界", 2001)},
+		{name: "wrong type", reason: false},
+		{name: "null", reason: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sidecar := &toolSidecarFake{}
+			raw, _ := json.Marshal(map[string]any{
+				"action": "attempt_reset", "session": "s", "reflection": "Reassess the approach.", "no_skill_reason": tc.reason,
+			})
+			result, err := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: raw})
+			if !tc.valid {
+				if err != nil || result.Status != tools.StatusInputError || len(sidecar.calls) != 0 {
+					t.Fatalf("invalid reason reached runtime: %+v %v", result, err)
+				}
+				return
+			}
+			if err != nil || result.Status != tools.StatusOK || len(sidecar.calls) != 1 || sidecar.calls[0] != "attempt.reset" {
+				t.Fatalf("reset failed: %+v %v", result, err)
+			}
+			if got := sidecar.params[0]; got["session"] != "s" || got["reflection"] != "Reassess the approach." || got["no_skill_reason"] != tc.reason {
+				t.Fatal("reset parameters changed")
+			}
+		})
 	}
-	raw, err := json.Marshal(summarizeMetrics(input))
-	if err != nil {
-		t.Fatal(err)
+}
+func TestToolActionSchemas(t *testing.T) {
+	bad := []string{
+		`{"action":"act","session":"s","tool":"walk"}`,
+		`{"action":"act","session":"s","tool":"walk","args":null}`,
+		`{"action":"look","session":"s","height":0}`,
+		`{"action":"session_start","robot":"dog","environment":"room","task":"Go","goal":{"type":"object_held","object":"ball"},"conversation":"forged"}`,
+		`{"action":"session_stop","session":"s","by":"user"}`,
+		`{"action":"attempt_reset","session":"s"}`,
+		`{"action":"attempt_reset","session":"s","reflection":" "}`,
+		`{"action":"skill_write","session":"s","name":"a","description":"d"}`,
+		`{"action":"environment_create","environment":{},"create":false}`,
+		`{"action":"robots","session":"s"}`,
+		`{"action":"open","scenario":"arm"}`, `null`, `[]`, `{}`, `{} {}`,
 	}
-	var output struct {
-		Runs []struct {
-			Run   string   `json:"run"`
-			Steps int      `json:"steps"`
-			Last  *float64 `json:"last_return"`
-			Best  *float64 `json:"best_return"`
-			Trend string   `json:"trend"`
+	for _, raw := range bad {
+		sidecar := &toolSidecarFake{}
+		result, err := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(raw)})
+		if err != nil || result.Status != tools.StatusInputError || len(sidecar.calls) != 0 {
+			t.Fatalf("invalid input passed: %s %+v %v", raw, result, err)
 		}
-		Next int
 	}
-	if err := json.Unmarshal(raw, &output); err != nil {
-		t.Fatal(err)
+	def := (&Tool{}).Definition()
+	if def.Timeout != 95*time.Second || def.Idempotency != types.IdemNonIdempotent || def.Group != "science" {
+		t.Fatal(def)
 	}
-	if len(output.Runs) != 2 || output.Next != 4 {
-		t.Fatal(string(raw))
+	if chars := utf8.RuneCountInString(def.Description); chars > 3500 {
+		t.Fatalf("tool description exceeds 3500 characters: %d", chars)
 	}
-	a, b := output.Runs[0], output.Runs[1]
-	if a.Run != "a" || a.Steps != 8 || a.Last == nil || *a.Last != 3 || a.Best == nil || *a.Best != 9 || a.Trend != "improving" {
-		t.Fatal(string(raw))
+	for _, phrase := range []string{"copy_skills_from", "skills_copy", "goal.met", "0.9×2.0", "ambiguous measurements", "no_skill_reason"} {
+		if !strings.Contains(def.Description, phrase) {
+			t.Fatal("missing training guidance: " + phrase)
+		}
 	}
-	if b.Run != "b" || b.Steps != 4 || b.Last != nil || b.Best != nil || b.Trend != "unknown" {
-		t.Fatal(string(raw))
+	// The loop must teach skill use before action and skill writing before reset.
+	remaining := def.Description
+	for _, step := range []string{
+		"(1) session_start", "body card", "list skills", "skill_use relevant",
+		"(2) note(kind=plan)",
+		"(3) act/look in small steps", "look again before fine manipulation", "objects can be pushed by the robot",
+		"(4) After EVERY failed or abandoned attempt", "reflect (note kind=reflection)",
+		"skill_write a concrete lesson in instructions with failures:[N]", "add Python code", "improve an existing skill",
+		"(5) Only then attempt_reset(reflection)",
+		"(6) At the end, summarize which skills were created/improved and their success rates",
+	} {
+		pos := strings.Index(remaining, step)
+		if pos < 0 {
+			t.Fatal("missing or out-of-order training guidance: " + step)
+		}
+		remaining = remaining[pos+len(step):]
+	}
+}
+func TestToolNoBlindRetriesAndCancellation(t *testing.T) {
+	for _, action := range []string{"act", "skill_run", "session_start", "session_stop", "attempt_reset"} {
+		sidecar := &toolSidecarFake{call: func(ctx context.Context, _ string, _ any) (json.RawMessage, error) {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > 95*time.Second {
+				t.Error("missing timeout")
+			}
+			return nil, errors.New("runtime failed")
+		}}
+		result, err := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments(action)})
+		if err != nil || result.Status != tools.StatusToolError || len(sidecar.calls) != 1 {
+			t.Fatalf("retried %s: %v", action, sidecar.calls)
+		}
+	}
+	for _, tc := range []struct {
+		err    error
+		status tools.ResultStatus
+	}{{context.Canceled, tools.StatusCanceled}, {context.DeadlineExceeded, tools.StatusTimeout}} {
+		sidecar := &toolSidecarFake{call: func(context.Context, string, any) (json.RawMessage, error) { return nil, tc.err }}
+		result, _ := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments("act")})
+		if result.Status != tc.status {
+			t.Fatal(result)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	sidecar := &toolSidecarFake{}
+	result, _ := (&Tool{Sidecar: sidecar}).Invoke(ctx, tools.Invocation{Arguments: toolArguments("act")})
+	if result.Status != tools.StatusCanceled || len(sidecar.calls) != 0 {
+		t.Fatal(result)
+	}
+}
+func TestToolUnavailable(t *testing.T) {
+	result, _ := (&Tool{}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments("robots")})
+	if result.Status != tools.StatusToolError || !strings.Contains(result.Output, "unavailable") {
+		t.Fatal(result)
+	}
+	t.Setenv("EXCALIBUR_ROBOTLAB", "off")
+	sidecar := &toolSidecarFake{}
+	result, _ = (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: toolArguments("robots")})
+	if result.Status != tools.StatusToolError || len(sidecar.calls) != 0 {
+		t.Fatal(result)
 	}
 }
 
-func TestToolUnavailableAfterLazyStartFailure(t *testing.T) {
-	sidecar := &toolSidecarFake{call: func(context.Context, string, any) (json.RawMessage, error) {
-		return nil, fmt.Errorf("sidecar failed to start")
-	}}
-	result, err := (&Tool{Sidecar: sidecar}).Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"scenarios"}`)})
-	if err != nil || result.Status != tools.StatusToolError || !strings.Contains(result.Output, `"status":"unavailable"`) || !strings.Contains(result.Output, "Install") {
+func TestToolActLookAlias(t *testing.T) {
+	args := json.RawMessage(`{"action":"act","session":"s","tool":"look","args":{"camera":"robot/head"}}`)
+	result, err := (&Tool{Sidecar: &toolSidecarFake{}}).Invoke(context.Background(), tools.Invocation{Arguments: args})
+	if err != nil || result.Status != tools.StatusOK || len(result.Images) != 1 || !strings.Contains(result.Output, "visible") {
 		t.Fatalf("%+v %v", result, err)
-	}
-}
-
-// Status without an experiment lists stored experiments even when the runtime is idle.
-func TestStatusListsExperiments(t *testing.T) {
-	side := &toolSidecarFake{call: func(_ context.Context, m string, _ any) (json.RawMessage, error) {
-		if m != "experiment.list" {
-			return nil, fmt.Errorf("unexpected %s", m)
-		}
-		return json.RawMessage(`{"experiments":[{"id":"exp_1","name":"PPO vs A2C","scenario":"cartpole","status":"done","runs":[{"id":"run_1","label":"A2C","status":"done","best_return":993.7}]}]}`), nil
-	}}
-	tool := &Tool{Sidecar: side, Publisher: &fakePublisher{}}
-	result, err := tool.Invoke(context.Background(), tools.Invocation{Arguments: json.RawMessage(`{"action":"status"}`)})
-	if err != nil || result.Status != tools.StatusOK {
-		t.Fatalf("status: %v %+v", err, result)
-	}
-	for _, want := range []string{`"runtime"`, `"exp_1"`, `"done"`, `993.7`} {
-		if !strings.Contains(result.Output, want) {
-			t.Fatalf("status output lacks %s: %s", want, result.Output)
-		}
 	}
 }

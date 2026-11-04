@@ -1,7 +1,6 @@
 package robotlab
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -19,11 +18,12 @@ import (
 type CommandRunner interface {
 	Run(context.Context, string, ...string) (string, error)
 }
-type execRunner struct{}
+type execRunner struct{ Dir string }
 
-func (execRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+func (r execRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = childEnvironment(true)
+	cmd.Dir = r.Dir
 	group := sidecarProcessGroup()
 	group.Configure(cmd)
 	cmd.Cancel = func() error {
@@ -144,7 +144,7 @@ func (i *Installer) install(ctx context.Context) error {
 		return err
 	}
 	lock := filepath.Join(source, "requirements.lock")
-	b, err := os.ReadFile(lock)
+	_, err = os.ReadFile(lock)
 	if err != nil {
 		return fmt.Errorf("embedded requirements.lock missing: %w", err)
 	}
@@ -155,28 +155,19 @@ func (i *Installer) install(ctx context.Context) error {
 		return fmt.Errorf("create venv: %w", err)
 	}
 	python := filepath.Join(venv, "bin", "python")
-	// Install the exact torch pin from the lock using only the CPU wheel index.
-	torch := ""
-	for _, line := range bytes.Split(b, []byte("\n")) {
-		v := strings.TrimSpace(string(line))
-		if strings.HasPrefix(v, "torch==") {
-			torch = strings.Fields(v)[0]
-			break
-		}
+	if i.Runner == nil {
+		runner = execRunner{Dir: source}
 	}
-	if torch == "" {
-		return fmt.Errorf("requirements.lock must pin torch")
-	}
-	i.progress("torch", "Installing the pinned CPU torch wheel", 20, false)
-	if _, err = runner.Run(ctx, python, "-m", "pip", "install", "--index-url", "https://download.pytorch.org/whl/cpu", torch); err != nil {
-		return fmt.Errorf("install torch: %w", err)
-	}
-	i.progress("packages", "Installing pinned runtime packages", 50, false)
+	i.progress("packages", "Installing pinned runtime packages", 30, false)
 	if _, err = runner.Run(ctx, python, "-m", "pip", "install", "-r", lock); err != nil {
 		return fmt.Errorf("install packages: %w", err)
 	}
+	i.progress("assets", "Downloading pinned robot assets and licenses", 60, false)
+	if _, err = runner.Run(ctx, python, "-m", "robotlab.assets", "fetch", "--dest", filepath.Join(i.DataDir, "robotlab", "menagerie")); err != nil {
+		return fmt.Errorf("fetch robot assets: %w", err)
+	}
 	i.progress("verify", "Verifying runtime imports", 90, false)
-	if _, err = runner.Run(ctx, python, "-c", "import mujoco, gymnasium, stable_baselines3, torch, numpy, cv2, PIL"); err != nil {
+	if _, err = runner.Run(ctx, python, "-c", "import mujoco, numpy, cv2, PIL"); err != nil {
 		return fmt.Errorf("verify runtime: %w", err)
 	}
 	if err = os.WriteFile(filepath.Join(venv, ".robotlab-installed"), []byte("1\n"), 0600); err != nil {

@@ -27,7 +27,7 @@ func TestExtractRuntime(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(a, "robotlab", "__init__.py")); err != nil {
 		t.Fatalf("Python package initializer missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(a, "robotlab", "scenario.py")); err != nil {
+	if _, err := os.Stat(filepath.Join(a, "robotlab", "server.py")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(a, "tests")); !os.IsNotExist(err) {

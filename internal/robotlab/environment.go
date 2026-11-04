@@ -2,6 +2,8 @@ package robotlab
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -16,7 +18,7 @@ func childEnvironment(install bool) []string {
 		}
 		allowed := false
 		switch name {
-		case "PATH", "HOME", "USER", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR":
+		case "MUJOCO_GL", "EXCALIBUR_ROBOT_SKILLS_DIR", "PATH", "HOME", "USER", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR":
 			allowed = true
 		}
 		allowed = allowed || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "EXCALIBUR_ROBOTLAB")
@@ -32,9 +34,21 @@ func childEnvironment(install bool) []string {
 		}
 	}
 	// Fixed values are not inherited: PYTHONPATH/PYTHONHOME can inject host code.
-	env = append(env, "MUJOCO_GL=osmesa", "PYTHONUNBUFFERED=1", "OMP_NUM_THREADS=2", "MKL_NUM_THREADS=2", "PYTHONDONTWRITEBYTECODE=1")
+	if os.Getenv("MUJOCO_GL") == "" && runtime.GOOS == "linux" {
+		env = append(env, "MUJOCO_GL=osmesa")
+	}
+	env = append(env, "PYTHONUNBUFFERED=1", "OMP_NUM_THREADS=2", "MKL_NUM_THREADS=2", "PYTHONDONTWRITEBYTECODE=1")
 	if install {
 		env = append(env, "PIP_DISABLE_PIP_VERSION_CHECK=1")
 	}
 	return env
+}
+
+// SkillsDir returns the session skill root shared with the runtime.
+func SkillsDir() string {
+	if root := os.Getenv("EXCALIBUR_ROBOT_SKILLS_DIR"); root != "" {
+		return root
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "excalibur", "robot-skills")
 }

@@ -26,7 +26,7 @@ func TestProtocolHelper(t *testing.T) {
 			os.Exit(4)
 		}
 	}
-	if _, err := os.Stat(filepath.Join("robotlab", "scenario.py")); err != nil {
+	if _, err := os.Stat(filepath.Join("robotlab", "server.py")); err != nil {
 		os.Exit(5)
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -296,5 +296,20 @@ func TestMissingInterpreterDoesNotExhaustCrashBudget(t *testing.T) {
 	s.Command = factory
 	if _, err := s.Call(ctx, "ping", nil); err != nil {
 		t.Fatalf("runtime remained blocked after prerequisites were supplied: %v", err)
+	}
+}
+
+func TestSidecarRejectsOversizedProtocolRequest(t *testing.T) {
+	s := fakeSidecar(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.Call(ctx, "large", map[string]any{"data": strings.Repeat("x", 8<<20)})
+	var runtimeError *RuntimeError
+	if !errors.As(err, &runtimeError) || runtimeError.Code != "invalid_params" {
+		t.Fatal("oversized request not rejected")
+	}
+	// A rejected request must leave framing and the running helper usable.
+	if _, err = s.Call(ctx, "ping", nil); err != nil {
+		t.Fatal(err)
 	}
 }

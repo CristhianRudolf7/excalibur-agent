@@ -44,6 +44,7 @@ func WireAssistantTurns(b *DaemonBackend, s *Services, endpoint engine.ModelEndp
 			b.artifacts.blobs = b.Services.FileBlobs
 		}
 		s.delegations = newChatDelegations(a)
+		s.robotLabContinue = newRobotLabContinuations(s.RobotLab, b.Master, b.Master.Turns().Active)
 		b.credentials = s.Credentials
 		if b.credentials != nil && b.credentials.bus == nil {
 			b.credentials.bus = b.Bus
@@ -127,6 +128,8 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 	if value, err := time.ParseDuration(os.Getenv("EXCALIBUR_MASTER_TIMEOUT")); err == nil && value > 0 && value <= 10*time.Minute {
 		timeout = value
 	}
+	steps, timeout = robotLabTurnLimits(ctx, a.services.RobotLab, conv, activation.Definitions, steps, timeout)
+	parentTurnContext := ctx
 	ctx = withAgentTurn(whiteboard.WithConversation(ctx, conv), conv, msg.RelayedBy != "")
 	if msg.Context != nil {
 		ctx = api.WithAppContext(ctx, *msg.Context)
@@ -170,6 +173,14 @@ func (a *assistantTurns) CompleteTurn(ctx context.Context, conv string, msg mast
 		allow["load_skill"] = true
 	}
 	runner := &assistantToolRunner{daemonToolRunner: daemonToolRunner{ex: a.services.Exec, reg: a.services.Tools, artifacts: &artifactTurn{store: a.backend.artifacts, conversation: conv, run: id}}, allowed: allow, runID: id, root: a.services.masterAgentID, activity: func(kind, id string) { a.backend.trackActivity(conv, kind, id) }, timing: timing}
+	defer func() {
+		runner.mu.Lock()
+		called := runner.robotLabCalls > 0
+		runner.mu.Unlock()
+		if parentTurnContext.Err() == nil {
+			a.services.robotLabContinue.queue(parentTurnContext, conv, called)
+		}
+	}()
 	defer runner.closeBrowser(ctx)
 	defer a.finishArtifacts(ctx, runner.artifacts)
 	runner.spawn = func(args json.RawMessage, child string) {
@@ -323,6 +334,8 @@ type assistantToolRunner struct {
 	childRuns []string
 	spawn     func(json.RawMessage, string)
 	timing    *assistantTurnTiming
+
+	robotLabCalls int
 }
 
 func (r *assistantToolRunner) Definition(name string) (tools.Definition, error) {
@@ -344,6 +357,11 @@ func (r *assistantToolRunner) Execute(ctx context.Context, name string, args jso
 	}
 	if _, err := r.Definition(name); err != nil {
 		return tools.Result{Status: tools.StatusInputError, Output: err.Error()}, nil
+	}
+	if name == "robot_lab" {
+		r.mu.Lock()
+		r.robotLabCalls++
+		r.mu.Unlock()
 	}
 	if strings.HasPrefix(name, "browser_") {
 		return r.executeBrowser(ctx, name, args, opts)

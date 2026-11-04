@@ -28,7 +28,7 @@ export const extensionCatalog: readonly Extension[] = [
     id: 'robotlab',
     navigationKey: 'lab_title',
     nameKey: 'lab_title',
-    descriptionKey: 'extensionsLabDescription',
+    descriptionKey: 'lab_description',
     category: 'robotics',
     icon: Microscope,
     route: '/lab',

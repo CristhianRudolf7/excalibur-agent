@@ -23,6 +23,43 @@ export interface GoogleStatus {
   missing_scopes?: string[]
 }
 export const clientMethods = [
+  // BEGIN GENERATED ROBOT LAB METHODS
+  'robotlab.status',
+  'robotlab.install',
+  'robotlab.robots.list',
+  'robotlab.env.list',
+  'robotlab.env.get',
+  'robotlab.env.delete',
+  'robotlab.env.thumbnail',
+  'robotlab.env.scene',
+  'robotlab.env.preview',
+  'robotlab.env.save',
+  'robotlab.media.ingest',
+  'robotlab.media.upload',
+  'robotlab.media.get',
+  'robotlab.settings.get',
+  'robotlab.settings.set',
+  'robotlab.session.start',
+  'robotlab.session.list',
+  'robotlab.session.get',
+  'robotlab.session.stop',
+  'robotlab.session.scene',
+  'robotlab.session.image',
+  'robotlab.session.log',
+  'robotlab.attempt.reset',
+  'robotlab.attempt.frames',
+  'robotlab.robot.act',
+  'robotlab.robot.look',
+  'robotlab.robot.state',
+  'robotlab.skills.list',
+  'robotlab.skills.read',
+  'robotlab.skills.use',
+  'robotlab.skills.write',
+  'robotlab.skills.run',
+  'robotlab.skills.copy',
+  'robotlab.log.note',
+  'robotlab.mesh.get',
+  // END GENERATED ROBOT LAB METHODS
   'credentials.pending',
   'credentials.submit',
   'credentials.cancel',
@@ -822,3 +859,361 @@ export interface RpcMethods {
 export interface RpcEvents {
   'collections.changed': { collection: string; record_id?: string; kind: string }
 }
+
+// BEGIN GENERATED ROBOT LAB — run python3 scripts/gen-robotlab-contracts.py
+export type RobotLabTarget = { point: number[] } | { object: string } | { robot_start: true }
+export type RobotLabGoal =
+  | { type: 'object_near'; object: string; target: RobotLabTarget; radius: number }
+  | { type: 'robot_near'; target: RobotLabTarget; radius: number }
+  | { type: 'object_held'; object: string }
+  | { type: 'object_on'; object: string; target: { object: string } }
+  | { type: 'all'; goals: RobotLabGoal[] }
+export type RobotLabObject = {
+  id: string
+  name?: string
+  shape: 'sphere' | 'box' | 'cylinder' | 'capsule'
+  size: number[]
+  pos: number[]
+  yaw?: number
+  color?: string
+  dynamic?: boolean
+  mass?: number
+  tags?: string[]
+}
+export type RobotLabEnvironment = {
+  version: 1
+  id: string
+  name: string
+  kind: 'room' | 'table'
+  description?: string
+  size?: number[]
+  wall_height?: number
+  floor_color?: string
+  wall_color?: string
+  walls?: { from: number[]; to: number[]; height?: number; thickness?: number; color?: string }[]
+  objects: RobotLabObject[]
+  spawn?: { x?: number; y?: number; yaw?: number }
+  source?: { type: 'text' | 'image' | 'video'; media_id?: string; notes?: string }
+  created_at?: string
+  updated_at?: string
+}
+export type RobotLabAttempt = {
+  n: number
+  status: 'running' | 'succeeded' | 'failed' | 'abandoned' | 'stopped'
+  reason: string
+  started_at: string
+  ended_at: string | null
+  sim_time: number
+  frames: number
+  skills_used: string[]
+}
+export type RobotLabSession = {
+  id: string
+  name: string
+  robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+  environment: string
+  task: string
+  goal: RobotLabGoal
+  status: 'live' | 'succeeded' | 'stopped' | 'exhausted' | 'failed'
+  created_at: string
+  ended_at: string | null
+  max_attempts: number
+  attempt: number
+  attempts: RobotLabAttempt[]
+  conversation: string | null
+  skill_events: {
+    t: string
+    attempt: number
+    kind: 'used' | 'created' | 'improved' | 'rejected' | 'copied'
+    skill: string
+    version: number
+  }[]
+  outcome: { status: string; attempt: number; detail: string } | null
+}
+export type RobotLabSessionSummary = {
+  id: string
+  name: string
+  robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+  environment: string
+  task: string
+  status: 'live' | 'succeeded' | 'stopped' | 'exhausted' | 'failed'
+  created_at: string
+  ended_at: string | null
+  attempts: number
+  live: boolean
+}
+export type RobotLabRegression = {
+  old_passed: number
+  new_passed: number
+  total: number
+  details: Record<string, unknown>[]
+}
+export type RobotLabSkillSummary = {
+  name: string
+  description: string
+  version: number
+  success_rate: number | null
+  uses: number
+  has_code: boolean
+  failures: number
+  updated_at: string
+}
+export type RobotLabSkill = {
+  name: string
+  description: string
+  version: number
+  success_rate: number | null
+  uses: number
+  has_code: boolean
+  failures: number
+  updated_at: string
+  instructions: string
+  code: string | null
+  versions: {
+    version: number
+    created_at: string
+    accepted: boolean
+    success_rate: number | null
+    uses: number
+    regression: RobotLabRegression | null
+  }[]
+}
+export type RobotLabLogEntry = {
+  id: string
+  t: string
+  session: string
+  attempt: number
+  kind: 'act' | 'look' | 'skill' | 'note' | 'plan' | 'reflection' | 'system'
+  tool?: string
+  args?: Record<string, unknown>
+  ok?: boolean
+  summary: string
+  image?: string
+  sim_time: number
+}
+export type RobotLabFrame = {
+  session: string
+  attempt: number
+  seq: number
+  t: number
+  poses: number[]
+  camera: { name: string; pose: number[] }
+  held: string | null
+  status: string
+}
+export type RobotLabBodyCard = {
+  id: 'arm' | 'dog' | 'drone' | 'humanoid'
+  name: { en: string; es: string }
+  description: string
+  sensors: string[]
+  cameras: string[]
+  tools: { name: string; description: string; params: Record<string, unknown> }[]
+  limits: Record<string, unknown>
+  notes: string[]
+  [key: string]: unknown
+}
+export type RobotLabScene = {
+  version: 1
+  bodies: {
+    name: string
+    geoms: {
+      type: 'mesh' | 'box' | 'sphere' | 'cylinder' | 'capsule' | 'plane'
+      mesh?: string
+      pos?: number[]
+      quat?: number[]
+      rgba?: number[]
+      scale?: number[]
+      size?: number[]
+    }[]
+  }[]
+  objects: { id: string; name: string; body: number; dynamic: boolean }[]
+  cameras: { name: string; fovy: number }[]
+  bounds: { min: number[]; max: number[] }
+  robot: 'arm' | 'dog' | 'drone' | 'humanoid' | null
+  environment: string
+}
+export type RobotLabActionResult = {
+  ok: boolean
+  result: unknown
+  state: Record<string, unknown>
+  attempt: { n: number; status: string; reason: string }
+  goal: { met: boolean; detail: string }
+  skill?: string
+  returned?: unknown
+}
+export type RobotLabStatus = {
+  enabled: boolean
+  installed: boolean
+  python: string
+  version?: string
+  running: boolean
+  error?: string
+  requirements: { python: string; osmesa: boolean }
+  live_session?: string | null
+  robots?: number
+  environments?: number
+}
+export type RobotLabSettings = { max_attempts: number; sim_speed: number }
+export type RobotLabVisibleObject = {
+  id: string
+  name: string
+  position?: number[]
+  distance: number
+  bearing_deg: number
+  elevation_deg: number
+  pixels: number
+}
+export interface RpcMethods {
+  'robotlab.status': { params: Record<string, never>; result: RobotLabStatus }
+  'robotlab.install': { params: Record<string, never>; result: { started: true } }
+  'robotlab.robots.list': { params: Record<string, never>; result: { robots: RobotLabBodyCard[] } }
+  'robotlab.env.list': {
+    params: Record<string, never>
+    result: {
+      environments: {
+        id: string
+        name: string
+        kind: 'room' | 'table'
+        objects: number
+        updated_at: string
+        source_type: string
+      }[]
+    }
+  }
+  'robotlab.env.get': { params: { id: string }; result: { environment: RobotLabEnvironment } }
+  'robotlab.env.delete': { params: { id: string }; result: Record<string, never> }
+  'robotlab.env.thumbnail': { params: { id: string }; result: { png: string } }
+  'robotlab.env.scene': { params: { id: string }; result: { scene: RobotLabScene } }
+  'robotlab.env.preview': {
+    params: { id: string; robot?: 'arm' | 'dog' | 'drone' | 'humanoid' }
+    result: { png: string }
+  }
+  'robotlab.env.save': {
+    params: { environment: RobotLabEnvironment; create: boolean }
+    result: { environment: RobotLabEnvironment }
+  }
+  'robotlab.media.ingest': {
+    params: { path: string; mime: string; name: string; spec: string }
+    result: { media_id: string; kind: 'image' | 'video'; frames: number }
+  }
+  'robotlab.media.upload': {
+    params: { name: string; mime: string; data: string; spec: string }
+    result: { media_id: string; kind: 'image' | 'video'; frames: number }
+  }
+  'robotlab.media.get': {
+    params: { media_id: string; max?: number }
+    result: {
+      media_id: string
+      kind: 'image' | 'video'
+      name: string
+      spec: string
+      frames: string[]
+    }
+  }
+  'robotlab.settings.get': { params: Record<string, never>; result: RobotLabSettings }
+  'robotlab.settings.set': {
+    params: { max_attempts?: number; sim_speed?: number }
+    result: RobotLabSettings
+  }
+  'robotlab.session.start': {
+    params: {
+      robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+      environment: string
+      task: string
+      goal: RobotLabGoal
+      name?: string
+      copy_skills_from?: string
+      conversation?: string | null
+    }
+    result: { session: RobotLabSession; card: RobotLabBodyCard; skills: RobotLabSkillSummary[] }
+  }
+  'robotlab.session.list': {
+    params: Record<string, never>
+    result: { sessions: RobotLabSessionSummary[] }
+  }
+  'robotlab.session.get': { params: { session: string }; result: { session: RobotLabSession } }
+  'robotlab.session.stop': {
+    params: { session: string; by: 'user' | 'agent'; reason?: string }
+    result: { session: RobotLabSession }
+  }
+  'robotlab.session.scene': { params: { session: string }; result: { scene: RobotLabScene } }
+  'robotlab.session.image': { params: { session: string; path: string }; result: { png: string } }
+  'robotlab.session.log': {
+    params: { session: string; attempt?: number; since?: number }
+    result: { entries: RobotLabLogEntry[]; next: number }
+  }
+  'robotlab.attempt.reset': {
+    params: { session: string; reflection: string; no_skill_reason?: string }
+    result: { session: RobotLabSession; attempt: number }
+  }
+  'robotlab.attempt.frames': {
+    params: { session: string; attempt: number; from: number; count: number }
+    result: { frames: RobotLabFrame[]; total: number }
+  }
+  'robotlab.robot.act': {
+    params: { session: string; tool: string; args: Record<string, unknown> }
+    result: RobotLabActionResult
+  }
+  'robotlab.robot.look': {
+    params: { session: string; camera?: string; width?: number; height?: number }
+    result: { png: string; visible: RobotLabVisibleObject[]; state: Record<string, unknown> }
+  }
+  'robotlab.robot.state': {
+    params: { session: string }
+    result: { state: Record<string, unknown>; held: string | null; attempt: unknown; goal: unknown }
+  }
+  'robotlab.skills.list': {
+    params: { session: string }
+    result: { skills: RobotLabSkillSummary[] }
+  }
+  'robotlab.skills.read': {
+    params: { session: string; name: string }
+    result: { skill: RobotLabSkill }
+  }
+  'robotlab.skills.use': {
+    params: { session: string; name: string }
+    result: { skill: RobotLabSkill }
+  }
+  'robotlab.skills.write': {
+    params: {
+      session: string
+      name: string
+      description: string
+      instructions: string
+      code?: string
+      failures?: number[]
+    }
+    result: { skill: RobotLabSkill; accepted: boolean; regression: RobotLabRegression | null }
+  }
+  'robotlab.skills.run': {
+    params: { session: string; name: string; args?: Record<string, unknown> }
+    result: RobotLabActionResult
+  }
+  'robotlab.skills.copy': { params: { from: string; to: string }; result: { copied: string[] } }
+  'robotlab.log.note': {
+    params: { session: string; text: string; kind: 'note' | 'plan' | 'reflection' }
+    result: { entry: RobotLabLogEntry }
+  }
+  'robotlab.mesh.get': {
+    params: { key: string }
+    result: { key: string; positions: string; indices: string; vertices: number; faces: number }
+  }
+}
+export interface RpcEvents {
+  'robotlab.frame': RobotLabFrame
+  'robotlab.session': { session: RobotLabSession }
+  'robotlab.log': { entry: RobotLabLogEntry }
+  'robotlab.focus': {
+    session: string
+    robot: 'arm' | 'dog' | 'drone' | 'humanoid'
+    environment: string
+  }
+  'robotlab.install': {
+    phase: string
+    message: string
+    percent: number
+    done?: boolean
+    error?: string
+  }
+}
+// END GENERATED ROBOT LAB
