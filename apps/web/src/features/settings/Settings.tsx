@@ -15,6 +15,7 @@ import {
   LockKeyhole,
   Users,
   Microscope,
+  Link2,
 } from 'lucide-react'
 import { useProfile } from '@/features/profile/api'
 import { TimeZone } from './TimeZone'
@@ -31,9 +32,9 @@ const sections = [
   { id: 'agents', label: 'agentSettings', icon: Users },
   { id: 'usage', label: 'settingsUsage', icon: ChartNoAxesCombined },
   { id: 'skills', label: 'skills', icon: Sparkles },
-  { id: 'connections', label: 'googleConnections', icon: SlidersHorizontal },
-  { id: 'passwords', label: 'passwordsTitle', icon: LockKeyhole },
+  { id: 'connections', label: 'googleConnections', icon: Link2 },
   { id: 'robotlab', label: 'lab_title', icon: Microscope },
+  { id: 'passwords', label: 'passwordsTitle', icon: LockKeyhole },
 ] as const
 function General() {
   const { t, i18n } = useTranslation()
