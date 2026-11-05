@@ -3,11 +3,92 @@ import Stage from '../Stage.astro'
 import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
 import SectionIndex from '../parts/SectionIndex.astro'
+import ConversationPlate from './parts-a/ConversationPlate.astro'
 import '../../../styles/sections/memory.css'
+const path =
+  'M218 0 V108 A40 40 0 0 0 258 148 H348 A40 40 0 0 1 388 188 V641 A36 36 0 0 1 352 677 H276 A36 36 0 0 0 240 713 V890 A36 36 0 0 0 276 926 H350 A36 36 0 0 0 386 890 V858 A36 36 0 0 1 422 822 H618 A36 36 0 0 1 654 858 V932 A36 36 0 0 1 618 968 H246 A28 28 0 0 0 218 996 V1024'
 ---
 
-<Stage id="memory" class="section-stub memory" label="It remembers. And shows where it read it.">
-  <SectionLine />
-  <SectionIndex index={2} />
-  <Headline lines={['It remembers.', 'And shows', 'where it read it.']} />
+<Stage id="memory" class="memory" label="It remembers. And shows where it read it.">
+  <SectionLine
+    path={path}
+    mobilePath="M24 0 V343 A20 20 0 0 0 44 363 H175 A20 20 0 0 1 195 383 V833 A20 20 0 0 1 175 853 H44 A20 20 0 0 0 24 873 V1240 A20 20 0 0 0 44 1260 H110 A20 20 0 0 1 130 1280 V1290 A20 20 0 0 1 110 1310 H34 A10 10 0 0 0 24 1320"
+    mobileHeight={1320}
+    mobileTickX={90}
+    mobileTickY={1260}
+  />
+  <SectionIndex index={2} style="--x:46;--y:32;--w:150" />
+  <Headline
+    lines={['It remembers.', 'And shows', 'where it read it.']}
+    class="memory-headline"
+    style="--x:635;--y:174;--w:865;--size:126"
+  />
+  <div class="memory-stack canvas-item" style="--x:228;--y:148;--w:354">
+    <ConversationPlate date="Oct 28" first />
+    <ConversationPlate date="Oct 30" />
+    <ConversationPlate date="Nov 1" />
+  </div>
+  <div
+    class="memory-document canvas-item"
+    data-memory-page
+    data-reveal
+    style="--x:280;--y:705;--w:397"
+  >
+    <svg viewBox="0 0 397 198" aria-hidden="true">
+      <path d="M1 1 H362 L396 35 V197 H1 Z" />
+      <path d="M362 1 V35 H396" />
+    </svg>
+    <div class="memory-document-content mono">
+      <p class="memory-sample">Sample data</p>
+      <p class="memory-document-title">Requirements · Article 160</p>
+      <p class="memory-passage">
+        <span data-memory-highlight></span>
+        <span>The submission must include a signed project plan.</span>
+      </p>
+      <div class="memory-document-lines" aria-hidden="true">
+        <i></i>
+        <i></i>
+      </div>
+    </div>
+  </div>
+  <p
+    class="memory-note memory-note-conversations canvas-item mono"
+    style="--x:38;--y:170;--w:195"
+    data-noverlap
+  >
+    (1) Memory across conversations
+  </p>
+  <p
+    class="memory-note memory-note-documents canvas-item mono"
+    style="--x:38;--y:734;--w:160"
+    data-noverlap
+  >
+    (2) Your documents
+  </p>
+  <p
+    class="memory-note memory-note-citation canvas-item mono"
+    style="--x:811;--y:710;--w:300"
+    data-noverlap
+  >
+    (3) Every claim links to its page
+  </p>
+  <p
+    class="memory-citation canvas-item mono"
+    data-memory-citation
+    style="--x:817;--y:775;--w:260"
+    data-noverlap
+  >
+    Art. 160 · p. 27
+  </p>
+  <svg class="memory-leaders section-line desktop-line" viewBox="0 0 1536 1024" aria-hidden="true">
+    <path d="M172 195 H207 L261 224 M198 760 H220 L262 796 H280" />
+    <path data-citation-leader d="M654 802 H817" />
+    <circle cx="261" cy="224" r="3" />
+    <circle cx="280" cy="796" r="3" />
+    <circle cx="654" cy="802" r="3" />
+  </svg>
+  <p class="sr-only">
+    Three dated conversation plates connect along one continuous thread to a sample document. Its
+    highlighted requirement links to Article 160, page 27.
+  </p>
 </Stage>

@@ -4,10 +4,105 @@ import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
 import SectionIndex from '../parts/SectionIndex.astro'
 import '../../../styles/sections/your-day.css'
+const bars = [
+  12, 27, 16, 35, 46, 29, 17, 56, 82, 106, 84, 59, 35, 19, 13, 31, 42, 24, 14, 9, 6, 4, 8, 5, 3, 5,
+  4, 3, 4, 3,
+]
+const caption = 'What pending assignments do I have in my course?'.split(' ')
+const path =
+  'M218 0 V824 A30 30 0 0 0 248 854 H901 A36 36 0 0 0 937 818 V638 A36 36 0 0 1 973 602 H1480 V222 H895 V602 H937 V927 A36 36 0 0 1 901 963 H246 A28 28 0 0 0 218 991 V1024'
 ---
 
-<Stage id="your-day" class="section-stub your-day" label="Say it. It goes and does it.">
-  <SectionLine />
-  <SectionIndex index={1} />
-  <Headline lines={['Say it.', 'It goes and', 'does it.']} />
+<Stage id="your-day" class="your-day" label="Say it. It goes and does it.">
+  <SectionLine
+    path={path}
+    mobilePath="M24 0 V332 A20 20 0 0 0 44 352 H346 A20 20 0 0 1 366 372 V940 A20 20 0 0 1 346 960 H44 A20 20 0 0 0 24 980 V1010"
+    mobileHeight={1010}
+    mobileTickX={315}
+    mobileTickY={960}
+  />
+  <SectionIndex index={1} style="--x:58;--y:32;--w:150" />
+  <Headline
+    lines={['Say it.', 'It goes and', 'does it.']}
+    class="day-headline"
+    style="--x:55;--y:192;--w:754;--size:154"
+  />
+  <div class="day-voice canvas-item" style="--x:262;--y:794;--w:270" aria-hidden="true">
+    {bars.map((height) => (
+      <i data-wave style={`--bar:${height}`} />
+    ))}
+  </div>
+  <p class="day-caption canvas-item mono" style="--x:584;--y:831;--w:704" data-noverlap>
+    {caption.map((word) => (
+      <>
+        <span data-word>{word}</span>{' '}
+      </>
+    ))}
+  </p>
+  <div
+    class="day-browser canvas-item mono"
+    style="--x:895;--y:222;--w:585"
+    role="img"
+    aria-label="Sample browser at course.example.edu. Password filled with hidden dots. Sign in is highlighted; the cursor clicks it."
+  >
+    <div class="day-chrome">
+      <div class="day-window-dots" aria-hidden="true">
+        <i></i>
+        <i></i>
+        <i></i>
+      </div>
+      <div class="day-address" data-action-target>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 10 V6 A5 5 0 0 1 17 6 V10 M5 10 H19 V22 H5 Z" />
+        </svg>
+        course.example.edu
+      </div>
+    </div>
+    <div class="day-form">
+      <p class="day-password-label">Password</p>
+      <div class="day-password" data-action-target aria-hidden="true">
+        {Array.from({ length: 8 }, () => (
+          <i data-password-dot />
+        ))}
+      </div>
+      <div class="day-sign-in" data-action-target>
+        Sign in
+      </div>
+      <p class="day-sample">Sample data</p>
+    </div>
+    <div class="day-action-highlight" aria-hidden="true"></div>
+    <svg class="day-cursor drawing" data-cursor viewBox="0 0 86 98" aria-hidden="true">
+      <g data-burst>
+        <path d="M39 3 V15 M18 10 L24 21 M4 29 L17 34 M2 51 L16 49 M66 10 L58 21 M82 29 L69 35" />
+      </g>
+      <path d="M35 34 V87 L49 75 L60 95 L69 90 L58 70 L77 67 Z" fill="var(--bg)" />
+    </svg>
+  </div>
+  <p class="day-note day-note-voice canvas-item mono" style="--x:326;--y:724;--w:260" data-noverlap>
+    (1) Live voice
+  </p>
+  <p class="day-note day-note-vault canvas-item mono" style="--x:812;--y:384;--w:211" data-noverlap>
+    (2) Password filled from your vault. The model never sees it.
+  </p>
+  <p
+    class="day-note day-note-watch canvas-item mono"
+    style="--x:1087;--y:136;--w:380"
+    data-noverlap
+  >
+    (3) You watch every step
+  </p>
+  <p
+    class="day-click-tag canvas-item mono"
+    data-click-tag
+    style="--x:1194;--y:642;--w:272"
+    data-noverlap
+  >
+    Clicking 'Sign in'
+  </p>
+  <svg class="day-leaders section-line desktop-line" viewBox="0 0 1536 1024" aria-hidden="true">
+    <path d="M280 834 L310 737 H322 M1038 415 L1015 397 H1001 M1011 222 L1065 148 H1083 M1330 522 L1290 642" />
+    <circle cx="280" cy="834" r="3" />
+    <circle cx="1038" cy="415" r="3" />
+    <circle cx="1011" cy="222" r="3" />
+  </svg>
 </Stage>
