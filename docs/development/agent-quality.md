@@ -3451,7 +3451,7 @@ Decision 0066 records quarantine; the duplicate W13 decision is consolidated
 into existing decision 0065.
 
 The source branch's status was available at
-`/home/cristhian/excalibur-imp/status/w16-exhausted-key.status`, rather than the
+`/home/developer/excalibur-imp/status/w16-exhausted-key.status`, rather than the
 specified orchestrator status directory. Its final iteration reports all gates
 passing after an earlier storage startup timing failure. Integration likewise
 passed the full low-priority `go test -race -p 2 ./...`, including storage,
@@ -3815,8 +3815,8 @@ Terminal-Bench invocation:
 
 | Fixture | Outcome | Evidence |
 | --- | --- | --- |
-| Sum integers from a binary-named input; preserve a separate file | Correct sum and protected file; run paused at its 16-step cap after existing verification refusals | `/home/cristhian/.local/share/excalibur/run-run_01M6BFAS5BX5DZ2NNS16WAGZXG/` |
-| Repair a two-argument addition function; preserve its checks | Correct function and passing unchanged checks; run paused at its 16-step cap | `/home/cristhian/.local/share/excalibur/run-run_01M6BFBF25YSBSC9P32KPNSN53/` |
+| Sum integers from a binary-named input; preserve a separate file | Correct sum and protected file; run paused at its 16-step cap after existing verification refusals | `/home/developer/.local/share/excalibur/run-run_01M6BFAS5BX5DZ2NNS16WAGZXG/` |
+| Repair a two-argument addition function; preserve its checks | Correct function and passing unchanged checks; run paused at its 16-step cap | `/home/developer/.local/share/excalibur/run-run_01M6BFBF25YSBSC9P32KPNSN53/` |
 | Copy preserved binary input into an output and compare | Completed; protected input unchanged; `cmp` passed | `/tmp/w14-live/home3/state/run-run_01M6BFRVEG4TT6KDEKFHMFT8QQ/` |
 
 The third run's `scope_guard.json` records `enabled: true`, one initial file,

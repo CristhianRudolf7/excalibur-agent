@@ -19,8 +19,10 @@ page to 30 seconds, and each document to 10 minutes. Wasm linear memory has a
 hard 512 MiB limit; the parent samples child RSS every 100 ms and terminates its
 process group above 1 GiB. RSS monitoring is a sampled limit, so brief overshoot
 is possible. `Options` can override timeouts, RSS limit, executable path, and
-platform collaborators. Production workers are Linux only; other targets build
-and return `errors.ErrUnsupported`. `Options{InProcess:true}` is for tests and
+platform collaborators. Production workers use native Linux, Windows and macOS
+process control and RSS samplers; unsupported operating systems return
+`errors.ErrUnsupported`. macOS uses the interpreter for race builds
+and compiler mode otherwise; native execution still requires target-OS checks. `Options{InProcess:true}` is for tests and
 uses Wasm context cancellation without process isolation.
 
 Native results include title, author, physical page count, page labels,

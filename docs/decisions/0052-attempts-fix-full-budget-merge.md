@@ -6,7 +6,7 @@ Date: 2026-11-01. Workstream: attempts fix (`internal/attempts`,
 ## What
 
 Fixes the EXCALIBUR_ATTEMPTS=3 failure observed on real evaluation
-trials (read-only records under `/home/cristhian/bench-runs/attempts3/`):
+trials (read-only records under `/home/developer/bench-runs/attempts3/`):
 about half the runs ended `paused` with summary `paused [best of 3
 attempts]`, and the outer `excalibur/tool_calls.jsonl` and
 `model_calls.jsonl` were missing (all calls lived only under

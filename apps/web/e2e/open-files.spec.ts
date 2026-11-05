@@ -95,12 +95,12 @@ for (const mobile of [false, true]) {
     await expect(page.getByRole('spinbutton')).toHaveValue('2')
     await expect(canvas).toBeVisible()
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/fe-b-pdf-${mobile ? 'mobile' : 'desktop'}.png`,
+      path: `test-results/rp-shots/fe-b-pdf-${mobile ? 'mobile' : 'desktop'}.png`,
     })
     if (!mobile) {
       await page.evaluate(() => document.documentElement.classList.add('dark'))
       await page.screenshot({
-        path: '/home/cristhian/projects/ui-design/rp-shots/fe-b-pdf-dark.png',
+        path: 'test-results/rp-shots/fe-b-pdf-dark.png',
       })
     }
     await page.getByRole('button', { name: 'archive.bin', exact: true }).click()

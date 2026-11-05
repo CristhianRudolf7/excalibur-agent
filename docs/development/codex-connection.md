@@ -7,9 +7,9 @@ account and `reasoning_effort` to the desired effort. Requests count against
 the account's plan allowance. `EXCALIBUR_SERVICE_TIER=fast` selects the upstream `priority` tier, matching
 the CLI. Other tier values pass through unchanged.
 
-This implementation supplies the credential store and daemon relay. Login RPCs
-and the settings interface are a separate integration. Other command entry
-points retain their existing provider resolution.
+The credential store and daemon relay are integrated with login RPCs and the
+Settings connection card (`CodexConnect.tsx`). Other command entry points
+retain their existing provider resolution.
 
 ## Credential storage
 

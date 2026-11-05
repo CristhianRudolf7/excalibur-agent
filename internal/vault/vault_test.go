@@ -63,7 +63,7 @@ func TestVault_AllTypes_NoCleartext(t *testing.T) {
 		"github-token":   {TypeAPIKey, "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123", map[string]string{"service": "github", "base_url": "https://api.github.com"}},
 		"openai-cred":    {TypeProviderCredential, "sk-ant-testproviderkey0123456789abcdef", map[string]string{"provider": "anthropic"}},
 		"banco-web":      {TypeWebsitePassword, "S3cur3-P@ssw0rd-banco-xyz!", map[string]string{"url": "https://banco.example.com", "user": "ana"}},
-		"home-server":    {TypeHost, "ssh-private-key-material-home-server-001", map[string]string{"host": "192.168.1.10", "port": "22", "user": "cristhian"}},
+		"home-server":    {TypeHost, "ssh-private-key-material-home-server-001", map[string]string{"host": "192.0.2.10", "port": "22", "user": "operator"}},
 		"deploy-key":     {TypeSSHKey, "-----BEGIN OPENSSH PRIVATE KEY-----\nfakekeydeploy001\n-----END OPENSSH PRIVATE KEY-----", map[string]string{"hosts": "git.example.com"}},
 		"ci-token":       {TypeToken, "ci-token-value-abcdef-123456", map[string]string{"service": "ci"}},
 		"spare-note":     {TypeNote, "note text that is also secret material 007", map[string]string{"title": "spare"}},

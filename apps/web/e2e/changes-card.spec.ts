@@ -53,7 +53,7 @@ for (const width of [1440, 390]) {
     await page.goto('/agents/excalibur?view=chat')
     await expect(page.getByText('3 archivos modificados')).toBeVisible()
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/fc-shots/fe-card-${width}.png`,
+      path: `test-results/fc-shots/fe-card-${width}.png`,
       animations: 'disabled',
     })
     // The chat shows only a one-line summary; diffs live in the panel.
@@ -85,7 +85,7 @@ for (const width of [1440, 390]) {
     }
     await openFromPanel('src/app.ts')
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/fc-shots/fe-diff-${width}.png`,
+      path: `test-results/fc-shots/fe-diff-${width}.png`,
       animations: 'disabled',
     })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -95,7 +95,7 @@ for (const width of [1440, 390]) {
       'rgb(18, 46, 39)',
     )
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/fc-shots/fe-dark-${width}.png`,
+      path: `test-results/fc-shots/fe-dark-${width}.png`,
       animations: 'disabled',
     })
     await page.emulateMedia({ reducedMotion: 'reduce' })

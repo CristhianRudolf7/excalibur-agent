@@ -1,8 +1,8 @@
-# Planned providers
+# Model providers
 
-Language-model providers of Section 19.2, wired in milestone H1 against
-the `internal/providers` wave-0 contract. Status: all planned, none
-implemented.
+The adapters below are implemented under `internal/providers` and built by
+`internal/providers/registry`. Production entry points use the models gateway.
+Tests use simulated servers; live evidence is recorded separately.
 
 | Provider | API / protocol | Cache and token notes |
 |---|---|---|
@@ -14,12 +14,9 @@ implemented.
 | Ollama (local) | Local OpenAI-compatible API | Server prefix cache; zero cost |
 | Generic OpenAI-compatible | Chat Completions, configurable URL | Covers vLLM, llama.cpp, Qwen, GLM, Kimi, ...; usage as reported |
 
-Credential resolution order (19.2, 20.1): secrets vault
-(`provider_credential`) first, then environment variables, then the
-user configuration file. Image, video, voice, remote embeddings and GPU
-compute come after H1.
-
-A second document, `provider-implementation.md`, will record real
-coverage once adapters land (per the repository rule that
-`docs/development/` never describes as implemented what is only
-planned, it is not created yet).
+Provider configuration is resolved from layered config, environment, the operator
+credentials file and `secret://` vault references. See
+[production wiring](../development/wire-engine.md),
+[provider implementation coverage](provider-implementation.md) and
+[live checks](../development/live-smoke.md). The daemon also supports a connected
+Codex account; audio uses separately configured credentials.

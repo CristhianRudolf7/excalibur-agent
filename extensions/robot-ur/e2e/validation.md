@@ -65,7 +65,7 @@ Final container state: **exited**, retained for reuse, without a restart policy.
 
 ## Exact operating and test commands
 
-All commands run from `/home/cristhian/projects/robot/rb3`:
+All commands run from `/home/developer/projects/robot/rb3`:
 
 ```sh
 docker pull universalrobots/ursim_e-series:5.25.0

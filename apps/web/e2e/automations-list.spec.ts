@@ -1,7 +1,7 @@
 import { test, expect } from './fixtures'
 import { mockAutomations, sampleRun } from './fixtures/automations'
 import { mkdir } from 'node:fs/promises'
-const shots = '/home/cristhian/projects/ui-design/auto-shots'
+const shots = 'test-results/auto-shots'
 test('sidebar, cards, filters and all lifecycle actions', async ({ page }) => {
   const mock = await mockAutomations(page)
   await page.goto('/agents/excalibur?view=chat')

@@ -1,6 +1,6 @@
 # 0038 W8 bench fixes: TLS roots, retry classification, complete trial index
 
-Date: 2026-10-31. Pilot: `/home/cristhian/bench-runs/tb21-pilot/2026-10-31__19-04-53`
+Date: 2026-10-31. Pilot: `/home/developer/bench-runs/tb21-pilot/2026-10-31__19-04-53`
 (10 tasks, k=1, gpt-6-luna low). Six trials never reached the model
 with `tls: failed to verify certificate: x509: certificate signed by
 unknown authority`; the run-level `trials.jsonl` hid that outage as

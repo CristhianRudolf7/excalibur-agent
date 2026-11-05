@@ -236,7 +236,7 @@ The shared source, registries and generated consumers are integrated. Runtime
 checks run in `internal/robotlab/runtime`:
 
 ```sh
-MUJOCO_GL=osmesa EXCALIBUR_ROBOTLAB_MENAGERIE=/home/cristhian/excalibur-sim/rl2/menagerie systemd-run --user --scope -q -p MemoryMax=6G nice -n 19 /home/cristhian/excalibur-sim/venv/bin/python -m pytest -q tests/
+MUJOCO_GL=osmesa EXCALIBUR_ROBOTLAB_MENAGERIE=/home/developer/excalibur-sim/rl2/menagerie systemd-run --user --scope -q -p MemoryMax=6G nice -n 19 /home/developer/excalibur-sim/venv/bin/python -m pytest -q tests/
 ```
 
 For a live integrated check, pick random free daemon ports in 78xx and web ports

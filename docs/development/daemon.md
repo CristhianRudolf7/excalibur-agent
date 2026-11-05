@@ -164,14 +164,13 @@ Every gate family resolves to a real package through
   eval profile, memory contradiction, pressure/outage, master
   control).
 
-## Deferred
+## Current limits and later integrations
 
-- Real channel adapters (Telegram/voice) behind `ChannelSender`;
-  SQLite-backed gate message stores (client_messages, messages)
-  beyond the master in-RAM store — the seams exist (`Backend`,
-  `BlobStore`, `ConversationStore.MessageIDs`).
-- Live search/vision/TTS/model backends (still `live`-tagged
-  stand-ins per §14.13); plan approve/deny (no plan store yet —
-  the gate returns the conflict); skills.install from staged
-  dirs; worktree-backed daemon tasks; full recursive .gitignore
-  walk (one level + heavy-dir collapsing for now).
+Concrete Telegram and WhatsApp transports remain outside this tree. Messaging,
+calendar and meeting capability simulations do not establish live connectivity.
+The production daemon now wires persistent stores, plan approve/deny, provider
+models, browser/search, audio and Google tools; see [persistence](persistence-wiring.md),
+[model wiring](wire-engine.md), [browser/search](browser-search.md),
+[voice](voice-live.md) and [Google](google.md) for their evidence and limits.
+Project file enumeration intentionally collapses heavy directories rather than
+providing an unrestricted recursive filesystem listing.

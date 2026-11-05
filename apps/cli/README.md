@@ -1,3 +1,6 @@
-# Excalibur CLI packaging
+# CLI packaging directory
 
-The `apps/cli` directory holds the packaging for the `excalibur` command-line client (install scripts, shell completions, man pages). Populated in milestone H9.
+This directory is reserved for packaging assets. It currently contains no
+install scripts, shell completions or man pages. The implemented command is the
+Go binary in `cmd/excalibur`; see the [root README](../../README.md) for release
+installation, source builds and CLI features. Run `excalibur help` for commands.

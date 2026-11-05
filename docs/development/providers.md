@@ -1,21 +1,17 @@
 # H1 — Model providers
 
-Contract and backend tests of the H1 area (architecture Sections
-19.2, 19.5, 19.6 and 11.6; Appendix E row H1), built by two parallel
-waves: `w1-providers-a` (OpenAI, DeepSeek, OpenRouter, Ollama and
-generic OpenAI-compatible adapters plus the shared `openaiwire`
-helper) and `w1-providers-b` (Anthropic and Gemini adapters, retry
-helper, provider registry). The shared contract below applies to all
-adapters.
+Contract and backend tests for the implemented model adapters (Sections 19.2,
+19.5, 19.6 and 11.6). The shared contract below applies to all adapters.
+Production configuration and wiring are described in [wire-engine.md](wire-engine.md).
 
 ## Contract
 
 - **Packages**: `internal/providers/openaiwire` (shared Chat
   Completions client) and one subpackage per provider:
   `internal/providers/{openai,deepseek,openrouter,ollama,generic}`
-  (w1-providers-a); `internal/providers/anthropic`,
+; `internal/providers/anthropic`,
   `internal/providers/gemini`, `internal/providers/registry`, plus
-  the shared `internal/providers/retry.go` (w1-providers-b).
+  the shared `internal/providers/retry.go`.
   Each adapter implements `providers.Provider`: `Name`, `Chat`,
   `Stream`, `Close`.
 - **Single internal format**: every adapter translates the

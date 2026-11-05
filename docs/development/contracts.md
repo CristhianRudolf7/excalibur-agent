@@ -7,10 +7,11 @@ contract changes.
 
 ## Contract
 
-Wave 0 delivers the frame other agents plug into, not the features:
+This historical milestone established the shared contracts. The current
+implementation extends them with the features documented in the area guides:
 
 - **Module**: `github.com/CristhianRudolf7/excalibur-agent`, stdlib
-  only. Full `internal/` tree from the Section 3.4 package table, each
+  at the initial milestone; current dependencies are in `go.mod`. Full `internal/` tree from the Section 3.4 package table, each
   package with a `doc.go` stating its responsibility and sections.
 - **`internal/types`**: ULID identifiers (`prf_` + 26 chars, type
   prefixes, roundtrip-tested time ordering), short codes (`T45`,
@@ -32,13 +33,13 @@ Wave 0 delivers the frame other agents plug into, not the features:
   normalized errors, context cancellation), `Tool` (+ validated
   definition, registry, normalized result, resource keys, optional
   probe/compensate, `excalibur-extension.yaml` manifest),
-  `internal/platform` (nine interfaces; `*_linux.go` compiling
-  placeholders, `*_other.go` `errors.ErrUnsupported` stubs),
+  `internal/platform` (nine interfaces; native Linux, Windows and macOS
+  backends; `*_other.go` stubs for unsupported operating systems),
   `safego.Go` (recover, slog, owner-failed callback), `internal/config`
   (layered types, Appendix B defaults, range validation).
 - **CLI**: `cmd/excalibur` dispatches every Section 3.5/3.6 command;
-  unimplemented commands exit 69 with `not implemented yet`. Final
-  `exec` codes follow Section 6.5.
+  registered commands now dispatch to backend handlers. Exit 69 remains
+  reserved for an unavailable implementation. Final `exec` codes follow Section 6.5.
 - **`pkg/extsdk`**: public, internal-free SDK (Tool, Capability,
   manifest) with a JSON parity test against `internal/tools`.
 
@@ -75,6 +76,6 @@ Naming: state enum values are English (`queued`, `running`, ...); see
 
 ## Deferred (not in wave 0)
 
-No behavior: no adapters, no SQL, no Linux implementation, no journal
-or engine logic, no gate, no YAML parsing (tags only), no Harbor or
-bench code, no store content. Each lands with its milestone.
+Provider adapters, SQL storage, platform backends, journal, engine, gateway,
+YAML parsing and benchmark integration landed in later milestones. See the
+current [coverage index](coverage.md). A remote store catalog remains unimplemented.

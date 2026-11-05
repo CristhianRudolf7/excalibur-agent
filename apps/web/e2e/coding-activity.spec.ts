@@ -165,7 +165,7 @@ for (const width of [1440, 390]) {
     await feed.getByRole('button', { name: 'Steps: 3 of 3' }).click()
     await summary.click()
     await expect(feed).toHaveJSProperty('offsetHeight', 44)
-    const shots = '/home/cristhian/excalibur-imp/s4-shots/coding-view'
+    const shots = 'test-results/coding-view'
     await mkdir(shots, { recursive: true })
     for (const dark of [false, true]) {
       await page.evaluate((value) => document.documentElement.classList.toggle('dark', value), dark)
@@ -305,7 +305,7 @@ for (const width of [1440, 390]) {
     )
     await expect(feed.getByText('323 actions · 3 subagents')).toBeVisible()
     if (width === 1440) {
-      const shots = '/home/cristhian/excalibur-imp/s4-shots/coding-view'
+      const shots = 'test-results/coding-view'
       await mkdir(shots, { recursive: true })
       await page.screenshot({ path: `${shots}/long-build.png`, animations: 'disabled' })
     }

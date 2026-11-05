@@ -1,6 +1,6 @@
 # Secrets vault (Section 20.1)
 
-The only security piece of this version. Everything lives in
+The encrypted secrets vault lives in
 `internal/vault` (plus `internal/vault/fake` for clients' tests). No
 other package is modified: the tools executor, provider gateway, CLI
 and gateway call into this package's core.

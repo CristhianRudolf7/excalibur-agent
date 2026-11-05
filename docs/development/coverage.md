@@ -4,9 +4,10 @@ W5 closure pass (Appendix E). One row per architecture section:
 status and the backend test names that prove it. All tests run with
 `go test ./... -race`; cross builds (`GOOS=darwin`, `GOOS=windows`)
 check compilation; platform-specific runtime tests require native runners. Nothing below describes as
-implemented what is only planned; deferred scope (§0: image/video/
-voice/GPU models, autopoiesis, mobile, security beyond the vault)
-stays simulated behind contract seams.
+implemented what is only planned; some capability rows below describe simulated contracts rather than live
+connectors. Voice, browser and document implementations have additional evidence
+in their feature guides. Autopoiesis and mobile packaging remain out of scope;
+the vault does not provide a general tool sandbox.
 
 | Section | Status | Test evidence |
 |---|---|---|

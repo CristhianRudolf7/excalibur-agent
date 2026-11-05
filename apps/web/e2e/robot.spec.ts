@@ -8,7 +8,7 @@ test.use({
   launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
 })
 
-const shots = '/home/cristhian/projects/ui-design/rb-shots'
+const shots = 'test-results/rb-shots'
 const initialState: RobotState = {
   connected: false,
   host: '192.168.1.10',
@@ -403,7 +403,6 @@ for (const variant of ['desktop', 'mobile', 'dark', 'english'] as const) {
     await page.addInitScript((variant) => {
       localStorage.setItem('excalibur-ui-theme', variant === 'dark' ? 'dark' : 'light')
       localStorage.setItem('excalibur-ui-language', variant === 'english' ? 'en' : 'es')
-      localStorage.setItem('world-last-mode', 'world')
     }, variant)
     await page.goto('/robot')
     await expect(page).toHaveURL(/\/robot$/)

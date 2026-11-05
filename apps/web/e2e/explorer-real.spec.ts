@@ -103,13 +103,13 @@ for (const width of [1440, 390]) {
     await expect(page).toHaveURL(/panel=files/)
     await expect(python).toHaveClass(/selected/)
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/ex-files-${width}.png`,
+      path: `test-results/rp-shots/ex-files-${width}.png`,
       animations: 'disabled',
     })
     if (width === 1440) {
       await page.evaluate(() => document.documentElement.classList.add('dark'))
       await page.screenshot({
-        path: '/home/cristhian/projects/ui-design/rp-shots/ex-files-dark.png',
+        path: 'test-results/rp-shots/ex-files-dark.png',
         animations: 'disabled',
       })
       await page.evaluate(() => document.documentElement.classList.remove('dark'))
@@ -133,7 +133,7 @@ for (const width of [1440, 390]) {
       .poll(() => canvas.evaluate((node: HTMLCanvasElement) => node.width))
       .toBeGreaterThan(100)
     await page.screenshot({
-      path: `/home/cristhian/projects/ui-design/rp-shots/ex-pdf-${width}.png`,
+      path: `test-results/rp-shots/ex-pdf-${width}.png`,
       animations: 'disabled',
     })
     expect(opens).toEqual([`${root}/src/main.py`, `${root}/data.csv`, `${root}/informe.pdf`])

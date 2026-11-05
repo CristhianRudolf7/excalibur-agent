@@ -1,10 +1,5 @@
 // Command excalibur is the single Excalibur binary: daemon, CLI and
-// non-interactive exec. This wave-0 skeleton exposes the full command
-// surface of Sections 3.5 and 3.6 as thin dispatchers; every command
-// that has no backend yet fails with a stable "not implemented yet"
-// error and ExitNotImplemented. No agent or provider logic lives here:
-// commands will call the shared core in internal/ (H4 for exec, H8 for
-// task/mcp, H9 for the daemon commands).
+// non-interactive exec. Commands dispatch to shared core packages in internal/.
 package main
 
 import (

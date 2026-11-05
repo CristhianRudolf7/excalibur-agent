@@ -7,7 +7,7 @@ import { defineConfig, loadEnv } from 'vite'
 
 // The daemon gateway serves JSON-RPC on /rpc, events on /ws and blobs on
 // /blobs. In development Vite proxies those paths to a locally running
-// daemon (`excalibur daemon --listen 127.0.0.1:7787`).
+// daemon (`excalibur daemon start --listen 127.0.0.1:7787`).
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const daemon = env.EXCALIBUR_DAEMON_URL || 'http://127.0.0.1:7787'

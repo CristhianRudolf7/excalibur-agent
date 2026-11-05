@@ -4,18 +4,13 @@ Real coverage of language-model adapters against the wave-0
 `internal/providers` contract. Planned rows stay marked planned: never
 describe as implemented what is only planned.
 
-Built by two parallel waves: `w1-providers-a` (OpenAI, DeepSeek,
-OpenRouter, Ollama, generic OpenAI-compatible, shared `openaiwire`
-helper) and `w1-providers-b` (Anthropic, Gemini, retry helper,
-provider registry). Neither agent rewrites the other's rows.
-
 ## Shared helpers
 
 | Item | Status |
 |---|---|
-| `internal/providers/openaiwire` Chat Completions client (request build, SSE streaming, tool-call fragment reassembly, usage mapping, `reasoning_effort` / `reasoning.effort` / omit modes, `max_tokens` vs `max_completion_tokens` rendering, normalized errors, `Retry-After` honoring, `NormalizeUsage`, `Cost`) | Implemented, unit-tested (w1-providers-a) |
-| `internal/providers` retry helper (`WithRetry`/`Backoff`/`ParseRetryAfter`/`SleepContext`) | Implemented, unit-tested (w1-providers-b) |
-| `internal/providers/registry` factory with `SecretResolver` vault hook | Implemented, unit-tested (w1-providers-b) |
+| `internal/providers/openaiwire` Chat Completions client (request build, SSE streaming, tool-call fragment reassembly, usage mapping, `reasoning_effort` / `reasoning.effort` / omit modes, `max_tokens` vs `max_completion_tokens` rendering, normalized errors, `Retry-After` honoring, `NormalizeUsage`, `Cost`) | Implemented, unit-tested |
+| `internal/providers` retry helper (`WithRetry`/`Backoff`/`ParseRetryAfter`/`SleepContext`) | Implemented, unit-tested |
+| `internal/providers/registry` factory with `SecretResolver` vault hook | Implemented, unit-tested |
 
 ## Adapters
 
