@@ -364,3 +364,31 @@ func TestClientDialRoundTrip(t *testing.T) {
 	}
 	_ = fmt.Sprint(list)
 }
+
+func TestBrowserSameOriginAndHost(t *testing.T) {
+	s := New(Config{Listen: "127.0.0.1:0", WebUI: http.NotFoundHandler()}, nil, nil, nil)
+	addr, err := s.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop(context.Background())
+	for _, tc := range []struct {
+		origin, host string
+		want         int
+	}{
+		{"http://" + addr, addr, 200}, {"https://attacker.invalid", addr, 403},
+		{"null", addr, 403}, {"", "attacker.invalid", 403}, {"", addr, 200},
+	} {
+		req, _ := http.NewRequest("GET", "http://"+addr+"/healthz", nil)
+		req.Header.Set("Origin", tc.origin)
+		req.Host = tc.host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("origin=%s host=%s: %d", tc.origin, tc.host, resp.StatusCode)
+		}
+	}
+}

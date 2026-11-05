@@ -1,7 +1,7 @@
 # Excalibur verification targets. Every target must pass before a wave
 # is declared done. Prefer `go test -race -p 2` for package-scoped runs
 # while iterating: the machine has 8 CPUs shared with other agents.
-.PHONY: verify test lint cross build
+.PHONY: verify test lint cross build web
 
 verify: lint test cross
 
@@ -22,3 +22,8 @@ cross:
 
 build:
 	go build ./...
+
+# The placeholder keeps ordinary Go builds independent of Node.
+web:
+	pnpm --filter @excalibur/web build
+	node scripts/release/embed-web.mjs
