@@ -11,7 +11,11 @@
     "typecheck": "astro check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm typecheck && pnpm format:check"
+    "check": "pnpm typecheck && pnpm format:check",
+    "test": "playwright test",
+    "shots": "node --experimental-strip-types tests/shots.ts",
+    "budgets": "node --experimental-strip-types tests/budgets.ts",
+    "perf": "node --experimental-strip-types tests/perf.ts"
   },
   "dependencies": {
     "@astrojs/react": "^7.1.2",
