@@ -99,6 +99,11 @@ jobs:
           extra_flags=""
           if [ '${{ matrix.os }}' = windows ] && [ "$CGO_ENABLED" = 1 ]; then
             extra_flags="-extldflags=-static"
+            # sqlite-vec includes sqlite3.h, which Windows runners lack. Use the
+            # header of the exact SQLite that go-sqlite3 compiles and links.
+            mkdir -p build/include
+            cp "$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3)/sqlite3-binding.h" build/include/sqlite3.h
+            export CGO_CFLAGS="-I$(cygpath -m "$PWD/build/include")"
           fi
           go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION $extra_flags" -o build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/excalibur
       - name: Package native archive
