@@ -102,3 +102,10 @@ document.querySelectorAll<HTMLTableCellElement>('td').forEach((cell) => {
   if (/^[+−-]?[\d\s,.]+(?:%|\s?ms|\s?KB)?$/.test(cell.textContent?.trim() ?? ''))
     cell.dataset.numeric = ''
 })
+
+// Also give keyboard-shortcut users a predictable return point after search.
+document.querySelector('site-search dialog')?.addEventListener('close', () => {
+  document
+    .querySelector<HTMLButtonElement>('site-search [data-open-modal]')
+    ?.focus({ preventScroll: true })
+})

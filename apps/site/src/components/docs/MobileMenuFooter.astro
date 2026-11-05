@@ -1,0 +1,16 @@
+---
+import LanguageSelect from '@astrojs/starlight/components/LanguageSelect.astro'
+const spanish = Astro.locals.starlightRoute.lang === 'es'
+---
+
+<div class="manual-mobile-footer">
+  <nav aria-label={spanish ? 'Principal' : 'Main'}>
+    <a href="/#your-day">
+      {spanish ? 'Producto' : 'Product'} <span aria-hidden="true">↗</span>
+    </a>
+    <a href="https://github.com/CristhianRudolf7/excalibur-agent">
+      GitHub <span aria-hidden="true">↗</span>
+    </a>
+  </nav>
+  <LanguageSelect />
+</div>

@@ -22,8 +22,11 @@ const spanish = Astro.locals.starlightRoute.lang === 'es'
       GitHub <span aria-hidden="true">↗</span>
     </a>
   </nav>
-  <div class="manual-language">
+  <div class="manual-language" data-short-label={spanish ? 'ES' : 'EN'}>
     <LanguageSelect />
+    <noscript>
+      <a href={spanish ? '/docs/' : '/es/docs/'}>{spanish ? 'EN' : 'ES'}</a>
+    </noscript>
   </div>
   <ThemeSelect />
 </div>

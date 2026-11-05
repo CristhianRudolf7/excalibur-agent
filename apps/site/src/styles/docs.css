@@ -374,9 +374,6 @@ h1#_top {
   color: var(--ink);
   font-style: normal;
 }
-.expressive-code .ec-line .code > span:nth-child(2n) {
-  color: var(--blue-text);
-}
 .expressive-code .ec-line.ins .code span,
 .expressive-code .ec-line.del .code span {
   color: var(--ink);
@@ -508,10 +505,10 @@ h1#_top {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
 }
-sl-tab-group {
+starlight-tabs {
   --sl-color-accent: var(--blue-text);
 }
-sl-tab-group [role='tab'] {
+starlight-tabs [role='tab'] {
   font: 400 0.8125rem/1.5 var(--font-mono);
   border-radius: 0;
 }
@@ -580,6 +577,7 @@ site-search dialog {
 site-search dialog::backdrop {
   background: var(--bg);
   opacity: 0.88;
+  backdrop-filter: var(--manual-search-filter, none) !important;
 }
 site-search kbd {
   border: 1px solid var(--hairline);
@@ -609,7 +607,7 @@ site-search mark {
   color: var(--ink);
 }
 /* Splash: a parts index rather than a grid of feature cards. */
-html:not([data-has-sidebar]) {
+:root:not([data-has-sidebar]) {
   --sl-content-width: 82rem;
 }
 html:not([data-has-sidebar]) .content-panel {
@@ -1059,5 +1057,140 @@ html:not([data-has-sidebar]) .content-panel {
   body::before,
   .manual-theme {
     display: none !important;
+  }
+}
+
+@media (min-width: 800px) {
+  .sl-menu-button {
+    display: none;
+  }
+}
+.manual-language select {
+  width: 8.5rem;
+}
+.sl-heading-wrapper h2 {
+  flex: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  @supports (animation-timeline: scroll()) {
+    html[data-has-sidebar].manual-ready main::before {
+      width: 3px;
+      left: -1px;
+      background: var(--blue);
+    }
+  }
+}
+
+.expressive-code .frame {
+  border: 1px solid var(--hairline);
+}
+.expressive-code .copy button {
+  opacity: 1;
+  transition: opacity 0.25s var(--manual-ease);
+}
+.expressive-code .copy button::after {
+  background-color: var(--ink);
+}
+.expressive-code .copy button > div {
+  background: var(--bg);
+}
+.expressive-code .header .title {
+  font-family: var(--font-mono);
+}
+.manual-mobile-footer {
+  border-top: 1px solid var(--hairline);
+  padding-block: 1rem;
+}
+.manual-mobile-footer nav {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 1rem;
+}
+.manual-mobile-footer a {
+  color: var(--ink);
+  text-decoration: none;
+  font: 400 0.8125rem/1.5 var(--font-mono);
+}
+.manual-mobile-footer select {
+  font-size: 0.8125rem;
+  width: 10rem;
+}
+@media (max-width: 1023px) {
+  .manual-language {
+    position: relative;
+    display: block;
+  }
+  .manual-language label {
+    width: 32px;
+  }
+  .manual-language select {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    margin: 0;
+    color: transparent;
+    border: 1px solid var(--hairline);
+  }
+  .manual-language .icon {
+    display: none;
+  }
+  .manual-language::after {
+    content: attr(data-short-label);
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    font: 400 0.6875rem/1 var(--font-mono);
+    color: var(--ink);
+  }
+}
+
+@media (scripting: none) {
+  .manual-language starlight-lang-select,
+  .manual-language::after {
+    display: none;
+  }
+  .manual-language a {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+    font: 400 0.6875rem/1 var(--font-mono);
+    text-decoration: none;
+  }
+}
+
+starlight-tabs [role='tablist'] {
+  border-bottom: 1px solid var(--hairline);
+}
+starlight-tabs [role='tab'] {
+  position: relative;
+  box-shadow: none;
+  color: var(--ink-2);
+}
+starlight-tabs [role='tab'][aria-selected='true'] {
+  color: var(--ink);
+}
+starlight-tabs [role='tab']::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: var(--blue);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.25s var(--manual-ease);
+}
+starlight-tabs [role='tab'][aria-selected='true']::after {
+  transform: scaleX(1);
+}
+@media (prefers-reduced-motion: reduce) {
+  starlight-tabs [role='tab']::after {
+    transition: none;
   }
 }
