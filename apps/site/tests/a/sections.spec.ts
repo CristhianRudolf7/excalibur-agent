@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../browser'
 import { baseURL } from '../server'
 
 for (const width of [390, 1024, 1280, 1536, 1920]) {
@@ -133,23 +133,33 @@ test('browser actions wait for the pen and reverse when scrolling back', async (
   await expect(page.locator('#your-day')).toHaveAttribute('data-initialized', 'true')
   const highlight = page.locator('.day-action-highlight')
   await expect(highlight).toHaveCSS('opacity', '0')
-  await page
-    .locator('#your-day')
-    .evaluate((el) =>
-      scrollTo(0, el.getBoundingClientRect().top + scrollY + el.clientHeight * 0.05),
-    )
+  const seek = async (fraction: number) => {
+    const bounds = await page.locator('#your-day').evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return { low: r.top + scrollY - innerHeight / 2, high: r.bottom + scrollY - innerHeight / 2 }
+    })
+    let { low, high } = bounds
+    for (let i = 0; i < 9; i++) {
+      const y = (low + high) / 2
+      await page.evaluate((y) => scrollTo(0, y), y)
+      await page.waitForTimeout(300)
+      const progress = await page
+        .locator('#your-day .desktop-line [data-line-path]')
+        .evaluate((path) => {
+          const css = (path as SVGPathElement).style
+          return 1 - parseFloat(css.strokeDashoffset) / parseFloat(css.strokeDasharray)
+        })
+      if (progress < fraction) low = y
+      else high = y
+    }
+  }
+  await seek(0.6)
   await expect(highlight).toHaveCSS('opacity', '1')
   await expect(page.locator('[data-password-dot]').last()).toHaveCSS('opacity', '1')
   await expect(page.locator('[data-cursor]')).toHaveCSS('opacity', '0')
-  await page
-    .locator('#your-day')
-    .evaluate((el) =>
-      scrollTo(0, el.getBoundingClientRect().top + scrollY + el.clientHeight * 0.35),
-    )
+  await seek(0.85)
   await expect(page.locator('[data-click-tag]')).toHaveCSS('opacity', '1')
-  await page
-    .locator('#your-day')
-    .evaluate((el) => scrollTo(0, el.getBoundingClientRect().top + scrollY - innerHeight * 0.3))
+  await seek(0.3)
   await expect(highlight).toHaveCSS('opacity', '0')
   await expect(page.locator('[data-click-tag]')).toHaveCSS('opacity', '0')
 })

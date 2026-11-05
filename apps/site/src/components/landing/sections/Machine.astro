@@ -5,6 +5,7 @@ import Headline from '../parts/Headline.astro'
 import Plate from '../parts/Plate.astro'
 import RobotArm from '../parts/RobotArm.astro'
 import Logo from '../../brand/Logo.astro'
+import ScoreRuler from '../parts/ScoreRuler.astro'
 import '../../../styles/sections/machine.css'
 const layers = [
   { name: 'INPUT', label: 'Your voice or text', x: 900, y: 170, w: 384, d: 66, t: 22, shift: 230 },
@@ -39,6 +40,15 @@ const layers = [
     <div class="machine-canvas">
       <SectionLine path="M218 0 V1024" mobilePath="M24 0 V1370" mobileHeight={1370} />
       <Headline lines={['Built like', 'a machine.']} class="machine-headline" />
+      <div class="machine-benchmark">
+        <p class="machine-score-number canvas-item">
+          <span>59.6%</span>
+        </p>
+        <p class="machine-score-caption canvas-item">
+          Terminal-Bench 2.1 · 53 of 89 tasks · GPT-6 Luna, reasoning effort low, Flex
+        </p>
+        <ScoreRuler prefix="machine-score" />
+      </div>
       <div class="machine-progress canvas-item" aria-hidden="true">
         <span data-machine-clock>00:00.0</span>
         <i>

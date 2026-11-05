@@ -1,6 +1,7 @@
 ---
 import TimeTick from './TimeTick.astro'
 interface Props {
+  time?: string
   path?: string
   height?: number
   mobilePath?: string
@@ -13,6 +14,7 @@ interface Props {
   mobileTickY?: number
 }
 const {
+  time = '00:01.4',
   path = 'M218 0 V1024',
   height = 1024,
   mobilePath = 'M24 0 V680',
@@ -42,7 +44,7 @@ const {
     ))}
   </g>
   <circle class="line-pen" data-pen r="6" />
-  <TimeTick />
+  <TimeTick time={time} />
 </svg>
 <svg
   class="section-line mobile-line"
@@ -65,5 +67,5 @@ const {
     ))}
   </g>
   <circle class="line-pen" data-pen r="4" />
-  <TimeTick x={mobileTickX} y={mobileTickY} />
+  <TimeTick x={mobileTickX} y={mobileTickY} time={time} />
 </svg>

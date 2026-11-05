@@ -72,3 +72,21 @@
 .hero .mobile-line .time-tick text {
   transform: translateY(59px);
 }
+
+/* Keep the static sword and the 390-unit rail aligned on narrow phones too. */
+@media (max-width: 389px) {
+  .hero .brand-link {
+    transform: translate(calc(6.153846vw - 24px), calc(17.5px - 4.487179vw));
+  }
+  .hero .brand-link .wordmark {
+    font-size: 6.153846vw;
+  }
+  .hero .brand-link .wordmark-first {
+    width: 22.564103vw;
+  }
+  .hero .brand-link .wordmark-sword {
+    width: 3.846154vw;
+    height: 10.25641vw;
+    margin-right: 1.025641vw;
+  }
+}

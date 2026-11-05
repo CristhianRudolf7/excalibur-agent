@@ -1,3 +1,4 @@
+import { plotterSchedule, scheduledProgress } from './progress'
 import { gsap } from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 
@@ -82,6 +83,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       }
       const originalPath = path.getAttribute('d')!
       let points: Point[] = []
+      let schedule: number[] = []
       let length = 0
       let dashScale = 1
       let sectionTop = 0,
@@ -114,7 +116,11 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
           intro?.kill()
           path.style.willChange = ''
         }
-        currentProgress = introDone ? introEnd + (1 - introEnd) * state.scroll : state.intro
+        currentProgress = options.intro
+          ? introDone
+            ? introEnd + (1 - introEnd) * state.scroll
+            : state.intro
+          : scheduledProgress(schedule, state.scroll)
         path.style.strokeDashoffset = String((1 - currentProgress) * dashScale)
         const penActive = currentProgress > 0 && currentProgress < 1
         if (pen) pen.style.opacity = penActive ? '1' : '0'
@@ -208,6 +214,12 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
         const rect = section.getBoundingClientRect()
         sectionTop = rect.top + window.scrollY
         sectionHeight = rect.height
+        const scaleY = matrix ? Math.hypot(matrix.c, matrix.d) : 1
+        const sticky = desktop && section.id === 'machine'
+        const reserved = sticky
+          ? Math.max(0, rect.height - svg.getBoundingClientRect().height) / scaleY
+          : 0
+        schedule = plotterSchedule(points, reserved, window.innerHeight / scaleY)
         pageHeight = Math.max(document.documentElement.scrollHeight, 1)
         canvasWidth = svg.viewBox.baseVal.width
         if (options.intro) {
@@ -247,10 +259,10 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       const trigger = ScrollTrigger.create({
         trigger: section,
         animation: timeline,
-        start: options.start ?? 'top 62%',
+        start: options.start ?? 'top 50%',
         end: options.pin
           ? `+=${Math.min(options.pinDistance ?? 150, 200)}%`
-          : (options.end ?? 'bottom 62%'),
+          : (options.end ?? 'bottom 50%'),
         scrub: 0.25,
         invalidateOnRefresh: true,
         pin: options.pin && section.id === 'machine',

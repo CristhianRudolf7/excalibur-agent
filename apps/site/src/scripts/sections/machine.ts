@@ -18,8 +18,8 @@ export function init(section: HTMLElement) {
       // A native sticky canvas reserves the 150vh journey before lazy init.
       // It also avoids the shared pin adapter's synchronous global refresh.
       const line = createSectionLine(section, {
-        start: desktop ? 'top top' : 'top 62%',
-        end: desktop ? '+=150%' : 'bottom 62%',
+        start: 'top 50%',
+        end: 'bottom 50%',
       })
       const layers = [...section.querySelectorAll<HTMLElement>('[data-machine-layer]')]
       if (!desktop) {

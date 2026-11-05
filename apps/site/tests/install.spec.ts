@@ -97,3 +97,26 @@ test('history restores motion and theme after returning from documentation', asy
   await expect(page.locator('#install .mobile-line')).toBeVisible()
   await expect(page.locator('#install .desktop-line')).toBeHidden()
 })
+
+for (const width of [360, 390]) {
+  test(`static sword meets the rail without JavaScript at ${width}`, async ({ browser }) => {
+    const page = await browser.newPage({
+      javaScriptEnabled: false,
+      viewport: { width, height: 844 },
+    })
+    await page.goto(baseURL)
+    await page.evaluate(() => document.fonts.ready)
+    const gap = await page.evaluate(() => {
+      const source = document.querySelector('.wordmark-sword')!.getBoundingClientRect()
+      const path = document.querySelector<SVGPathElement>('.hero .mobile-line [data-line-path]')!
+      const p = path.getPointAtLength(0)
+      const point = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!)
+      return Math.hypot(
+        point.x - source.x - source.width / 2,
+        point.y - source.y - (source.height * 15) / 16,
+      )
+    })
+    expect(gap).toBeLessThanOrEqual(1)
+    await page.close()
+  })
+}

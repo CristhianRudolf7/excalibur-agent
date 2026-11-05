@@ -82,7 +82,9 @@ void document.fonts.ready.then(() => {
 })
 window.addEventListener(
   'pagehide',
-  () => {
+  (event) => {
+    // Preserve the live contexts when the browser freezes a back-forward entry.
+    if (event.persisted) return
     disposed = true
     observer.disconnect()
     disposers.forEach((dispose) => dispose())
@@ -91,3 +93,10 @@ window.addEventListener(
   },
   { once: true },
 )
+
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && !disposed) {
+    setTheme(storedTheme())
+    ScrollTrigger.refresh()
+  }
+})

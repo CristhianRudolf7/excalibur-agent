@@ -4,17 +4,13 @@ import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
 import SectionIndex from '../parts/SectionIndex.astro'
 import Plate from '../parts/Plate.astro'
+import ScoreRuler from '../parts/ScoreRuler.astro'
 import '../../../styles/sections/measured.css'
-const scores = [
-  { name: 'Excalibur', value: 59.6 },
-  { name: 'OpenCode', value: 55.1 },
-  { name: 'Terminus 2', value: 51.7 },
-  { name: 'Codex', value: 48.3 },
-]
 ---
 
 <Stage id="measured" class="measured" label="Measured, not promised">
   <SectionLine
+    time="00:28.5"
     path="M218 0 V752 A34 34 0 0 0 252 786 H610 A36 36 0 0 1 646 822 V970 A24 24 0 0 1 622 994 H248 A30 30 0 0 0 218 1024"
     mobilePath="M24 0 V1100"
     mobileHeight={1100}
@@ -28,25 +24,7 @@ const scores = [
   <p class="measured-caption canvas-item" data-noverlap>
     Terminal-Bench 2.1 · 53 of 89 tasks · GPT-6 Luna, reasoning effort low, Flex
   </p>
-  <div
-    class="measured-chart canvas-item"
-    role="img"
-    aria-label="Scores on a shared linear axis from 0 to 100. Excalibur 59.6, OpenCode 55.1, Terminus 2 51.7, Codex 48.3."
-  >
-    <div class="measured-axis">
-      <span>0</span>
-      <span>100</span>
-    </div>
-    {scores.map(({ name, value }, i) => (
-      <div class={`measured-row ${i === 0 ? 'measured-primary' : ''}`}>
-        <span class="measured-label">{name}</span>
-        <div class="measured-rule">
-          <i data-measured-tick data-score={value} style={`--score:${value}`}></i>
-        </div>
-        <span class="measured-value">{value.toFixed(1)}</span>
-      </div>
-    ))}
-  </div>
+  <ScoreRuler />
   <div class="measured-profile canvas-item">
     <Plate width={552} depth={128} thickness={68} label="Evaluation profile">
       <div class="measured-profile-tiles">

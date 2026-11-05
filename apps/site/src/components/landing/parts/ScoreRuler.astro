@@ -1,0 +1,36 @@
+---
+interface Props {
+  prefix?: string
+}
+const { prefix = 'measured' } = Astro.props
+const scores = [
+  { name: 'Excalibur', value: 59.6 },
+  { name: 'OpenCode', value: 55.1 },
+  { name: 'Terminus 2', value: 51.7 },
+  { name: 'Codex', value: 48.3 },
+]
+---
+
+<div
+  class={`${prefix}-chart canvas-item`}
+  role="img"
+  aria-label="Scores on a shared linear axis from 0 to 100. Excalibur 59.6, OpenCode 55.1, Terminus 2 51.7, Codex 48.3."
+>
+  <div class={`${prefix}-axis`}>
+    <span>0</span>
+    <span>100</span>
+  </div>
+  {scores.map(({ name, value }, i) => (
+    <div class={`${prefix}-row ${i === 0 ? `${prefix}-primary` : ''}`}>
+      <span class={`${prefix}-label`}>{name}</span>
+      <div class={`${prefix}-rule`}>
+        <i
+          data-measured-tick={prefix === 'measured' || undefined}
+          data-score={value}
+          style={`--score:${value}`}
+        ></i>
+      </div>
+      <span class={`${prefix}-value`}>{value.toFixed(1)}</span>
+    </div>
+  ))}
+</div>
