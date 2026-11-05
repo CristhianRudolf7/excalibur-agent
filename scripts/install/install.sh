@@ -43,7 +43,9 @@ main() (
     fi
     [ "$actual" = "$expected" ] || fail 'SHA-256 verification failed; nothing was installed'
     tar -xzf "$work/$archive" -C "$work" excalibur || fail 'could not unpack the binary'
-    [ -f "$work/excalibur" ] && [ ! -L "$work/excalibur" ] || fail 'invalid binary in archive'
+    if [ ! -f "$work/excalibur" ] || [ -L "$work/excalibur" ]; then
+        fail 'invalid binary in archive'
+    fi
     destination=$HOME/.local/bin
     mkdir -p "$destination"
     chmod 755 "$work/excalibur"
