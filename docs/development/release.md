@@ -235,3 +235,15 @@ Remaining gates:
 - OAuth completion, paid model calls, backend browser driver downloads, public
   HTTPS installer URLs, GitHub Release publication and GHCR publication were
   not exercised here. The coordinator performs publication/deployment.
+
+Runtime independence was checked with a whitelist-only Linux PATH containing
+standard installer utilities and no Node, pnpm or Go. Installation, UI serving
+and same-origin chat intake passed. Windows CGO release links additionally
+request static MinGW runtime linking; its native smoke deliberately removes
+MinGW, Node and Go directories from the child PATH. Those Windows enforcement
+checks are configured and must still execute on the native runner.
+
+The cards fixture correction applies to both `TestExecEngineSkillsCards` and
+`TestExecEngineSkillsCardsErrorCardsOff`. The existing Intel macOS Robot Lab
+runtime gate is retained; these installer tests assert its rejection rather
+than enabling an unverified runtime architecture.

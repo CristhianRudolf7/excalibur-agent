@@ -31,6 +31,12 @@ func run() error {
 	env := append(os.Environ(), "EXCALIBUR_BASE_URL="+server.URL, "EXCALIBUR_SKIP_BROWSER_INSTALL=1", "EXCALIBUR_PROVIDER=stub", "EXCALIBUR_SERVICE_NAME="+filepath.Base(root))
 	binary := filepath.Join(root, ".local", "bin", "excalibur")
 	if runtime.GOOS == "windows" {
+		systemRoot := os.Getenv("SystemRoot")
+		if systemRoot == "" {
+			return fmt.Errorf("Windows SystemRoot is required for the release smoke")
+		}
+		// Test the CLI without MinGW, Go or Node DLL directories on PATH.
+		env = append(env, "PATH="+strings.Join([]string{filepath.Join(systemRoot, "System32"), systemRoot, filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0")}, string(os.PathListSeparator)))
 		binary = filepath.Join(os.Getenv("LOCALAPPDATA"), "Excalibur", "bin", "excalibur.exe")
 	} else {
 		for _, key := range []string{"HOME", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR"} {

@@ -96,7 +96,11 @@ jobs:
           test "$(go env GOOS)" = '${{ matrix.os }}'
           test "$(go env GOARCH)" = '${{ matrix.arch }}'
           mkdir -p build
-          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" -o build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/excalibur
+          extra_flags=""
+          if [ '${{ matrix.os }}' = windows ] && [ "$CGO_ENABLED" = 1 ]; then
+            extra_flags="-extldflags=-static"
+          fi
+          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION $extra_flags" -o build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/excalibur
       - name: Package native archive
         run: python scripts/release/package.py --os '${{ matrix.os }}' --arch '${{ matrix.arch }}' --binary build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} --out release --version "$RELEASE_VERSION"
       - name: Smoke actual installer, UI, health, chat and uninstall
