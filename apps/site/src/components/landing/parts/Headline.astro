@@ -1,0 +1,18 @@
+---
+interface Props {
+  lines: string[]
+  as?: 'h1' | 'h2' | 'h3'
+  class?: string
+  style?: string
+}
+const { lines, as: Tag = 'h2', class: className, style } = Astro.props
+---
+
+<Tag class:list={['headline', 'canvas-item', className]} style={style} data-noverlap>
+  {lines.map((line, i) => (
+    <>
+      <span>{line}</span>
+      {i < lines.length - 1 && <br />}
+    </>
+  ))}
+</Tag>

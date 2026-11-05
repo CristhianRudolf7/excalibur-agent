@@ -1,0 +1,40 @@
+---
+interface Props {
+  width?: number
+  depth?: number
+  thickness?: number
+  label?: string
+  active?: boolean
+  class?: string
+}
+const {
+  width = 400,
+  depth = 100,
+  thickness = 30,
+  label,
+  active = false,
+  class: className,
+} = Astro.props
+// 45-degree projection: depth is the diagonal's x/y offset, not physical mm.
+const w = width,
+  d = depth,
+  t = thickness
+---
+
+<svg
+  class:list={['iso-plate', { 'is-active': active }, className]}
+  viewBox={`0 0 ${w + d} ${d + t}`}
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  aria-hidden={!label || undefined}
+>
+  <polygon class="iso-top" points={`0,${d} ${d},0 ${w + d},0 ${w},${d}`} />
+  <polygon class="iso-face" points={`0,${d} ${w},${d} ${w},${d + t} 0,${d + t}`} />
+  <polygon class="iso-face" points={`${w},${d} ${w + d},0 ${w + d},${t} ${w},${d + t}`} />
+  {label && (
+    <text x={w / 2} y={d + t / 2} text-anchor="middle" dominant-baseline="central">
+      {label}
+    </text>
+  )}
+  <slot />
+</svg>

@@ -1,0 +1,59 @@
+---
+import '../styles/global.css'
+import '../styles/landing.css'
+import headlineFont from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url'
+interface Props {
+  title?: string
+  description?: string
+}
+const {
+  title = 'Excalibur — An agent that acts.',
+  description = 'Excalibur works in your day, your code and the physical world. A personal AI assistant and programming harness.',
+} = Astro.props
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preload" href={headlineFont} as="font" type="font/woff2" crossorigin />
+    <title>{title}</title>
+    <script is:inline>
+      ;(() => {
+        const root = document.documentElement
+        let choice
+        try {
+          choice = localStorage.getItem('starlight-theme')
+        } catch {}
+        root.dataset.theme =
+          choice === 'light' || choice === 'dark'
+            ? choice
+            : matchMedia('(prefers-color-scheme: dark)').matches
+              ? 'dark'
+              : 'light'
+        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) root.classList.add('anim')
+        window.setTimeout(() => {
+          if (!root.dataset.landingReady) root.classList.remove('anim')
+        }, 3000)
+      })()
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">
+      Skip to content
+    </a>
+    <main id="content">
+      <slot />
+    </main>
+    <script>
+      import '../scripts/landing'
+    </script>
+  </body>
+</html>

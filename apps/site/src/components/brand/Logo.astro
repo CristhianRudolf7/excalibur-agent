@@ -1,0 +1,92 @@
+---
+interface Props {
+  swordOnly?: boolean
+}
+const { swordOnly = false } = Astro.props
+// The approved 6 × 16 pixel grid from apps/web/src/components/brand/Wordmark.tsx.
+const pixels = [
+  '..kk..',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  '.kbBk.',
+  'kggggk',
+  'kggggk',
+  '..hh..',
+  '..hh..',
+  '..pp..',
+  '......',
+]
+const colors: Record<string, string> = {
+  k: 'var(--ink)',
+  b: 'var(--surface-2)',
+  B: 'var(--blue-tint)',
+  g: 'var(--cyan)',
+  h: 'var(--ink)',
+  p: 'var(--cyan)',
+}
+---
+
+<span class:list={['wordmark', { 'sword-only': swordOnly }]} role="img" aria-label="Excalibur">
+  {!swordOnly && (
+    <span class="wordmark-first" aria-hidden="true">
+      EXCAL
+    </span>
+  )}
+  <svg
+    class="wordmark-sword"
+    width="24"
+    height="64"
+    viewBox="0 0 6 16"
+    shape-rendering="crispEdges"
+    aria-hidden="true"
+  >
+    {pixels.flatMap((row, y) =>
+      [...row].map(
+        (c, x) => colors[c] && <rect x={x} y={y} width="1" height="1" fill={colors[c]} />,
+      ),
+    )}
+  </svg>
+  {!swordOnly && <span aria-hidden="true">BUR</span>}
+</span>
+<style>
+  .wordmark {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-sans);
+    font-weight: 800;
+    font-size: 2.604167cqw;
+    letter-spacing: 0.1em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .wordmark-first {
+    display: inline-block;
+    width: 9.505208cqw;
+  }
+  .wordmark-sword {
+    flex: none;
+    width: 1.5625cqw;
+    height: 4.166667cqw;
+    margin-right: 0.35cqw;
+  }
+  @media (max-width: 1023px) {
+    .wordmark {
+      font-size: 24px;
+      letter-spacing: 0.09em;
+    }
+    .wordmark-first {
+      width: 88px;
+    }
+    .wordmark-sword {
+      width: 15px;
+      height: 40px;
+      margin-right: 4px;
+    }
+  }
+</style>

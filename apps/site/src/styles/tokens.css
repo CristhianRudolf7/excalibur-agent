@@ -1,0 +1,40 @@
+/* Shared by the landing and Starlight. Raw colors live only in this file. */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f5f8fc;
+  --surface-2: #ffffff;
+  --hairline: #e6eaf0;
+  --leader: #aeb9c9;
+  --ink: #0b1220;
+  --ink-2: #475467;
+  --blue: #2f6bff;
+  --blue-fill: #2f6bff;
+  --blue-tint: #eaf1ff;
+  --blue-text: #2459db;
+  --on-blue: #ffffff;
+  --cyan: #38bdf8;
+  --diff-add: #12875a;
+  --diff-del: #d92d20;
+  --font-sans: 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --surface: #121b2e;
+  --surface-2: #0f1726;
+  --hairline: #25314a;
+  --leader: #4a5a78;
+  --ink: #f5f8fc;
+  --ink-2: #a8b3c7;
+  --blue: #5c8dff;
+  --blue-fill: #2f6bff;
+  --blue-tint: #16264a;
+  --blue-text: #8aadff;
+  --on-blue: #ffffff;
+  --cyan: #38bdf8;
+  --diff-add: #4ade9a;
+  --diff-del: #ff7a70;
+}

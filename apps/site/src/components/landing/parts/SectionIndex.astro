@@ -1,0 +1,11 @@
+---
+interface Props {
+  index: number
+  style?: string
+}
+const { index, style } = Astro.props
+---
+
+<p class="section-index canvas-item" style={style} data-noverlap>
+  {String(index).padStart(2, '0')} / 07
+</p>
