@@ -1,6 +1,9 @@
 # 0001 — License text drafted from the summary table; owner review required
 
-Date: 2026-10-31. Status: pending owner review.
+Date: 2026-10-31. Status: superseded.
+
+The owner-supplied release license replaced this draft on 2026-11-05.
+The root `LICENSE` is authoritative; the text below records the earlier decision.
 
 ## What
 

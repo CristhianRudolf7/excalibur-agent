@@ -7,8 +7,9 @@ coordinates subagents, remembers, verifies and recovers from failures.
 This repository holds the harness. The web interface is out of scope;
 it talks to the daemon through the JSON-RPC 2.0 API in
 [`packages/contracts`](packages/contracts). The full text of the
-project license is in [`LICENSE`](LICENSE) (source-available, commercial
-use requires written permission).
+project license is in [`LICENSE`](LICENSE) (Excalibur Source-Available License: personal, research, non-commercial
+and internal organizational use; commercial distribution and third-party
+commercial services require separate written permission).
 
 ## Terminal-Bench 2.1 results
 

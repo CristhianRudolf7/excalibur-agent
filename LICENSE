@@ -1,71 +1,26 @@
 Excalibur Source-Available License
 
-Version 1.0 (wave 0 draft)
 
-IMPORTANT: This license text was drafted from the summary table of the
-project architecture by a coding agent and has NOT been reviewed by the
-project owner. It is a placeholder that captures the documented intent
-(see docs/decisions/0001-license-draft.md) and must be replaced or
-confirmed by the owner before any distribution. Do not rely on it as
-legal advice.
+1. Scope
 
-Copyright (c) 2026 Excalibur contributors. All rights reserved.
+This license applies to the Excalibur source code and related project materials whose rights are held by their respective copyright holders, except third-party components that carry their own license terms.
 
-1. Scope.
+2. Permitted use
 
-This License applies to the software and materials of the Excalibur
-project whose rights are held by their respective holders (the
-"Software"), except for third-party components, which remain governed
-exclusively by their own licenses (see Section 4).
+Subject to this license, recipients may use and modify the software for personal, research, or other non-commercial purposes, and for their own organization's internal business purposes. Recipients may copy and redistribute the software and modifications only free of charge for non-commercial purposes. Copies and modifications must retain copyright and license notices and include these terms.
 
-2. Permitted use.
+3. Restrictions
 
-Subject to the restrictions in Section 3, the holders grant you a
-non-exclusive, worldwide, royalty-free license to:
+Without separate written permission from the relevant rights holders, recipients may not sell, sublicense, or otherwise distribute the software or modifications for payment or other commercial consideration. They may not provide the software or modifications to third parties as a hosted, managed, or embedded product or service for a commercial purpose. This includes commercial products or services made available to third parties that compete with Excalibur, substitute for it, or provide substantially similar functionality using the software or modifications. Internal business use under section 2 does not authorize making the software available to customers as a product or service.
 
-(a) use and modify the Software for personal, research, or other
-    non-commercial purposes, and for the internal use of your own
-    organization; and
+4. Third-party material and trademarks
 
-(b) copy and redistribute the Software and your modifications of it,
-    free of charge and for non-commercial purposes only, provided you
-    preserve all copyright and license notices.
+Third-party components remain subject to their own licenses. This license grants no rights to use the project name, logos, or other trademarks beyond what applicable law permits.
 
-3. Restrictions.
+5. Disclaimer
 
-Without the prior written permission of the holders, you may not:
+To the extent permitted by law, the software is provided as is, without warranties, and the rights holders are not liable for damages arising from its use.
 
-(a) sell, sublicense, or distribute the Software or any modification of
-    it in exchange for payment; nor
+6. Other arrangements
 
-(b) offer the Software or any modification of it to third parties as a
-    commercial product or service, whether hosted, managed, or
-    integrated into another offering, in particular where such offering
-    competes with Excalibur, substitutes for it, or provides
-    substantially similar functionality.
-
-Internal use of the Software within your organization does not
-authorize offering it to customers as a product or service. Any
-additional permission requires a separate written agreement.
-
-4. Third-party components and trademarks.
-
-Third-party components included in or used with the Software keep their
-own licenses; nothing in this License limits or alters them. This
-License grants no rights in the name, logos, or other trademarks of
-the project.
-
-5. No warranty; limitation of liability.
-
-The Software is provided "as is", without warranties of any kind, to
-the maximum extent permitted by applicable law. The holders are not
-liable for any damages arising from the use of or inability to use the
-Software, to the maximum extent permitted by applicable law.
-
-6. Other agreements; mandatory rights.
-
-Any permission beyond this License requires a separate written
-agreement with the holders. This License does not limit any rights
-that applicable law does not allow to be restricted.
-
-END OF LICENSE
+Any permission beyond these terms requires a separate written agreement with the relevant rights holders. This license does not limit rights that cannot be restricted under applicable law.
