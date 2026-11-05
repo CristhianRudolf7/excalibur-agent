@@ -1,1 +1,328 @@
-/* Owned by the YourDay section. Replace the stub composition here. */
+.your-day .day-note,
+.your-day .day-caption,
+.your-day .day-click-tag {
+  margin: 0;
+  background: var(--bg);
+}
+.your-day .day-note {
+  font-size: 1.302083cqw;
+  line-height: 1.2;
+}
+.your-day .day-note-watch,
+.your-day .day-note-voice {
+  font-size: 1.432292cqw;
+}
+.your-day .day-caption {
+  font-size: 1.5625cqw;
+  line-height: 1.45;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+.your-day .day-caption::before,
+.your-day .day-caption::after {
+  position: absolute;
+  top: -10%;
+  color: var(--blue);
+  font-size: 2.3em;
+  line-height: 1;
+  font-weight: 300;
+}
+.your-day .day-caption::before {
+  content: '{';
+  left: -0.5em;
+}
+.your-day .day-caption::after {
+  content: '}';
+  right: -0.5em;
+}
+.your-day .day-voice {
+  height: 7.161458cqw;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.26cqw;
+  background: var(--bg);
+}
+.your-day [data-wave] {
+  display: block;
+  width: 0.325521cqw;
+  height: calc(var(--bar) / 15.36 * 1cqw);
+  background: var(--blue);
+  border-radius: 3px;
+  transform-origin: center;
+}
+.your-day .day-browser {
+  height: 24.739583cqw;
+  border: 1px solid var(--hairline);
+  background: transparent;
+  font-size: 1.432292cqw;
+}
+.your-day .day-chrome {
+  display: flex;
+  align-items: center;
+  height: 3.776042cqw;
+  border-bottom: 1px solid var(--blue);
+  padding: 0 1.171875cqw;
+  gap: 2.864583cqw;
+  background: var(--surface);
+}
+.your-day .day-window-dots {
+  display: flex;
+  gap: 0.911458cqw;
+}
+.your-day .day-window-dots i {
+  width: 0.976563cqw;
+  height: 0.976563cqw;
+  border: 2px solid var(--blue);
+  border-radius: 50%;
+}
+.your-day .day-address {
+  display: flex;
+  align-items: center;
+  gap: 1.302083cqw;
+  border: 1px solid var(--leader);
+  padding: 0.195313cqw 1.171875cqw;
+  flex: 1;
+  white-space: nowrap;
+}
+.your-day .day-address svg {
+  width: 1.302083cqw;
+  height: 1.432292cqw;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.your-day .day-form {
+  margin: 3.645833cqw 3.515625cqw 0 9.114583cqw;
+}
+.your-day .day-password-label {
+  margin: 0 0 1.106771cqw;
+}
+.your-day .day-password {
+  height: 3.90625cqw;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 0.716146cqw;
+  padding: 0 1.822917cqw;
+}
+.your-day [data-password-dot] {
+  width: 0.651042cqw;
+  height: 0.651042cqw;
+  border-radius: 50%;
+  background: var(--ink);
+}
+.your-day .day-sign-in {
+  height: 4.296875cqw;
+  margin-top: 2.213542cqw;
+  display: grid;
+  place-items: center;
+  background: var(--blue-tint);
+}
+.your-day .day-action-highlight {
+  position: absolute;
+  left: 24%;
+  top: 66.84%;
+  width: 66.67%;
+  height: 17.37%;
+  border: 3px solid var(--blue);
+  pointer-events: none;
+  transform-origin: top left;
+}
+.your-day .day-cursor {
+  position: absolute;
+  width: 5.598958cqw;
+  height: 6.380208cqw;
+  left: 69%;
+  top: 70%;
+  stroke: var(--blue);
+  stroke-width: 3;
+  fill: none;
+}
+.your-day .day-click-tag {
+  border: 1px solid var(--blue);
+  padding: 0.390625cqw 0.78125cqw;
+  font-size: 1.432292cqw;
+  white-space: nowrap;
+  text-align: center;
+}
+.your-day .day-leaders {
+  z-index: 1;
+}
+.your-day .day-leaders path {
+  stroke: var(--leader);
+  stroke-width: 1;
+  fill: none;
+}
+.your-day .day-leaders path:last-of-type {
+  stroke: var(--leader);
+}
+.your-day .day-leaders circle {
+  fill: var(--ink);
+}
+.anim .your-day [data-word],
+.anim .your-day [data-password-dot],
+.anim .your-day [data-click-tag],
+.anim .your-day [data-cursor] {
+  opacity: 0;
+}
+@media (max-width: 1023px) {
+  .your-day {
+    display: flex;
+    flex-direction: column;
+    min-height: 1010px;
+    padding-bottom: 92px;
+  }
+  .your-day .section-index {
+    margin-bottom: 60px;
+  }
+  .your-day .day-headline {
+    font-size: clamp(53px, 14.4vw, 110px);
+  }
+  .your-day .day-note {
+    position: relative;
+    font-size: 12px;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .your-day .day-note-voice {
+    order: 2;
+    margin: 34px 0 14px 20px;
+  }
+  .your-day .day-voice {
+    order: 3;
+    position: relative;
+    height: 80px;
+    width: 100%;
+    padding-inline: 18px;
+    gap: 4px;
+  }
+  .your-day [data-wave] {
+    width: 4px;
+    height: calc(var(--bar) * 0.68px);
+  }
+  .your-day .day-caption {
+    order: 4;
+    position: relative;
+    white-space: normal;
+    font-size: 17px;
+    margin: 26px 14px 32px 20px;
+    width: auto;
+    line-height: 1.5;
+  }
+  .your-day .day-caption::before,
+  .your-day .day-caption::after {
+    top: 16px;
+  }
+  .your-day .day-note-watch {
+    order: 5;
+    margin: 0 0 16px 20px;
+  }
+  .your-day .day-browser {
+    order: 6;
+    position: relative;
+    width: calc(100% - 20px);
+    margin-left: 20px;
+    height: 240px;
+    font-size: 13px;
+  }
+  .your-day .day-chrome {
+    height: 40px;
+    padding: 0 10px;
+    gap: 12px;
+  }
+  .your-day .day-window-dots {
+    gap: 5px;
+  }
+  .your-day .day-window-dots i {
+    width: 7px;
+    height: 7px;
+    border-width: 1px;
+  }
+  .your-day .day-address {
+    gap: 8px;
+    padding: 3px 5px;
+    min-width: 0;
+    font-size: 11px;
+  }
+  .your-day .day-address svg {
+    width: 12px;
+    height: 14px;
+  }
+  .your-day .day-form {
+    margin: 28px 24px 0;
+  }
+  .your-day .day-password-label {
+    margin-bottom: 12px;
+  }
+  .your-day .day-password {
+    height: 36px;
+    padding: 0 16px;
+    gap: 8px;
+  }
+  .your-day [data-password-dot] {
+    width: 6px;
+    height: 6px;
+  }
+  .your-day .day-sign-in {
+    height: 40px;
+    margin-top: 20px;
+  }
+  .your-day .day-action-highlight {
+    left: 24px;
+    top: 151px;
+    width: calc(100% - 48px);
+    height: 40px;
+  }
+  .your-day .day-cursor {
+    width: 50px;
+    height: 57px;
+    left: 72%;
+    top: 64%;
+  }
+  .your-day .day-note-vault {
+    order: 7;
+    margin: 18px 12px 0 20px;
+    line-height: 1.5;
+  }
+  .your-day .day-click-tag {
+    order: 8;
+    position: relative;
+    font-size: 12px;
+    padding: 7px 9px;
+    width: fit-content;
+    margin: 20px 0 0 auto;
+  }
+  .your-day .time-tick {
+    font-size: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim .your-day [data-word],
+  .anim .your-day [data-password-dot],
+  .anim .your-day [data-click-tag],
+  .anim .your-day [data-cursor] {
+    opacity: 1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .your-day .day-headline span {
+    white-space: nowrap;
+  }
+}
+@media (max-width: 1023px) {
+  .your-day .day-headline,
+  .your-day .section-index {
+    background: var(--bg);
+  }
+}
+.anim .your-day [data-wave] {
+  transform: scaleY(0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim .your-day [data-wave] {
+    transform: none;
+  }
+}
