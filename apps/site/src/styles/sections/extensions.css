@@ -1,0 +1,269 @@
+.extensions .extensions-headline {
+  --x: 40;
+  --y: 216;
+  --w: 580;
+  --size: 168;
+}
+.extensions-base {
+  --x: 554;
+  --y: 422;
+  --w: 935;
+  font: 1.95cqw var(--font-mono);
+}
+.extensions-slots {
+  position: absolute;
+  display: flex;
+  gap: 2%;
+  width: 87%;
+  left: 7%;
+  top: 16%;
+  font-size: 1.3cqw;
+}
+.extensions-slots > .b-plate {
+  width: 23.5%;
+}
+.extensions-slots .b-label {
+  bottom: 42%;
+  white-space: normal;
+  line-height: 1.1;
+  text-align: center;
+  font-size: 1.17cqw;
+}
+.extensions-modules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font: 1.43cqw var(--font-mono);
+}
+.extensions-module-note {
+  position: absolute;
+  bottom: calc(100% + 7cqw);
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 1.43cqw;
+  background: var(--bg);
+  white-space: nowrap;
+}
+.extensions-module-note small {
+  display: block;
+  font-size: 1.04cqw;
+  margin-top: 0.4cqw;
+  color: var(--ink-2);
+}
+.extensions-module-note::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 0.4cqw);
+  height: 6cqw;
+  border-left: 1px solid var(--leader);
+  transform: rotate(-17deg);
+  transform-origin: top;
+}
+.extensions-module-1 .extensions-module-note {
+  bottom: calc(100% + 5cqw);
+}
+.extensions-module-1 .extensions-module-note::after {
+  height: 4cqw;
+  transform: rotate(21deg);
+}
+.extensions-module-1 .extensions-module-note small {
+  color: var(--blue-text);
+}
+.extensions-arm {
+  position: absolute;
+  left: 40%;
+  width: 30%;
+  height: 55%;
+  top: 0;
+}
+.extensions-caption {
+  --x: 554;
+  --y: 625;
+  --w: 930;
+  margin: 0;
+  font: 1.69cqw var(--font-mono);
+  background: var(--bg);
+  width: max-content;
+}
+.extensions-sword {
+  --x: 1242;
+  --y: 691;
+  --w: 40;
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+}
+.extensions .extensions-sword .wordmark-sword {
+  width: 2.6cqw;
+  height: 6.25cqw;
+  margin: 0;
+}
+.extensions-closing {
+  --x: 40;
+  --y: 798;
+  --w: 950;
+  --size: 168;
+}
+.extensions-cta {
+  --x: 55;
+  --y: 960;
+  --w: 310;
+  font-size: 1.82cqw;
+  width: max-content;
+}
+.extensions-credit {
+  --x: 834;
+  --y: 966;
+  --w: 670;
+  margin: 0;
+  font: 1.17cqw/1.4 var(--font-mono);
+  text-align: right;
+  background: var(--bg);
+}
+.extensions .extensions-module.b-seated .b-top,
+.extensions .extensions-module.b-seated .b-face {
+  fill: var(--blue-fill);
+}
+.extensions .extensions-module.b-seated .b-label {
+  color: var(--on-blue);
+  font-weight: 800;
+  font-size: 1.3em;
+}
+@media (max-width: 1023px) {
+  .extensions {
+    padding: 32px 24px 70px;
+    min-height: 1490px;
+    box-sizing: border-box;
+  }
+  .extensions .extensions-headline {
+    font-size: clamp(64px, 16vw, 110px);
+  }
+  .extensions-base {
+    position: relative;
+    margin: 590px 0 0 28px;
+    width: auto;
+    font-size: 18px;
+    max-width: 640px;
+  }
+  .extensions-slots {
+    font-size: 9px;
+  }
+  .extensions-slots .b-label {
+    font-size: 7px;
+  }
+  .extensions-modules {
+    position: absolute;
+    top: 380px;
+    left: 76px;
+    right: 24px;
+    display: grid;
+    gap: 64px;
+    font-size: 17px;
+  }
+  .extensions-module {
+    position: relative;
+    width: 100%;
+    max-width: 350px;
+  }
+  .extensions-module-note,
+  .extensions-module-1 .extensions-module-note {
+    bottom: calc(100% + 12px);
+    font-size: 12px;
+    text-align: left;
+  }
+  .extensions-module-note small {
+    display: inline;
+    font-size: 10px;
+    margin-left: 10px;
+  }
+  .extensions-module-note::after {
+    display: none;
+  }
+  .extensions-module .b-plate {
+    width: 90%;
+    max-width: 350px;
+  }
+  .extensions-module-1 .b-plate {
+    font-size: 18px;
+  }
+  .extensions-caption {
+    position: relative;
+    margin: 28px 0 0 28px;
+    width: auto;
+    font-size: 16px;
+    line-height: 1.6;
+    max-width: 550px;
+  }
+  .extensions-sword {
+    position: absolute;
+    top: calc(1168 / 1490 * 100% - 44px);
+    left: calc(322 / 390 * 100% - 14px);
+    width: 28px;
+  }
+  .extensions .extensions-sword .wordmark-sword {
+    width: 24px;
+    height: 64px;
+  }
+  .extensions .extensions-closing {
+    position: relative;
+    margin-top: 260px;
+    font-size: clamp(58px, 15vw, 120px);
+    width: auto;
+  }
+  .extensions-cta {
+    position: relative;
+    display: inline-block;
+    margin: 24px 0 0 26px;
+    font-size: 20px;
+    width: auto;
+  }
+  .extensions-credit {
+    position: relative;
+    margin: 40px 0 0 26px;
+    font-size: 12px;
+    line-height: 1.7;
+    text-align: left;
+    width: auto;
+  }
+  .extensions .time-tick {
+    display: none;
+  }
+}
+
+.extensions:not(.line-ready) .desktop-line .time-tick {
+  transform: translate(817px, 757px);
+}
+@media (max-width: 1023px) {
+  .extensions-slots .b-plate:last-child .b-label {
+    left: auto;
+    right: 0;
+    bottom: auto;
+    top: calc(100% + 26px);
+    width: 100px;
+    height: auto;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .extensions-caption {
+    margin-top: 48px;
+  }
+}
+
+.extensions-install {
+  --x: 360;
+  --y: 960;
+  --w: 180;
+  font-size: 1.56cqw;
+  width: max-content;
+}
+@media (max-width: 1023px) {
+  .extensions-install {
+    position: relative;
+    display: block;
+    margin: 22px 0 0 26px;
+    width: max-content;
+    font-size: 18px;
+  }
+}

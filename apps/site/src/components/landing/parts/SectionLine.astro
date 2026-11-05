@@ -1,0 +1,71 @@
+---
+import TimeTick from './TimeTick.astro'
+interface Props {
+  time?: string
+  path?: string
+  height?: number
+  mobilePath?: string
+  mobileHeight?: number
+  introX?: number
+  introY?: number
+  mobileIntroX?: number
+  mobileIntroY?: number
+  mobileTickX?: number
+  mobileTickY?: number
+}
+const {
+  time = '00:01.4',
+  path = 'M218 0 V1024',
+  height = 1024,
+  mobilePath = 'M24 0 V680',
+  mobileHeight = 680,
+  introX,
+  introY,
+  mobileIntroX,
+  mobileIntroY,
+  mobileTickX = 100,
+  mobileTickY = 640,
+} = Astro.props
+---
+
+<svg class="section-line desktop-line" viewBox={`0 0 1536 ${height}`} aria-hidden="true">
+  <path
+    class="main-line"
+    data-line-path
+    data-intro-x={introX}
+    data-intro-y={introY}
+    d={path}
+    pathLength="1"
+  />
+  <slot name="desktop" />
+  <g class="line-preview">
+    {Array.from({ length: 8 }, () => (
+      <circle data-preview r="1.8" />
+    ))}
+  </g>
+  <circle class="line-pen" data-pen r="6" />
+  <TimeTick time={time} />
+</svg>
+<svg
+  class="section-line mobile-line"
+  viewBox={`0 0 390 ${mobileHeight}`}
+  preserveAspectRatio="none"
+  aria-hidden="true"
+>
+  <path
+    class="main-line"
+    data-line-path
+    data-intro-x={mobileIntroX}
+    data-intro-y={mobileIntroY}
+    d={mobilePath}
+    pathLength="1"
+  />
+  <slot name="mobile" />
+  <g class="line-preview">
+    {Array.from({ length: 8 }, () => (
+      <circle data-preview r="1.4" />
+    ))}
+  </g>
+  <circle class="line-pen" data-pen r="4" />
+  <TimeTick x={mobileTickX} y={mobileTickY} time={time} />
+</svg>

@@ -1,0 +1,114 @@
+---
+import Logo from '../brand/Logo.astro'
+const links = [
+  ['Product', '#your-day'],
+  ['Robotics Lab', '#extensions'],
+  ['Benchmarks', '#measured'],
+  ['Install', '#install'],
+  ['Docs', '/docs/'],
+  ['GitHub', 'https://github.com/CristhianRudolf7/excalibur-agent'],
+]
+---
+
+<header class="landing-header">
+  <a class="brand-link" href="#top" aria-label="Excalibur home">
+    <Logo />
+  </a>
+  <nav aria-label="Main navigation" class="desktop-nav">
+    {links.map(([label, href]) => (
+      <a href={href}>{label}</a>
+    ))}
+  </nav>
+  <button class="theme-toggle" data-theme-toggle aria-label="Switch to dark theme" type="button">
+    <span data-theme-label>Dark</span>
+  </button>
+  <details class="mobile-menu">
+    <summary>Menu</summary>
+    <nav aria-label="Mobile navigation">
+      {links.map(([label, href]) => (
+        <a href={href}>{label}</a>
+      ))}
+    </nav>
+  </details>
+</header>
+<style>
+  .landing-header {
+    position: absolute;
+    left: 3.90625cqw;
+    right: 3.90625cqw;
+    top: 1.171875cqw;
+    display: flex;
+    align-items: center;
+    gap: 2.083333cqw;
+    z-index: 5;
+  }
+  .brand-link {
+    text-decoration: none;
+    margin-right: auto;
+    display: block;
+  }
+  .desktop-nav {
+    display: flex;
+    align-items: center;
+    gap: 2.604167cqw;
+  }
+  nav a {
+    font-size: 1.497396cqw;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  nav a:hover {
+    text-decoration: underline;
+  }
+  .theme-toggle {
+    cursor: pointer;
+    border: 1px solid var(--hairline);
+    background: var(--bg);
+    padding: 0;
+    width: 3.255208cqw;
+    height: 3.255208cqw;
+    font: 0.78125cqw var(--font-mono);
+  }
+  .mobile-menu {
+    display: none;
+  }
+  @media (max-width: 1023px) {
+    .landing-header {
+      position: relative;
+      top: auto;
+      left: auto;
+      right: auto;
+      gap: 12px;
+    }
+    .desktop-nav {
+      display: none;
+    }
+    .theme-toggle {
+      width: 40px;
+      height: 40px;
+      font-size: 10px;
+    }
+    .mobile-menu {
+      display: block;
+    }
+    summary {
+      font: 12px var(--font-mono);
+      cursor: pointer;
+      padding: 12px 0 12px 8px;
+    }
+    .mobile-menu nav {
+      position: absolute;
+      right: 0;
+      top: 52px;
+      min-width: 210px;
+      padding: 16px;
+      display: grid;
+      gap: 18px;
+      background: var(--bg);
+      border: 1px solid var(--hairline);
+    }
+    nav a {
+      font-size: 16px;
+    }
+  }
+</style>

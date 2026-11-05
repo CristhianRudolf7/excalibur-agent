@@ -1,0 +1,16 @@
+---
+import DefaultHero from '@astrojs/starlight/components/Hero.astro'
+const { entry } = Astro.locals.starlightRoute
+---
+
+{entry.id === 'docs' || entry.id === 'es/docs' ? (
+  <div class="manual-home-intro">
+    <p class="manual-kicker">
+      Excalibur / {Astro.locals.starlightRoute.lang === 'es' ? 'Documentación' : 'Documentation'}
+    </p>
+    <h1 id="_top">{entry.data.hero?.title ?? entry.data.title}</h1>
+    <p class="manual-home-lead">{entry.data.hero?.tagline}</p>
+  </div>
+) : (
+  <DefaultHero />
+)}

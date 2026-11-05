@@ -1,0 +1,90 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import Plate from '../parts/Plate.astro'
+import RobotArm from '../parts/RobotArm.astro'
+import Logo from '../../brand/Logo.astro'
+import '../../../styles/sections/extensions.css'
+const modules = [
+  { name: 'Classroom', x: 608, y: 296, w: 160, d: 56, offset: 104 },
+  { name: 'Robotics Lab', x: 837, y: 221, w: 210, d: 54, offset: 181 },
+  { name: 'Robot arm', x: 1054, y: 272, w: 169, d: 74, offset: 110 },
+]
+---
+
+<Stage id="extensions" class="extensions" label="Make it yours">
+  <SectionLine
+    time="00:33.7"
+    path="M218 0 V703 A54 54 0 0 0 272 757 H1262"
+    mobilePath="M24 0 V1144 A24 24 0 0 0 48 1168 H322"
+    mobileHeight={1490}
+  >
+    <g slot="desktop" fill="none" stroke="var(--blue)" stroke-width="3" stroke-dasharray="7 6">
+      <path d="M713 390 V477 M928 303 V452 M1134 392 V477" />
+      <g stroke="none" fill="var(--blue)">
+        <rect x="706" y="470" width="14" height="14" />
+        <rect x="921" y="445" width="14" height="14" />
+        <rect x="1127" y="470" width="14" height="14" />
+      </g>
+    </g>
+  </SectionLine>
+  <SectionIndex index={8} style="--x:55;--y:40;--w:150" />
+  <Headline lines={['Make it', 'yours.']} class="extensions-headline" />
+  <div class="extensions-base canvas-item">
+    <Plate width={853} depth={82} thickness={54} label="Excalibur">
+      <div class="extensions-slots">
+        {['', '', '', 'Your extension'].map((label) => (
+          <Plate width={142} depth={42} thickness={5} label={label} />
+        ))}
+      </div>
+    </Plate>
+  </div>
+  <ol class="extensions-modules">
+    {modules.map(({ name, x, y, w, d, offset }, i) => (
+      <li
+        class={`extensions-module extensions-module-${i} canvas-item`}
+        style={`--x:${x};--y:${y};--w:${w + d}`}
+        data-extension-module
+        data-offset={offset}
+      >
+        <div class="extensions-module-note">
+          <span>
+            ({i + 1}) {name}
+          </span>
+          <small data-extension-z>z = {(offset / 10).toFixed(1)} mm</small>
+        </div>
+        <Plate width={w} depth={d} thickness={31} label={name} active={i === 1}>
+          {i === 2 && (
+            <div class="extensions-arm">
+              <RobotArm />
+            </div>
+          )}
+        </Plate>
+      </li>
+    ))}
+  </ol>
+  <p class="extensions-caption canvas-item" data-noverlap>
+    A harness that adapts to different needs.
+  </p>
+  <div class="extensions-sword canvas-item" aria-hidden="true">
+    <Logo swordOnly />
+  </div>
+  <h2 class="extensions-closing headline canvas-item" data-noverlap>
+    <span>Excalibur.</span>
+  </h2>
+  <a
+    class="extensions-cta canvas-item"
+    href="https://github.com/CristhianRudolf7/excalibur-agent"
+    data-noverlap
+  >
+    View on GitHub →
+  </a>
+  <a class="extensions-install canvas-item" href="#install">
+    Install →
+  </a>
+  <p class="extensions-credit canvas-item" data-noverlap>
+    Built during the Meta AI hackathon. Oct 31 – Nov 4, 2026.
+  </p>
+</Stage>

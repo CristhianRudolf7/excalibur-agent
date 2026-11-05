@@ -1,0 +1,23 @@
+---
+interface Props {
+  address?: string
+  class?: string
+  style?: string
+}
+const { address = 'example.com', class: className, style } = Astro.props
+---
+
+<div
+  class:list={['browser-frame', className]}
+  style={style}
+  role="group"
+  aria-label={`Browser: ${address}`}
+>
+  <div class="browser-bar" aria-hidden="true">
+    <i></i>
+    <i></i>
+    <i></i>
+    <span class="browser-address">{address}</span>
+  </div>
+  <slot />
+</div>

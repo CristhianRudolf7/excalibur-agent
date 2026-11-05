@@ -1,0 +1,19 @@
+---
+interface Props {
+  id: string
+  height?: number
+  class?: string
+  label?: string
+}
+const { id, height = 1024, class: className, label } = Astro.props
+---
+
+<section
+  id={id}
+  class:list={['stage', className]}
+  style={`--canvas-height:${height}`}
+  data-section={id}
+  aria-label={label}
+>
+  <slot />
+</section>

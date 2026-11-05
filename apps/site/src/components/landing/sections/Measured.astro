@@ -1,0 +1,67 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import Plate from '../parts/Plate.astro'
+import ScoreRuler from '../parts/ScoreRuler.astro'
+import '../../../styles/sections/measured.css'
+---
+
+<Stage id="measured" class="measured" label="Measured, not promised">
+  <SectionLine
+    time="00:28.5"
+    path="M218 0 V752 A34 34 0 0 0 252 786 H610 A36 36 0 0 1 646 822 V970 A24 24 0 0 1 622 994 H248 A30 30 0 0 0 218 1024"
+    mobilePath="M24 0 V1100"
+    mobileHeight={1100}
+  />
+  <SectionIndex index={6} style="--x:42;--y:44;--w:150" />
+  <Headline lines={['Measured,', 'not promised.']} class="measured-headline" />
+  <p class="measured-number canvas-item" data-noverlap>
+    <span data-measured-number>59.6</span>
+    <span>%</span>
+  </p>
+  <p class="measured-caption canvas-item" data-noverlap>
+    Terminal-Bench 2.1 · 53 of 89 tasks · GPT-6 Luna, reasoning effort low, Flex
+  </p>
+  <ScoreRuler />
+  <div class="measured-profile canvas-item">
+    <Plate width={552} depth={128} thickness={68} label="Evaluation profile">
+      <div class="measured-profile-tiles">
+        {[0, 1, 2].map(() => (
+          <Plate width={108} depth={62} thickness={17} />
+        ))}
+      </div>
+    </Plate>
+  </div>
+  <div class="measured-note measured-note-1 canvas-item" data-noverlap>
+    (1) Same model for <br />
+    every harness
+  </div>
+  <div class="measured-note measured-note-2 canvas-item" data-noverlap>
+    (2) 89 tasks
+  </div>
+  <div class="measured-note measured-note-3 canvas-item" data-noverlap>
+    (3) 1 attempt <br />
+    each
+  </div>
+  <svg
+    class="measured-leaders drawing canvas-item"
+    style="--x:770;--y:300;--w:724"
+    viewBox="0 0 724 400"
+    aria-hidden="true"
+    fill="none"
+    stroke="var(--leader)"
+    stroke-width="1"
+  >
+    <path d="M476 5 H273 L180 320 M541 103 H391 L339 320 M722 193 H548 L500 320" />
+    <g fill="var(--ink)" stroke="none">
+      <circle cx="180" cy="320" r="3" />
+      <circle cx="339" cy="320" r="3" />
+      <circle cx="500" cy="320" r="3" />
+    </g>
+  </svg>
+  <p class="measured-source canvas-item" data-noverlap>
+    Harbor 0.25, November 2026.
+  </p>
+</Stage>

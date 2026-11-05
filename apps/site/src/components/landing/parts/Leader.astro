@@ -1,0 +1,45 @@
+---
+interface Props {
+  number: number
+  text: string
+  width?: number
+  height?: number
+  path?: string
+  dotX?: number
+  dotY?: number
+  class?: string
+}
+const {
+  number,
+  text,
+  width = 320,
+  height = 110,
+  path = 'M20 100 L55 28 H75',
+  dotX = 20,
+  dotY = 100,
+  class: className,
+} = Astro.props
+---
+
+<div class:list={['leader', className]}>
+  <svg viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+    <path d={path} />
+    <circle cx={dotX} cy={dotY} r="3" />
+  </svg>
+  <span>
+    ({number}) {text}
+  </span>
+</div>
+<style>
+  .leader {
+    position: relative;
+  }
+  svg {
+    width: 100%;
+  }
+  span {
+    position: absolute;
+    top: 0;
+    left: 24%;
+  }
+</style>

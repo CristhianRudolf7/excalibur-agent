@@ -1,0 +1,15 @@
+---
+interface Props {
+  x?: number
+  y?: number
+  time?: string
+}
+const { x = 882, y = 822, time = '00:01.4' } = Astro.props
+---
+
+<g class="time-tick" data-time-tick transform={`translate(${x} ${y})`}>
+  <line y1="-13" y2="13" />
+  <text data-time-label text-anchor="middle" y="-25">
+    {time}
+  </text>
+</g>

@@ -1,0 +1,77 @@
+---
+interface Props {
+  width?: number
+  depth?: number
+  thickness?: number
+  label?: string
+  active?: boolean
+  class?: string
+}
+const { width = 400, depth = 80, thickness = 35, label, active, class: className } = Astro.props
+---
+
+<div
+  class:list={['b-plate', { 'b-active': active }, className]}
+  style={`--plate-w:${width};--plate-d:${depth};--plate-t:${thickness}`}
+>
+  <svg viewBox={`0 0 ${width + depth} ${depth + thickness}`} aria-hidden="true">
+    <polygon class="b-top" points={`0,${depth} ${depth},0 ${width + depth},0 ${width},${depth}`} />
+    <path
+      class="b-face"
+      d={`M0 ${depth} H${width} L${width + depth} 0 V${thickness} L${width} ${depth + thickness} H0 Z`}
+    />
+    <path class="b-edge" d={`M${width} ${depth} V${depth + thickness}`} />
+  </svg>
+  {label && <span class="b-label">{label}</span>}
+  <slot />
+</div>
+<style>
+  .b-plate {
+    position: relative;
+    width: 100%;
+    aspect-ratio: calc(var(--plate-w) + var(--plate-d)) / calc(var(--plate-d) + var(--plate-t));
+    font-family: var(--font-mono);
+  }
+  .b-plate svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .b-plate polygon,
+  .b-plate path {
+    stroke: var(--ink);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    stroke-linejoin: round;
+  }
+  .b-top {
+    fill: var(--surface);
+  }
+  .b-face {
+    fill: var(--surface-2);
+  }
+  .b-edge {
+    fill: none;
+  }
+  .b-label {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: calc(100% * var(--plate-w) / (var(--plate-w) + var(--plate-d)));
+    height: calc(100% * var(--plate-t) / (var(--plate-d) + var(--plate-t)));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .b-active > svg > .b-top,
+  .b-active > svg > .b-face {
+    fill: var(--blue-fill);
+  }
+  .b-active > .b-label {
+    color: var(--on-blue);
+    font-weight: 800;
+    font-size: 1.3em;
+  }
+</style>

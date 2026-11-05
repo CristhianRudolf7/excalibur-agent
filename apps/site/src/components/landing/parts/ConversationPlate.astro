@@ -1,0 +1,31 @@
+---
+interface Props {
+  date: string
+  first?: boolean
+}
+const { date, first = false } = Astro.props
+const depth = first ? 140 : date === 'Oct 30' ? 116 : 78
+const thickness = first ? 24 : 22
+---
+
+<div class:list={['conversation-plate', { 'conversation-first': first }]} data-memory-plate>
+  <svg viewBox={`0 0 360 ${depth + thickness}`} aria-hidden="true">
+    <path
+      class="plate-side"
+      d={`M0 ${depth} H290 L360 0 V${thickness} L290 ${depth + thickness} H0 Z`}
+    />
+    <path class="plate-top" d={`M0 ${depth} L70 0 H360 L290 ${depth} Z`} />
+    {!first && (
+      <path
+        class="plate-lines"
+        d={`M83 ${depth * 0.4} H287 M70 ${depth * 0.6} H248 M59 ${depth * 0.8} H215`}
+      />
+    )}
+  </svg>
+  <p class="conversation-date mono">{date}</p>
+  {first && (
+    <p class="conversation-chat mono" data-noverlap>
+      Remember the requirements we talked about?
+    </p>
+  )}
+</div>

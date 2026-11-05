@@ -1,0 +1,92 @@
+.hero-headline {
+  --x: 55;
+  --y: 198;
+  --w: 1370;
+  --size: 156;
+}
+.hero-description {
+  --x: 60;
+  --y: 888;
+  --w: 1320;
+  margin: 0;
+  font-size: 1.953125cqw;
+  letter-spacing: -0.03em;
+  line-height: 1.35;
+}
+.hero-cta {
+  --x: 60;
+  --y: 945;
+  --w: 300;
+  width: max-content;
+  font-size: 1.822917cqw;
+  line-height: 1.3;
+}
+.mobile-break {
+  display: none;
+}
+.hero-objects {
+  color: var(--blue);
+}
+
+@media (max-width: 1023px) {
+  .hero {
+    padding: 20px 24px 76px;
+    display: flex;
+    flex-direction: column;
+    min-height: 850px;
+  }
+  .hero-headline {
+    position: relative;
+    width: 100%;
+    margin-top: 72px;
+    font-size: clamp(47px, 14.36vw, 120px);
+  }
+  .mobile-break {
+    display: inline;
+  }
+  .hero-description {
+    position: relative;
+    width: 100%;
+    margin-top: 310px;
+    font-size: clamp(19px, 5.13vw, 32px);
+    line-height: 1.4;
+    letter-spacing: -0.025em;
+  }
+  .hero-cta {
+    position: relative;
+    width: max-content;
+    margin-top: 44px;
+    font-size: clamp(19px, 5.13vw, 28px);
+  }
+  .hero .time-tick {
+    font-size: 12px;
+  }
+}
+
+.anim .hero [data-object-stroke],
+.anim .hero [data-dog-stroke] {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+}
+
+.hero .mobile-line .time-tick text {
+  transform: translateY(59px);
+}
+
+/* Keep the static sword and the 390-unit rail aligned on narrow phones too. */
+@media (max-width: 389px) {
+  .hero .brand-link {
+    transform: translate(calc(6.153846vw - 24px), calc(17.5px - 4.487179vw));
+  }
+  .hero .brand-link .wordmark {
+    font-size: 6.153846vw;
+  }
+  .hero .brand-link .wordmark-first {
+    width: 22.564103vw;
+  }
+  .hero .brand-link .wordmark-sword {
+    width: 3.846154vw;
+    height: 10.25641vw;
+    margin-right: 1.025641vw;
+  }
+}

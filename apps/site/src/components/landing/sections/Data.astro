@@ -1,0 +1,162 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import IsoPlate from '../parts/IsoPlate.astro'
+import '../../../styles/sections/data.css'
+const messy = [
+  ['S/ 1,800', 'Oct 10', 'Project A'],
+  ['1.200,00', '15/09/2026', 'Project B'],
+  ['S/ 1,800', 'Oct 10', 'Project A'],
+  ['S/ 600', 'Oct 10', 'Project C'],
+]
+const clean = [
+  ['Client-01', 'Project A', 'S/ 1,800', 'Oct 10'],
+  ['Client-02', 'Project B', 'S/ 1,200', 'Sep 15'],
+  ['Client-03', 'Project C', 'S/ 600', 'Oct 10'],
+]
+const path =
+  'M218 0 V490 A22 22 0 0 1 196 512 H98 A24 24 0 0 0 74 536 V706 A24 24 0 0 0 98 730 H480 A24 24 0 0 0 504 706 V586 A24 24 0 0 1 528 562 H674 A24 24 0 0 1 698 586 V610 A24 24 0 0 0 722 634 H848 A24 24 0 0 0 872 610 V536 A24 24 0 0 1 896 512 H1026 A26 26 0 0 1 1052 538 V746 A26 26 0 0 1 1026 772 H698 A26 26 0 0 0 672 798 V950 A26 26 0 0 1 646 976 H246 A28 28 0 0 0 218 1004 V1024'
+---
+
+<Stage id="data" class="data-section" label="A messy sheet in. A database out.">
+  <SectionLine
+    time="00:13.1"
+    path={path}
+    mobilePath="M24 0 V323 A20 20 0 0 0 44 343 H346 A20 20 0 0 1 366 363 V618 A20 20 0 0 1 346 638 H195 V980 A20 20 0 0 1 175 1000 H44 A20 20 0 0 0 24 1020 V1470 A20 20 0 0 0 44 1490 H130 A20 20 0 0 1 150 1510 V1520 A20 20 0 0 1 130 1540 H34 A10 10 0 0 0 24 1550"
+    mobileHeight={1550}
+    mobileTickX={100}
+    mobileTickY={1490}
+  />
+  <SectionIndex index={3} style="--x:46;--y:32;--w:150" />
+  <Headline
+    lines={['A messy sheet in.', 'A database out.']}
+    class="data-headline"
+    style="--x:55;--y:152;--w:1380;--size:150"
+  />
+  <div class="data-source canvas-item" style="--x:90;--y:516;--w:401" data-noverlap>
+    <p class="data-sample mono">Sample data</p>
+    <table class="data-messy mono" aria-label="Sample messy sheet">
+      <caption class="sr-only">
+        Amounts, dates and projects before cleaning. The third row duplicates the first.
+      </caption>
+      <thead class="sr-only">
+        <tr>
+          <th>Amount</th>
+          <th>Date</th>
+          <th>Project</th>
+        </tr>
+      </thead>
+      <tbody>
+        {messy.map((row, index) => (
+          <tr
+            class:list={{ 'data-duplicate': index === 2 }}
+            data-duplicate={index === 2 || undefined}
+          >
+            {row.map((cell) => (
+              <td>{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <div class="data-duplicate-ghost mono" data-duplicate-fall aria-hidden="true">
+      <span>S/ 1,800</span>
+      <span>Oct 10</span>
+      <span>Project A</span>
+    </div>
+  </div>
+  <div class="data-cells canvas-item mono" style="--x:528;--y:546;--w:150" aria-hidden="true">
+    <span data-cell>S/ 1,800</span>
+    <span data-cell>15/09/2026</span>
+    <span data-cell>Project B</span>
+  </div>
+  <div class="data-plates canvas-item" style="--x:922;--y:479;--w:266">
+    {['Clients', 'Projects', 'Payments'].map((label) => (
+      <div data-data-plate>
+        <IsoPlate width={224} depth={42} thickness={18} label={label} labelPosition="top" />
+      </div>
+    ))}
+  </div>
+  <svg class="data-relations section-line desktop-line" viewBox="0 0 1536 1024" aria-hidden="true">
+    <path
+      data-relation
+      d="M1188 488 H1198 A20 20 0 0 1 1218 508 V660 A20 20 0 0 1 1198 680 H1188 M1188 584 H1218"
+    />
+    <path
+      data-cell-thread
+      d="M491 567 H528 M491 609 H500 A14 14 0 0 1 514 623 A4 4 0 0 0 518 627 H528 M491 693 H528"
+    />
+    <path class="data-axes" d="M1052 539 V576 M1052 634 V672" />
+    <rect x="1212" y="578" width="12" height="12" />
+  </svg>
+  <p
+    class="data-note data-note-clean canvas-item mono"
+    style="--x:1252;--y:446;--w:250"
+    data-noverlap
+  >
+    (1) Cleans what it can
+  </p>
+  <p
+    class="data-note data-note-ask canvas-item mono"
+    style="--x:1285;--y:551;--w:210"
+    data-noverlap
+  >
+    (2) Asks before it creates
+  </p>
+  <p
+    class="data-note data-note-interface canvas-item mono"
+    style="--x:1285;--y:670;--w:210"
+    data-noverlap
+  >
+    (3) Your own interface to view and edit
+  </p>
+  <svg class="data-leaders section-line desktop-line" viewBox="0 0 1536 1024" aria-hidden="true">
+    <path d="M1178 495 L1218 458 H1245 M1218 584 L1250 565 H1278 M1170 708 H1218 L1250 682 H1278" />
+    <circle cx="1170" cy="708" r="3" />
+  </svg>
+  <div class="data-output canvas-item" style="--x:706;--y:806;--w:760" data-noverlap>
+    <table class="data-clean mono" aria-label="Sample clean database">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Project</th>
+          <th>Amount</th>
+          <th>Due</th>
+        </tr>
+      </thead>
+      <tbody>
+        {clean.map((row) => (
+          <tr data-clean-row>
+            {row.map((cell) => (
+              <td>{cell}</td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    <div class="data-summary mono">
+      <p>
+        <span data-total> S/ 3,600</span> to collect
+      </p>
+      <div
+        class="data-chart"
+        role="img"
+        aria-label="Amounts by project, from zero: Project A, 1,800 soles; Project B, 1,200 soles; Project C, 600 soles."
+      >
+        <span class="data-zero">0</span>
+        {[1800, 1200, 600].map((amount, index) => (
+          <div class="data-bar-column">
+            <i data-bar data-amount={amount} style={`--amount:${amount / 1800}`} />
+            <span>{String.fromCharCode(65 + index)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+  <p class="sr-only">
+    The duplicate is removed. The clean database contains three projects totaling 3,600 soles. The
+    amount 1.200,00 is normalized to S/ 1,200.
+  </p>
+</Stage>
