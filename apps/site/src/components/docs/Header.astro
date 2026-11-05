@@ -1,0 +1,32 @@
+---
+import Logo from '../brand/Logo.astro'
+import Search from '@astrojs/starlight/components/Search.astro'
+import LanguageSelect from '@astrojs/starlight/components/LanguageSelect.astro'
+import ThemeSelect from './ThemeSelect.astro'
+const spanish = Astro.locals.starlightRoute.lang === 'es'
+---
+
+<div class="manual-header">
+  <a class="manual-logo" href="/" aria-label="Excalibur">
+    <Logo />
+  </a>
+  <span class="manual-edition" aria-hidden="true">
+    {spanish ? 'Manual técnico' : 'Technical manual'}
+  </span>
+  <div class="manual-search">
+    <Search />
+  </div>
+  <nav class="manual-header-links" aria-label={spanish ? 'Principal' : 'Main'}>
+    <a href="/#your-day">{spanish ? 'Producto' : 'Product'}</a>
+    <a href="https://github.com/CristhianRudolf7/excalibur-agent">
+      GitHub <span aria-hidden="true">↗</span>
+    </a>
+  </nav>
+  <div class="manual-language" data-short-label={spanish ? 'ES' : 'EN'}>
+    <LanguageSelect />
+    <noscript>
+      <a href={spanish ? '/docs/' : '/es/docs/'}>{spanish ? 'EN' : 'ES'}</a>
+    </noscript>
+  </div>
+  <ThemeSelect />
+</div>

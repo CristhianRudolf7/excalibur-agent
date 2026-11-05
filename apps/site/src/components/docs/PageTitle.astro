@@ -1,0 +1,17 @@
+---
+const { entry, sidebar } = Astro.locals.starlightRoute
+const spanish = Astro.locals.starlightRoute.lang === 'es'
+function containsCurrent(entries: typeof sidebar): boolean {
+  return entries.some((item) =>
+    item.type === 'link' ? item.isCurrent : containsCurrent(item.entries),
+  )
+}
+const area = sidebar.findIndex((item) => item.type === 'group' && containsCurrent(item.entries))
+---
+
+<p class="manual-kicker">
+  {area < 0 ? 'Excalibur' : String(area + 1).padStart(2, '0')} /{' '}
+  {spanish ? 'Documentación' : 'Documentation'}
+</p>
+<h1 id="_top">{entry.data.title}</h1>
+{entry.data.description && <p class="manual-description">{entry.data.description}</p>}

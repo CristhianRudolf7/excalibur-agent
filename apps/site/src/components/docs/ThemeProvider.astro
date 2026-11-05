@@ -1,0 +1,30 @@
+---
+import tokens from '../../styles/tokens.css?raw'
+// Starlight emits data-theme="dark" in static HTML. Derive the no-script
+// system fallback from the shared source, keeping color values in tokens.css.
+function themeDeclarations(theme: string) {
+  const declarations = tokens.match(
+    new RegExp(`:root\\[data-theme='${theme}'\\]\\s*\\{([^}]+)\\}`),
+  )?.[1]
+  if (!declarations) throw new Error(`Missing shared ${theme} theme tokens`)
+  return declarations
+}
+const selector = ':root[data-theme][data-theme]'
+const fallback = `${selector}{${themeDeclarations('light')}}@media(prefers-color-scheme:dark){${selector}{${themeDeclarations('dark')}}}`
+---
+
+<script is:inline>
+  ;(() => {
+    let preference
+    try {
+      preference = localStorage.getItem('starlight-theme')
+    } catch {}
+    const system = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    document.documentElement.dataset.theme =
+      preference === 'light' || preference === 'dark' ? preference : system
+  })()
+</script>
+
+<noscript>
+  <style is:inline set:html={fallback} />
+</noscript>
