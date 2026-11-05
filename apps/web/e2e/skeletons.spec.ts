@@ -5,7 +5,7 @@ for (const viewport of [
   { width: 390, height: 844 },
 ]) {
   for (const area of ['chat', 'skills', 'usage', 'profile'] as const) {
-    test(`${area} skeleton at ${viewport.width}`, async ({ page }) => {
+    test(`${area} skeleton at ${viewport.width}`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport)
       let release!: () => void
       const pending = new Promise<void>((resolve) => {
@@ -94,10 +94,10 @@ for (const viewport of [
       await expect(
         page.getByText(/^(Cargando…|Loading…|Cargando editor…|Cargando pizarras…)$/),
       ).toHaveCount(0)
-      await page.screenshot({ path: `sk-shots/sk1-${area}-${viewport.width}.png` })
+      await page.screenshot({ path: testInfo.outputPath(`sk1-${area}-${viewport.width}.png`) })
       if (area === 'usage' && viewport.width === 1440) {
         await page.evaluate(() => document.documentElement.classList.add('dark'))
-        await page.screenshot({ path: 'sk-shots/sk1-usage-dark.png' })
+        await page.screenshot({ path: testInfo.outputPath('sk1-usage-dark.png') })
       }
       release()
       await expect(skeleton).toHaveCount(0)
@@ -114,8 +114,8 @@ for (const viewport of [
 }
 
 for (const width of [1440, 390]) {
-  for (const area of ['settings', 'world', 'editor', 'chart'] as const) {
-    test(`lazy ${area} skeleton at ${width}`, async ({ page }) => {
+  for (const area of ['settings', 'editor', 'chart'] as const) {
+    test(`lazy ${area} skeleton at ${width}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
       let release!: () => void
       const pending = new Promise<void>((resolve) => {
@@ -123,7 +123,6 @@ for (const width of [1440, 390]) {
       })
       const chunk = {
         settings: 'Settings',
-        world: 'World',
         editor: 'CodeEditor',
         chart: 'UsageChart',
       }[area]
@@ -172,9 +171,7 @@ for (const width of [1440, 390]) {
         })
       })
       await page.goto(
-        area === 'world'
-          ? '/agents/excalibur?view=world'
-          : `/settings?section=${area === 'editor' ? 'skills' : area === 'chart' ? 'usage' : 'general'}`,
+        `/settings?section=${area === 'editor' ? 'skills' : area === 'chart' ? 'usage' : 'general'}`,
         { waitUntil: 'domcontentloaded' },
       )
       if (area === 'editor') {
@@ -184,7 +181,6 @@ for (const width of [1440, 390]) {
       if (area === 'chart') await expect(page.locator('.usage-kpis .usage-kpi')).toHaveCount(5)
       const selector = {
         settings: '.sk-settings-page',
-        world: '.sk-world',
         editor: '.settings-fields-skeleton:has(.sk-editor)',
         chart: '.sk-chart',
       }[area]
@@ -193,15 +189,11 @@ for (const width of [1440, 390]) {
       await expect(skeleton).toHaveAttribute('role', 'status')
       await expect(skeleton).toHaveAttribute('aria-busy', 'true')
       await expect(skeleton).toHaveAccessibleName(
-        area === 'world'
-          ? 'Preparando el campus…'
-          : area === 'editor'
-            ? 'Cargando editor…'
-            : 'Cargando…',
+        area === 'editor' ? 'Cargando editor…' : 'Cargando…',
       )
       await expect(skeleton).toHaveText('')
       await skeleton.scrollIntoViewIfNeeded()
-      await page.screenshot({ path: `sk-shots/sk1-${area}-${width}.png` })
+      await page.screenshot({ path: testInfo.outputPath(`sk1-${area}-${width}.png`) })
       await page.emulateMedia({ reducedMotion: 'reduce' })
       expect(
         await skeleton

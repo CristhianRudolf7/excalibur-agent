@@ -83,7 +83,7 @@ it.each(avatarVariants)(
 )
 
 // Captured from the parent commit's primitives: portrait plus all six frames
-// of idle, read, write, type, carry and think. Legacy world sprites stay intact.
+// of idle, read, write, type, carry and think. Shared sprite poses stay intact.
 const legacySignatures: Record<string, string> = {
   hood: '459343968df0889d94465ef50640203f046cfa84dc43043226cc350ffd472097',
   'long-hair': 'bf9d4c685b3ac7368f875e107cf0a866620fe51fac869542324cf141bd262414',

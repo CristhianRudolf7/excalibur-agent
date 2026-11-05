@@ -15,7 +15,7 @@ function props() {
   return {
     agents: [defaultAgent],
     selectedAgentId: 'excalibur',
-    activeItem: 'world',
+    activeItem: 'projects',
     onNavigate: vi.fn(),
     onAgent: vi.fn(),
     onCreateAgent: vi.fn(),
@@ -29,7 +29,7 @@ it('renders the single agent, real profile initials, badges and active items', (
   expect(agents.querySelectorAll('.pixel-avatar')).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Excalibur' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.queryByRole('button', { name: 'Crear agente' })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Mundo 2D' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Proyectos' })).toHaveAttribute('aria-pressed', 'true')
   expect(container.querySelectorAll('.sidebar-rail-working')).toHaveLength(0)
   expect(container.querySelectorAll('.sidebar-rail-unread')).toHaveLength(0)
   expect(screen.getByRole('button', { name: 'Perfil' })).toHaveTextContent('AP')
@@ -48,7 +48,6 @@ it('routes every navigation and action through its supplied handler', () => {
     ['Mis tareas', 'myTasks'],
     ['Recordatorios', 'reminders'],
     ['Proyectos', 'projects'],
-    ['Mundo 2D', 'world'],
     ['Aula', 'classroom'],
     ['Brazo robótico', 'robot'],
     ['Extensiones', 'extensions'],
@@ -103,7 +102,6 @@ it('keeps agents, work, extensions and bottom settings in the specified order', 
     'Mis tareas',
     'Recordatorios',
     'Proyectos',
-    'Mundo 2D',
     'Automatizaciones',
     'Extensiones',
     'Aula',

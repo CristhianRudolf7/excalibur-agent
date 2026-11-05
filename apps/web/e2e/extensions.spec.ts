@@ -4,7 +4,6 @@ const navigation = [
   'Mis tareas',
   'Recordatorios',
   'Proyectos',
-  'Mundo 2D',
   'Automatizaciones',
   'Extensiones',
   'Aula',

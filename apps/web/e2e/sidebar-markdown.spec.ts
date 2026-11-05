@@ -29,7 +29,7 @@ test('sidebar uses shared resizing, stays within bounds and restores its custom 
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/agents/excalibur?view=chat&worldDebug=1&worldClock=manual')
+  await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
   const sidebar = page.locator('.sidebar')
   const handle = page.getByRole('separator', { name: 'Redimensionar barra lateral', exact: true })
@@ -73,10 +73,6 @@ test('sidebar uses shared resizing, stays within bounds and restores its custom 
   await expect(handle).toHaveCount(0)
   await page.keyboard.press('Control+b')
   await expect(sidebar).toHaveCSS('width', '320px')
-  await page.keyboard.press('Control+j')
-  await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-ready', 'true')
-  await expect(handle).toHaveCount(0)
-  await page.keyboard.press('Control+j')
   await expect(sidebar).toHaveCSS('width', '320px')
   await splitFits(page)
   await noHorizontalOverflow(page)

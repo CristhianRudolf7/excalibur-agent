@@ -1,14 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { LoadingStatus, Skeleton } from '@/components/shared'
-export function WorldSkeleton() {
+export function LabSkeleton() {
   const { t } = useTranslation()
   return (
-    <LoadingStatus label={t('worldLoading')} className="sk-world">
-      <div className="sk-world-toolbar">
+    <LoadingStatus label={t('lab_title')} className="sk-lab">
+      <div className="sk-lab-toolbar">
         <Skeleton className="sk-avatar" />
         <Skeleton className="sk-title" />
       </div>
-      <Skeleton className="sk-world-canvas" />
+      <Skeleton className="sk-lab-canvas" />
       <div className="sk-chips">
         <Skeleton />
         <Skeleton />

@@ -39,7 +39,7 @@ identifiers, comments, commit messages and every Markdown file.
   WCAG AA contrast.
 - Heavy libraries are added only when their feature is built: Monaco
   (code editor), Tiptap (documents), Univer (spreadsheets), React Flow
-  (org chart and flows), PixiJS (2D world), ECharts (metrics).
+  (org chart and flows), ECharts (metrics).
 
 ## Verification
 

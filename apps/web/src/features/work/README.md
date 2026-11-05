@@ -24,8 +24,7 @@ Events use the existing bounded reconnect and replay deduplication transport.
 A reconnect refreshes the query cache. `reminder.fired` displays a temporary
 toast and highlights the corresponding reminder. Missing methods and transport
 errors show explicit retry states. Production views never fall back to mock
-data. The separate World simulation's seed store remains isolated from these
-RPC views.
+data.
 
 ## Event switch
 

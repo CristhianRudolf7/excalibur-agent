@@ -82,7 +82,7 @@ export function normalizeAvatarSpec(value: unknown): AvatarSpec {
   return spec
 }
 
-/** Keeps the existing world-sprite meaning of tone (clothing) intact. */
+/** Keeps the existing pixel-sprite meaning of tone (clothing) intact. */
 export function avatarSprite(spec: AvatarSpec): SpriteDefinition {
   return { ...spec, tone: spec.outfit, skin: spec.tone }
 }

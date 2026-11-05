@@ -53,7 +53,6 @@ async function mock(
   const chatMessages: string[] = []
   await page.addInitScript((language) => {
     localStorage.setItem('excalibur-ui-language', language)
-    localStorage.setItem('world-last-mode', 'world')
   }, options.language ?? 'en')
   await page.route('**/rpc', async (route) => {
     const request = route.request().postDataJSON()

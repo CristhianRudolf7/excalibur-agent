@@ -1834,29 +1834,6 @@ dialog::backdrop {
     overflow-wrap: anywhere;
   }
 }
-
-.mode-switch {
-  display: flex;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 3px;
-  box-shadow: 0 2px 8px var(--shadow);
-  gap: 2px;
-}
-.mode-switch button {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  padding: 7px 12px;
-  border-radius: 6px;
-  color: var(--muted-foreground);
-}
-.mode-switch button[aria-pressed='true'] {
-  background: var(--accent-tint);
-  color: var(--primary);
-}
 .sidebar-rail {
   height: 100%;
   scrollbar-width: thin;
@@ -1915,30 +1892,9 @@ dialog::backdrop {
   justify-items: center;
   gap: 4px;
 }
-.world-mode {
-  padding-left: 0;
-}
-.world-loading {
-  display: grid;
-  height: 100%;
-  place-items: center;
-  color: var(--muted-foreground);
-}
-@media (max-width: 639px) {
-  .mode-switch-pill {
-    top: 12px;
-  }
-  .mode-switch-pill button {
-    padding: 6px 9px;
-    font-size: 11px;
-  }
-}
 
 :root {
   --pixel-skin: #eeb889;
-  --world-room-floor: #d5b88c;
-  --world-room-wall: #f3e2c5;
-  --world-desk: #9d6e3f;
 }
 .pixel-art {
   --tone: var(--sprite-tone);
@@ -1947,17 +1903,7 @@ dialog::backdrop {
   background: transparent;
   border: 0;
 }
-:root {
-  --world-marker-ring: #fff;
-}
 
-.mode-switch-pill {
-  position: absolute;
-  z-index: 30;
-  left: 50%;
-  transform: translateX(-50%);
-  top: 16px;
-}
 .header-actions {
   flex-shrink: 0;
   flex-wrap: nowrap;
@@ -1970,19 +1916,6 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.mode-switch-compact {
-  padding: 2px;
-  gap: 0;
-  border-radius: 8px;
-  box-shadow: none;
-  flex-shrink: 0;
-}
-.mode-switch-compact button {
-  padding: 0;
-  width: 28px;
-  height: 28px;
-  justify-content: center;
 }
 .header-action-divider {
   width: 1px;
@@ -2038,30 +1971,6 @@ dialog::backdrop {
   .header-overflow-trigger {
     display: inline-flex;
   }
-}
-
-.mode-switch button {
-  position: relative;
-}
-.mode-switch-tooltip {
-  display: none;
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 35;
-  width: max-content;
-  padding: 5px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface);
-  color: var(--foreground);
-  box-shadow: 0 2px 8px var(--shadow);
-  font-size: 11px;
-  pointer-events: none;
-}
-.mode-switch button:hover .mode-switch-tooltip,
-.mode-switch button:focus-visible .mode-switch-tooltip {
-  display: block;
 }
 
 .overlay-panel {
@@ -2211,16 +2120,6 @@ dialog::backdrop {
 .sidebar-rail-tooltip svg {
   fill: var(--surface);
 }
-.world-sidebar-toggle {
-  position: absolute;
-  z-index: 31;
-  top: 12px;
-  left: 10px;
-}
-.world-sidebar-toggle .icon-button {
-  background: var(--surface);
-  border: 1px solid var(--border);
-}
 @media (max-width: 1023px) {
   .sidebar-slot {
     display: contents;
@@ -2236,5 +2135,4 @@ dialog::backdrop {
 @import './styles/redesign/panels.css';
 @import './styles/redesign/work.css';
 @import './styles/redesign/settings.css';
-@import './styles/redesign/world.css';
 @import './styles/redesign/automations.css';

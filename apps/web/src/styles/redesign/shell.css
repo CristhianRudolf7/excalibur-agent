@@ -260,47 +260,6 @@
 .icon-button {
   border-radius: 8px;
 }
-.mode-switch {
-  position: relative;
-  isolation: isolate;
-  gap: 0;
-  box-shadow: none;
-  border-radius: 10px;
-}
-.mode-switch-pill {
-  position: absolute;
-}
-.mode-switch::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  top: 3px;
-  bottom: 3px;
-  left: 3px;
-  width: calc((100% - 6px) / 2);
-  background: var(--accent-tint-strong);
-  border-radius: 7px;
-  transition: transform var(--dur-base) var(--ease-spring);
-}
-.mode-switch[data-mode='world']::before {
-  transform: translateX(100%);
-}
-.mode-switch button {
-  flex: 1;
-  justify-content: center;
-  white-space: nowrap;
-  transition: color var(--dur-fast);
-}
-.mode-switch button[aria-pressed='true'] {
-  background: transparent;
-  color: var(--primary-strong);
-}
-.mode-switch-compact {
-  padding: 3px;
-}
-.mode-switch-pill button {
-  min-width: 90px;
-}
 .page-header {
   display: flex;
   align-items: center;
@@ -943,7 +902,7 @@ dialog::backdrop {
   width: 55%;
   background: var(--accent-tint);
 }
-.sk-world {
+.sk-lab {
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -951,12 +910,12 @@ dialog::backdrop {
   gap: 24px;
   padding: 24px;
 }
-.sk-world-toolbar {
+.sk-lab-toolbar {
   display: flex;
   align-items: center;
   gap: 16px;
 }
-.sk-world-canvas {
+.sk-lab-canvas {
   flex: 1;
   min-height: 320px;
   border-radius: 16px;
@@ -1370,16 +1329,14 @@ dialog::backdrop {
 /* Both panel toggles share one exact box everywhere (header actions used to
    apply a smaller icon-button padding on narrow screens). */
 .chat-header .panel-toggle.icon-button,
-.page-sidebar-toggle .panel-toggle.icon-button,
-.world-sidebar-toggle .panel-toggle.icon-button {
+.page-sidebar-toggle .panel-toggle.icon-button {
   width: 34px;
   min-width: 34px;
   height: 34px;
   padding: 0;
 }
 .chat-header .panel-toggle.icon-button svg,
-.page-sidebar-toggle .panel-toggle.icon-button svg,
-.world-sidebar-toggle .panel-toggle.icon-button svg {
+.page-sidebar-toggle .panel-toggle.icon-button svg {
   width: 20px;
   height: 20px;
 }

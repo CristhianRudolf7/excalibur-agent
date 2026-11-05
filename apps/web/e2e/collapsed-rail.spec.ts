@@ -17,11 +17,11 @@ async function splitFillsMain(page: Page) {
     })
     .toBe(true)
 }
-test('desktop collapse shares the World rail, preserves sizing and supports navigation and profile', async ({
+test('desktop collapse shows a navigation rail, preserves sizing and supports navigation and profile', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1536, height: 1024 })
-  await page.goto('/agents/excalibur?view=chat&worldDebug=1&worldClock=manual')
+  await page.goto('/agents/excalibur?view=chat')
   await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
   const sidebar = page.locator('.sidebar')
   const slot = page.locator('.sidebar-slot')
@@ -53,7 +53,6 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
     'Mis tareas',
     'Recordatorios',
     'Proyectos',
-    'Mundo 2D',
     'Aula',
     'Brazo robótico',
     'Extensiones',
@@ -84,13 +83,6 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
   await page.getByRole('button', { name: 'Alternar panel', exact: true }).click()
   await expect(rail).toBeVisible()
   await expect(slot).toHaveCSS('width', '64px')
-  await page.keyboard.press('Control+j')
-  await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-ready', 'true')
-  await expect(rail.getByRole('button', { name: 'Mundo 2D', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.keyboard.press('Control+j')
   await expect(page.locator('.chat-header')).toBeVisible()
   await expect(slot).toHaveCSS('width', '64px')
   await splitFillsMain(page)
@@ -107,9 +99,6 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
   await page.keyboard.press('Control+b')
   await expect(sidebar).toHaveCSS('width', '320px')
   await expect(slot).toHaveCSS('width', '321px')
-  await page.keyboard.press('Control+j')
-  await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-ready', 'true')
-  await page.keyboard.press('Control+j')
   await expect(sidebar).toHaveCSS('width', '320px')
   await expect(slot).toHaveCSS('width', '321px')
   await splitFillsMain(page)
@@ -140,12 +129,10 @@ test('desktop collapse shares the World rail, preserves sizing and supports navi
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 
-test('mobile Chat and World keep the overlay drawer with no rail', async ({ page }) => {
+test('mobile chat keeps the overlay drawer with no rail', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  for (const mode of ['chat', 'world']) {
-    await page.goto(`/agents/excalibur?view=${mode}&worldDebug=1&worldClock=manual`)
-    if (mode === 'world')
-      await expect(page.locator('.world-canvas')).toHaveAttribute('data-world-ready', 'true')
+  {
+    await page.goto('/agents/excalibur?view=chat')
     await expect(page.locator('.sidebar-rail')).toHaveCount(0)
     await page
       .locator('.main-panel')

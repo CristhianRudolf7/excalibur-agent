@@ -56,7 +56,7 @@ function Pixels({
     </span>
   )
 }
-/** Renders any supplied variant and palette as a world sprite; size is height in CSS pixels, frame selects a pose. */
+/** Renders any supplied variant and palette as a pixel sprite; size is height in CSS pixels, frame selects a pose. */
 export function PixelSprite(props: PixelSpriteProps) {
   return <Pixels {...props} portrait={false} />
 }

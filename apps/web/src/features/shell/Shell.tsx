@@ -28,7 +28,7 @@ import { AutomationsPage } from '@/features/automations/AutomationsPage'
 import { useAutomationEvents } from '@/features/automations/api'
 import { loadingLazy as lazy, LoadingFallback } from '@/features/shell/loading'
 import { SettingsSkeleton } from '@/features/settings/Skeletons'
-import { AgentHeaderSkeleton, WorldSkeleton } from './Skeletons'
+import { AgentHeaderSkeleton, LabSkeleton } from './Skeletons'
 import { Whiteboard, WhiteboardConnection } from '@/features/whiteboard/Whiteboard'
 import { useWhiteboard } from '@/features/whiteboard/store'
 import { conversationId } from '@/features/chat/live'
@@ -40,7 +40,6 @@ import { IconButton, PageHeader, EmptyState } from '@/components/shared'
 import { Dialog } from '@/components/ui/dialog'
 import type { AgentId } from './mock-data'
 import { validatePanel, type Panel } from './panels'
-import { ModeSwitch } from './ModeSwitch'
 import { ResizeHandle } from '@/components/resize/ResizeHandle'
 import { clampSidebarWidth, sidebarWidthLimit } from './sidebar-size'
 import { SidebarRail } from './SidebarRail'
@@ -48,7 +47,6 @@ import { ChatHeaderActions } from './ChatHeaderActions'
 import { Wordmark } from '@/components/brand/Wordmark'
 import { PanelToggle } from '@/components/ui/panel-toggle'
 import { ErrorBoundary } from '@/components/ErrorScreen'
-import { publishWorldDebug } from '@/features/world/debug'
 import { useShell } from './store'
 import { splitWidths, splitRatioFromPanel } from './split-layout'
 import { ProfileButton, ProfileDialog } from '@/features/profile/Profile'
@@ -62,7 +60,6 @@ import { DocumentViewer } from '@/features/viewer/DocumentViewer'
 import { useViewerStore } from '@/features/viewer/store'
 const RobotLab = lazy(() => import('@/features/robotlab/RobotLab'))
 const SettingsPage = lazy(() => import('@/features/settings/Settings'))
-const World = lazy(() => import('@/features/world/World'))
 function useMobile() {
   const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 1023px)').matches)
   useEffect(() => {
@@ -198,78 +195,13 @@ export function Shell() {
     })
   }, [viewerTarget, navigate])
   const panel = search.panel
-  const worldClock = search.worldClock
-  const worldDebug = search.worldDebug,
-    worldSpeed = search.worldSpeed
-  const isWorld =
-    !isLab &&
-    !isRobot &&
-    !isSettings &&
-    !isProjects &&
-    !isSoon &&
-    !isWorkPage &&
-    search.view === 'world'
   const dimensions = splitWidths(splitWidth, shell.ratio)
   const overlayPanel = mobile || dimensions.overlay
-  const changeMode = useCallback(
-    (world: boolean) => {
-      try {
-        localStorage.setItem('world-last-mode', world ? 'world' : 'chat')
-      } catch {
-        /* Preferences are optional. */
-      }
-      void navigate({
-        to: '/agents/$agentId',
-        params: { agentId: agent.id },
-        search: { panel, worldDebug, worldSpeed, worldClock, view: world ? 'world' : 'chat' },
-      })
-    },
-    [navigate, agent.id, panel, worldDebug, worldSpeed, worldClock],
-  )
-  useEffect(() => {
-    if (!isWorld) publishWorldDebug({ running: false, fps: 0, mode: 'chat', ready: false })
-    if (search.view) {
-      try {
-        localStorage.setItem('world-last-mode', search.view)
-      } catch {
-        /* Preferences are optional. */
-      }
-    }
-  }, [search.view, isWorld])
-  const setWorldRoom = useCallback(
-    (room?: string) => {
-      void navigate({
-        to: '/agents/$agentId',
-        params: { agentId: agent.id },
-        search: { panel, worldDebug, worldSpeed, worldClock, view: 'world', room },
-      })
-    },
-    [navigate, agent.id, panel, worldDebug, worldSpeed, worldClock],
-  )
-  useEffect(() => {
-    if (search.view || isLab || isRobot || isSettings || isProjects || isSoon || isWorkPage) return
-    try {
-      if (localStorage.getItem('world-last-mode') === 'world') changeMode(true)
-    } catch {
-      /* Preferences are optional. */
-    }
-  }, [search.view, isLab, isRobot, isSettings, isProjects, isSoon, isWorkPage, changeMode])
-  useEffect(() => {
-    const key = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
-        event.preventDefault()
-        changeMode(!isWorld)
-      }
-    }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [isWorld, changeMode])
   const setPanel = useCallback(
     (value: Panel) => {
       void navigate({
         to: '/agents/$agentId',
         params: { agentId: agent.id },
-        // Keep other params (world debug/clock flags) when switching panel views.
         search: (prev) => ({ ...prev, panel: value, view: 'chat' as const }),
       })
       useShell.getState().openPanel()
@@ -283,7 +215,7 @@ export function Shell() {
   useArtifactEvents(location.pathname.startsWith('/agents/') ? conversationId(agent.id) : undefined)
   const browserConversation = conversationId(agent.id)
   const browserVisible =
-    location.pathname.startsWith('/agents/') && !isWorld && shell.panelOpen && panel === 'browser'
+    location.pathname.startsWith('/agents/') && shell.panelOpen && panel === 'browser'
   useBrowserLiveEvents(location.pathname.startsWith('/agents/') ? agent.id : undefined, () => {
     if (overlayPanel && useShell.getState().panelOpen) useShell.getState().togglePanel()
   })
@@ -335,10 +267,7 @@ export function Shell() {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
         event.preventDefault()
-        if (isWorld && !mobile) {
-          if (shell.collapsed) shell.toggleSidebar(false)
-          changeMode(false)
-        } else shell.toggleSidebar(mobile)
+        shell.toggleSidebar(mobile)
       }
       if ((event.metaKey || event.ctrlKey) && event.key === '.') {
         event.preventDefault()
@@ -353,7 +282,7 @@ export function Shell() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [shell, mobile, overlayPanel, isWorld, changeMode])
+  }, [shell, mobile, overlayPanel])
   useLayoutEffect(() => {
     const node = split.current
     if (!node) return
@@ -372,7 +301,7 @@ export function Shell() {
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [agentsLoaded, isLab, isRobot, isSettings, isProjects, isSoon, isWorld, isWorkPage])
+  }, [agentsLoaded, isLab, isRobot, isSettings, isProjects, isSoon, isWorkPage])
   useEffect(() => {
     if (!overlayPanel || (!shell.drawer && !shell.panelOpen)) return
     const previous = document.activeElement
@@ -382,8 +311,8 @@ export function Shell() {
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
     }
   }, [overlayPanel, shell.drawer, shell.panelOpen])
-  const sidebarVisible = mobile ? shell.drawer : !isWorld && !shell.collapsed
-  const railVisible = !mobile && (isWorld || shell.collapsed)
+  const sidebarVisible = mobile ? shell.drawer : !shell.collapsed
+  const railVisible = !mobile && shell.collapsed
   const sidebarWidth = clampSidebarWidth(shell.sidebarWidth, viewportWidth)
   useLayoutEffect(() => {
     const node = sidebar.current
@@ -413,7 +342,7 @@ export function Shell() {
       },
     )
     return () => animation?.cancel()
-  }, [location.pathname, isWorld])
+  }, [location.pathname])
   const availableWidth = dimensions.available
   const panelWidth = dimensions.panel
   const resize = (width: number) => {
@@ -435,18 +364,13 @@ export function Shell() {
       to: '/agents/$agentId',
       params: { agentId: id },
       search: {
-        panel: isWorld ? panel : 'files',
-        worldDebug,
-        worldSpeed,
-        worldClock,
-        view: isWorld ? 'world' : 'chat',
+        panel: 'files',
+        view: 'chat',
       },
     })
   }
   return (
-    <div
-      className={`app ${sidebarVisible ? 'sidebar-visible' : 'sidebar-collapsed'} ${isWorld ? 'world-mode' : ''}`}
-    >
+    <div className={`app ${sidebarVisible ? 'sidebar-visible' : 'sidebar-collapsed'}`}>
       {mobile && shell.drawer && (
         <button
           className="drawer-backdrop"
@@ -474,29 +398,25 @@ export function Shell() {
                   ? 'robot'
                   : isSettings
                     ? settingsItem
-                    : isWorld
-                      ? 'world'
-                      : isProjects
-                        ? 'projects'
-                        : isWorkPage
-                          ? isData
-                            ? 'myData'
-                            : isExtensions
-                              ? 'extensions'
-                              : isClassroom
-                                ? 'classroom'
-                                : isAutomations
-                                  ? 'automations'
-                                  : isTasks
-                                    ? 'myTasks'
-                                    : 'reminders'
-                          : isSoon
-                            ? location.pathname.split('/')[2]
-                            : undefined
+                    : isProjects
+                      ? 'projects'
+                      : isWorkPage
+                        ? isData
+                          ? 'myData'
+                          : isExtensions
+                            ? 'extensions'
+                            : isClassroom
+                              ? 'classroom'
+                              : isAutomations
+                                ? 'automations'
+                                : isTasks
+                                  ? 'myTasks'
+                                  : 'reminders'
+                        : isSoon
+                          ? location.pathname.split('/')[2]
+                          : undefined
             }
-            onNavigate={(key) =>
-              key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
-            }
+            onNavigate={(key) => go(key === 'projects' ? '/projects' : key)}
             onAgent={selectAgent}
             onProfile={() => setProfileOpen(true)}
           />
@@ -550,16 +470,13 @@ export function Shell() {
                 (isProjects && key === 'projects') ||
                 (isTasks && key === 'myTasks') ||
                 (isReminders && key === 'reminders') ||
-                (isAutomations && key === 'automations') ||
-                (isWorld && key === 'world')
+                (isAutomations && key === 'automations')
               return (
                 <button
                   key={key}
                   className={active ? 'selected' : ''}
                   aria-current={active ? 'page' : undefined}
-                  onClick={() =>
-                    key === 'world' ? changeMode(true) : go(key === 'projects' ? '/projects' : key)
-                  }
+                  onClick={() => go(key === 'projects' ? '/projects' : key)}
                 >
                   <Icon />
                   <span className="sidebar-label">{t(key)}</span>
@@ -648,23 +565,6 @@ export function Shell() {
       <main className="main-panel" ref={main}>
         <LabConnection />
         <ErrorBoundary resetKey={location.pathname + location.searchStr}>
-          {isWorld && mobile && (
-            <div className="world-sidebar-toggle">
-              <PanelToggle
-                side="left"
-                label="sidebar"
-                open={shell.drawer}
-                onClick={() => shell.setDrawer(true)}
-              />
-            </div>
-          )}
-          {isWorld && (
-            <ModeSwitch
-              variant="pill"
-              mode={isWorld ? 'world' : 'chat'}
-              onChange={(mode) => changeMode(mode === 'world')}
-            />
-          )}
           {!isClassroom && (isSettings || isProjects || isSoon || isWorkPage) && (
             <div className="page-sidebar-toggle">
               <PanelToggle
@@ -680,7 +580,7 @@ export function Shell() {
               <AgentHeaderSkeleton />
             </LoadingFallback>
           ) : isLab ? (
-            <Suspense fallback={<WorldSkeleton />}>
+            <Suspense fallback={<LabSkeleton />}>
               <RobotLab mobile={mobile} />
             </Suspense>
           ) : isRobot ? (
@@ -694,33 +594,6 @@ export function Shell() {
               }
             >
               <SettingsPage />
-            </Suspense>
-          ) : isWorld ? (
-            <Suspense
-              fallback={
-                <LoadingFallback>
-                  <WorldSkeleton />
-                </LoadingFallback>
-              }
-            >
-              <World
-                roomId={search.room}
-                agentId={agent.id}
-                onRoom={setWorldRoom}
-                onOpen={(id, nextPanel) => {
-                  shell.openPanel()
-                  try {
-                    localStorage.setItem('world-last-mode', 'chat')
-                  } catch {
-                    /* Preferences are optional. */
-                  }
-                  void navigate({
-                    to: '/agents/$agentId',
-                    params: { agentId: id },
-                    search: { panel: nextPanel, worldDebug, worldSpeed, worldClock, view: 'chat' },
-                  })
-                }}
-              />
             </Suspense>
           ) : isClassroom ? (
             <Classroom />
@@ -774,7 +647,6 @@ export function Shell() {
                   />
                   <BrowserReopen conversation={browserConversation} visible={browserVisible} />
                   <ChatHeaderActions
-                    onMode={(mode) => changeMode(mode === 'world')}
                     onNotice={setNotice}
                     onPanel={() => {
                       // The panel opens on its home launcher; only a deep link

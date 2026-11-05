@@ -27,7 +27,7 @@ function RailTooltip({ label, children }: { label: string; children: ReactNode }
     </Tooltip.Root>
   )
 }
-/** Shared navigation for World and a collapsed desktop sidebar. */
+/** Navigation for the collapsed desktop sidebar. */
 export function SidebarRail({
   collections = [],
   agents,

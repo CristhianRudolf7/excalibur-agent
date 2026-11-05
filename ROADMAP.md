@@ -1,72 +1,43 @@
 # Roadmap
 
-Milestones of Appendix E. Status: H0–H13 implemented, each with its
-verification-table tests green (see `docs/development/coverage.md`
-for one row per architecture section with the test names).
-Phase A built the programming harness first (measurable in
-Terminal-Bench from H4 on); Phase B built the personal assistant on
-the same core. Ablation comparisons (each mechanism on/off) stay
-available through the eval suites in `internal/eval` before any
-mechanism stays on in `eval`.
+## Available in 0.1.0
 
-- [x] **H0. Repository skeleton and shared contracts (wave 0)** —
-  module, package tree, shared types, API contracts, core interfaces
-  with fakes, CLI skeleton, verification harness.
-- [x] **H1. Providers of language models** — `internal/providers`
-  adapters (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Ollama,
-  generic OpenAI-compatible) on the wave-0 contract; contract tests
-  against simulated servers (`TestChat*`, `TestResponses*`,
-  `TestStream*` per adapter; never a paid API).
-- [x] **H2. Base storage** — identifiers, layered config loading, Linux
-  `internal/platform` (plus `!linux` stubs), SQLite porter, blobs,
-  migrations (`TestConcurrentWritersNoBusy`, `TestGroupCommit`,
-  `TestShortCodesNeverReused`, `TestCorruptRestore`,
-  `TestWALAlertAndCheckpoints`, network-FS `DELETE` fallback).
-- [x] **H3. Durable engine and terminal** — journal, agent loop, gateway
-  subset, context compiler basics, core file/terminal tools, extension
-  registry (`TestCrash*` suite, `TestEndToEndSimpleTask`,
-  `TestEndToEndInteractiveProgram`).
-- [x] **H4. Non-interactive mode and benchmarks** — `exec`, eval profile,
-  events, metrics, ATIF, Harbor adapter, bench launchers
-  (`TestExecExitTable`, `TestProfileContract`,
-  `TestEvalSurfaceMatchesProfileTable`, `TestSmokeScaffold`,
-  `scripts/bench`).
-- [x] **H5. Verifiable work** — tasks/plans/requirements/criteria/
-  evidence, completion gate, run states, loop detector, limits
-  (`TestGate*`, `TestCanTransition`, `TestTransitionsFromEveryNonTerminalState`,
-  `TestR1IdenticalRepeat`–`TestR6EditMismatch`, `TestClosingThenExhausted`).
-- [x] **H6. Context and cache** — layers, deltas, masking, compaction,
-  cache adapters, token counting (`TestCompileDeterministic`,
-  `TestDeltasKeepStablePrefix`, `TestCompactionThreshold`,
-  `TestEstimateCalibratesWithinMargin`, cache suites).
-- [x] **H7. Programming tools and edit concurrency** — deferred tools,
-  `search_tools`, history, snapshots, LSP, code graph, leases, worktrees
-  (`TestToolRetrievalScaffold`, `TestTerminalVsToolsScaffold`,
-  `TestGraphIncrementalNoStaleEdges`, `TestConcurrentFragmentEditsSerializes`).
-- [x] **H8. Subagents, programming skills, delegation** — orchestrator,
-  profiles, mailboxes, directives, skill index, `task` family, MCP
-  server, ACP (`TestSuiteSteer`, `TestSuiteControl`,
-  `TestSubagentAuthority`, `TestTaskRoundTrip`, `TestWalkthrough*` in
-  embedded mode).
-- [x] **H9. Daemon, master, conversation** — gate, intake, fast lane,
-  projects, scopes, delegation through the daemon (`TestAvailSuite`,
-  `TestFastLaneTable`, `TestTurnsParallelAcrossConversations`,
-  `TestScopeIsolationFourPaths`, walkthroughs 26.11/26.1–26.6 through
-  the gateway).
-- [x] **H10. Recovery, continuous operation, vault** — boot, safe mode,
-  agenda, retention, install/update, secrets vault
-  (`TestCrashPointsTable`, `TestBootOrdersAndOutcomes`,
-  `TestAgendaTickFires`, `TestVault_AllTypes_NoCleartext`,
-  `TestUpdate*`, walkthrough 26.7).
-- [x] **H11. Memory and documents** — retriever, consolidation,
-  embeddings, library, citations (`TestFuseRRF`,
-  `TestRetrieveBitemporal`, `TestReview*`, `TestVecRoundTrip`,
-  `TestSourceEventsOnlyRead`, walkthrough 26.9).
-- [x] **H12. Assistant skills and decider** — assistant/domain skill
-  groups, external skill installs, roles, escalation, decider
-  (`TestAllBuiltinsValid`, `TestInstall*`, `TestCalibrateSeparatesBands`,
-  `TestDeciderNeverFinalVerdict`, `TestGatewayP0Reservation`).
-- [x] **H13. Capabilities, automation, extensions on Linux** —
-  capability contracts, MCP, extension kit, triggers, workflows, flow
-  simulation (`TestFourRoutesHotAdd`, `TestConformanceGate`,
-  `TestWorkflow*`, `TestSim*`, `TestWebReadsRecordSources`).
+The programming harness and personal assistant share one Go daemon and a React
+web interface. Implemented areas include:
+
+- Durable execution, verifiable tasks/plans/evidence, terminal/file tools,
+  context/cache management, provider routing, subagent control and recovery.
+- Persistent conversations and personal agents, scoped memory, document library,
+  citations, a secrets vault and secure browser credential requests.
+- Live browser viewing, web research, dictation and voice calls, with optional
+  credentials and browser-dependent fallbacks.
+- Google account connection with Gmail, Drive and Docs tools; personal typed
+  collections with spreadsheet import/export.
+- File/document viewers, spreadsheet editing, whiteboards, visual artifacts,
+  coding activity/diffs and explicitly requested public previews.
+- Timezone-aware reminders, scheduled automations, project/task inspection,
+  Classroom, Robotics Lab and the UR robot bridge.
+- Local extensions, skills, MCP/ACP adapters and native Linux, Windows and macOS
+  platform backends. Feature prerequisites and limits are in the root README.
+
+The original H0–H13 milestones have implementations and backend verification
+coverage. [Coverage](docs/development/coverage.md) records the section-level test
+evidence; it distinguishes simulated capability contracts from live features.
+The benchmark table describes the historical `tb21-59.6` tag, not a new test of
+0.1.0.
+
+## In development and current gaps
+
+2D world: in development. Removed from the current interface until it is ready; earlier work is in the git history.
+
+- A production remote extension/skill marketplace and general remote store
+  installer are not implemented. Local installation and validation exist.
+- Concrete messaging transports such as Telegram and WhatsApp remain absent;
+  channel/meeting simulations exercise the contracts.
+- Native service, keyring, browser, camera and robotics checks still depend on
+  OS-specific runners and hardware. Cross builds establish compilation only.
+- Tool isolation varies by feature and OS; the generic platform isolator is a
+  pass-through. Public preview URLs are public access links.
+- Mobile packaging, autopoiesis and automatic skill learning are out of scope.
+
+No release dates are promised for the remaining work.

@@ -5,14 +5,11 @@ import { MoreHorizontal, Phone } from 'lucide-react'
 import { PanelToggle } from '@/components/ui/panel-toggle'
 import { useTranslation } from 'react-i18next'
 import { IconButton } from '@/components/shared'
-import { ModeSwitch } from './ModeSwitch'
 
 export function ChatHeaderActions({
-  onMode,
   onPanel,
   panelOpen = false,
 }: {
-  onMode: (mode: 'chat' | 'world') => void
   /** Kept for callers; the info action was removed from the header. */
   onNotice?: (notice: 'phone' | 'info') => void
   onPanel: () => void
@@ -23,8 +20,6 @@ export function ChatHeaderActions({
   return (
     <div className="header-actions">
       <CallOverlay />
-      <ModeSwitch variant="compact" mode="chat" onChange={onMode} />
-      <span className="header-action-divider" aria-hidden="true" />
       <IconButton className="icon-button header-secondary-action" label="phone" onClick={openCall}>
         <Phone />
       </IconButton>

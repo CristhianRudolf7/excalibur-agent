@@ -16,7 +16,7 @@ export interface SpriteDefinition {
 export function portraitPixels(sprite: SpriteDefinition) {
   const grid = getPortraitPixels(sprite.variant)
   if (sprite.skin && sprite.variant !== 'hood' && sprite.variant !== 'cap') {
-    // The world silhouettes use hood shading on the head; personal avatars
+    // The shared silhouettes use hood shading on the head; personal avatars
     // give uncovered heads their selected hair palette instead.
     for (let y = 0; y < 10; y++) {
       grid[y] = grid[y]!.map((pixel) => (pixel === 'h' || pixel === 'l' ? 'a' : pixel))
