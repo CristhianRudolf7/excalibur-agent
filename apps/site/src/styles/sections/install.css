@@ -1,0 +1,183 @@
+.install .install-headline {
+  --x: 55;
+  --y: 168;
+  --w: 1400;
+  --size: 156;
+}
+.install-terminal {
+  --x: 630;
+  --y: 512;
+  --w: 830;
+  border: 1px solid var(--hairline);
+  background: var(--surface);
+}
+.install-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-2);
+}
+.install-tabs a {
+  padding: 1.3cqw 1.8cqw;
+  font-size: 1.17cqw;
+  text-decoration: none;
+  border-right: 1px solid var(--hairline);
+}
+.install-tabs a[aria-selected='true'] {
+  position: relative;
+  color: var(--blue-text);
+  background: var(--blue-tint);
+}
+.install-tabs a[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: var(--blue);
+}
+.install-panels {
+  padding: 1.6cqw 2cqw;
+}
+.install-panels section + section {
+  margin-top: 1.2cqw;
+}
+.install-panels h3 {
+  margin: 0 0 0.5em;
+  font-size: 1.04cqw;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.install-panels pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+  font: 1.17cqw/1.7 var(--font-mono);
+}
+.install-enhanced .install-panels {
+  min-height: 12cqw;
+  display: grid;
+  align-items: center;
+}
+.install-enhanced [data-install-panel] {
+  margin: 0;
+}
+.install-enhanced [data-install-panel][hidden] {
+  display: none;
+}
+.install-enhanced h3 {
+  display: none;
+}
+.install-toolbar {
+  padding: 0.9cqw 1.2cqw;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85cqw;
+  color: var(--ink-2);
+}
+.install-toolbar button {
+  border: 1px solid var(--leader);
+  background: var(--surface-2);
+  color: var(--ink);
+  padding: 0.5em 0.8em;
+  font: inherit;
+  cursor: pointer;
+}
+.install-notes {
+  --x: 110;
+  --y: 553;
+  --w: 445;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 1.3cqw;
+  line-height: 1.55;
+}
+.install-notes li {
+  margin-bottom: 2cqw;
+  background: var(--bg);
+  width: fit-content;
+}
+.install-instructions {
+  --x: 630;
+  --y: 944;
+  --w: 400;
+  width: max-content;
+  font-size: 1.56cqw;
+  background: var(--bg);
+}
+.install:not(.line-ready) .desktop-line .time-tick {
+  transform: translate(1200px, 984px);
+}
+@media (max-width: 1023px) {
+  .install {
+    padding: 32px 24px 130px;
+    min-height: 1000px;
+  }
+  .install .install-headline {
+    font-size: clamp(46px, 12vw, 100px);
+  }
+  .install-terminal {
+    position: relative;
+    width: auto;
+    margin: 64px 0 0 22px;
+  }
+  .install-tabs a {
+    flex: 1;
+    padding: 15px 5px;
+    text-align: center;
+    font-size: 11px;
+  }
+  .install-panels,
+  .install-enhanced .install-panels {
+    padding: 24px 16px;
+    min-height: 220px;
+  }
+  .install-panels pre {
+    font-size: 13px;
+  }
+  .install-panels h3 {
+    font-size: 12px;
+    margin-top: 20px;
+  }
+  .install-toolbar {
+    font-size: 10px;
+    padding: 12px;
+  }
+  .install-notes {
+    position: relative;
+    width: auto;
+    margin: 40px 0 0 22px;
+    font-size: 13px;
+  }
+  .install-notes li {
+    margin-bottom: 22px;
+  }
+  .install-instructions {
+    position: relative;
+    display: inline-block;
+    width: auto;
+    margin: 24px 0 0 22px;
+    font-size: 18px;
+  }
+  .install .time-tick {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .install-terminal:not(.install-enhanced) .install-panels {
+    padding: 1cqw 2cqw;
+  }
+  .install-terminal:not(.install-enhanced) pre {
+    font-size: 1.04cqw;
+    line-height: 1.5;
+  }
+  .install-terminal:not(.install-enhanced) h3 {
+    font-size: 0.91cqw;
+  }
+  .install-terminal:not(.install-enhanced) section + section {
+    margin-top: 0.6cqw;
+  }
+}

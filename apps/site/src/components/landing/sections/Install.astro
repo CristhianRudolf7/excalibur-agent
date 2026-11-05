@@ -1,0 +1,65 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import '../../../styles/sections/install.css'
+const commands = [
+  { os: 'Linux', command: 'curl -fsSL https://excalibur.crehlabs.com/install.sh | sh' },
+  { os: 'macOS', command: 'curl -fsSL https://excalibur.crehlabs.com/install.sh | sh' },
+  { os: 'Windows', command: 'irm https://excalibur.crehlabs.com/install.ps1 | iex' },
+  {
+    os: 'Docker',
+    command:
+      'docker run -d --name excalibur -p 127.0.0.1:7787:7787 -v excalibur-data:/data ghcr.io/cristhianrudolf7/excalibur:latest',
+  },
+]
+---
+
+<Stage id="install" class="install" label="Install Excalibur">
+  <SectionLine
+    path="M218 0 V450 A40 40 0 0 1 178 490 H114 A40 40 0 0 0 74 530 V842 A40 40 0 0 0 114 882 H1422 A40 40 0 0 1 1462 922 V944 A40 40 0 0 1 1422 984 H258 A40 40 0 0 0 218 1024"
+    mobilePath="M24 0 V910 A20 20 0 0 0 44 930 H346 A20 20 0 0 1 366 950 V960 A20 20 0 0 1 346 980 H44 A20 20 0 0 0 24 1000"
+    mobileHeight={1000}
+    mobileTickX={100}
+    mobileTickY={930}
+  />
+  <SectionIndex index={7} style="--x:55;--y:32;--w:150" />
+  <Headline lines={['One command.', 'All of it.']} class="install-headline" />
+  <div class="install-terminal canvas-item" data-install-terminal>
+    <nav class="install-tabs mono" aria-label="Installation platform">
+      {commands.map(({ os }, i) => (
+        <a id={`install-tab-${i}`} href={`#install-command-${i}`} data-install-tab>
+          {os}
+        </a>
+      ))}
+    </nav>
+    <div class="install-panels">
+      {commands.map(({ os, command }, i) => (
+        <section id={`install-command-${i}`} data-install-panel aria-label={`${os} command`}>
+          <h3 class="mono">{os}</h3>
+          <pre tabindex="0"><code>{command}</code></pre>
+        </section>
+      ))}
+    </div>
+    <div class="install-toolbar mono">
+      <span>excalibur / install</span>
+      <button type="button" data-install-copy hidden>
+        Copy command
+      </button>
+      <span class="sr-only" role="status" data-install-status></span>
+    </div>
+  </div>
+  <ol class="install-notes canvas-item mono">
+    <li>(1) Frontend and backend in one install</li>
+    <li>
+      (2) Then open <a href="http://127.0.0.1:7787">http://127.0.0.1:7787</a>
+    </li>
+    <li>
+      (3) Update with <code>excalibur update</code>
+    </li>
+  </ol>
+  <a class="install-instructions canvas-item" href="/docs/getting-started/install/" data-noverlap>
+    Full instructions →
+  </a>
+</Stage>

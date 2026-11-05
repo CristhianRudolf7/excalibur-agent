@@ -250,3 +250,20 @@
     margin-top: 48px;
   }
 }
+
+.extensions-install {
+  --x: 360;
+  --y: 960;
+  --w: 180;
+  font-size: 1.56cqw;
+  width: max-content;
+}
+@media (max-width: 1023px) {
+  .extensions-install {
+    position: relative;
+    display: block;
+    margin: 22px 0 0 26px;
+    width: max-content;
+    font-size: 18px;
+  }
+}
