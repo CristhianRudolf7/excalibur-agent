@@ -61,6 +61,7 @@ a {
   position: relative;
   container-type: inline-size;
   isolation: isolate;
+  contain: paint;
 }
 .stage svg {
   display: block;
@@ -209,6 +210,9 @@ a {
   opacity: 0;
 }
 @media (min-width: 1024px) {
+  .stage:not(.machine) {
+    content-visibility: auto;
+  }
   .stage {
     aspect-ratio: 1536 / var(--canvas-height, 1024);
   }
