@@ -102,6 +102,7 @@ jobs:
             # sqlite-vec includes sqlite3.h, which Windows runners lack. Use the
             # header of the exact SQLite that go-sqlite3 compiles and links.
             mkdir -p build/include
+            go mod download github.com/mattn/go-sqlite3
             cp "$(go list -m -f '{{.Dir}}' github.com/mattn/go-sqlite3)/sqlite3-binding.h" build/include/sqlite3.h
             export CGO_CFLAGS="-I$(cygpath -m "$PWD/build/include")"
           fi
