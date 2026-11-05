@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+[ "$#" -eq 1 ] || { printf 'usage: scripts/release/genkey PRIVATE_KEY_PATH\n' >&2; exit 1; }
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+destination=$1
+case "$destination" in /*) ;; *) destination=$(pwd)/$destination ;; esac
+exec go -C "$root" run ./scripts/release/keytool generate "$destination"

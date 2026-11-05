@@ -90,3 +90,81 @@ and wait for health. Reruns stop the previous service while keeping data.
 local smoke tests. The main-function wrapper prevents a truncated POSIX
 script from starting installation before its complete function has arrived.
 ShellCheck 0.11.0 passes for the shell installer and key generation wrapper.
+
+Additional verification fixes discovered locally: `TestExecEngineSkillsCards`
+used an absolute missing directory outside its temporary project, so the scope
+guard could reject it before make produced the intended error. It now invokes
+an absent make target inside the project (test-only protected-path change).
+`TestSIGTERMContext` and the classroom daemon helper allow realistic startup
+budgets on race-instrumented shared runners. Delivery screenshot fixtures use
+PNG BestSpeed encoding; the image dimensions and tested evidence are unchanged.
+
+## Signed updates
+
+`excalibur update` downloads the public latest-release assets without GitHub
+credentials. `checksums.txt.sig` is a hex Ed25519 signature of the exact bytes
+of `checksums.txt`. The signed file authenticates both the archive and
+`version.txt`. Archives are read in memory and only their regular executable
+entry is accepted. Tampering with the signature, checksum document, version,
+or archive is rejected before staging. Go tests exercise Linux, macOS and
+Windows archive formats with simulated HTTP servers and generated test keys.
+
+The public key belongs in the single `daemon.ReleasePublicKey` constant in
+`internal/daemon/release.go`. It is intentionally empty until the coordinator
+supplies the real public key; update and release publication fail closed in
+that state. `scripts/release/genkey /secure/path/release.pem` creates a new
+PKCS8 Ed25519 private PEM with mode 0600 and prints only the public hex key.
+It refuses to overwrite an existing key. Keep the PEM outside the repository
+and put its contents in GitHub's `EXCALIBUR_RELEASE_KEY` secret. Signing rejects
+a private key that does not match the compiled trust root.
+
+The updater preserves the existing local `--manifest`, `--payload`, `--pubkey`,
+`--channel` and `--check` path. For public updates it refuses nonterminal runs,
+stops an idle daemon gracefully, stages and swaps through `daemon.Updater`,
+checks the new executable's version, restarts an installed service and waits
+for HTTP health. A failed health check rolls back the binary; user databases
+are retained. The original executable path is retained across the swap so
+service files do not accidentally point to the backup image.
+
+## Cutting a release
+
+1. Generate the signing key outside the repository with
+   `scripts/release/genkey /secure/path/release.pem`. Set the printed public key
+   in `daemon.ReleasePublicKey`, and have the repository owner configure the
+   PEM contents as `EXCALIBUR_RELEASE_KEY`. No private key enters this tree.
+2. Merge the release work, run `make web` and `make verify`, and confirm native
+   main CI. The coordinator creates and pushes a `vX.Y.Z` tag; workers do not
+   push tags, publish releases or change GitHub settings.
+3. `.github/workflows/release.yml` builds the web once, embeds it into six
+   native Go builds and stamps `main.version`. It packages
+   `excalibur_<os>_<arch>.tar.gz` or `.zip`, runs the real installer against each
+   local archive, checks UI, health and same-origin chat intake, and uninstalls.
+   Windows ARM64 uses CGO disabled and modernc SQLite because the bundled
+   sqlite-vec Windows library is x64; the other builds use CGO and sqlite_fts5.
+4. A Docker check builds and runs both Linux architectures from those native
+   archives. Only after all native and Docker checks pass does the publish job
+   create the GitHub Release with generated notes, signed checksums and
+   version file, and push the multi-architecture image to GHCR with `latest`
+   and the version tag. Manual dispatch takes an existing version tag.
+5. Confirm the public site's installer copies match their source scripts and
+   smoke the public URLs after the coordinator deploys the site. Site/DNS and
+   GitHub configuration are outside this worker's changes.
+
+For a local Linux smoke (after `make web`):
+
+```sh
+mkdir -p bin/linux/amd64
+go build -tags sqlite_fts5 -trimpath -ldflags '-s -w -X main.version=v0.0.0-smoke' -o bin/linux/amd64/excalibur ./cmd/excalibur
+python3 scripts/release/package.py --os linux --arch amd64 --binary bin/linux/amd64/excalibur --out /tmp/excalibur-assets --version v0.0.0-smoke
+EXCALIBUR_SMOKE_BROWSER=1 go run ./scripts/release/smoke /tmp/excalibur-assets
+docker build --build-arg TARGETARCH=amd64 -t excalibur-local .
+docker run -d --name excalibur-local -p 127.0.0.1:7787:7787 -v excalibur-local-data:/data excalibur-local
+curl -fsS http://127.0.0.1:7787/healthz
+curl -fsS http://127.0.0.1:7787/
+```
+
+The Chrome check uses installed Google Chrome (`channel: 'chrome'`) and web
+workspace Playwright dependencies. They are developer test dependencies only.
+The fixture uses a temporary HOME on Unix, no real model credentials, and a
+local HTTP asset server. Windows uses the runner's disposable native known
+folders. The smoke removes its service and temporary Unix home on exit.

@@ -74,6 +74,14 @@ func runUninstall(args []string) error {
 // startInstalledDaemon also handles minimal Linux sessions without a user bus
 // and the Windows Run-key backend, which only starts at the next logon.
 func startInstalledDaemon() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return startInstalledDaemonFrom(exe)
+}
+
+func startInstalledDaemonFrom(exe string) error {
 	client := &http.Client{Timeout: time.Second}
 	healthy := func() bool {
 		resp, err := client.Get(installedURL() + "/healthz")
@@ -88,10 +96,6 @@ func startInstalledDaemon() error {
 			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
 	}
 	data, err := installDirs().DataDir()
 	if err != nil {
