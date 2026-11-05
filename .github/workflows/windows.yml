@@ -3,21 +3,9 @@ name: Windows
 on:
   workflow_dispatch:
   push:
-    branches:
-      - platform-windows
+    branches: [main, platform-windows]
   pull_request:
-    paths:
-      - '**/*_windows.go'
-      - '**/*_windows_test.go'
-      - 'internal/platform/**'
-      - 'scripts/check-no-bare-go/**'
-      - 'apps/web/**'
-      - 'package.json'
-      - 'pnpm-lock.yaml'
-      - 'pnpm-workspace.yaml'
-      - 'go.mod'
-      - 'go.sum'
-      - '.github/workflows/windows.yml'
+    branches: [main]
 
 permissions:
   contents: read

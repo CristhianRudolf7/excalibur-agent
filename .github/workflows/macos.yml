@@ -3,7 +3,9 @@ name: macOS
 on:
   workflow_dispatch:
   push:
-    branches: [platform-mac]
+    branches: [main, platform-mac]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read

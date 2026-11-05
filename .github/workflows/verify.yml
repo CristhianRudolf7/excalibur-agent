@@ -13,6 +13,6 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+        run: go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
       - name: Verify
         run: make verify

@@ -61,8 +61,6 @@ func prepareRuntimeRequirements(path string, data []byte) (string, []byte, error
 	return path, data, nil
 }
 
-func torchInstallArgs(pin string) []string { return []string{"-m", "pip", "install", pin} }
-
 func runtimeUnavailableOutput() string {
 	return darwinRuntimeUnavailableOutput(runtime.GOARCH)
 }
