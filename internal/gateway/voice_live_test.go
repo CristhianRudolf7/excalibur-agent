@@ -334,6 +334,7 @@ func TestVoiceSpeakCancellation(t *testing.T) {
 	for _, mode := range []string{"cancel", "replace"} {
 		t.Run(mode, func(t *testing.T) {
 			b := newTestVoiceBackend()
+			started := make(chan struct{})
 			stopped := make(chan struct{})
 			staleResult := make(chan error, 1)
 			b.speak = func(ctx context.Context, text string, write func([]byte) error) error {
@@ -343,6 +344,7 @@ func TestVoiceSpeakCancellation(t *testing.T) {
 				if err := write([]byte{1, 2}); err != nil {
 					return err
 				}
+				close(started)
 				<-ctx.Done()
 				// A backend callback racing with cancellation must not reach the socket.
 				staleResult <- write([]byte{9, 9})
@@ -353,6 +355,14 @@ func TestVoiceSpeakCancellation(t *testing.T) {
 			conn := voiceDial(t, ctx, base, "/ws/voice/speak")
 			voiceWrite(t, ctx, conn, `{"type":"speak","id":1,"text":"first"}`)
 			voiceReadAudio(t, ctx, conn, 1, []byte{1, 2})
+			// Receiving PCM can precede the server's write acknowledgement. Wait
+			// for the backend to enter its cancellation path so cancel/replace
+			// cannot make the initial write return early instead.
+			select {
+			case <-started:
+			case <-ctx.Done():
+				t.Fatal("synthesis did not start")
+			}
 			if mode == "cancel" {
 				voiceWrite(t, ctx, conn, `{"type":"cancel","id":1}`)
 			} else {
