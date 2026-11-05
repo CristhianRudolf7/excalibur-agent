@@ -5,6 +5,16 @@ backend tests live in `internal/eval` (`trialrec`, `harboratif`,
 `benchrun`) and `internal/cli` (exec recorder wiring); this file is
 usage only.
 
+## Published comparison
+
+The [root README](../../README.md#terminal-bench-21-results) records the owner's
+89-task comparison for tag `tb21-59.6`. Excalibur used the standard processing
+tier and the other harnesses used Flex; table costs are normalized to Flex
+prices, while Excalibur's standard-price cost is $3.09. Those numbers were not
+remeasured for the public-release cleanup, and raw comparison trials are not
+included here. The dated two-task verification below is a separate tooling smoke
+check, not evidence for the 89-task score.
+
 ## Prerequisites
 
 - Docker Engine + Compose v2 (`docker compose version` must work).
