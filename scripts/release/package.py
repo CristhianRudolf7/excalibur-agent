@@ -24,7 +24,7 @@ else:
     archive = archive.with_suffix('.tar.gz')
     with tarfile.open(archive, 'w:gz') as writer:
         writer.add(args.binary, name)
-(args.out / 'version.txt').write_text(args.version + '\n', encoding='utf-8')
+(args.out / 'version.txt').write_text(args.version + '\n', encoding='utf-8', newline='\n')
 with (args.out / 'checksums.txt').open('w', encoding='utf-8', newline='\n') as checksums:
     for path in sorted([archive, args.out / 'version.txt']):
         checksums.write(f'{hashlib.file_digest(path.open("rb"), "sha256").hexdigest()}  {path.name}\n')

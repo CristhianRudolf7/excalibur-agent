@@ -49,9 +49,8 @@ function Install-Excalibur {
         $env:Path = $destination + ';' + $env:Path
         & $binary install --autostart
         if ($LASTEXITCODE -ne 0) { throw 'Service installation failed.' }
-        $listen = $env:EXCALIBUR_LISTEN
-        if (-not $listen) { $listen = '127.0.0.1:7787' }
-        $url = "http://$listen"
+        $url = (& $binary open | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read the application URL.' }
         $ready = $false
         for ($attempt = 0; $attempt -lt 60; $attempt++) {
             try {

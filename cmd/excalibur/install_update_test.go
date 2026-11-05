@@ -151,3 +151,26 @@ func TestUninstallPreservesDataUnlessPurged(t *testing.T) {
 		t.Fatal("purge retained data", err)
 	}
 }
+
+func TestInstalledListenPersists(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("isolated XDG fixture")
+	}
+	cliEnv(t)
+	t.Setenv("EXCALIBUR_LISTEN", "")
+	if err := runInstall([]string{"--listen", "127.0.0.1:17787"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedURL(); got != "http://127.0.0.1:17787" {
+		t.Fatal(got)
+	}
+	t.Setenv("EXCALIBUR_LISTEN", "127.0.0.1:27787")
+	if got := installedListen(); got != "127.0.0.1:27787" {
+		t.Fatal(got)
+	}
+	for _, listen := range []string{"0.0.0.0:7787", "127.0.0.1:0", "invalid", "127.0.0.1:65536"} {
+		if err := saveInstalledListen(listen); err == nil {
+			t.Fatal("accepted", listen)
+		}
+	}
+}

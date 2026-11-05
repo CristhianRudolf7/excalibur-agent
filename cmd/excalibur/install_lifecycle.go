@@ -5,23 +5,54 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
 )
 
-func installedURL() string {
-	listen := os.Getenv("EXCALIBUR_LISTEN")
-	if listen == "" {
-		listen = "127.0.0.1:7787"
+func installedListen() string {
+	if listen := strings.TrimSpace(os.Getenv("EXCALIBUR_LISTEN")); listen != "" {
+		return listen
 	}
-	return "http://" + listen
+	if dir, err := installDirs().ConfigDir(); err == nil {
+		if raw, err := os.ReadFile(filepath.Join(dir, "listen.addr")); err == nil && strings.TrimSpace(string(raw)) != "" {
+			return strings.TrimSpace(string(raw))
+		}
+	}
+	return "127.0.0.1:7787"
 }
+
+func saveInstalledListen(listen string) error {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fmt.Errorf("install: invalid listen address: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("install: listen address must be loopback")
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return fmt.Errorf("install: listen port must be between 1 and 65535")
+	}
+	dir, err := installDirs().ConfigDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "listen.addr"), []byte(listen+"\n"), 0600)
+}
+
+func installedURL() string { return "http://" + installedListen() }
 
 func runOpen(args []string) error {
 	if len(args) != 0 {

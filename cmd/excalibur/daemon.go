@@ -57,10 +57,7 @@ const vaultPassphraseFileEnv = "EXCALIBUR_VAULT_PASSPHRASE_FILE"
 func runDaemonStart(args []string) error {
 	fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", "", "state directory (default: platform data dir)")
-	defaultListen := os.Getenv("EXCALIBUR_LISTEN")
-	if defaultListen == "" {
-		defaultListen = "127.0.0.1:7787"
-	}
+	defaultListen := installedListen()
 	listen := fs.String("listen", defaultListen, "HTTP bind address")
 	allowRemote := fs.Bool("allow-remote", false, "allow non-loopback binding (for containers)")
 	if err := fs.Parse(args); err != nil {

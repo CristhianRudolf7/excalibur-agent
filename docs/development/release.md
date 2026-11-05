@@ -168,3 +168,18 @@ workspace Playwright dependencies. They are developer test dependencies only.
 The fixture uses a temporary HOME on Unix, no real model credentials, and a
 local HTTP asset server. Windows uses the runner's disposable native known
 folders. The smoke removes its service and temporary Unix home on exit.
+
+An installed listen override can be persisted with
+`excalibur install --autostart --listen 127.0.0.1:17787` or by setting
+`EXCALIBUR_LISTEN` during installation. It is stored in `listen.addr` beside the
+user config, so native services retain it without inheriting the installer
+shell. `excalibur open` and both scripts read that effective address. Only
+loopback addresses and nonzero ports are accepted for installed services;
+containers use their explicit daemon flags instead.
+
+The fresh, unconfigured Linux daemon was also checked separately in Chrome:
+the Connect button successfully started account sign-in and the event
+WebSocket received frames, without completing external OAuth or calling a
+paid API. Linux download archives require glibc; the shell installer executes
+`--version` before replacing an existing install and reports unsupported
+runtime/loader failures clearly.

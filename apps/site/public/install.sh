@@ -47,6 +47,7 @@ main() (
     destination=$HOME/.local/bin
     mkdir -p "$destination"
     chmod 755 "$work/excalibur"
+    "$work/excalibur" --version >/dev/null || fail 'downloaded binary cannot run on this system (Linux releases require glibc)'
     # Preserve all data while stopping a previous installation before replacement.
     if [ -x "$destination/excalibur" ]; then
         "$destination/excalibur" uninstall || fail 'could not stop the previous installation'
@@ -65,7 +66,7 @@ main() (
     PATH=$destination:$PATH
     export PATH
     "$destination/excalibur" install --autostart || fail 'service installation failed'
-    url=http://${EXCALIBUR_LISTEN:-127.0.0.1:7787}
+    url=$("$destination/excalibur" open) || fail 'could not read the application URL'
     attempt=0
     until curl --fail --silent --max-time 2 "$url/healthz" >/dev/null; do
         attempt=$((attempt + 1))

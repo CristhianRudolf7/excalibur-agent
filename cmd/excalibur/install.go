@@ -39,6 +39,7 @@ func (p *providersFlag) Set(v string) error { *p = append(*p, v); return nil }
 
 func runInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	listen := fs.String("listen", os.Getenv("EXCALIBUR_LISTEN"), "persistent loopback HTTP address (default 127.0.0.1:7787)")
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	autostart := fs.Bool("autostart", false, installAutostartHelp())
 	timezone := fs.String("timezone", "", "IANA timezone for the user profile")
@@ -48,6 +49,11 @@ func runInstall(args []string) error {
 	fs.Var(&providers, "provider", "configured model provider (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *listen != "" {
+		if err := saveInstalledListen(*listen); err != nil {
+			return err
+		}
 	}
 	in := &daemon.Installer{
 		BrowserStep: daemon.InstallBrowserDriver,
