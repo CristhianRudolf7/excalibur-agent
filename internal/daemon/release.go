@@ -19,7 +19,7 @@ import (
 // ReleasePublicKey is the sole trust root for public binary updates. Set this
 // to the public hex output of scripts/release/genkey before the first release.
 // An empty key deliberately fails closed; never ship a temporary signing key.
-const ReleasePublicKey = ""
+const ReleasePublicKey = "d672071c01206725d17aa35acc5a8e62a57903e53200a466ad8ea01fb5ada102"
 
 const ReleaseBaseURL = "https://github.com/CristhianRudolf7/excalibur-agent/releases/latest/download"
 
