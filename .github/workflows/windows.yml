@@ -33,6 +33,11 @@ jobs:
       - name: Test native backends
         run: go test -race -p 2 -count=1 ./internal/platform/... ./internal/tools/... ./internal/vault/... ./internal/browser/... ./internal/robotlab/... ./internal/automations/... ./internal/envsnap/... ./internal/cli/... ./internal/robot/... ./internal/docextract/... ./internal/scopeguard/... ./internal/codeintel/... ./internal/workspace/... ./cmd/... ./scripts/check-no-bare-go/...
 
+      - name: Test release transport and updater
+        run: |
+          go test -race -p 2 -count=1 ./internal/gateway ./internal/webui
+          go test -race -p 2 -count=1 ./internal/daemon -run '^(TestSignedPublicRelease|TestUpdate.*|TestWindowsImageSwapRollback)$'
+
   web:
     runs-on: windows-latest
     timeout-minutes: 20

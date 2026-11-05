@@ -60,6 +60,19 @@ func run() error {
 	if err := command.Run(); err != nil {
 		return err
 	}
+	expectedVersion, err := os.ReadFile(filepath.Join(os.Args[1], "version.txt"))
+	if err != nil {
+		return err
+	}
+	versionCommand := exec.Command(binary, "--version")
+	versionCommand.Env = env
+	actualVersion, err := versionCommand.Output()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(actualVersion)) != "excalibur "+strings.TrimSpace(string(expectedVersion)) {
+		return fmt.Errorf("installed binary version does not match release version.txt")
+	}
 	for _, path := range []string{"/", "/settings?section=connections", "/healthz"} {
 		response, err := http.Get("http://127.0.0.1:7787" + path)
 		if err != nil {

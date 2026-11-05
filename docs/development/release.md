@@ -183,3 +183,55 @@ WebSocket received frames, without completing external OAuth or calling a
 paid API. Linux download archives require glibc; the shell installer executes
 `--version` before replacing an existing install and reports unsupported
 runtime/loader failures clearly.
+
+## Verification record and remaining gates
+
+Local Linux checks completed successfully:
+
+- `GOFLAGS=-p=2 GOMAXPROCS=2 make verify` under `nice -n 10`: formatting,
+  vet, Staticcheck, goroutine check, full race suite, and darwin/windows
+  amd64/arm64 cross-builds. Release tooling subsequently passed its scoped
+  vet, Staticcheck and race checks after adding a version-stamp smoke assertion.
+- Dedicated `TestEmbeddedSurfaceAndEvalProfileDoNotMove`,
+  `TestDeferredReachableWithoutBreakingPrefix`, `TestDeferredPrefixUnchanged`
+  and `TestIntentToolSelection` race tests: all passed, with frozen hashes
+  unchanged. Protected package edits are limited to the test fixes named above.
+- Web production build and the four focused Settings tests: passed.
+- ShellCheck 0.11.0; installer copy equality; Actionlint 1.7.7 with the two
+  requested newer runner labels supplied in its temporary label configuration:
+  passed. No repository-wide lint ignores were added.
+- Placeholder-only embed package, copied into an isolated module without
+  generated assets: built and passed race tests without Node.
+- Clean-home shell installation of the stamped `v0.0.0-smoke` binary;
+  installer-to-version-file stamp equality; Chrome connection UI, same-origin
+  HTTP RPC, event WebSocket and chat receipt; uninstall: passed.
+- A second install into the same temporary home retained its custom port
+  after removing EXCALIBUR_LISTEN from the environment, retained user data,
+  and added no duplicate PATH entry: passed.
+- Real signed public-update transport using a temporary test key supplied via
+  `--pubkey`: upgraded v0.0.0-smoke to v0.0.1-smoke, swapped and restarted the
+  daemon at the original executable path, then rolled a signed invalid
+  v0.0.2-smoke payload back to v0.0.1-smoke after the executable health check
+  failed. HTTP health recovered and a user-data sentinel remained intact.
+- Linux amd64 Docker build/run, UI, health, named data volume and non-root
+  user: passed. The owned smoke container and volume were removed.
+- Windows amd64 daemon test executable cross-compilation: passed. The Windows
+  workflow now explicitly runs gateway/UI tests and focused signed update and
+  image rollback tests in addition to its existing native backend suite.
+
+Remaining gates:
+
+- The coordinator must provide the public signing key for
+  `daemon.ReleasePublicKey` and configure the matching private PEM secret.
+  Production no-flag update and release publication deliberately remain
+  blocked until that trust root exists. The real update smoke above used an
+  isolated test-key override, not a production signing key.
+- Native macOS and Windows builds, service integration, PowerShell execution,
+  and the fixes inferred from their CI logs require coordinator-pushed CI.
+  Linux ARM64 native artifacts and the ARM64 Docker image also await CI.
+  The Windows ARM64 artifact intentionally omits the native sqlite-vec binding.
+- This Linux environment exercised service files and detached-start fallback;
+  a real Linux user-service bus autostart session was unavailable.
+- OAuth completion, paid model calls, backend browser driver downloads, public
+  HTTPS installer URLs, GitHub Release publication and GHCR publication were
+  not exercised here. The coordinator performs publication/deployment.
