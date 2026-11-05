@@ -1,0 +1,68 @@
+---
+import IsoPlate from '../landing/parts/IsoPlate.astro'
+const { sidebar, lang } = Astro.locals.starlightRoute
+const spanish = lang === 'es'
+type Entry = (typeof sidebar)[number]
+function firstLink(entry: Entry): string | undefined {
+  if (entry.type === 'link') return entry.href
+  for (const child of entry.entries) {
+    const href = firstLink(child)
+    if (href) return href
+  }
+}
+const areas = sidebar
+  .filter((entry) => entry.type === 'group')
+  .flatMap((entry) => {
+    const href = firstLink(entry)
+    return href ? [{ label: entry.label.replace(/^\d+\s+/, ''), href }] : []
+  })
+const height = Math.max(520, areas.length * 116 + 74)
+---
+
+<section
+  class="manual-home-map not-content"
+  aria-label={spanish ? 'Áreas del manual' : 'Manual areas'}
+>
+  <div class="manual-map-heading">
+    <span>{spanish ? 'Índice de piezas' : 'Index of parts'}</span>
+    <span>
+      {String(areas.length).padStart(2, '0')} / {spanish ? 'Áreas' : 'Areas'}
+    </span>
+  </div>
+  <div class="manual-exploded" style={`--map-height:${height};--parts:${areas.length}`}>
+    <svg class="manual-map-axis" viewBox={`0 0 1000 ${height}`} aria-hidden="true">
+      <path class="map-rail" d={`M142 0V${height}`} />
+      <path class="map-axis" d={`M680 24V${Math.max(400, areas.length * 116 + 20)}`} />
+    </svg>
+    <ol class="manual-area-list">
+      {areas.map((area, index) => (
+        <li style={`--part:${index}`}>
+          <a class="manual-area" href={area.href}>
+            <span class="manual-area-label">
+              <span>({index + 1})</span> {area.label}
+            </span>
+            <svg class="manual-area-leader" viewBox="0 0 210 38" aria-hidden="true">
+              <path d="M0 1H160L202 31" />
+              <circle cx="202" cy="31" r="3" />
+            </svg>
+            <span class="manual-area-plate" aria-hidden="true">
+              <IsoPlate width={410} depth={75} thickness={28} label={area.label} />
+            </span>
+            <span class="manual-area-arrow" aria-hidden="true">
+              ↗
+            </span>
+          </a>
+        </li>
+      ))}
+    </ol>
+    <p class="manual-map-note">
+      {spanish ? 'Elige una pieza. Entiende el sistema.' : 'Choose a part. Understand the system.'}
+    </p>
+  </div>
+  <div class="manual-home-footer">
+    <span>{spanish ? 'Una línea. Todo conectado.' : 'One line. Everything connected.'}</span>
+    <a href="/#your-day">
+      {spanish ? 'Ver el producto' : 'Explore the product'} <span aria-hidden="true">→</span>
+    </a>
+  </div>
+</section>

@@ -1,0 +1,167 @@
+---
+title: Anatomy of the manual
+description: A private fixture for typography, components and motion. All examples are sample data.
+draft: true
+pagefind: false
+sidebar:
+  hidden: true
+tableOfContents:
+  maxHeadingLevel: 4
+---
+
+import {
+  Aside,
+  Steps,
+  Tabs,
+  TabItem,
+  Card,
+  CardGrid,
+  LinkCard,
+} from '@astrojs/starlight/components'
+
+This page is a visual test fixture, not product documentation. It shows the materials of the manual: a clear reading measure, precise rules, numbered stations, and quiet surfaces. **All commands and records below are sample data.**
+
+## Reading the system
+
+A technical manual should make a complex system easy to inspect. Start with the part you need, follow its connections, and keep the next action in view. The blue rail is a reading aid. It never moves the words you are reading, and the page remains complete when scripts or animations are unavailable.
+
+The normal body face is Inter. Labels, file names and `inline code` use JetBrains Mono. You can **emphasize an instruction**, _name a concept_, or [follow a related page](/docs/) without losing your place. Long identifiers such as `a_very_long_configuration_identifier_with_an_explicit_and_readable_name` stay within the reading column.
+
+### A smaller heading
+
+The hierarchy stays clear without changing colors. Each heading describes what follows. A second paragraph exercises the spacing between lines and paragraphs, including punctuation, numerals (0123456789), and an ordinary link to [the product](/#your-day).
+
+#### A fourth level
+
+Use this level to describe a particular setting within a larger procedure.
+
+##### A fifth level
+
+Keep deeply nested sections short and focused.
+
+###### A sixth level
+
+This final heading demonstrates the complete typographic scale.
+
+## Notes from the blueprint
+
+<Aside type="note">
+  This is a note. Follow the blue leader into the explanation, then continue reading.
+</Aside>
+
+<Aside type="tip">
+  This is a tip with an [ordinary link](/docs/). The label carries the meaning without relying on
+  color.
+</Aside>
+
+<Aside type="caution">
+  This is a caution. Its mark uses the deletion color; the rest of the text remains ink.
+</Aside>
+
+<Aside type="danger">
+  This is a danger notice. Read the instruction before taking the next step.
+</Aside>
+
+## Code you can read
+
+<span className="manual-kicker">Sample data</span>
+
+```ts title="sample/settings.ts" {3} ins={4} del={5}
+export const settings = {
+  name: 'Example project',
+  mode: 'manual',
+  retries: 2,
+  retries: 1,
+}
+```
+
+```diff title="sample/change.diff"
+- const status = 'pending'
++ const status = 'ready'
+```
+
+```sh title="Sample terminal"
+printf 'This is sample output\n'
+```
+
+A long line stays inside its code block and can be scrolled with the keyboard:
+
+```text title="sample/long-line.txt"
+This sample line deliberately extends beyond a narrow screen to verify that the code block scrolls independently without making the document overflow horizontally.
+```
+
+## Follow the stations
+
+<Steps>
+
+1. **Choose a part.**
+
+   Read its description and check the connections before proceeding.
+
+2. **Inspect the example.**
+
+   Compare the sample with your own inputs. Keep the original nearby.
+
+3. **Verify the result.**
+
+   Confirm the output matches your intention before continuing to another part.
+
+</Steps>
+
+## Two ways to inspect
+
+<Tabs>
+  <TabItem label="Overview">
+    The overview explains the relationship between parts. Use the arrow keys to move between these
+    tabs.
+  </TabItem>
+  <TabItem label="Details">
+    The detailed view adds context. It uses the same reading measure and leaves the page in place.
+  </TabItem>
+</Tabs>
+
+## Connected pages
+
+<Card title="A blueprint note">
+  A card can hold a short explanation. It has a quiet border, square corners, and space for a
+  complete sentence.
+</Card>
+
+<CardGrid>
+  <LinkCard title="The manual" description="Return to the index of parts." href="/docs/" />
+  <LinkCard title="The product" description="See how the parts connect." href="/#your-day" />
+</CardGrid>
+
+## Tables and records
+
+<span className="manual-kicker">Sample data</span>
+
+| Part          | Records | Share |
+| :------------ | ------: | ----: |
+| First sample  |      12 |   60% |
+| Second sample |       8 |   40% |
+| Total         |      20 |  100% |
+
+These sample figures reconcile: 12 + 8 = 20, and 60% + 40% = 100%. Header labels use mono, numeric cells align to the right, and rows are divided by hairlines.
+
+## Images and descriptions
+
+![The Excalibur pixel sword, a narrow outlined blade with a small cyan crossguard.](/favicon.svg)
+
+> Give every informative image a useful description. Decorative artwork does not need to repeat the surrounding text.
+
+<details>
+  <summary>Inspect an additional note</summary>
+
+This disclosure is native HTML. It remains available without JavaScript and can be opened with the keyboard.
+
+- First supporting detail.
+- Second supporting detail.
+
+</details>
+
+## Keep your place
+
+The table of contents follows the current heading. On a phone, use the compact contents menu and the manual index. The reading column keeps the same type, rules and spacing across themes. The line and the station dots are the only strong blue shapes.
+
+The final paragraph makes enough room to check the end of the rail, long-page scrolling, reduced motion and navigation. The footer belongs to Starlight so that previous and next links continue to follow the real documentation order.

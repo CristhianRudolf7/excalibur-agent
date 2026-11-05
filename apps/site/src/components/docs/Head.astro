@@ -1,0 +1,10 @@
+---
+import DefaultHead from '@astrojs/starlight/components/Head.astro'
+import headlineFont from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url'
+---
+
+<DefaultHead />
+<link rel="preload" href={headlineFont} as="font" type="font/woff2" crossorigin />
+<script>
+  import '../../scripts/docs/manual'
+</script>
