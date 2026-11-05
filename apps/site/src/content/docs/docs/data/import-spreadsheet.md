@@ -1,0 +1,33 @@
+---
+title: 'Import a spreadsheet'
+description: 'Preview field mapping and resolve ambiguous values before saving rows.'
+---
+
+Use Import in My data to turn a CSV or Excel file into collection records. You need the web application connected to the daemon and an available agent. The file picker accepts `.csv`, `.xlsx`, and `.xls`; legacy Excel conversion also depends on the installation's document conversion support.
+
+## Preview before saving
+
+1. Select Import from My data or from an existing collection.
+2. Choose the file. Excalibur uploads it and prepares a conversation request with the attachment.
+3. Send the request and ask for an import preview. Inspect the proposed fields, mappings, fixes, and conflicts.
+4. Confirm the collection proposal if you are creating a new collection, then ask to apply the valid rows.
+
+`Sample data`
+
+```csv
+title,author,status
+Example book A,Example author A,To read
+Example book B,Example author B,Reading
+```
+
+This sample has two records and three fields. Use it to understand the shape of an import, not as your actual reading list.
+
+## Resolve values deliberately
+
+Imports default to a dry run. The preview can infer fields and report conflicts without creating records. Automatic fixes can trim text, normalize decimal commas and choice casing, and convert unambiguous dates. Ask what changed before committing the import.
+
+An ambiguous date or missing required value should remain a question, not become an invented value. Identify the row, source column, and intended value when clarifying. Valid rows can be imported while problematic rows remain pending.
+
+When retrying the same file, identical rows already imported are skipped as duplicates. That does not make every modified file a safe replacement for existing records. Review the next preview and the pending rows again.
+
+After applying the import, open the collection and compare its records with the report. You can [export a collection](/docs/data/interfaces/) later. If you only need to read a spreadsheet, use the [document library](/docs/everyday/documents/) without turning it into a collection.
