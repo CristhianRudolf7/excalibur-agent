@@ -265,7 +265,6 @@
     position: relative;
     aspect-ratio: 1536/1024;
     isolation: isolate;
-    background: var(--bg);
   }
 }
 @media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {

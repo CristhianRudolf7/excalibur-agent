@@ -38,6 +38,18 @@ interface Point {
 }
 const SAMPLES = 360
 const PAGE_SECONDS = 37.7
+// Keep the completed endpoint until the next section claims the pen. Both
+// sections share that point, so an exact boundary never has a missing pen.
+let activeIndicator:
+  { pen: SVGCircleElement; dots: SVGCircleElement[]; visible: () => boolean } | undefined
+function hideIndicator() {
+  if (!activeIndicator) return
+  activeIndicator.pen.style.opacity = '0'
+  activeIndicator.dots.forEach((dot) => {
+    dot.style.opacity = '0'
+  })
+  activeIndicator = undefined
+}
 
 /** A section owns one main path in each responsive SVG. Reads occur only at setup/refresh. */
 export function createSectionLine(section: HTMLElement, options: LineOptions = {}): SectionLine {
@@ -84,8 +96,10 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       const originalPath = path.getAttribute('d')!
       let points: Point[] = []
       let schedule: number[] = []
+      let machineLead = 0
       let length = 0
       let dashScale = 1
+      let markerScaleY = 1
       let sectionTop = 0,
         sectionHeight = 1,
         pageHeight = 1,
@@ -99,6 +113,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       const label = tick?.querySelector<SVGTextElement>('[data-time-label]')
       const state = { scroll: 0, intro: 0 }
       let intro: gsap.core.Tween | undefined
+      let trigger: ScrollTrigger | undefined
       const pointAt = (fraction: number): Point => {
         const index = Math.min(SAMPLES, Math.max(0, fraction * SAMPLES))
         const low = Math.floor(index),
@@ -121,16 +136,34 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
             ? introEnd + (1 - introEnd) * state.scroll
             : state.intro
           : scheduledProgress(schedule, state.scroll)
+        if (machineLead) {
+          const ramp = Math.min(1, currentProgress / 0.3, (1 - currentProgress) / 0.3)
+          currentProgress -= machineLead * ramp
+        }
         path.style.strokeDashoffset = String((1 - currentProgress) * dashScale)
-        const penActive = currentProgress > 0 && currentProgress < 1
+        const targetActive = trigger
+          ? trigger.progress > 0 && trigger.progress < 1
+          : currentProgress > 0 && currentProgress < 1
+        const boundaryClaim =
+          visible && !activeIndicator?.visible() && (currentProgress === 0 || currentProgress === 1)
+        const claimsPen =
+          boundaryClaim ||
+          (visible && currentProgress > 0 && (targetActive || (options.intro && !introDone)))
+        if (pen && claimsPen && activeIndicator?.pen !== pen) {
+          hideIndicator()
+          activeIndicator = { pen, dots, visible: () => visible }
+        }
+        const terminal = section.id === 'extensions' && currentProgress >= 1
+        if (terminal && activeIndicator?.pen === pen) hideIndicator()
+        const penActive = activeIndicator?.pen === pen && !terminal
         if (pen) pen.style.opacity = penActive ? '1' : '0'
         const tip = pointAt(currentProgress)
-        pen?.setAttribute('transform', `translate(${tip.x} ${tip.y})`)
-        const spacing = (canvasWidth < 500 ? 9 : 11) / length
+        pen?.setAttribute('transform', `translate(${tip.x} ${tip.y}) scale(1 ${markerScaleY})`)
+        const spacing = (canvasWidth < 500 ? 9 : 11) / (length * dashScale)
         dots.forEach((dot, i) => {
           const progress = currentProgress + spacing * (i + 1)
           const point = pointAt(progress)
-          dot.setAttribute('transform', `translate(${point.x} ${point.y})`)
+          dot.setAttribute('transform', `translate(${point.x} ${point.y}) scale(1 ${markerScaleY})`)
           dot.style.opacity = penActive && progress < 1 ? '1' : '0'
         })
         if (tick) {
@@ -193,6 +226,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
         if (matrix) {
           const sx = Math.hypot(matrix.a, matrix.b),
             sy = Math.hypot(matrix.c, matrix.d)
+          markerScaleY = sx / sy
           if (Math.abs(sx - sy) < 0.0001) dashScale = sx
           else {
             let screenLength = 0,
@@ -214,12 +248,9 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
         const rect = section.getBoundingClientRect()
         sectionTop = rect.top + window.scrollY
         sectionHeight = rect.height
-        const scaleY = matrix ? Math.hypot(matrix.c, matrix.d) : 1
-        const sticky = desktop && section.id === 'machine'
-        const reserved = sticky
-          ? Math.max(0, rect.height - svg.getBoundingClientRect().height) / scaleY
-          : 0
-        schedule = plotterSchedule(points, reserved, window.innerHeight / scaleY)
+        machineLead =
+          desktop && section.id === 'machine' ? (0.3 * window.innerHeight) / sectionHeight : 0
+        schedule = plotterSchedule(points)
         pageHeight = Math.max(document.documentElement.scrollHeight, 1)
         canvasWidth = svg.viewBox.baseVal.width
         if (options.intro) {
@@ -256,7 +287,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       timeline = gsap
         .timeline({ paused: true })
         .to(state, { scroll: 1, duration: 1, ease: 'none', onUpdate: render })
-      const trigger = ScrollTrigger.create({
+      trigger = ScrollTrigger.create({
         trigger: section,
         animation: timeline,
         start: options.start ?? 'top 50%',
@@ -291,9 +322,10 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
         visible = entry?.isIntersecting ?? false
         if (!visible) {
           intro?.pause()
-          trigger.getTween()?.pause()
+          trigger?.getTween()?.pause()
           reaches.forEach((reach) => reach.animation?.pause())
         } else {
+          render()
           if (!introDone) intro?.resume()
           reaches.forEach((reach) => {
             if (reach.animation) {
@@ -308,7 +340,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
       return () => {
         observer.disconnect()
         ScrollTrigger.removeEventListener('refresh', measure)
-        trigger.kill()
+        trigger?.kill()
         intro?.kill()
         timeline?.kill()
         reaches.forEach((reach) => {
@@ -321,6 +353,7 @@ export function createSectionLine(section: HTMLElement, options: LineOptions = {
         path.style.removeProperty('stroke-dasharray')
         path.style.removeProperty('will-change')
         path.setAttribute('d', originalPath)
+        if (activeIndicator?.pen === pen) hideIndicator()
         pen?.style.removeProperty('opacity')
         tick?.style.removeProperty('opacity')
         currentProgress = 0

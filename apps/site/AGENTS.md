@@ -171,8 +171,11 @@ keyboard tabs, and clipboard feedback.
 
 The line engine builds a monotone schedule from its cached 361 path samples.
 Backtracking excursions are drawn while they fit in the viewport. The native
-sticky Machine reserves 150vh in CSS, and its line schedule includes that
-journey. Neither geometry nor viewport measurements run in the frame callback.
+sticky Machine reserves 150vh in CSS. Its straight rail belongs to the whole
+Stage, outside the sticky canvas, and stretches through the reserved journey.
+A cached lead keeps the pen above the blueprint headline during assembly.
+The shared indicator retains a join endpoint until the next section claims it,
+including an exact-boundary anchor jump. Neither geometry nor viewport measurements run in the frame callback.
 Keep the live contexts on a persisted `pagehide` and refresh on `pageshow`.
 Stage paint is contained. Desktop stages except the sticky Machine use native
 `content-visibility: auto`; their fixed aspect ratios reserve the complete

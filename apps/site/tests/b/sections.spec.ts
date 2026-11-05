@@ -323,3 +323,32 @@ test('the closing pen, preview and modules stop at the sword', async ({ page }) 
   await page.waitForTimeout(600)
   expect(await snapshot()).toEqual(first)
 })
+
+for (const width of [1280, 1536, 1920]) {
+  test(`sticky machine rail spans its reserved journey and keeps a round pen at ${width}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: (width * 9) / 16 })
+    await page.goto('/#machine')
+    await page.waitForSelector('#machine[data-initialized]')
+    await page
+      .locator('#machine')
+      .evaluate((el) => scrollTo(0, el.getBoundingClientRect().top + scrollY + innerHeight * 0.75))
+    await page.waitForTimeout(450)
+    const result = await page.locator('#machine').evaluate((section) => {
+      const path = section.querySelector<SVGPathElement>('.desktop-line [data-line-path]')!
+      const p = path.getPointAtLength(path.getTotalLength())
+      const end = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM()!)
+      const pen = section.querySelector('.desktop-line [data-pen]')!.getBoundingClientRect()
+      return {
+        gap: Math.abs(end.y - section.getBoundingClientRect().bottom),
+        oval: Math.abs(pen.width - pen.height),
+        y: pen.top,
+      }
+    })
+    expect(result.gap).toBeLessThanOrEqual(1)
+    expect(result.oval).toBeLessThanOrEqual(0.1)
+    expect(result.y).toBeGreaterThan(0)
+    expect(result.y).toBeLessThan((width * 9) / 16)
+  })
+}
