@@ -109,6 +109,8 @@ CPUs, a fresh Wasm cache for each run, and the generated one-page text PDF:
 | Same race executable, explicit 2 GiB budget | 1,175.6 MiB | Extracted title and exact page text in 39.7 seconds |
 | Release executable with embedded web UI | 407.6 MiB | Extracted title and exact page text in 6.8 seconds |
 | Same release executable under CPU and allocation load | 419.3 MiB | Extracted title and exact page text in 8.1 seconds |
+| Rebuilt release executable in a 1 GiB cgroup | 411.1 MiB | Extracted title and exact page text in 7.0 seconds |
+| Release executable under memory throttling and CPU load | 403.6 MiB | Extracted title and exact page text in 162.5 seconds |
 
 The release executable was built after `make web`, using `CGO_ENABLED=1`,
 `-tags=sqlite_fts5`, `-trimpath`, and `-ldflags '-s -w -X main.version=ci2-local'`,
@@ -121,7 +123,20 @@ imply resident memory, and the release worker stayed within its budget even
 with slower cold startup. These fixture measurements do not guarantee that
 every PDF will fit; oversized workers are still terminated.
 
+The throttled run lowered the scope to `MemoryMax=1536M`, `MemoryHigh=1G`,
+`MemorySwapMax=0` with the same three allocation/CPU loads. A cgroup snapshot
+recorded 8,327 memory-high events and zero OOM kills. Despite startup stretching
+to almost three minutes, the release worker remained below the production RSS
+limit and returned the expected title and text.
+
 The fixed cold command test also passed in a `MemoryMax=3G`,
 `MemorySwapMax=0` user scope with the same four-CPU affinity (43.2 seconds).
-The PDF package race suite passed with `-p 2 -count=1`. This investigation did
-not add native Windows or macOS verification.
+It also passed with the three additional allocation/CPU loads in that scope
+(67.1 seconds). The PDF package race suite passed with `-p 2 -count=1`.
+
+`nice -n 10 env GOMAXPROCS=4 GOFLAGS=-p=2 make verify` passed after the fix:
+formatting, vet, staticcheck, the goroutine guard, the full race suite, and
+Darwin/Windows cross builds for amd64 and arm64. The command package completed
+in 76.2 seconds and the PDF package in 16.1 seconds in that full run. Runtime
+verification here covered Linux/amd64; this investigation did not add native
+Windows or macOS verification.
