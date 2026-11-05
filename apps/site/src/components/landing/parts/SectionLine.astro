@@ -1,6 +1,7 @@
 ---
 import TimeTick from './TimeTick.astro'
 interface Props {
+  stretch?: boolean
   time?: string
   path?: string
   height?: number
@@ -14,6 +15,7 @@ interface Props {
   mobileTickY?: number
 }
 const {
+  stretch = false,
   time = '00:01.4',
   path = 'M218 0 V1024',
   height = 1024,
@@ -28,7 +30,12 @@ const {
 } = Astro.props
 ---
 
-<svg class="section-line desktop-line" viewBox={`0 0 1536 ${height}`} aria-hidden="true">
+<svg
+  class="section-line desktop-line"
+  viewBox={`0 0 1536 ${height}`}
+  preserveAspectRatio={stretch ? 'none' : undefined}
+  aria-hidden="true"
+>
   <path
     class="main-line"
     data-line-path

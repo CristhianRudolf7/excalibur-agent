@@ -120,3 +120,34 @@ for (const width of [360, 390]) {
     await page.close()
   })
 }
+
+test('the shared pen remains visible at exact section joins in both scroll directions', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/')
+  for (const section of ['memory', 'install']) {
+    const join = await page
+      .locator(`#${section}`)
+      .evaluate((el) => el.getBoundingClientRect().top + scrollY - innerHeight / 2)
+    for (const side of [-1, 1]) {
+      await page.evaluate((y) => scrollTo(0, y), join + side * 80)
+      await page.waitForTimeout(400)
+      await page.evaluate((y) => scrollTo(0, y), join)
+      await page.waitForTimeout(400)
+      const visible = await page.locator('[data-pen]').evaluateAll(
+        (nodes) =>
+          nodes.filter((node) => {
+            const r = node.getBoundingClientRect()
+            return (
+              r.width > 0 &&
+              r.bottom > 0 &&
+              r.top < innerHeight &&
+              parseFloat(getComputedStyle(node).opacity) > 0
+            )
+          }).length,
+      )
+      expect(visible).toBe(1)
+    }
+  }
+})

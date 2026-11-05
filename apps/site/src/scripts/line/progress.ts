@@ -2,7 +2,7 @@
  * excursion is drawn while it is in view. A small distance weight gives
  * horizontal runs time to draw instead of jumping over them.
  */
-export function plotterSchedule(points: { y: number }[], pinTravel = 0, viewport = 0) {
+export function plotterSchedule(points: { y: number }[]) {
   const blocks: { start: number; count: number; sum: number }[] = []
   points.forEach((point, i) => {
     blocks.push({ start: i, count: 1, sum: point.y })
@@ -23,10 +23,7 @@ export function plotterSchedule(points: { y: number }[], pinTravel = 0, viewport
       const y =
         0.84 * (block.sum / block.count) +
         0.16 * (first + ((last - first) * i) / (points.length - 1))
-      // The sticky machine draws slowly through the middle of its canvas while
-      // the plates assemble; its reserved native journey needs no frame reads.
-      values[i] =
-        y + pinTravel * Math.max(0, Math.min(1, (y - viewport * 0.4) / (viewport * 0.2 || 1)))
+      values[i] = y
     }
   }
   const start = values[0]!,

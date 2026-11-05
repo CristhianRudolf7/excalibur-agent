@@ -39,7 +39,8 @@ checks all 44 articles across both themes and seven widths. The final screenshot
 and optional recording runner is `tests/final/capture.ts` (`QA_VIDEO=1`).
 Landing JavaScript budgets include the inline pre-paint script as well as every
 reachable lazy chunk. Desktop stages contain paint and skip native off-screen
-rendering; the sticky machine retains its complete native layout.
+rendering; the sticky machine retains its complete native layout, with a separate rail
+through the full reserved scroll journey.
 
 Reports are generated in ignored `test-results/`; audit screenshots are saved
 outside the repository. Performance reports disclose headless software rendering.

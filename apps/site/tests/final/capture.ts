@@ -20,7 +20,10 @@ const sections = [
   'install',
   'extensions',
 ]
-const widths = (process.env.QA_WIDTHS ?? '1280,1536,1920,390').split(',').map(Number)
+const widths =
+  process.env.QA_VIDEO_ONLY === '1'
+    ? []
+    : (process.env.QA_WIDTHS ?? '1280,1536,1920,390').split(',').map(Number)
 const stop = await startPreview()
 const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 const errors: string[] = []
@@ -76,7 +79,7 @@ try {
       }
       await moving.close()
     }
-    for (const width of [1536, 390]) {
+    for (const width of process.env.QA_VIDEO_ONLY === '1' ? [] : [1536, 390]) {
       const page = await browser.newPage({
         viewport: { width, height: width < 1024 ? 844 : 864 },
         colorScheme: theme,

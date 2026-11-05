@@ -73,12 +73,49 @@ try {
           true,
         )
         await page.screenshot({ path: `${out}/zoom-${zoom * 100}-${theme}-${section}.png` })
+        if (section === 'top')
+          await exec(
+            'ffmpeg',
+            [
+              '-loglevel',
+              'error',
+              '-y',
+              '-f',
+              'x11grab',
+              '-video_size',
+              '1920x1080',
+              '-i',
+              env.DISPLAY,
+              '-frames:v',
+              '1',
+              `${out}/zoom-${zoom * 100}-${theme}-window.png`,
+            ],
+            { env },
+          )
       }
       await page.goto(`${baseURL}/docs/getting-started/install/`)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       )
       await page.screenshot({ path: `${out}/zoom-${zoom * 100}-${theme}-docs.png` })
+      await exec(
+        'ffmpeg',
+        [
+          '-loglevel',
+          'error',
+          '-y',
+          '-f',
+          'x11grab',
+          '-video_size',
+          '1920x1080',
+          '-i',
+          env.DISPLAY,
+          '-frames:v',
+          '1',
+          `${out}/zoom-${zoom * 100}-${theme}-docs-window.png`,
+        ],
+        { env },
+      )
     }
     results.push({ zoom, ...measured })
   }
