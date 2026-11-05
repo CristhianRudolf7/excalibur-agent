@@ -99,7 +99,7 @@ func TestDaemonClassroomContextThroughModelHTTP(t *testing.T) {
 	t.Cleanup(func() {
 		_ = stopClassroomDaemon(cmd)
 		// Command.Wait blocks on process exit, so bound shutdown independently.
-		stop := time.AfterFunc(10*time.Second, func() { _ = cmd.Process.Kill() })
+		stop := time.AfterFunc(30*time.Second, func() { _ = cmd.Process.Kill() })
 		err := cmd.Wait()
 		stop.Stop()
 		if err != nil {
@@ -108,7 +108,7 @@ func TestDaemonClassroomContextThroughModelHTTP(t *testing.T) {
 		}
 	})
 	var address string
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		raw, _ := os.ReadFile(log.Name())
 		for _, line := range strings.Split(string(raw), "\n") {

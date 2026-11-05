@@ -38,6 +38,7 @@ import (
 	"github.com/CristhianRudolf7/excalibur-agent/internal/types"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/vault"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/voice"
+	"github.com/CristhianRudolf7/excalibur-agent/internal/webui"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/whiteboard"
 	"github.com/CristhianRudolf7/excalibur-agent/internal/wireengine"
 )
@@ -56,7 +57,9 @@ const vaultPassphraseFileEnv = "EXCALIBUR_VAULT_PASSPHRASE_FILE"
 func runDaemonStart(args []string) error {
 	fs := flag.NewFlagSet("daemon start", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", "", "state directory (default: platform data dir)")
-	listen := fs.String("listen", "127.0.0.1:0", "loopback bind address")
+	defaultListen := installedListen()
+	listen := fs.String("listen", defaultListen, "HTTP bind address")
+	allowRemote := fs.Bool("allow-remote", false, "allow non-loopback binding (for containers)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -126,6 +129,14 @@ func runDaemonStart(args []string) error {
 	modelSettings, layerCfg, modelErr := cli.ResolveSettings(config.LoadOptions{})
 	if modelErr != nil {
 		return fmt.Errorf("daemon start: model wiring: %w", modelErr)
+	}
+	// A new desktop install can connect an account from Settings without
+	// restarting. The relay reloads credentials on each request.
+	if !modelSettings.Configured() && !modelSettings.Stub() && os.Getenv("EXCALIBUR_PROVIDER") == "" && layerCfg.Models.Provider == "" {
+		layerCfg.Models.Provider = "codex"
+		if modelSettings.Model == "" {
+			modelSettings.Model = modelSettings.DecisionsModel
+		}
 	}
 	modelSettings, codexRelay, modelErr := daemon.WireCodex(ctx, data, modelSettings, layerCfg.Models, codexlink.RelayOptions{})
 	if modelErr != nil {
@@ -429,6 +440,8 @@ func runDaemonStart(args []string) error {
 
 	gcfg := gateway.DefaultConfig()
 	gcfg.Listen = *listen
+	gcfg.AllowRemote = *allowRemote
+	gcfg.WebUI = webui.Handler()
 	if db != nil {
 		gcfg.DaemonBlobs = gateway.StoreBlobs{Store: db.Blob()}
 	}

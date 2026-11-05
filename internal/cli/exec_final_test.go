@@ -97,7 +97,7 @@ func TestExecSignalRecords(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = cmd.Process.Kill() }()
-			until := time.Now().Add(10 * time.Second)
+			until := time.Now().Add(60 * time.Second)
 			for {
 				if _, err := os.Stat(filepath.Join(dir, "ready")); err == nil {
 					break

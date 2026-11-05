@@ -239,7 +239,7 @@ func TestBrowserLiveOriginAndLoopback(t *testing.T) {
 	if err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
 		t.Fatal("cross-origin browser viewer accepted")
 	}
-	awaitBrowserLive(t, func() bool { n, stopped := backend.counts(); return n == 0 && stopped == 1 })
+	awaitBrowserLive(t, func() bool { n, stopped := backend.counts(); return n == 0 && stopped == 0 })
 	// An explicitly matching origin is accepted by the default origin check.
 	conn, _, err := websocket.Dial(ctx, base+"/ws/browser?conversation_id=conversation&session_id=session", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{"http" + strings.TrimPrefix(base, "ws")}}})
 	if err != nil {

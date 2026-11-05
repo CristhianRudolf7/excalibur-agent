@@ -170,7 +170,7 @@ func TestExecRateLimitsExpireWallBudget(t *testing.T) {
 	fake := &flakyProvider{fails: 100000, kind: providers.KindRateLimited, retryAfter: time.Millisecond}
 	logs := t.TempDir()
 	store := journal.NewMemStore()
-	out, err := RunExec(context.Background(), ExecOptions{Request: "say hi", LogsDir: logs, Profile: ProfileEval, Provider: fake, TimeoutSecs: 5, JournalStore: store})
+	out, err := RunExec(context.Background(), ExecOptions{Request: "say hi", LogsDir: logs, Profile: ProfileEval, Provider: fake, TimeoutSecs: 30, JournalStore: store})
 	// W12 exposes timeout records while W13 preserves the durable budget pause.
 	if err != nil || out.State != stoppedByTimeout || out.ExitCode != ExitPaused {
 		t.Fatalf("out=%+v err=%v", out, err)

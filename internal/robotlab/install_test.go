@@ -25,6 +25,9 @@ func (f *fakeRunner) Run(ctx context.Context, name string, args ...string) (stri
 	f.mu.Lock()
 	f.calls = append(f.calls, append([]string{name}, args...))
 	n := len(f.calls)
+	if len(args) > 0 && args[0] == "-3" {
+		args = args[1:]
+	}
 	f.mu.Unlock()
 	if n == 1 && f.block != nil {
 		close(f.entered)
@@ -77,10 +80,22 @@ func awaitInstall(t *testing.T, events <-chan map[string]any) map[string]any {
 func TestInstallFlowAndCoalescing(t *testing.T) {
 	f := &fakeRunner{version: "3.12", block: make(chan struct{}), entered: make(chan struct{})}
 	i, events := installerFixture(t, f)
+	if !runtimeSupported() {
+		if err := i.Start(); err == nil {
+			t.Fatal("unsupported runtime installed")
+		}
+		return
+	}
 	if err := i.Start(); err != nil {
 		t.Fatal(err)
 	}
 	<-f.entered
+	if !runtimeSupported() {
+		if err := i.Start(); err == nil {
+			t.Fatal("unsupported runtime installed")
+		}
+		return
+	}
 	if err := i.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +122,12 @@ func TestInstallFailures(t *testing.T) {
 	for _, tt := range []struct{ name, version, fail string }{{"old Python", "3.9", ""}, {"pip failure", "3.12", "pip"}, {"asset failure", "3.12", "robotlab.assets"}, {"import failure", "3.12", "import mujoco"}} {
 		t.Run(tt.name, func(t *testing.T) {
 			i, events := installerFixture(t, &fakeRunner{version: tt.version, fail: tt.fail})
+			if !runtimeSupported() {
+				if err := i.Start(); err == nil {
+					t.Fatal("unsupported runtime installed")
+				}
+				return
+			}
 			if err := i.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -123,6 +144,12 @@ func TestInstallFailures(t *testing.T) {
 func TestInstallCloseCancels(t *testing.T) {
 	f := &fakeRunner{version: "3.12", block: make(chan struct{}), entered: make(chan struct{})}
 	i, _ := installerFixture(t, f)
+	if !runtimeSupported() {
+		if err := i.Start(); err == nil {
+			t.Fatal("unsupported runtime installed")
+		}
+		return
+	}
 	if err := i.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package robotlab
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -82,19 +83,19 @@ func checkChildSecrets() {
 func TestRuntimePathsAndRenderingEnvironment(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("EXCALIBUR_ROBOT_SKILLS_DIR", "")
-	if !strings.HasSuffix(SkillsDir(), "/.local/share/excalibur/robot-skills") {
+	if !strings.HasSuffix(SkillsDir(), filepath.Join(".local", "share", "excalibur", "robot-skills")) {
 		t.Fatal(SkillsDir())
 	}
 	t.Setenv("EXCALIBUR_ROBOT_SKILLS_DIR", "/skills")
 	t.Setenv("EXCALIBUR_ROBOTLAB_MENAGERIE", "/assets")
 	t.Setenv("MUJOCO_GL", "egl")
 	env := strings.Join(childEnvironment(false), "\n")
-	for _, want := range []string{"EXCALIBUR_ROBOT_SKILLS_DIR=/skills", "EXCALIBUR_ROBOTLAB_MENAGERIE=/assets", "MUJOCO_GL=egl"} {
+	for _, want := range []string{"EXCALIBUR_ROBOT_SKILLS_DIR=/skills", "EXCALIBUR_ROBOTLAB_MENAGERIE=/assets", "EXCALIBUR_ROBOTLAB_MENAGERIE=/assets"} {
 		if !strings.Contains(env, want) {
 			t.Fatal(env)
 		}
 	}
-	if strings.Contains(env, "MUJOCO_GL=osmesa") || SkillsDir() != "/skills" {
+	if runtime.GOOS == "linux" && !strings.Contains(env, "MUJOCO_GL=egl") || SkillsDir() != "/skills" {
 		t.Fatal(env)
 	}
 }

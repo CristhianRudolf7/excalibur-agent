@@ -3,6 +3,7 @@ package robotlab
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -12,15 +13,15 @@ func childEnvironment(install bool) []string {
 	env := make([]string, 0)
 	for _, entry := range os.Environ() {
 		name, _, ok := strings.Cut(entry, "=")
-		if !ok {
+		if !ok || strings.EqualFold(name, "MUJOCO_GL") && runtime.GOOS != "linux" {
 			continue
 		}
 		allowed := false
 		switch name {
-		case "MUJOCO_GL", "EXCALIBUR_ROBOT_SKILLS_DIR", "PATH", "HOME", "USER", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR":
+		case "EXCALIBUR_ROBOT_SKILLS_DIR", "PATH", "HOME", "USER", "LANG", "TZ", "TMPDIR", "XDG_RUNTIME_DIR":
 			allowed = true
 		}
-		allowed = allowed || platformEnvAllowed(name) || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "EXCALIBUR_ROBOTLAB")
+		allowed = allowed || name == "MUJOCO_GL" || platformEnvAllowed(name) || strings.HasPrefix(name, "LC_") || strings.HasPrefix(name, "EXCALIBUR_ROBOTLAB")
 		if install {
 			switch name {
 			case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy":
@@ -33,7 +34,7 @@ func childEnvironment(install bool) []string {
 		}
 	}
 	// Fixed values are not inherited: PYTHONPATH/PYTHONHOME can inject host code.
-	if gl := mujocoGL(); os.Getenv("MUJOCO_GL") == "" && gl != "" {
+	if gl := mujocoGL(); (runtime.GOOS != "linux" || os.Getenv("MUJOCO_GL") == "") && gl != "" {
 		env = append(env, "MUJOCO_GL="+gl)
 	}
 	env = append(env, "PYTHONUNBUFFERED=1", "OMP_NUM_THREADS=2", "MKL_NUM_THREADS=2", "PYTHONDONTWRITEBYTECODE=1")

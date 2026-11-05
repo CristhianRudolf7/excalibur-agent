@@ -3,7 +3,9 @@ name: macOS
 on:
   workflow_dispatch:
   push:
-    branches: [platform-mac]
+    branches: [main, platform-mac]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -70,8 +72,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          # No .nvmrc exists; setup-node reads engines.node (>=22).
-          node-version-file: apps/web/package.json
+          node-version: '22'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies

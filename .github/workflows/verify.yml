@@ -13,6 +13,11 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+        run: go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+      - name: Check public installer copies
+        run: |
+          cmp scripts/install/install.sh apps/site/public/install.sh
+          cmp scripts/install/install.ps1 apps/site/public/install.ps1
+          shellcheck scripts/install/install.sh scripts/release/genkey
       - name: Verify
         run: make verify

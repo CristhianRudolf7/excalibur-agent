@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,9 @@ import (
 
 // Config carries the gate surface of Section 3.5.
 type Config struct {
+	// WebUI optionally serves static files and SPA routes after API routing.
+	WebUI http.Handler
+
 	// DaemonBlobs overrides the transport store with the daemon database store.
 	DaemonBlobs BlobStore
 	// BlobMIME optionally resolves a document MIME by original digest.
@@ -31,8 +35,8 @@ type Config struct {
 	// default; non-loopback binds are rejected unless AllowRemote is
 	// set (tests may set it explicitly).
 	Listen string
-	// AllowRemote permits a non-loopback bind (never in production:
-	// authentication is deferred with the rest of Section 20).
+	// AllowRemote permits an explicit non-loopback container bind. Publish
+	// container host ports on loopback unless remote access is intended.
 	AllowRemote bool
 	// ClientID identifies this daemon to idempotency keys.
 	ClientID string
@@ -95,6 +99,9 @@ func New(cfg Config, backend Backend, blobs BlobStore, bus *telemetry.Bus) *Serv
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	})
+	if cfg.WebUI != nil {
+		mux.Handle("/", cfg.WebUI)
+	}
 	s.mux = mux
 	return s
 }
@@ -177,6 +184,32 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Browsers must use the same origin. CLI clients need no browser token.
+	if origin := r.Header.Get("Origin"); origin != "" {
+		u, err := url.Parse(origin)
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if err != nil || u.Scheme != scheme || !strings.EqualFold(u.Host, r.Host) {
+			http.Error(w, "same origin required", http.StatusForbidden)
+			return
+		}
+	}
+	if !s.cfg.AllowRemote && s.cfg.WebUI != nil {
+		host := r.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if host != "localhost" {
+			if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+				http.Error(w, "loopback host required", http.StatusForbidden)
+				return
+			}
+		}
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "same-origin")
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -440,7 +473,7 @@ func asAPIError(err error) *api.Error {
 // conversation.subscribe request additionally attaches the socket to
 // the live feed from its cursor (Section 3.5).
 func (s *Server) serveWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{"*"}})
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}

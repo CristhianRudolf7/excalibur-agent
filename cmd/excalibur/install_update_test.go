@@ -8,6 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +20,7 @@ import (
 
 func cliEnv(t *testing.T) {
 	t.Helper()
+	t.Setenv("EXCALIBUR_SKIP_BROWSER_INSTALL", "1")
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "cfg"))
@@ -113,8 +116,61 @@ func TestCLIUpdateCheckAndReject(t *testing.T) {
 	}
 }
 
-func TestCLIUpdateNeedsFiles(t *testing.T) {
+func TestCLIUpdateDownloadFailure(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	t.Setenv("EXCALIBUR_BASE_URL", server.URL)
 	if err := runUpdate(nil); err == nil {
-		t.Fatal("update without manifest/payload must fail")
+		t.Fatal("update without an available verified release must fail")
+	}
+}
+
+func TestUninstallPreservesDataUnlessPurged(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("isolated systemd unit fixture")
+	}
+	cliEnv(t)
+	if err := runInstall([]string{"--autostart"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := installDirs().DataDir()
+	sentinel := filepath.Join(data, "keep.txt")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runUninstall(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Fatal("uninstall removed data", err)
+	}
+	if err := runUninstall([]string{"--purge"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(data); !os.IsNotExist(err) {
+		t.Fatal("purge retained data", err)
+	}
+}
+
+func TestInstalledListenPersists(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("isolated XDG fixture")
+	}
+	cliEnv(t)
+	t.Setenv("EXCALIBUR_LISTEN", "")
+	if err := runInstall([]string{"--listen", "127.0.0.1:17787"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := installedURL(); got != "http://127.0.0.1:17787" {
+		t.Fatal(got)
+	}
+	t.Setenv("EXCALIBUR_LISTEN", "127.0.0.1:27787")
+	if got := installedListen(); got != "127.0.0.1:27787" {
+		t.Fatal(got)
+	}
+	for _, listen := range []string{"0.0.0.0:7787", "127.0.0.1:0", "invalid", "127.0.0.1:65536"} {
+		if err := saveInstalledListen(listen); err == nil {
+			t.Fatal("accepted", listen)
+		}
 	}
 }

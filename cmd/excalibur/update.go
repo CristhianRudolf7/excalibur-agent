@@ -27,10 +27,13 @@ func runUpdate(args []string) error {
 	channel := fs.String("channel", "stable", "release channel: stable or beta")
 	manifestPath := fs.String("manifest", "", "signed channel manifest file")
 	payloadPath := fs.String("payload", "", "new binary payload file")
-	pubkeyHex := fs.String("pubkey", "", "ed25519 channel public key (hex)")
+	pubkeyHex := fs.String("pubkey", daemon.ReleasePublicKey, "ed25519 channel public key (hex)")
 	checkOnly := fs.Bool("check", false, "verify manifest and payload only")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *manifestPath == "" && *payloadPath == "" {
+		return runReleaseUpdate(*asJSON, *checkOnly, *channel, *pubkeyHex)
 	}
 	if *manifestPath == "" || *payloadPath == "" {
 		return fmt.Errorf("update needs --manifest and --payload files")

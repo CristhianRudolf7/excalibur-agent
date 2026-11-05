@@ -190,7 +190,7 @@ func (t *googleTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Re
 	gated := t.name == "gmail" && (a.Action == "send" || a.Action == "delete" || a.Action == "trash") || t.name == "drive" && (a.Action == "share" || a.Action == "delete" || a.Action == "trash") || t.name == "docs" && a.Action == "replace_text"
 	if gated && !a.Confirmed && !t.c.opts.DisableConfirmation && os.Getenv("EXCALIBUR_GOOGLE_CONFIRM") != "0" {
 		details, _ := json.Marshal(a)
-		return fail(tools.StatusDenied, fmt.Errorf("Confirmation required for %s.%s. Show the user exactly what will happen (recipients, subject, attachments, file/document IDs, sharing access or replacement): %s. Ask for explicit approval in chat, then retry with confirmed:true", t.name, a.Action, details))
+		return fail(tools.StatusDenied, fmt.Errorf("confirmation required for %s.%s. Show the user exactly what will happen (recipients, subject, attachments, file/document IDs, sharing access or replacement): %s. Ask for explicit approval in chat, then retry with confirmed:true", t.name, a.Action, details))
 	}
 	var v any
 	var err error
@@ -213,9 +213,9 @@ func (t *googleTool) Invoke(ctx context.Context, inv tools.Invocation) (tools.Re
 }
 func connectionError(reconnect bool) error {
 	if reconnect {
-		return errors.New("Google is not connected. Ask the user to open Settings → Connections → Reconnect Google.")
+		return errors.New("google is not connected; ask the user to open Settings → Connections → Reconnect Google")
 	}
-	return errors.New("Google is not connected. Ask the user to open Settings → Connections → Connect Google.")
+	return errors.New("google is not connected; ask the user to open Settings → Connections → Connect Google")
 }
 
 const maxData = 25 << 20

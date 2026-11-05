@@ -203,6 +203,16 @@ func (u *Updater) now() time.Time {
 //     restoring the database (4.6 expand-then-contract), so received
 //     messages survive.
 func (u *Updater) Apply(ctx context.Context, m Manifest, payload []byte) (UpdateReport, error) {
+	if len(u.PubKey) != ed25519.PublicKeySize {
+		return UpdateReport{}, fmt.Errorf("daemon: update: invalid public key")
+	}
+	if err := VerifyManifest(m, u.PubKey, payload); err != nil {
+		return UpdateReport{}, err
+	}
+	return u.applyVerified(ctx, m, payload)
+}
+
+func (u *Updater) applyVerified(ctx context.Context, m Manifest, payload []byte) (UpdateReport, error) {
 	var rep UpdateReport
 	rep.At = u.now()
 	if u.Policy.PinnedVersion != "" && m.Version != u.Policy.PinnedVersion {
@@ -213,9 +223,6 @@ func (u *Updater) Apply(ctx context.Context, m Manifest, payload []byte) (Update
 	}
 	rep.From = u.Images.CurrentVersion()
 	rep.To = m.Version
-	if err := VerifyManifest(m, u.PubKey, payload); err != nil {
-		return rep, err
-	}
 	if u.Guard != nil {
 		if tools := u.Guard.RunningTools(); len(tools) > 0 {
 			return rep, fmt.Errorf("daemon: update waits: after_completion tools running: %v", tools)

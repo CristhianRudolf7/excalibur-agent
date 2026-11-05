@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/CristhianRudolf7/excalibur-agent/internal/daemon"
@@ -37,6 +39,7 @@ func (p *providersFlag) Set(v string) error { *p = append(*p, v); return nil }
 
 func runInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	listen := fs.String("listen", os.Getenv("EXCALIBUR_LISTEN"), "persistent loopback HTTP address (default 127.0.0.1:7787)")
 	asJSON := fs.Bool("json", false, "machine-readable output")
 	autostart := fs.Bool("autostart", false, installAutostartHelp())
 	timezone := fs.String("timezone", "", "IANA timezone for the user profile")
@@ -47,10 +50,15 @@ func runInstall(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if *listen != "" {
+		if err := saveInstalledListen(*listen); err != nil {
+			return err
+		}
+	}
 	in := &daemon.Installer{
 		BrowserStep: daemon.InstallBrowserDriver,
 		Dirs:        installDirs(),
-		Service:     installService(),
+		Service:     installServiceForRelease(),
 		Prober:      cmdEnvProber{},
 	}
 	rep, err := in.Install(daemon.InstallOptions{
@@ -63,11 +71,31 @@ func runInstall(args []string) error {
 	if err != nil {
 		return err
 	}
+	if *autostart && os.Getenv("EXCALIBUR_SYSTEMD_DIR") == "" {
+		if err := startInstalledDaemon(); err != nil {
+			return err
+		}
+	}
 	if *asJSON {
 		raw, _ := json.MarshalIndent(rep, "", "  ")
 		fmt.Println(string(raw))
 		return nil
 	}
 	printInstallReport(rep)
+	fmt.Println("Open " + installedURL())
 	return nil
 }
+
+// releaseService preserves the configured unit when Linux has no user bus.
+type releaseService struct{ daemon.ServiceUnit }
+
+func (s releaseService) Install() error {
+	if err := s.ServiceUnit.Install(); err != nil {
+		if runtime.GOOS != "linux" || !strings.Contains(err.Error(), "platform: systemctl") {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "warning: user service could not start; starting the daemon for this session:", err)
+	}
+	return nil
+}
+func installServiceForRelease() daemon.ServiceUnit { return releaseService{installService()} }

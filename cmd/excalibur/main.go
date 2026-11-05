@@ -99,24 +99,26 @@ func commands() map[string]command {
 		"deny":    {summary: "Reject a pending macro plan with a reason", run: runPlanDeny},
 	}
 	return map[string]command{
-		"chat":     {summary: "Open a conversation turn with the master", run: runChat},
-		"exec":     {summary: "Run a request non-interactively (Section 6.5)", run: runExecCmd},
-		"status":   {summary: "Deterministic status snapshot", run: runStatusCmd},
-		"tasks":    {summary: "List tasks", run: runTasksCmd},
-		"projects": {summary: "Manage registered projects", run: runProjectsCmd},
-		"memory":   {summary: "Query memory", run: runMemoryCmd},
-		"skills":   {summary: "Search and load skills", run: runSkillsCmd},
-		"ext":      {summary: "Manage extensions (Section 14.12)", sub: extSub},
-		"vault":    {summary: "Manage the secrets vault (Section 20.1)", sub: vaultSub},
-		"eval":     {summary: "Run evaluations (Section 23)", sub: evalSub},
-		"bench":    {summary: "Native Terminal-Bench runs (Section 23.2)", run: runBench},
-		"daemon":   {summary: "Control the daemon", sub: daemonSub},
-		"install":  {summary: "Install the daemon and clients", run: runInstall},
-		"update":   {summary: "Update the binary", run: runUpdate},
-		"task":     {summary: "Async delegated work (Section 3.6)", sub: taskSub},
-		"mcp":      {summary: "Run the MCP delegation server over stdio", sub: mcpSub, run: serveMCP},
-		"acp":      {summary: "Run the ACP adapter over stdio", run: serveACP},
-		"plan":     {summary: "Approve or deny macro plans", sub: planSub},
+		"chat":      {summary: "Open a conversation turn with the master", run: runChat},
+		"exec":      {summary: "Run a request non-interactively (Section 6.5)", run: runExecCmd},
+		"status":    {summary: "Deterministic status snapshot", run: runStatusCmd},
+		"tasks":     {summary: "List tasks", run: runTasksCmd},
+		"projects":  {summary: "Manage registered projects", run: runProjectsCmd},
+		"memory":    {summary: "Query memory", run: runMemoryCmd},
+		"skills":    {summary: "Search and load skills", run: runSkillsCmd},
+		"ext":       {summary: "Manage extensions (Section 14.12)", sub: extSub},
+		"vault":     {summary: "Manage the secrets vault (Section 20.1)", sub: vaultSub},
+		"eval":      {summary: "Run evaluations (Section 23)", sub: evalSub},
+		"bench":     {summary: "Native Terminal-Bench runs (Section 23.2)", run: runBench},
+		"daemon":    {summary: "Control the daemon", sub: daemonSub},
+		"uninstall": {summary: "Remove the service; preserve data unless --purge", run: runUninstall},
+		"open":      {summary: "Print the web application URL", run: runOpen},
+		"install":   {summary: "Install the daemon and clients", run: runInstall},
+		"update":    {summary: "Update the binary", run: runUpdate},
+		"task":      {summary: "Async delegated work (Section 3.6)", sub: taskSub},
+		"mcp":       {summary: "Run the MCP delegation server over stdio", sub: mcpSub, run: serveMCP},
+		"acp":       {summary: "Run the ACP adapter over stdio", run: serveACP},
+		"plan":      {summary: "Approve or deny macro plans", sub: planSub},
 	}
 }
 
@@ -126,7 +128,7 @@ func topUsage(cmds map[string]command) string {
 	b.WriteString("Usage: excalibur [--json] <command> [args]\n\nCommands:\n")
 	names := []string{
 		"chat", "exec", "status", "tasks", "projects", "memory", "skills",
-		"ext", "vault", "eval", "bench", "daemon", "install", "update", "task", "mcp", "acp", "plan",
+		"ext", "vault", "eval", "bench", "daemon", "install", "uninstall", "open", "update", "task", "mcp", "acp", "plan",
 	}
 	for _, n := range names {
 		fmt.Fprintf(&b, "  %-10s %s\n", n, cmds[n].summary)
@@ -155,11 +157,16 @@ func run(argv []string) int {
 	}
 	fs := flag.NewFlagSet("excalibur", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "machine-readable output")
+	showVersion := fs.Bool("version", false, "print version")
 	if err := fs.Parse(argv); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return ExitOK
 		}
 		return ExitError
+	}
+	if *showVersion {
+		fmt.Println("excalibur " + version)
+		return ExitOK
 	}
 	globalJSON = *asJSON
 	rest := fs.Args()
