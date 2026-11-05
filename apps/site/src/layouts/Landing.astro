@@ -10,6 +10,7 @@ const {
   title = 'Excalibur — An agent that acts.',
   description = 'Excalibur works in your day, your code and the physical world. A personal AI assistant and programming harness.',
 } = Astro.props
+const canonical = new URL(Astro.url.pathname, Astro.site)
 ---
 
 <!doctype html>
@@ -22,6 +23,8 @@ const {
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+    <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preload" href={headlineFont} as="font" type="font/woff2" crossorigin />
     <title>{title}</title>
