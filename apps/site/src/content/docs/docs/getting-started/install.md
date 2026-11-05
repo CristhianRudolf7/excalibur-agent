@@ -1,42 +1,68 @@
 ---
 title: 'Install Excalibur'
-description: 'Build the command-line application and understand platform availability.'
+description: 'Install the frontend and backend together, open Excalibur, and manage updates.'
 ---
 
-Start with a checkout of the Excalibur repository and the Go version required by its `go.mod`. The instructions below build the command-line application from source. They do not install or launch the web application.
+The release installation includes the frontend and backend. Choose the command for your operating system, then open **http://127.0.0.1:7787** on the same computer. You still need to [connect a model provider](/docs/getting-started/providers/) before asking the assistant to work.
 
-## Platform availability
+## Linux and macOS
 
-| Platform | Current status                                      | Optional autostart           |
-| -------- | --------------------------------------------------- | ---------------------------- |
-| Linux    | Primary supported platform                          | systemd user service         |
-| macOS    | Support in progress, Apple Silicon and Intel builds | launchd user LaunchAgent     |
-| Windows  | Support in progress                                 | Per-user Task Scheduler task |
+Run in a terminal:
 
-Native macOS and Windows integrations exist, but support remains in progress. A successful build does not establish that every feature works on that platform. Browser automation needs a separately installed supported browser. Windows interactive terminals require Windows 10 version 1809 or later.
+```sh
+curl -fsSL https://excalibur.crehlabs.com/install.sh | sh
+```
 
-## Build a binary
+The installer downloads the release for your platform and prepares your user installation. Check its output for the installed binary location and any warnings. Restart your terminal if the new command is not yet on your `PATH`.
 
-From the repository root on Linux or macOS, with a C compiler installed:
+## Windows
+
+Run in PowerShell:
+
+```powershell
+irm https://excalibur.crehlabs.com/install.ps1 | iex
+```
+
+Windows and macOS support remain in progress. Platform-specific integrations exist, but not every feature has been verified on native machines. Browser automation needs a supported browser; interactive Windows terminals require Windows 10 version 1809 or later.
+
+## Docker
+
+With Docker running:
+
+```sh
+docker run -d --name excalibur -p 127.0.0.1:7787:7787 -v excalibur-data:/data ghcr.io/cristhianrudolf7/excalibur:latest
+```
+
+The port is bound to your computer's loopback address. The named volume retains data when the container is replaced. A browser or hardware device on the host is not automatically available inside the container; those workflows need their own setup.
+
+## Update
+
+For a release installation:
+
+```sh
+excalibur update
+```
+
+For Docker, pull the image, stop and remove the old container, then repeat the Docker command above. Retain the volume:
+
+```sh
+docker pull ghcr.io/cristhianrudolf7/excalibur:latest
+docker stop excalibur
+docker rm excalibur
+```
+
+## Uninstall
+
+Stop Excalibur first, and disable any autostart integration you enabled: systemd on Linux, launchd on macOS, or Task Scheduler on Windows. Remove the installed executable from the location reported by the installer. Keep configuration and data directories if you want to preserve conversations and credentials. There is no `excalibur uninstall` command.
+
+For Docker, stop and remove the container as above. Removing the `excalibur-data` volume is a separate, irreversible deletion of its stored data.
+
+## Build from source
+
+With Go and a C compiler installed, run from the repository root:
 
 ```sh
 CGO_ENABLED=1 go build -tags sqlite_fts5 -o excalibur ./cmd/excalibur
-./excalibur
 ```
 
-On macOS, the compiler and SDK come from Apple's command line tools. The `sqlite_fts5` build includes the native SQLite search extensions. A plain Go build uses the portable database backend and lacks sqlite-vec vector search.
-
-In Windows PowerShell:
-
-```powershell
-go build -o excalibur.exe ./cmd/excalibur
-.\excalibur.exe
-```
-
-The command without arguments lists available commands. Keep the binary in a stable location and add that directory to your `PATH` if you want to use `excalibur` from any terminal.
-
-## Prepare your user installation
-
-Run the built binary with `install`, for example `./excalibur install` on Linux or macOS. It creates user directories and configuration and attempts to install the browser automation driver. That step can download the driver; it does not download Chrome. Inspect the installation report for warnings.
-
-Autostart is optional. Once you have [configured a provider](/docs/getting-started/providers/), follow [Quick start](/docs/getting-started/quick-start/) before enabling it. Installing the daemon alone does not configure a model account or supply credentials.
+This builds the binary only. A plain Go build uses the portable database backend without sqlite-vec. Continue with [Quick start](/docs/getting-started/quick-start/).

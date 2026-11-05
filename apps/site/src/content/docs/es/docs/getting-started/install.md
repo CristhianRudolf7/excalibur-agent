@@ -1,42 +1,68 @@
 ---
 title: 'Instalar Excalibur'
-description: 'Compila la aplicación de terminal y conoce el estado de cada plataforma.'
+description: 'Instala la interfaz y el backend juntos, abre Excalibur y gestiona las actualizaciones.'
 ---
 
-Necesitas una copia del repositorio de Excalibur y la versión de Go indicada en `go.mod`. Estas instrucciones compilan la aplicación de línea de comandos desde el código fuente. No instalan ni abren la aplicación web.
+La instalación de una versión publicada incluye la interfaz y el backend. Elige el comando para tu sistema operativo y abre **http://127.0.0.1:7787** en el mismo equipo. Antes de pedir trabajo al asistente, debes [conectar un proveedor de modelos](/es/docs/getting-started/providers/).
 
-## Disponibilidad por plataforma
+## Linux y macOS
 
-| Plataforma | Estado actual                                                          | Inicio automático opcional                    |
-| ---------- | ---------------------------------------------------------------------- | --------------------------------------------- |
-| Linux      | Plataforma principal compatible                                        | Servicio de usuario de systemd                |
-| macOS      | Compatibilidad en desarrollo, compilaciones para Apple Silicon e Intel | LaunchAgent de usuario de launchd             |
-| Windows    | Compatibilidad en desarrollo                                           | Tarea por usuario en el Programador de tareas |
+Ejecuta en una terminal:
 
-Hay integraciones nativas para macOS y Windows, pero la compatibilidad sigue en desarrollo. Una compilación correcta no demuestra que todas las funciones operen en esa plataforma. La navegación automatizada necesita un navegador compatible instalado por separado. Las terminales interactivas de Windows requieren Windows 10 versión 1809 o posterior.
+```sh
+curl -fsSL https://excalibur.crehlabs.com/install.sh | sh
+```
 
-## Compila el ejecutable
+El instalador descarga la versión para tu plataforma y prepara la instalación de usuario. Revisa la ubicación del ejecutable y las advertencias que aparezcan en su salida. Si el comando todavía no está en tu `PATH`, abre una terminal nueva.
 
-Desde la raíz del repositorio, en Linux o macOS y con un compilador de C instalado:
+## Windows
+
+Ejecuta en PowerShell:
+
+```powershell
+irm https://excalibur.crehlabs.com/install.ps1 | iex
+```
+
+La compatibilidad con Windows y macOS sigue en desarrollo. Existen integraciones específicas, pero no todas las funciones se han verificado en equipos nativos. La automatización necesita un navegador compatible; las terminales interactivas de Windows requieren Windows 10 versión 1809 o posterior.
+
+## Docker
+
+Con Docker en ejecución:
+
+```sh
+docker run -d --name excalibur -p 127.0.0.1:7787:7787 -v excalibur-data:/data ghcr.io/cristhianrudolf7/excalibur:latest
+```
+
+El puerto solo escucha en la dirección local del equipo. El volumen conserva los datos al reemplazar el contenedor. Los navegadores y dispositivos del anfitrión no están disponibles dentro del contenedor automáticamente; esos flujos requieren configuración adicional.
+
+## Actualizar
+
+Para una instalación de una versión publicada:
+
+```sh
+excalibur update
+```
+
+En Docker, descarga la imagen nueva, detén y elimina el contenedor anterior y repite el comando de instalación. Conserva el volumen:
+
+```sh
+docker pull ghcr.io/cristhianrudolf7/excalibur:latest
+docker stop excalibur
+docker rm excalibur
+```
+
+## Desinstalar
+
+Primero detén Excalibur y desactiva cualquier inicio automático que hayas habilitado: systemd en Linux, launchd en macOS o el Programador de tareas en Windows. Elimina el ejecutable de la ubicación indicada por el instalador. Conserva los directorios de configuración y datos si quieres mantener conversaciones y credenciales. No existe el comando `excalibur uninstall`.
+
+En Docker, detén y elimina el contenedor como se muestra arriba. Eliminar el volumen `excalibur-data` es un paso aparte e irreversible: borra sus datos guardados.
+
+## Compilar desde el código fuente
+
+Con Go y un compilador de C instalados, ejecuta desde la raíz del repositorio:
 
 ```sh
 CGO_ENABLED=1 go build -tags sqlite_fts5 -o excalibur ./cmd/excalibur
-./excalibur
 ```
 
-En macOS, el compilador y el SDK se obtienen con las herramientas de línea de comandos de Apple. La compilación `sqlite_fts5` incorpora las extensiones nativas de búsqueda de SQLite. La compilación normal de Go usa la base de datos portable y no incluye la búsqueda vectorial de sqlite-vec.
-
-En PowerShell de Windows:
-
-```powershell
-go build -o excalibur.exe ./cmd/excalibur
-.\excalibur.exe
-```
-
-Al ejecutar el programa sin argumentos verás los comandos disponibles. Guarda el ejecutable en una ubicación estable y agrega su directorio a `PATH` si quieres usar `excalibur` desde cualquier terminal.
-
-## Prepara la instalación de usuario
-
-Ejecuta el programa con `install`, por ejemplo `./excalibur install` en Linux o macOS. Crea los directorios y la configuración del usuario e intenta instalar el controlador de automatización del navegador. Ese paso puede descargar el controlador, pero no descarga Chrome. Revisa las advertencias del informe.
-
-El inicio automático es opcional. Después de [configurar un proveedor](/es/docs/getting-started/providers/), completa el [inicio rápido](/es/docs/getting-started/quick-start/). Instalar el daemon no conecta una cuenta de modelos ni proporciona credenciales.
+Esto solo compila el ejecutable. La compilación normal de Go usa la base de datos portable sin sqlite-vec. Continúa con el [inicio rápido](/es/docs/getting-started/quick-start/).
