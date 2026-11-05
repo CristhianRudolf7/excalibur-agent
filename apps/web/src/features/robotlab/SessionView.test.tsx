@@ -254,6 +254,10 @@ it('shows markdown skill instructions, versions and failure accounting', async (
   expect(screen.getByText(/Version: 3.*Success: 75%.*Uses: 4/)).toBeVisible()
   expect(screen.getByText(/Failures: 2/)).toBeVisible()
   fireEvent.click(screen.getByText('fetch'))
+  // Wait for the detail response and the lazy Markdown module before checking
+  // rendered headings; cold transforms can exceed the query polling timeout.
+  await screen.findByText(/Keep three feet planted/)
+  await act(() => vi.dynamicImportSettled())
   expect(await screen.findByRole('heading', { name: 'Lessons' })).toBeVisible()
   expect(screen.getByRole('list', { name: 'Versions' })).toHaveTextContent('Version 1')
   expect(screen.getByRole('list', { name: 'Versions' })).toHaveTextContent('Version 3')
