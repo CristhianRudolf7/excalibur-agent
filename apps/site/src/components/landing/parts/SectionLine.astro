@@ -9,6 +9,8 @@ interface Props {
   introY?: number
   mobileIntroX?: number
   mobileIntroY?: number
+  mobileTickX?: number
+  mobileTickY?: number
 }
 const {
   path = 'M218 0 V1024',
@@ -19,6 +21,8 @@ const {
   introY,
   mobileIntroX,
   mobileIntroY,
+  mobileTickX = 100,
+  mobileTickY = 640,
 } = Astro.props
 ---
 
@@ -61,5 +65,5 @@ const {
     ))}
   </g>
   <circle class="line-pen" data-pen r="4" />
-  <TimeTick x={100} y={640} />
+  <TimeTick x={mobileTickX} y={mobileTickY} />
 </svg>

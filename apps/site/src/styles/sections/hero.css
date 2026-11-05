@@ -30,35 +30,32 @@
 
 @media (max-width: 1023px) {
   .hero {
-    padding: 0 24px;
-    height: calc(850 / 390 * 100vw);
-    min-height: 780px;
-    max-height: 1100px;
+    padding: 20px 24px 76px;
+    display: flex;
+    flex-direction: column;
+    min-height: 850px;
   }
   .hero-headline {
-    position: absolute;
-    top: 16%;
-    left: 24px;
-    width: calc(100% - 48px);
-    font-size: clamp(51px, 14.36vw, 120px);
+    position: relative;
+    width: 100%;
+    margin-top: 72px;
+    font-size: clamp(47px, 14.36vw, 120px);
   }
   .mobile-break {
     display: inline;
   }
   .hero-description {
-    position: absolute;
-    top: 77%;
-    left: 24px;
-    width: calc(100% - 70px);
+    position: relative;
+    width: 100%;
+    margin-top: 310px;
     font-size: clamp(19px, 5.13vw, 32px);
     line-height: 1.4;
     letter-spacing: -0.025em;
   }
   .hero-cta {
-    position: absolute;
-    top: 90%;
-    left: 24px;
+    position: relative;
     width: max-content;
+    margin-top: 44px;
     font-size: clamp(19px, 5.13vw, 28px);
   }
   .hero .time-tick {
@@ -70,4 +67,8 @@
 .anim .hero [data-dog-stroke] {
   stroke-dasharray: 1 1;
   stroke-dashoffset: 1;
+}
+
+.hero .mobile-line .time-tick text {
+  transform: translateY(59px);
 }

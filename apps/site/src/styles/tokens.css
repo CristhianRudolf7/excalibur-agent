@@ -38,3 +38,25 @@
   --diff-add: #4ade9a;
   --diff-del: #ff7a70;
 }
+
+/* System theme also works when scripting is disabled. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #0b1220;
+    --surface: #121b2e;
+    --surface-2: #0f1726;
+    --hairline: #25314a;
+    --leader: #4a5a78;
+    --ink: #f5f8fc;
+    --ink-2: #a8b3c7;
+    --blue: #5c8dff;
+    --blue-fill: #2f6bff;
+    --blue-tint: #16264a;
+    --blue-text: #8aadff;
+    --on-blue: #ffffff;
+    --cyan: #38bdf8;
+    --diff-add: #4ade9a;
+    --diff-del: #ff7a70;
+  }
+}

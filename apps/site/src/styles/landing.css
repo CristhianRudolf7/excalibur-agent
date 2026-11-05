@@ -1,18 +1,4 @@
-@font-face {
-  font-family: 'Inter Variable';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2');
-}
-@font-face {
-  font-family: 'JetBrains Mono Variable';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 800;
-  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2')
-    format('woff2');
-}
+@import './fonts.css';
 
 * {
   box-sizing: border-box;
@@ -210,6 +196,7 @@ a {
   font: 700 22px var(--font-mono);
 }
 .iso-plate.is-active text {
+  font-size: 30px;
   fill: var(--on-blue);
 }
 .anim [data-reveal] {
@@ -277,4 +264,8 @@ a {
   .line-preview {
     display: none;
   }
+}
+
+html:not([data-landing-ready]) .theme-toggle {
+  visibility: hidden;
 }

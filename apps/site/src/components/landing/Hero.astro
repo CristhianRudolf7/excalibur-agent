@@ -7,7 +7,7 @@ import '../../styles/sections/hero.css'
 const path =
   'M218 78 V770 A42 42 0 0 0 260 812 H282 A20 20 0 0 0 302 792 V742 A20 20 0 0 1 322 722 H480 A20 20 0 0 1 500 742 V798 A26 26 0 0 0 526 824 H970 V804 H1042 V782 H1112 V750 H1182 V718 H1252 V714 H1326 V674 H1398 V634 H1470 A26 26 0 0 1 1496 660 V968 A28 28 0 0 1 1468 996 H246 A28 28 0 0 0 218 1024'
 const mobilePath =
-  'M119.5 58 V410 A24 24 0 0 0 143.5 434 H153 A15 15 0 0 1 168 449 V504 A16 16 0 0 0 184 520 H207 V510 H240 V493 H273 V477 H306 V461 H340 A26 26 0 0 1 366 487 V802 A24 24 0 0 1 342 826 H48 A24 24 0 0 0 24 850'
+  'M119.5 58 V410 A24 24 0 0 0 143.5 434 H153 A15 15 0 0 1 168 449 V535 Q168 549 164 549 Q155 549 155 560 Q155 568 148 568 Q155 568 155 577 Q155 586 164 586 H221 Q230 586 230 577 Q230 568 237 568 H240 V550 H256 V530 H280 V514 H306 V498 H328 V482 H354 V477 H360 A6 6 0 0 1 366 483 V802 A24 24 0 0 1 342 826 H48 A24 24 0 0 0 24 850'
 ---
 
 <Stage id="top" class="hero" label="Excalibur">
@@ -18,8 +18,10 @@ const mobilePath =
     introY={714}
     mobilePath={mobilePath}
     mobileHeight={850}
-    mobileIntroX={306}
+    mobileIntroX={354}
     mobileIntroY={477}
+    mobileTickX={306}
+    mobileTickY={498}
   >
     <g
       slot="desktop"
@@ -30,7 +32,7 @@ const mobilePath =
       stroke-linejoin="round"
       fill="none"
     >
-      <g data-browser-object>
+      <g data-browser-object data-reveal>
         <path
           pathLength="1"
           data-object-stroke
@@ -51,7 +53,7 @@ const mobilePath =
           d="M433 754 V764 M415 761 L422 768 M407 779 H418 M411 798 L419 791 M450 760 L443 768"
         />
       </g>
-      <g data-diff-object>
+      <g data-diff-object data-reveal>
         <path
           pathLength="1"
           data-object-stroke
@@ -74,12 +76,8 @@ const mobilePath =
       stroke-linejoin="round"
       fill="none"
     >
-      <g data-browser-object>
-        <path
-          pathLength="1"
-          data-object-stroke
-          d="M119.5 434 H68 V478 H147 V434 H143.5 M68 446 H147"
-        />
+      <g data-browser-object data-reveal>
+        <path pathLength="1" data-object-stroke d="M119.5 434 H68 V478 H168 M68 446 H168" />
         <circle cx="76" cy="440" r="1.5" />
         <circle cx="84" cy="440" r="1.5" />
         <circle cx="92" cy="440" r="1.5" />
@@ -90,14 +88,14 @@ const mobilePath =
           fill="var(--bg)"
         />
       </g>
-      <g data-diff-object>
+      <g data-diff-object data-reveal>
         <path
           pathLength="1"
           data-object-stroke
           d="M164 549 Q155 549 155 560 Q155 568 148 568 Q155 568 155 577 Q155 586 164 586 M221 549 Q230 549 230 560 Q230 568 237 568 Q230 568 230 577 Q230 586 221 586 M170 560 H178 M174 556 V564 M187 560 H215 M170 576 H178 M187 576 H215"
         />
       </g>
-      <Quadruped transform="translate(-337 112) scale(.51)" />
+      <Quadruped transform="translate(-285 116) scale(.51)" />
     </g>
   </SectionLine>
   <h1 class="headline canvas-item hero-headline" data-noverlap>

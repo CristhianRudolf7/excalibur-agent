@@ -16,6 +16,8 @@
   --color-accent-950: var(--surface);
 }
 :root {
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
   --sl-color-accent: var(--blue-text);
   --sl-color-accent-high: var(--ink);
   --sl-color-accent-low: var(--blue-tint);

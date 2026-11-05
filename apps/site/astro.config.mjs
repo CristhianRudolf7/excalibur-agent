@@ -26,13 +26,31 @@ export default defineConfig({
           href: 'https://github.com/CristhianRudolf7/excalibur-agent',
         },
       ],
-      customCss: ['@fontsource-variable/inter', './src/styles/global.css'],
+      customCss: ['./src/styles/fonts.css', './src/styles/global.css'],
       sidebar: [{ label: 'Documentation', items: [{ autogenerate: { directory: 'docs' } }] }],
     }),
     react(),
     sitemap(),
   ],
   vite: {
-    plugins: [tailwindcss()],
+    plugins: [
+      tailwindcss(),
+      {
+        name: 'retain-gsap-license',
+        enforce: 'post',
+        generateBundle(_options, bundle) {
+          for (const asset of Object.values(bundle)) {
+            if (
+              asset.type === 'chunk' &&
+              Object.keys(asset.modules).some((id) => id.includes('/gsap/'))
+            ) {
+              asset.code =
+                '/*! GSAP & ScrollTrigger 3.15.0 | Copyright 2008-2026 GreenSock. All rights reserved. | @license https://gsap.com/standard-license | Author: Jack Doyle, jack@greensock.com */\n' +
+                asset.code
+            }
+          }
+        },
+      },
+    ],
   },
 })

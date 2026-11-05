@@ -10,13 +10,32 @@ export function reveal(target: gsap.TweenTarget, vars: gsap.TweenVars = {}) {
 }
 export function drawPath(target: SVGPathElement | SVGPathElement[]) {
   const paths = Array.isArray(target) ? target : [target]
-  paths.forEach((path) => {
+  const scales = paths.map((path) => {
     path.setAttribute('pathLength', '1')
-    path.style.strokeDasharray = '1 1'
+    const matrix = path.getScreenCTM()
+    let scale = matrix ? Math.hypot(matrix.a, matrix.b) : 1
+    if (matrix && Math.abs(scale - Math.hypot(matrix.c, matrix.d)) > 0.0001) {
+      const length = path.getTotalLength()
+      let previous = path.getPointAtLength(0),
+        screenLength = 0,
+        sampledLength = 0
+      for (let i = 1; i <= 32; i++) {
+        const point = path.getPointAtLength((length * i) / 32)
+        const dx = point.x - previous.x,
+          dy = point.y - previous.y
+        sampledLength += Math.hypot(dx, dy)
+        screenLength += Math.hypot(matrix.a * dx + matrix.c * dy, matrix.b * dx + matrix.d * dy)
+        previous = point
+      }
+      screenLength += ((length - sampledLength) * (scale + Math.hypot(matrix.c, matrix.d))) / 2
+      scale = length ? screenLength / length : 1
+    }
+    path.style.strokeDasharray = `${scale} ${scale}`
+    return scale
   })
   return gsap.fromTo(
     paths,
-    { strokeDashoffset: 1 },
+    { strokeDashoffset: (i: number) => scales[i]! },
     { strokeDashoffset: 0, duration: 0.55, ease: 'power3.inOut', paused: true },
   )
 }

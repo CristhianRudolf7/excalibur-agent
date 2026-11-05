@@ -4,6 +4,7 @@ interface Props {
   depth?: number
   thickness?: number
   label?: string
+  labelPosition?: 'top' | 'front'
   active?: boolean
   class?: string
 }
@@ -12,6 +13,7 @@ const {
   depth = 100,
   thickness = 30,
   label,
+  labelPosition = 'front',
   active = false,
   class: className,
 } = Astro.props
@@ -32,7 +34,12 @@ const w = width,
   <polygon class="iso-face" points={`0,${d} ${w},${d} ${w},${d + t} 0,${d + t}`} />
   <polygon class="iso-face" points={`${w},${d} ${w + d},0 ${w + d},${t} ${w},${d + t}`} />
   {label && (
-    <text x={w / 2} y={d + t / 2} text-anchor="middle" dominant-baseline="central">
+    <text
+      x={labelPosition === 'top' ? (w + d) / 2 : w / 2}
+      y={labelPosition === 'top' ? d / 2 : d + t / 2}
+      text-anchor="middle"
+      dominant-baseline="central"
+    >
       {label}
     </text>
   )}
