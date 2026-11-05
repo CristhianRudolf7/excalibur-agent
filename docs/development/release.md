@@ -4,7 +4,7 @@
 
 The logs for runs 41843594333 (macOS) and 41843595594 (Windows) were
 retrieved through the jobs API. Both native workflows now cover main pushes
-and pull requests. Staticcheck is pinned to 2026.2.2.
+and pull requests. Staticcheck is pinned to module v0.8.2 (Staticcheck 2026.2.2).
 
 - Google tool errors follow Go error conventions.
 - Removed unused Torch helpers; the runtime no longer installs Torch separately.

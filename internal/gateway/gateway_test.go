@@ -376,7 +376,7 @@ func TestBrowserSameOriginAndHost(t *testing.T) {
 		origin, host string
 		want         int
 	}{
-		{"http://" + addr, addr, 200}, {"https://attacker.invalid", addr, 403},
+		{"http://" + addr, addr, 200}, {"https://" + addr, addr, 403}, {"https://attacker.invalid", addr, 403},
 		{"null", addr, 403}, {"", "attacker.invalid", 403}, {"", addr, 200},
 	} {
 		req, _ := http.NewRequest("GET", "http://"+addr+"/healthz", nil)

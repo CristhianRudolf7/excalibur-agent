@@ -35,8 +35,8 @@ type Config struct {
 	// default; non-loopback binds are rejected unless AllowRemote is
 	// set (tests may set it explicitly).
 	Listen string
-	// AllowRemote permits a non-loopback bind (never in production:
-	// authentication is deferred with the rest of Section 20).
+	// AllowRemote permits an explicit non-loopback container bind. Publish
+	// container host ports on loopback unless remote access is intended.
 	AllowRemote bool
 	// ClientID identifies this daemon to idempotency keys.
 	ClientID string
@@ -187,7 +187,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Browsers must use the same origin. CLI clients need no browser token.
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.EqualFold(u.Host, r.Host) {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		if err != nil || u.Scheme != scheme || !strings.EqualFold(u.Host, r.Host) {
 			http.Error(w, "same origin required", http.StatusForbidden)
 			return
 		}

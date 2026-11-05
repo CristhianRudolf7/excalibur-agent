@@ -33,6 +33,9 @@ func handler(root fs.FS) http.Handler {
 			name = "index.html"
 		}
 		if info, err := fs.Stat(root, name); err == nil && !info.IsDir() {
+			if name == "index.html" {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			if strings.HasPrefix(name, "assets/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			}
