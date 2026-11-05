@@ -17,8 +17,8 @@ const stations = [
 <Stage id="work" class="work" label="Your work">
   <SectionLine
     path="M218 0 V160 H162 V478 A40 40 0 0 1 122 518 H78 A40 40 0 0 0 38 558 V786 A38 38 0 0 0 76 824 H1378 A26 26 0 0 1 1404 850 V928 A26 26 0 0 1 1378 954 H248 A30 30 0 0 0 218 984 V1024"
-    mobilePath="M24 0 V234 A28 28 0 0 0 52 262 V1980 A24 24 0 0 0 48 2004 H342 A24 24 0 0 1 366 2028 V2200 A24 24 0 0 1 342 2224 H48 A24 24 0 0 0 24 2248"
-    mobileHeight={2248}
+    mobilePath="M24 0 V234 A28 28 0 0 0 52 262 V1980 A24 24 0 0 0 76 2004 H342 A24 24 0 0 1 366 2028 V2062 A24 24 0 0 1 342 2086 H48 A24 24 0 0 0 24 2110"
+    mobileHeight={2110}
   >
     <g slot="desktop" fill="var(--bg)" stroke="var(--blue)" stroke-width="3">
       {stations.map(({ center }) => (
@@ -37,6 +37,9 @@ const stations = [
         stroke="none"
       />
     </g>
+    <g slot="mobile">
+      <rect data-work-train x="40" y="286" width="24" height="24" fill="var(--blue)" />
+    </g>
   </SectionLine>
   <SectionIndex index={5} style="--x:42;--y:44;--w:150" />
   <Headline lines={['The rest', 'of your day.']} class="work-headline" />
@@ -46,7 +49,7 @@ const stations = [
         class={`work-station work-station-${i} canvas-item`}
         style={`--x:${x};--y:568;--w:${w}`}
       >
-        <div class="work-document" data-work-document>
+        <div class="work-document" data-work-document data-reveal>
           {i === 0 && (
             <>
               <div class="work-browser-chrome">

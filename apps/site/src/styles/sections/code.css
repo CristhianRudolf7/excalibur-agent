@@ -203,7 +203,7 @@
 @media (max-width: 1023px) {
   .code {
     padding: 32px 24px 80px;
-    min-height: 1538px;
+    min-height: 1430px;
     box-sizing: border-box;
   }
   .code .code-headline {
@@ -346,4 +346,36 @@
 
 .code-sample {
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .anim .code [data-code-branch] {
+    stroke-dasharray: 1 1;
+    stroke-dashoffset: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .anim .code [data-test-result],
+  .anim .code [data-code-check] {
+    opacity: 0;
+  }
+  .anim .code .code-test-failed {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 1023px) {
+  .code-root::before,
+  .code-agent::before {
+    content: '';
+    position: absolute;
+    left: -20px;
+    top: 50%;
+    width: 20px;
+    border-top: 3px solid var(--blue);
+  }
+  .code-sample {
+    font-size: 10px;
+  }
 }

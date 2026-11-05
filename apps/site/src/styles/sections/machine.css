@@ -273,15 +273,6 @@
     position: sticky;
     top: 0;
   }
-  .anim .machine::after {
-    content: '';
-    position: absolute;
-    z-index: -1;
-    top: calc(100cqw * 2 / 3);
-    bottom: 0;
-    left: calc(218 / 15.36 * 1cqw - 1.5px);
-    border-left: 3px solid var(--blue);
-  }
 }
 
 @media (min-width: 1024px) {

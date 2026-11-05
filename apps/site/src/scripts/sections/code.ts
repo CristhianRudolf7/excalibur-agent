@@ -1,7 +1,9 @@
+import { prepareGeometry } from '../../components/landing/sections/parts-b/geometry'
 import { createSectionLine, gsap } from '../line'
 import { drawPath, reveal } from '../line/helpers'
 
 export function init(section: HTMLElement) {
+  const restoreGeometry = prepareGeometry(section)
   const line = createSectionLine(section)
   const branches = [...section.querySelectorAll<SVGPathElement>('[data-code-branch]')]
   branches.forEach((path, i) =>
@@ -36,5 +38,8 @@ export function init(section: HTMLElement) {
       ),
   )
   line.onReach(0.72, () => reveal(section.querySelector('[data-code-preview]')))
-  return () => line.destroy()
+  return () => {
+    line.destroy()
+    restoreGeometry()
+  }
 }

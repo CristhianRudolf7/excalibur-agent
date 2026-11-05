@@ -261,7 +261,7 @@
   .work {
     padding: 32px 24px 90px;
     box-sizing: border-box;
-    min-height: 2248px;
+    min-height: 2110px;
   }
   .work .work-headline {
     font-size: clamp(56px, 14vw, 100px);
