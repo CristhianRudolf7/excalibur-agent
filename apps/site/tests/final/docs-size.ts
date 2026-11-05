@@ -1,6 +1,6 @@
 import { chromium } from '@playwright/test'
 import { gzipSync } from 'node:zlib'
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { productionBrowser } from '../build-browser.ts'
 import { startPreview, baseURL } from '../server.ts'
 const stop = await startPreview()
@@ -41,8 +41,9 @@ try {
   await browser.close()
   await stop()
 }
+await mkdir(process.env.QA_OUT ?? 'test-results/shots/final', { recursive: true })
 await writeFile(
-  '/home/cristhian/projects/ui-conceptos/landing/implementacion/final/docs-size.json',
+  `${process.env.QA_OUT ?? 'test-results/shots/final'}/docs-size.json`,
   JSON.stringify(results, null, 2),
 )
 console.log(JSON.stringify(results, null, 2))

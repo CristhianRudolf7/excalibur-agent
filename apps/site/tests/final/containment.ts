@@ -5,7 +5,7 @@ import { productionBrowser } from '../build-browser.ts'
 import { startPreview, baseURL } from '../server.ts'
 const stop = await startPreview()
 const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
-const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/final'
+const out = process.env.QA_OUT ?? 'test-results/shots/final'
 const report: {
   section: string
   width: number

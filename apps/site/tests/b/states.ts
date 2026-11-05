@@ -5,7 +5,7 @@ import { serveBuild } from './static.ts'
 import { baseURL } from '../server.ts'
 
 const names = (process.env.B_SECTIONS ?? 'code,work,machine,measured,extensions').split(',')
-const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/b'
+const out = process.env.QA_OUT ?? 'test-results/shots/b'
 await mkdir(out, { recursive: true })
 const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 async function capture(page: import('@playwright/test').Page, name: string, file: string) {

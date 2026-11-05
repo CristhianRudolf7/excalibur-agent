@@ -5,7 +5,7 @@ import { access, mkdir, writeFile, rm } from 'node:fs/promises'
 import { productionBrowser } from '../build-browser.ts'
 import { startPreview, baseURL } from '../server.ts'
 const exec = promisify(execFile)
-const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/final'
+const out = process.env.QA_OUT ?? 'test-results/shots/final'
 await mkdir(out, { recursive: true })
 const stop = await startPreview()
 let display = 109

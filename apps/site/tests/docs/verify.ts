@@ -10,8 +10,7 @@ import { spawn } from 'node:child_process'
 import { startPreview, baseURL } from '../server.ts'
 import { tokenContrast } from './contrast.ts'
 
-const out =
-  process.env.DOCS_SHOTS_DIR ?? '/home/cristhian/projects/ui-conceptos/landing/implementacion/docs'
+const out = process.env.DOCS_SHOTS_DIR ?? 'test-results/shots/docs'
 const fixture = 'src/content/docs/docs/style-guide.mdx'
 const source = await readFile(fixture, 'utf8')
 const report: Record<string, unknown> = {

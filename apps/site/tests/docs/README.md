@@ -7,11 +7,10 @@ export PATH=$HOME/.local/opt/node/bin:$PATH
 nice -n 10 pnpm check
 nice -n 10 pnpm build
 SITE_PORT=4336 nice -n 10 node --experimental-strip-types tests/docs/verify.ts
-SITE_PORT=4336 nice -n 10 node --experimental-strip-types tests/docs/review.ts
 ```
 
 `DOCS_SHOTS_DIR=/absolute/path` selects a fresh screenshot directory. The default
-is `/home/cristhian/projects/ui-conceptos/landing/implementacion/docs/`.
+is `test-results/shots/docs/` (gitignored).
 
 The runner first checks that the production sitemap and routes exclude the
 private draft and that Pagefind's index exists. It temporarily promotes the
@@ -39,7 +38,3 @@ Open the generated images and compare their typography, blue rail, leaders and
 plate geometry with the approved blueprint and benchmark concepts. Automated
 assertions do not replace this review. The six home areas use the merged
 `src/docs-sidebar.mjs`; verify their labels and links in both locales.
-
-`review.ts` captures the normal production homes in both locales and creates
-local side-by-side comparison sheets using the approved concept images. These
-reference images are never part of the site or its build output.

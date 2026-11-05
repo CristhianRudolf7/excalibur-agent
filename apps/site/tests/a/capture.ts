@@ -3,7 +3,7 @@ import { chromium } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { startPreview, baseURL } from '../server.ts'
 
-const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/a'
+const out = process.env.QA_OUT ?? 'test-results/shots/a'
 await mkdir(out, { recursive: true })
 const stop = await startPreview()
 const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))

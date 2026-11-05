@@ -5,9 +5,7 @@ import { spawn } from 'node:child_process'
 import { productionBrowser } from '../build-browser.ts'
 import { baseURL, startPreview } from '../server.ts'
 
-const out = resolve(
-  process.env.QA_OUT ?? '/home/cristhian/projects/ui-conceptos/landing/implementacion/final',
-)
+const out = resolve(process.env.QA_OUT ?? 'test-results/shots/final')
 const sections = [
   'top',
   'your-day',

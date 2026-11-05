@@ -5,7 +5,7 @@ import { baseURL } from '../server.ts'
 import { serveBuild } from './static.ts'
 
 const names = (process.env.B_SECTIONS ?? 'code,work,machine,measured,extensions').split(',')
-const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/b'
+const out = process.env.QA_OUT ?? 'test-results/shots/b'
 const widths = (process.env.B_WIDTHS ?? '1024,1280,1536,1920,390').split(',').map(Number)
 
 const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
