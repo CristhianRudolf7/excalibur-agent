@@ -1,4 +1,4 @@
-import { prepareGeometry } from '../../components/landing/sections/parts-b/geometry'
+import { prepareGeometry } from '../line/geometry'
 import { createSectionLine, gsap } from '../line'
 import { drawPath, reveal } from '../line/helpers'
 

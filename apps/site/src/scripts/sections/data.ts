@@ -1,9 +1,9 @@
-import { prepareRailGeometry } from '../../components/landing/sections/parts-a/rail-geometry'
+import { prepareGeometry } from '../line/geometry'
 import { createSectionLine, gsap } from '../line'
 import { drawPath } from '../line/helpers'
 
 export function init(section: HTMLElement) {
-  const restoreGeometry = prepareRailGeometry(section)
+  const restoreGeometry = prepareGeometry(section)
   const line = createSectionLine(section)
   section.querySelectorAll('[data-cell]').forEach((cell, index) => {
     line.onReach({ desktop: 0.42 + index * 0.03, phone: 0.27 + index * 0.04 }, () =>

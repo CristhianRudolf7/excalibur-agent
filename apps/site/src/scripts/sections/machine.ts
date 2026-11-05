@@ -1,4 +1,4 @@
-import { prepareGeometry } from '../../components/landing/sections/parts-b/geometry'
+import { prepareGeometry } from '../line/geometry'
 import { createSectionLine, gsap, ScrollTrigger } from '../line'
 import { reveal } from '../line/helpers'
 

@@ -1,8 +1,8 @@
-import { prepareRailGeometry } from '../../components/landing/sections/parts-a/rail-geometry'
+import { prepareGeometry } from '../line/geometry'
 import { createSectionLine, gsap } from '../line'
 
 export function init(section: HTMLElement) {
-  const restoreGeometry = prepareRailGeometry(section)
+  const restoreGeometry = prepareGeometry(section)
   const line = createSectionLine(section)
   line.onReach({ desktop: 0.18, phone: 0.27 }, () =>
     gsap.fromTo(

@@ -2,9 +2,8 @@
 import Stage from '../Stage.astro'
 import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
-import SectionIndex from '../parts/SectionIndex.astro'
-import Plate from './parts-b/Plate.astro'
-import RobotArm from './parts-b/RobotArm.astro'
+import Plate from '../parts/Plate.astro'
+import RobotArm from '../parts/RobotArm.astro'
 import Logo from '../../brand/Logo.astro'
 import '../../../styles/sections/machine.css'
 const layers = [
@@ -39,7 +38,6 @@ const layers = [
   <Stage id="machine" class="machine" label="Built like a machine">
     <div class="machine-canvas">
       <SectionLine path="M218 0 V1024" mobilePath="M24 0 V1370" mobileHeight={1370} />
-      <SectionIndex index={6} style="--x:40;--y:40;--w:150" />
       <Headline lines={['Built like', 'a machine.']} class="machine-headline" />
       <div class="machine-progress canvas-item" aria-hidden="true">
         <span data-machine-clock>00:00.0</span>

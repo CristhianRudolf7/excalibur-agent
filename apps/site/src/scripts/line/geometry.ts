@@ -1,7 +1,7 @@
-/** Exact circular-arc geometry for these sections' M/H/V/A plotter paths.
+/** Exact circular-arc geometry for the sections' M/H/V/A plotter paths.
  * Native getPointAtLength repeatedly flattens every arc in Chrome. Cache 361
  * analytic points once instead; the shared engine can sample them cheaply.
- * Only these owned SVG instances are patched, and cleanup restores the methods.
+ * Only section SVG instances are patched, and cleanup restores the methods.
  */
 type Point = { x: number; y: number }
 type Segment = { length: number; at: (t: number) => Point }
@@ -78,8 +78,9 @@ export function prepareGeometry(section: HTMLElement) {
       const segment = segments[segmentIndex]!
       points.push(segment.at(Math.min(1, Math.max(0, (distance - start) / segment.length))))
     }
-    const originalLength = path.getTotalLength,
-      originalPoint = path.getPointAtLength
+    const descriptors = ['getTotalLength', 'getPointAtLength'].map(
+      (name) => [name, Object.getOwnPropertyDescriptor(path, name)] as const,
+    )
     path.getTotalLength = () => length
     path.getPointAtLength = (distance: number) => {
       const clamped = Math.max(0, Math.min(length, distance))
@@ -100,8 +101,10 @@ export function prepareGeometry(section: HTMLElement) {
       return new DOMPoint(points[SAMPLES]!.x, points[SAMPLES]!.y)
     }
     restores.push(() => {
-      path.getTotalLength = originalLength
-      path.getPointAtLength = originalPoint
+      descriptors.forEach(([name, descriptor]) => {
+        if (descriptor) Object.defineProperty(path, name, descriptor)
+        else Reflect.deleteProperty(path, name)
+      })
     })
   })
   return () => restores.forEach((restore) => restore())
