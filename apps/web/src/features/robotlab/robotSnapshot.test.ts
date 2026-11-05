@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { latestRobotState, robotState } from './robotState'
+import { latestRobotState, robotState } from './robotSnapshot'
 import type { LogEntry } from './types'
 
 const state = { support: ['FL', 'FR', 'RL'], margin: 0.02, z: 0.27, pitch_deg: 2, roll_deg: -1 }

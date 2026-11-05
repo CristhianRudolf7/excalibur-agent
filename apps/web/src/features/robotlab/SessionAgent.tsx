@@ -9,7 +9,7 @@ import { ActivityImage } from './ActivityImage'
 import { validLogImage } from './logic'
 import { useInitialChatScroll } from './useInitialChatScroll'
 import { useSessionLog } from './useSessionLog'
-import { latestRobotState, robotState } from './robotState'
+import { latestRobotState, robotState } from './robotSnapshot'
 import { RobotState } from './RobotState'
 import type { Session } from './types'
 

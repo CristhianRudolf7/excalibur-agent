@@ -1,5 +1,5 @@
 import { useLabText } from './i18n'
-import { stateRecord } from './robotState'
+import { stateRecord } from './robotSnapshot'
 import type { RobotId } from './types'
 
 export function RobotState({
