@@ -1,1 +1,284 @@
-/* Owned by the Machine section. Replace the stub composition here. */
+.machine .machine-headline {
+  --x: 32;
+  --y: 244;
+  --w: 660;
+  --size: 128;
+}
+.machine-layers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 1.43cqw;
+}
+.machine-layer {
+  z-index: calc(7 - var(--order));
+  transform-origin: center center;
+}
+.machine-note {
+  position: absolute;
+  right: calc(100% + 1cqw);
+  width: 14cqw;
+  top: 1.3cqw;
+  font-size: 1.17cqw;
+  line-height: 1.2;
+  text-align: right;
+  background: var(--bg);
+}
+.machine-note small {
+  display: block;
+  font-size: 0.97cqw;
+  margin-top: 0.4cqw;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.machine-note::after {
+  content: '';
+  position: absolute;
+  right: -1cqw;
+  top: 1.5cqw;
+  width: 0.75cqw;
+  border-bottom: 1px solid var(--leader);
+}
+.machine-layer-2 .machine-note small {
+  color: var(--blue-text);
+}
+.machine-layer-2 .b-plate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-bottom: 1px solid var(--ink);
+}
+.machine-sword {
+  position: absolute;
+  width: 3cqw;
+  height: 4cqw;
+  top: 0.1cqw;
+  left: 47%;
+  transform: rotate(42deg) scale(0.7);
+}
+.machine-insets {
+  position: absolute;
+  display: flex;
+  gap: 0.5cqw;
+  width: 72%;
+  top: 14%;
+  left: 14%;
+}
+.machine-insets .b-plate {
+  width: 32%;
+}
+.machine-arm {
+  position: absolute;
+  left: 10%;
+  top: 0;
+  width: 19%;
+  height: 70%;
+}
+.machine-layer-5 .b-label {
+  padding-left: 10%;
+  box-sizing: border-box;
+  font-size: 1.2cqw;
+}
+.machine-tools {
+  display: flex;
+  gap: 0.35cqw;
+  font-size: 0.78cqw;
+}
+.machine-tools .b-plate {
+  flex: 1;
+}
+.machine-axis {
+  height: 49.5cqw;
+}
+.machine-packet {
+  height: 0.78cqw;
+  background: var(--blue);
+}
+.machine-progress {
+  --x: 1208;
+  --y: 127;
+  --w: 290;
+  display: flex;
+  gap: 1cqw;
+  align-items: center;
+  font: 1.17cqw var(--font-mono);
+}
+.machine-progress i {
+  width: 12cqw;
+  height: 4px;
+  background: var(--hairline);
+}
+.machine-progress b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--blue);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.machine-dimension {
+  height: calc(var(--gap) / 15.36 * 1cqw);
+  font: 0.98cqw var(--font-mono);
+}
+.machine-dimension::before,
+.machine-dimension-cap {
+  content: '';
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0.7cqw;
+  border-top: 1px solid var(--ink-2);
+}
+.machine-dimension-cap {
+  top: 100%;
+}
+.machine-dimension-rule {
+  position: absolute;
+  left: 0.35cqw;
+  top: 0;
+  height: 100%;
+  border-left: 1px solid var(--ink-2);
+  transform-origin: top;
+}
+.machine-dimension span {
+  position: absolute;
+  left: 1.1cqw;
+  top: 50%;
+  white-space: nowrap;
+  background: var(--bg);
+}
+.machine-layer.b-seated > .b-plate > svg > .b-top,
+.machine-layer.b-seated > .b-plate > svg > .b-face {
+  fill: var(--blue-fill);
+}
+.machine-layer.b-seated > .b-plate > .b-label {
+  color: var(--on-blue);
+  font-size: 1.3em;
+  font-weight: 800;
+}
+@media (max-width: 1023px) {
+  .machine {
+    padding: 32px 24px 90px;
+    min-height: 1370px;
+    box-sizing: border-box;
+  }
+  .machine .machine-headline {
+    font-size: clamp(56px, 14vw, 100px);
+  }
+  .machine-layers {
+    display: grid;
+    gap: 38px;
+    margin: 64px 0 0 28px;
+    font-size: 17px;
+  }
+  .machine-layer {
+    position: relative;
+    width: 100%;
+    max-width: 550px;
+    padding-bottom: 50px;
+  }
+  .machine-note {
+    right: auto;
+    left: 0;
+    top: 100%;
+    margin-top: -40px;
+    width: 100%;
+    font-size: 12px;
+    text-align: left;
+  }
+  .machine-note small {
+    font-size: 11px;
+    margin-top: 5px;
+  }
+  .machine-note::after {
+    display: none;
+  }
+  .machine-progress,
+  .machine-dimensions,
+  .machine-axis,
+  .machine-packet {
+    display: none;
+  }
+  .machine-sword {
+    width: 30px;
+    height: 45px;
+    left: 47%;
+    top: 0;
+    transform: rotate(42deg);
+  }
+  .machine-layer-5 .b-label {
+    font-size: 12px;
+    padding-left: 20%;
+  }
+  .machine-tools {
+    font-size: 7px;
+    gap: 3px;
+    min-height: 55px;
+  }
+  .machine-arm {
+    width: 19%;
+    height: 70%;
+  }
+  .machine-layer-2 .b-plate {
+    font-size: 17px;
+  }
+  .machine .time-tick {
+    display: none;
+  }
+}
+
+.machine .time-tick {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .machine .machine-axis {
+    display: none;
+  }
+  .machine-tools {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    font-size: 11px;
+    min-height: 0;
+  }
+  .machine-tools .b-label {
+    font-size: 11px;
+  }
+}
+
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .anim .machine {
+    height: calc(min(100vw, 1536px) * 2 / 3 + 150vh);
+  }
+}
+
+.machine-canvas {
+  display: contents;
+}
+@media (min-width: 1024px) {
+  .machine-canvas {
+    display: block;
+    position: relative;
+    aspect-ratio: 1536/1024;
+    isolation: isolate;
+    background: var(--bg);
+  }
+}
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .anim .machine-canvas {
+    position: sticky;
+    top: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .machine-note {
+    left: calc((660 - var(--x)) / 15.36 * 1cqw);
+    right: auto;
+    width: 11.07cqw;
+  }
+}

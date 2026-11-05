@@ -3,11 +3,129 @@ import Stage from '../Stage.astro'
 import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
 import SectionIndex from '../parts/SectionIndex.astro'
+import Paladin from './parts-b/Paladin.astro'
 import '../../../styles/sections/code.css'
+const branches = [
+  'M360 663 H382 A24 24 0 0 0 406 639 V561 A24 24 0 0 1 430 537 H454',
+  'M360 663 H382 A24 24 0 0 1 406 687 V733 A24 24 0 0 0 430 757 H454',
+  'M670 537 H696 A25 25 0 0 0 721 512 A16 16 0 0 1 737 496 H769',
+  'M670 537 H696 A12.5 12.5 0 0 1 708.5 549.5 A12.5 12.5 0 0 0 721 562 H769',
+  'M935 496 H960 A24 24 0 0 1 984 520 V538 A24 24 0 0 0 1008 562 H1034',
+  'M935 562 H960 A24 24 0 0 0 984 538',
+  'M670 757 H690 A25 25 0 0 0 715 732 V707 A24 24 0 0 1 739 683 H763',
+  'M670 757 H690 A25 25 0 0 1 715 782 A12 12 0 0 0 727 794 H763',
+  'M915 683 H999',
+  'M915 794 H999',
+  'M1321 683 H1365 A24 24 0 0 1 1389 707 V893 A24 24 0 0 1 1365 917 H1336',
+  'M1202 786 H1365 A24 24 0 0 1 1389 810',
+]
 ---
 
-<Stage id="code" class="section-stub code" label="One sentence. A working system.">
-  <SectionLine />
-  <SectionIndex index={4} />
-  <Headline lines={['One sentence.', 'A working system.']} />
+<Stage id="code" class="code" label="Your code">
+  <SectionLine
+    path="M218 0 V663 H382 A24 24 0 0 1 406 687 V733 A24 24 0 0 0 430 757 H690 A25 25 0 0 0 715 732 V707 A24 24 0 0 1 739 683 H1365 A24 24 0 0 1 1389 707 V893 A24 24 0 0 1 1365 917 H906 A30 30 0 0 0 876 947 V962 A30 30 0 0 1 846 992 H250 A32 32 0 0 0 218 1024"
+    mobilePath="M24 0 V274 A26 26 0 0 0 50 300 V1298 A24 24 0 0 0 74 1322 H342 A24 24 0 0 1 366 1346 V1382 A24 24 0 0 1 342 1406 H48 A24 24 0 0 0 24 1430"
+    mobileHeight={1430}
+  >
+    <g slot="desktop" fill="none" stroke="var(--blue)" stroke-width="3">
+      {branches.map((d, i) => (
+        <path d={d} pathLength="1" data-code-branch data-branch={i} />
+      ))}
+      <g stroke="var(--leader)" stroke-width="1">
+        <path d="M164 556 L210 631 M536 453 L506 497 M1030 630 L999 669 M856 876 L914 921" />
+      </g>
+      <g fill="var(--ink)" stroke="none">
+        <circle cx="210" cy="631" r="3" />
+        <circle cx="506" cy="497" r="3" />
+        <circle cx="999" cy="669" r="3" />
+        <circle cx="914" cy="921" r="3" />
+      </g>
+    </g>
+  </SectionLine>
+  <SectionIndex index={4} style="--x:55;--y:32;--w:150" />
+  <Headline lines={['One sentence.', 'A working system.']} class="code-headline" />
+  <div class="code-circuit">
+    <p class="code-note code-note-1 canvas-item" data-noverlap>
+      (1) Reads the spec
+    </p>
+    <div class="code-node code-root canvas-item">Excalibur</div>
+    <p class="code-note code-note-2 canvas-item" data-noverlap>
+      (2) Splits the work
+    </p>
+    <div class="code-agent code-forge canvas-item" data-code-agent data-reveal>
+      <span>
+        <Paladin />
+      </span>
+      <strong>Forge</strong>
+    </div>
+    <div class="code-agent code-atlas canvas-item" data-code-agent data-reveal>
+      <span>
+        <Paladin />
+      </span>
+      <strong>Atlas</strong>
+    </div>
+    {['backend', 'frontend', 'tests', 'data'].map((name, i) => (
+      <div class={`code-node code-sub code-sub-${i} canvas-item`} data-code-sub data-reveal>
+        {name}
+      </div>
+    ))}
+    <div
+      class="code-diff canvas-item"
+      data-code-diff
+      data-reveal
+      aria-label="Sample code change: one deletion and two additions"
+    >
+      <div class="code-deletion">
+        − <i></i>
+      </div>
+      <div>
+        + <i></i>
+      </div>
+      <div>
+        + <i></i>
+      </div>
+    </div>
+    <p class="code-note code-note-3 canvas-item" data-noverlap>
+      (3) Tests its own code
+    </p>
+    <div class="code-test canvas-item" data-code-test>
+      <span>npm test</span>
+      <strong data-test-result>passed</strong>
+      <span class="code-test-failed" aria-hidden="true">
+        failed
+      </span>
+    </div>
+    <div class="code-checklist canvas-item" aria-label="Requirements R1 through R18 verified">
+      <span data-code-check>✓</span> R1
+      <br />
+      <span data-code-check>✓</span> R2
+      <br />
+      <span class="code-ellipsis">…</span>
+      <br />
+      <span data-code-check>✓</span> R18
+    </div>
+    <p class="code-note code-note-4 canvas-item" data-noverlap>
+      (4) Sends you the link
+    </p>
+    <div class="code-preview canvas-item" data-code-preview data-reveal>
+      <strong>Public preview</strong>
+      <span class="code-sample">Sample data</span>
+      <span class="code-preview-address">excalibur.trycloudflare.com</span>
+      <svg
+        viewBox="0 0 32 36"
+        aria-hidden="true"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
+        <rect x="3" y="9" width="19" height="24" rx="1" />
+        <path d="M10 9 V3 H29 V27 H22" />
+      </svg>
+    </div>
+  </div>
+  <p class="sr-only">
+    Sample workflow. Excalibur reads the spec, delegates backend and frontend to Forge, and tests
+    and data to Atlas. It tests the changes, verifies requirements, then returns a public preview.
+    The sample preview address is inactive.
+  </p>
 </Stage>
