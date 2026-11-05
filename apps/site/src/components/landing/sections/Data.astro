@@ -1,0 +1,13 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import '../../../styles/sections/data.css'
+---
+
+<Stage id="data" class="section-stub data" label="A messy sheet in. A database out.">
+  <SectionLine />
+  <SectionIndex index={3} />
+  <Headline lines={['A messy sheet in.', 'A database out.']} />
+</Stage>

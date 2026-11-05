@@ -1,0 +1,73 @@
+.hero-headline {
+  --x: 55;
+  --y: 198;
+  --w: 1370;
+  --size: 156;
+}
+.hero-description {
+  --x: 60;
+  --y: 888;
+  --w: 1320;
+  margin: 0;
+  font-size: 1.953125cqw;
+  letter-spacing: -0.03em;
+  line-height: 1.35;
+}
+.hero-cta {
+  --x: 60;
+  --y: 945;
+  --w: 300;
+  width: max-content;
+  font-size: 1.822917cqw;
+  line-height: 1.3;
+}
+.mobile-break {
+  display: none;
+}
+.hero-objects {
+  color: var(--blue);
+}
+
+@media (max-width: 1023px) {
+  .hero {
+    padding: 0 24px;
+    height: calc(850 / 390 * 100vw);
+    min-height: 780px;
+    max-height: 1100px;
+  }
+  .hero-headline {
+    position: absolute;
+    top: 16%;
+    left: 24px;
+    width: calc(100% - 48px);
+    font-size: clamp(51px, 14.36vw, 120px);
+  }
+  .mobile-break {
+    display: inline;
+  }
+  .hero-description {
+    position: absolute;
+    top: 77%;
+    left: 24px;
+    width: calc(100% - 70px);
+    font-size: clamp(19px, 5.13vw, 32px);
+    line-height: 1.4;
+    letter-spacing: -0.025em;
+  }
+  .hero-cta {
+    position: absolute;
+    top: 90%;
+    left: 24px;
+    width: max-content;
+    font-size: clamp(19px, 5.13vw, 28px);
+  }
+  .hero .time-tick {
+    font-size: 12px;
+  }
+}
+
+.anim .hero [data-object-stroke],
+.anim .hero [data-dog-stroke] {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+}

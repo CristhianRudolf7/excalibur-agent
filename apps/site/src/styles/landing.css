@@ -207,7 +207,7 @@ a {
 }
 .iso-plate text {
   fill: var(--ink);
-  font: 22px var(--font-mono);
+  font: 700 22px var(--font-mono);
 }
 .iso-plate.is-active text {
   fill: var(--on-blue);
@@ -231,7 +231,7 @@ a {
   .section-index {
     font-size: 1.823cqw;
   }
-  .mobile-line {
+  .stage .mobile-line {
     display: none;
   }
   .section-stub .headline {
@@ -246,7 +246,7 @@ a {
   }
 }
 @media (max-width: 1023px) {
-  .desktop-line {
+  .stage .desktop-line {
     display: none;
   }
   .stage {

@@ -1,20 +1,24 @@
 ---
-import '../styles/global.css'
+import Landing from '../layouts/Landing.astro'
+import Hero from '../components/landing/Hero.astro'
+import YourDay from '../components/landing/sections/YourDay.astro'
+import Memory from '../components/landing/sections/Memory.astro'
+import Data from '../components/landing/sections/Data.astro'
+import Code from '../components/landing/sections/Code.astro'
+import Work from '../components/landing/sections/Work.astro'
+import Machine from '../components/landing/sections/Machine.astro'
+import Measured from '../components/landing/sections/Measured.astro'
+import Extensions from '../components/landing/sections/Extensions.astro'
 ---
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Excalibur</title>
-  </head>
-  <body class="grid min-h-dvh place-items-center font-sans">
-    <main class="text-center">
-      <h1 class="text-3xl font-semibold">Excalibur</h1>
-      <a class="mt-4 inline-block underline" href="/docs/">
-        Documentation
-      </a>
-    </main>
-  </body>
-</html>
+<Landing>
+  <Hero />
+  <YourDay />
+  <Memory />
+  <Data />
+  <Code />
+  <Work />
+  <Machine />
+  <Measured />
+  <Extensions />
+</Landing>

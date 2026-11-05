@@ -1,0 +1,129 @@
+---
+import Stage from './Stage.astro'
+import Header from './Header.astro'
+import SectionLine from './parts/SectionLine.astro'
+import Quadruped from './parts/Quadruped.astro'
+import '../../styles/sections/hero.css'
+const path =
+  'M218 78 V770 A42 42 0 0 0 260 812 H282 A20 20 0 0 0 302 792 V742 A20 20 0 0 1 322 722 H480 A20 20 0 0 1 500 742 V798 A26 26 0 0 0 526 824 H970 V804 H1042 V782 H1112 V750 H1182 V718 H1252 V714 H1326 V674 H1398 V634 H1470 A26 26 0 0 1 1496 660 V968 A28 28 0 0 1 1468 996 H246 A28 28 0 0 0 218 1024'
+const mobilePath =
+  'M119.5 58 V410 A24 24 0 0 0 143.5 434 H153 A15 15 0 0 1 168 449 V504 A16 16 0 0 0 184 520 H207 V510 H240 V493 H273 V477 H306 V461 H340 A26 26 0 0 1 366 487 V802 A24 24 0 0 1 342 826 H48 A24 24 0 0 0 24 850'
+---
+
+<Stage id="top" class="hero" label="Excalibur">
+  <Header />
+  <SectionLine
+    path={path}
+    introX={1252}
+    introY={714}
+    mobilePath={mobilePath}
+    mobileHeight={850}
+    mobileIntroX={306}
+    mobileIntroY={477}
+  >
+    <g
+      slot="desktop"
+      class="hero-objects"
+      stroke="currentColor"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+    >
+      <g data-browser-object>
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M302 758 H372 Q380 758 384 750 L388 742 Q390 738 396 738 H450 Q458 738 462 748 L466 754 Q468 758 476 758 H500"
+        />
+        <circle cx="323" cy="741" r="4" />
+        <circle cx="344" cy="741" r="4" />
+        <circle cx="365" cy="741" r="4" />
+        <path
+          class="hero-cursor"
+          pathLength="1"
+          data-object-stroke
+          d="M434 780 V835 L449 823 L460 842 L468 838 L458 818 L478 815 Z"
+          fill="var(--bg)"
+        />
+        <path
+          data-click-rays
+          d="M433 754 V764 M415 761 L422 768 M407 779 H418 M411 798 L419 791 M450 760 L443 768"
+        />
+      </g>
+      <g data-diff-object>
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M634 744 Q622 744 622 756 V769 Q622 782 612 782 Q622 782 622 795 V808 Q622 820 634 820 M752 744 Q764 744 764 756 V769 Q764 782 774 782 Q764 782 764 795 V808 Q764 820 752 820"
+        />
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M647 764 H660 M653.5 757.5 V770.5 M677 764 H741 M647 795 H660 M677 795 H741"
+        />
+      </g>
+      <Quadruped />
+    </g>
+    <g
+      slot="mobile"
+      class="hero-objects"
+      stroke="currentColor"
+      stroke-width="3"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      fill="none"
+    >
+      <g data-browser-object>
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M119.5 434 H68 V478 H147 V434 H143.5 M68 446 H147"
+        />
+        <circle cx="76" cy="440" r="1.5" />
+        <circle cx="84" cy="440" r="1.5" />
+        <circle cx="92" cy="440" r="1.5" />
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M111 459 V488 L120 480 L126 492 L131 489 L125 477 L137 475 Z"
+          fill="var(--bg)"
+        />
+      </g>
+      <g data-diff-object>
+        <path
+          pathLength="1"
+          data-object-stroke
+          d="M164 549 Q155 549 155 560 Q155 568 148 568 Q155 568 155 577 Q155 586 164 586 M221 549 Q230 549 230 560 Q230 568 237 568 Q230 568 230 577 Q230 586 221 586 M170 560 H178 M174 556 V564 M187 560 H215 M170 576 H178 M187 576 H215"
+        />
+      </g>
+      <Quadruped transform="translate(-337 112) scale(.51)" />
+    </g>
+  </SectionLine>
+  <h1 class="headline canvas-item hero-headline" data-noverlap>
+    <span>An agent that</span>
+    <br />
+    <span>
+      doesn't just
+      <span class="mobile-break">
+        <br />
+      </span>{' '}
+      talk.
+    </span>
+    <br />
+    <span>It acts.</span>
+  </h1>
+  <p class="hero-description canvas-item" data-noverlap>
+    Excalibur works in your day, your code and the physical world.
+  </p>
+  <a
+    class="hero-cta canvas-item"
+    href="https://github.com/CristhianRudolf7/excalibur-agent"
+    data-noverlap
+  >
+    View on GitHub <span aria-hidden="true">→</span>
+  </a>
+  <p class="sr-only">
+    One blue line connects a browser, code changes and a four-legged robot climbing stairs.
+  </p>
+</Stage>

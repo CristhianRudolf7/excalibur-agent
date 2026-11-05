@@ -1,0 +1,64 @@
+---
+interface Props {
+  class?: string
+  transform?: string
+}
+const { class: className, transform } = Astro.props
+---
+
+<g
+  class:list={['quadruped', className]}
+  transform={transform}
+  fill="var(--bg)"
+  stroke="currentColor"
+  stroke-width="3"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Far legs first, then the rigid chassis and the nearer pair. -->
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1046 665 L1004 722 Q997 729 1004 739 L1021 762 Q1034 781 1018 794 L1010 789 Q1021 777 1010 763 L994 742 Q987 732 995 720 L1028 671"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1147 640 L1183 670 Q1191 676 1201 677 L1228 681 Q1250 685 1256 702 L1247 707 Q1241 694 1224 693 L1193 690 Q1180 690 1173 682 L1131 650"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1041 635 L1154 599 Q1162 597 1170 599 L1196 605 Q1210 609 1209 621 L1196 645 L1064 687 Q1048 692 1033 682 Q1019 672 1025 656 Z"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1042 633 V625 Q1042 618 1049 615 L1077 606 Q1083 604 1088 608 L1100 617 M1035 641 L1170 600"
+    fill="none"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1091 664 Q1093 649 1079 643 Q1062 636 1055 650 Q1051 658 1056 668 L1041 720 Q1035 735 1049 742 L1082 755 Q1094 761 1098 773 L1111 770 Q1107 749 1090 741 L1063 729 Q1058 727 1061 721 Z"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1179 615 Q1180 598 1196 597 Q1213 597 1217 613 Q1219 620 1212 628 L1179 665 Q1173 673 1183 675 L1225 680 Q1248 683 1260 700 L1250 708 Q1240 696 1223 694 L1168 689 Q1151 688 1155 674 Z"
+  />
+  <path
+    pathLength="1"
+    data-dog-stroke
+    d="M1057 661 Q1069 669 1089 661 M1181 616 Q1190 611 1197 618 Q1203 624 1216 617"
+    fill="none"
+  />
+  <g stroke-width="2">
+    <circle cx="1002" cy="730" r="4" />
+    <circle cx="1050" cy="730" r="4" />
+    <circle cx="1166" cy="677" r="4" />
+    <circle cx="1018" cy="794" r="9" />
+    <circle cx="1105" cy="773" r="9" />
+    <circle cx="1252" cy="708" r="9" />
+  </g>
+</g>

@@ -1,0 +1,13 @@
+---
+import Stage from '../Stage.astro'
+import SectionLine from '../parts/SectionLine.astro'
+import Headline from '../parts/Headline.astro'
+import SectionIndex from '../parts/SectionIndex.astro'
+import '../../../styles/sections/memory.css'
+---
+
+<Stage id="memory" class="section-stub memory" label="It remembers. And shows where it read it.">
+  <SectionLine />
+  <SectionIndex index={2} />
+  <Headline lines={['It remembers.', 'And shows', 'where it read it.']} />
+</Stage>
