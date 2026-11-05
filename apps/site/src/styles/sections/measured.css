@@ -1,1 +1,227 @@
-/* Owned by the Measured section. Replace the stub composition here. */
+.measured .measured-headline {
+  --x: 40;
+  --y: 140;
+  --w: 940;
+  --size: 140;
+}
+.measured-number {
+  --x: 34;
+  --y: 440;
+  --w: 700;
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: 14.32cqw;
+  letter-spacing: -0.065em;
+  line-height: 0.95;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.measured-number span {
+  background: var(--bg);
+}
+.measured-number [data-measured-number] {
+  display: inline-block;
+  width: 2.42em;
+}
+.measured-caption {
+  --x: 44;
+  --y: 651;
+  --w: 685;
+  margin: 0;
+  font: 1.43cqw/1.4 var(--font-mono);
+  background: var(--bg);
+}
+.measured-chart {
+  --x: 46;
+  --y: 740;
+  --w: 660;
+  font: 1.56cqw var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.measured-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 11.4583cqw;
+  width: 25.26cqw;
+  font-size: 0.78cqw;
+  color: var(--ink-2);
+  height: 1.4cqw;
+}
+.measured-row {
+  display: grid;
+  grid-template-columns: 11.4583cqw 25.26cqw 5.1cqw;
+  align-items: center;
+  height: 3.25cqw;
+  gap: 0;
+}
+.measured-label {
+  background: var(--bg);
+  width: max-content;
+}
+.measured-rule {
+  position: relative;
+  border-top: 1px solid var(--leader);
+}
+.measured-rule i {
+  position: absolute;
+  left: calc(var(--score) * 1%);
+  width: 3px;
+  height: 1.7cqw;
+  background: var(--leader);
+  top: 0;
+  transform: translate(-50%, -50%);
+}
+.measured-primary .measured-rule {
+  border-color: var(--blue);
+}
+.measured-primary .measured-rule i {
+  background: var(--blue);
+}
+.measured-value {
+  text-align: right;
+  background: var(--bg);
+  justify-self: end;
+  padding-left: 0.3cqw;
+}
+.measured-profile {
+  --x: 772;
+  --y: 565;
+  --w: 680;
+  font-size: 1.95cqw;
+}
+.measured-profile .b-label {
+  font-weight: 600;
+}
+.measured-profile-tiles {
+  position: absolute;
+  top: 17%;
+  left: 14%;
+  width: 72%;
+  display: flex;
+  gap: 4%;
+}
+.measured-profile-tiles > .b-plate {
+  width: 30.7%;
+}
+.measured-note {
+  font: 1.56cqw/1.22 var(--font-mono);
+  text-align: center;
+  background: var(--bg);
+}
+.measured-note-1 {
+  --x: 995;
+  --y: 236;
+  --w: 265;
+}
+.measured-note-2 {
+  --x: 1138;
+  --y: 366;
+  --w: 190;
+}
+.measured-note-3 {
+  --x: 1308;
+  --y: 428;
+  --w: 205;
+}
+.measured-source {
+  --x: 804;
+  --y: 834;
+  --w: 650;
+  font: 1.04cqw var(--font-mono);
+  color: var(--ink-2);
+  margin: 0;
+  width: max-content;
+  background: var(--bg);
+}
+@media (max-width: 1023px) {
+  .measured {
+    padding: 32px 24px 90px;
+    box-sizing: border-box;
+    min-height: 1100px;
+  }
+  .measured .measured-headline {
+    font-size: clamp(48px, 12.2vw, 92px);
+  }
+  .measured-number {
+    position: relative;
+    margin: 48px 0 0 22px;
+    font-size: clamp(84px, 23vw, 160px);
+    width: auto;
+  }
+  .measured-number [data-measured-number] {
+    width: auto;
+  }
+  .measured-caption {
+    position: relative;
+    margin: 24px 0 0 22px;
+    width: auto;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .measured-chart {
+    position: relative;
+    margin: 38px 0 0 22px;
+    font-size: 13px;
+    width: auto;
+  }
+  .measured-axis {
+    width: auto;
+    margin-left: 98px;
+    margin-right: 38px;
+    font-size: 10px;
+    height: 26px;
+  }
+  .measured-row {
+    grid-template-columns: 98px 1fr 38px;
+    height: 43px;
+  }
+  .measured-rule i {
+    height: 20px;
+    width: 3px;
+  }
+  .measured-profile {
+    position: relative;
+    margin: 80px 0 0 22px;
+    width: auto;
+    font-size: 16px;
+  }
+  .measured-profile .b-label {
+    font-size: 15px;
+  }
+  .measured-note {
+    position: relative;
+    margin: 22px 0 0 22px;
+    font-size: 13px;
+    text-align: left;
+    width: auto;
+  }
+  .measured-note br {
+    display: none;
+  }
+  .measured-note-1 {
+    margin-top: 32px;
+  }
+  .measured-leaders {
+    display: none;
+  }
+  .measured-source {
+    position: relative;
+    margin: 32px 0 0 22px;
+    font-size: 11px;
+    width: auto;
+  }
+  .measured .time-tick {
+    display: none;
+  }
+}
+
+.measured:not(.line-ready) .desktop-line .time-tick {
+  transform: translate(444px, 994px);
+}
+
+@media (max-width: 1023px) {
+  .measured .measured-leaders {
+    display: none;
+  }
+}
