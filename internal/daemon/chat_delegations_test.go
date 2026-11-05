@@ -270,7 +270,12 @@ func TestChatDelegationRunsAndPostsChanges(t *testing.T) {
 					t.Fatalf("missing managed project: %+v", fresh)
 				}
 				root = fresh.Roots[0]
-				if filepath.Dir(root) != filepath.Join(dataDir, "workspaces") {
+				// Managed workspace paths resolve symlinks, including macOS /var.
+				expectedParent, err := filepath.EvalSymlinks(filepath.Join(dataDir, "workspaces"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if filepath.Dir(root) != expectedParent {
 					t.Fatalf("unmanaged root: %s", root)
 				}
 				if _, err := os.Stat(filepath.Join(root, ".git", "HEAD")); err != nil {

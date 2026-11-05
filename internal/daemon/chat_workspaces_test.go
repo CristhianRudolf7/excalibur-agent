@@ -26,7 +26,12 @@ func TestChatWorkspaceUniqueContainedAndGitOverridesIgnored(t *testing.T) {
 			t.Fatal(err)
 		}
 		root := p.Roots[0]
-		if filepath.Dir(root) != filepath.Join(data, "workspaces") || seen[root] {
+		// Managed workspace paths resolve symlinks, including macOS /var.
+		expectedParent, err := filepath.EvalSymlinks(filepath.Join(data, "workspaces"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if filepath.Dir(root) != expectedParent || seen[root] {
 			t.Fatalf("nonunique or uncontained workspace: %s", root)
 		}
 		seen[root] = true
