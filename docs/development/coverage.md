@@ -3,20 +3,20 @@
 W5 closure pass (Appendix E). One row per architecture section:
 status and the backend test names that prove it. All tests run with
 `go test ./... -race`; cross builds (`GOOS=darwin`, `GOOS=windows`)
-cover the `internal/platform` stubs. Nothing below describes as
+check compilation; platform-specific runtime tests require native runners. Nothing below describes as
 implemented what is only planned; deferred scope (§0: image/video/
 voice/GPU models, autopoiesis, mobile, security beyond the vault)
 stays simulated behind contract seams.
 
 | Section | Status | Test evidence |
 |---|---|---|
-| §0 Scope (Go, Linux, deferred security/autopoiesis/mobile) | Done | Cross builds `GOOS=darwin`/`GOOS=windows`; `TestFakePlatform`, `TestOtherStubsUnsupported` (`internal/platform`); live checks only behind `live` + `EXCALIBUR_LIVE=1` |
+| §0 Scope (Go, Linux/Windows/macOS; autopoiesis/mobile deferred) | Done | Cross builds `GOOS=darwin`/`GOOS=windows`; `TestFakePlatform` and OS-specific suites (`internal/platform`); native platform integration requires its target OS; live checks only behind `live` + `EXCALIBUR_LIVE=1` |
 | §1 Harness definition | Done | `tests/walkthrough_*_test.go` end to end (see §26) |
 | §2 Principles + §2.1 deterministic/model boundary | Done | `TestTriageAddsNoLLMCall`, `TestShouldAskRules`, `TestDecideTable`, `TestDeciderNeverFinalVerdict` |
 | §3 System map, §3.1 components | Done | Wiring tests per package; `TestWiringBootWithAdapters`, `TestWiringTaskThroughGateway`, `TestWebSocketRPCAndSubscribe` |
 | §3.2 Processes (admission, priorities, `safego.Go`) | Done | `TestAvailSuite`, `TestGoRecoversPanic`, `TestTurnPanicContained`, `TestAdmissionCapAndDefault`, `TestGOMEMLIMITForBudget`, `scripts/check-no-bare-go.sh` |
 | §3.3 Deploy profiles + remote nodes | Done | `TestDataDirLayout`, `TestEphemeralRules`, `TestNodesExecTarget`, `TestExecEvalGuards` |
-| §3.4 Repo layout and `internal/platform` | Done | Cross builds; Linux suites (`TestLinuxSamplerSelf`, `TestLinuxProcessGroupKill`, `TestLinuxPTY*`, `TestLinuxServiceManagerLifecycle`); `TestOtherStubsUnsupported` |
+| §3.4 Repo layout and `internal/platform` | Done | Cross builds; Linux suites (`TestLinuxSamplerSelf`, `TestLinuxProcessGroupKill`, `TestLinuxPTY*`, `TestLinuxServiceManagerLifecycle`); Darwin and Windows backend suites in OS-suffixed test files (run on native hosts) |
 | §3.5 API surface (idempotency, cursors) | Done | `TestConversationSendIdempotent`, `TestSubscribeReplayNoGaps`, `TestBusCursorNoGaps`, `TestUnknownMethod` |
 | §3.6 Delegation CLI + MCP server | Done | `TestTaskRoundTrip`, `TestTaskQuestionReply`, `TestTaskNeverAsk`, `TestTaskResultFromMCP`, `TestTaskWorktree`, `TestACPInitializeSessionPrompt`, `TestMCPToolName`, `TestRegistryBrowserFlow`, daemon-presence guard `DaemonReachable` |
 | §4 Storage: porter, files, blobs, retention | Done | `TestConcurrentWritersNoBusy`, `TestGroupCommit`, `TestSavepointIsolation`, `TestBlobsRoundTrip`, `TestBlobGC`, `TestWALAlertAndCheckpoints`, `TestExternalLockBusy`, `TestDiskFullPausesBackground`, `TestForwardCompat`, `TestFailingMigrationLeavesDBIntact`, network-FS `DELETE` fallback tests |

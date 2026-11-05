@@ -1,7 +1,7 @@
 # Building and running on macOS
 
 The Darwin platform backends support both Apple Silicon (`arm64`) and Intel
-(`amd64`) Macs. Native execution and integration testing are still in progress;
+(`amd64`) Macs. macOS is a supported platform. Native integration checks require a Mac;
 cross-compilation on Linux checks compilation, not macOS runtime behavior.
 The platform implementation follows Sections 3.4, 20.1 and 25; see the
 [macOS platform decision](../decisions/0104-macos-platform.md) for its contracts

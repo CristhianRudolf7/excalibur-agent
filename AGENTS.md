@@ -7,11 +7,12 @@ file. No Spanish files and no `.es.md` pairs.
 ## Purpose and layout
 
 Excalibur is a personal AI assistant and programming harness: a single
-Go binary (`cmd/excalibur`) organized in `internal/` packages. The web
-interface is out of scope; it talks to the daemon through the JSON-RPC
-2.0 API in `packages/contracts`.
+Go binary (`cmd/excalibur`), a React web app (`apps/web`) and a public
+Astro site (`apps/site`). The web app talks to the daemon through the
+JSON-RPC 2.0 API in `packages/contracts`.
 
-Key trees: `cmd/excalibur` (binary), `internal/` (core), `pkg/extsdk`
+Key trees: `apps/` (web app and site), `extensions/` (bundled integrations),
+`cmd/excalibur` (binary), `internal/` (core), `pkg/extsdk`
 (public extension SDK), `packages/contracts` (shared JSON schemas),
 `docs/{architecture,decisions,development,research,store,user-guide}`,
 `integrations/{harbor,clients}`, `scripts/bench`, `store/{catalog,
@@ -19,18 +20,20 @@ examples,installer}`, `tests/` (integration and Section 23.5 suites).
 
 ## Source of truth
 
-The ONLY specification is the architecture document. It lives OUTSIDE
-this repository and is never copied, translated or committed here;
-reference its sections by number only. Implement exactly what it says
-for your sections: every responsibility, algorithm, state, error case,
-interruption behavior and every row of its verification tables must
-exist in code and be covered by Go tests.
+The architecture specification lives outside this repository and must not be
+copied or committed here. Reference its sections by number. Public behavior
+and verification evidence are documented in `docs/` and tested in code.
 
-Scope already fixed: Go, single module, Linux, Windows and macOS
-(Windows and macOS support in progress). OS-specific code lives in
-`internal/platform` and OS-suffixed files; the binary must build for all
-three platforms. Security is deferred except the secrets vault (20.1), no
-autopoiesis, no automatic skill learning, no mobile.
+Linux, Windows and macOS are supported. OS-specific code belongs in
+`internal/platform` and OS-suffixed files. Keep builds working for all three;
+record feature-specific limits and native verification gaps in the platform
+guides. Autopoiesis, automatic skill learning and mobile packaging are out of
+scope.
+
+The daemon binds to localhost by default. The secrets vault encrypts stored
+credentials; tools execute with the user's permissions and isolation varies
+by platform. Public previews expose an app to anyone with the link. See the
+README security notes before exposing the daemon or a preview.
 
 ## Contract rules
 
@@ -38,8 +41,7 @@ autopoiesis, no automatic skill learning, no mobile.
   `Provider`, `Tool`, `internal/platform`) are shared contracts. Do not
   break them. Changes must be additive and minimal, and recorded in
   `docs/decisions/NNNN-<slug>.md`.
-- Stay inside your assigned packages; other agents edit the rest in
-  parallel. Depend on interfaces and use the fakes in `.../fake`
+- Keep changes within the task scope. Depend on interfaces and use the fakes in `.../fake`
   subpackages in tests.
 - Every long-lived goroutine uses `safego.Go`; bare `go` statements are
   flagged by `scripts/check-no-bare-go.sh`.
@@ -89,17 +91,10 @@ trial records, 2-task live verification) in
 Do not regress any milestone: every change must keep its area's
 contract and backend tests passing (`go test ./... -race`).
 
-- H0 Repository skeleton and shared contracts (wave 0) — done.
-- H1 Providers of language models — done (`internal/providers`).
-- H2 Base storage — done (identifiers, layered config, Linux
-  `internal/platform`, SQLite porter, blobs, migrations).
-- H3 Durable engine and terminal — done (journal, agent loop, gateway
-  subset, context compiler basics, core file/terminal tools, extension
-  registry).
-
+- H0 Repository skeleton and shared contracts: module, types and verification.
 - H1 Providers of language models: `internal/providers` adapters on the
   wave-0 contract; contract tests against simulated servers.
-- H2 Base storage: identifiers, layered config loading, Linux
+- H2 Base storage: identifiers, layered config loading, cross-platform
   `internal/platform`, SQLite porter, blobs, migrations.
 - H3 Durable engine and terminal: journal, agent loop, gateway subset,
   context compiler basics, core file/terminal tools, extension registry.
@@ -124,5 +119,5 @@ contract and backend tests passing (`go test ./... -race`).
   library, citations.
 - H12 Assistant skills and decider: assistant/domain skill groups,
   external skill installs, roles, escalation, decider.
-- H13 Capabilities, automation, extensions on Linux: capability
+- H13 Capabilities, automation, extensions: capability
   contracts, MCP, extension kit, triggers, workflows, flow simulation.

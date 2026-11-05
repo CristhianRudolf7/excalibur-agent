@@ -1,4 +1,4 @@
-# Platform — Linux implementation and primitives
+# Platform backends and primitives
 
 Contract and backend tests of the `internal/platform` area: every
 operating-system dependency of the harness behind interfaces (Sections
@@ -8,8 +8,8 @@ these interfaces; this document only grows with contract changes.
 ## Contract
 
 `internal/platform/platform.go` declares the nine shared interfaces;
-this area implements them for Linux and adds the Section 3.2
-primitives. Nothing here changes the shared signatures (see
+this area implements them for Linux, Windows and macOS and adds the Section 3.2
+primitives. The list below details Linux; the native guides cover the others. Nothing here changes the shared signatures (see
 `docs/decisions/0005-platform-linux-notes.md`).
 
 - **Paths** (`paths_linux.go`): XDG data/config/cache roots plus
@@ -57,10 +57,9 @@ primitives. Nothing here changes the shared signatures (see
   low-priority workers via `safego.Go`; `New`/`NewWithLower`,
   blocking `Submit`, `TrySubmit` (`ErrFull`), idempotent `Close`;
   panicking tasks fail alone. Linux lowers each thread (nice +10);
-  other platforms no-op.
-- **Stubs** (`platform_other.go`, `!linux`; `cpupool/lower_other.go`):
-  every interface returns `errors.ErrUnsupported` so darwin/windows
-  builds keep compiling.
+  macOS uses Darwin lowering; Windows uses thread background priority.
+- **Other OS stubs** (`platform_other.go`, excluding Linux, Darwin and
+  Windows): unsupported operating systems return `errors.ErrUnsupported`.
 
 ## Backend tests
 
@@ -94,15 +93,22 @@ primitives. Nothing here changes the shared signatures (see
 - `cpupool/cpupool_test.go`: all tasks run, default sizing, lower
   hook per worker, panic isolation, full-queue `ErrFull`,
   post-close `ErrClosed`, idempotent close.
-- `platform_other_test.go` (`!linux`): every stub returns
+- `platform_other_test.go` (unsupported OS only): every stub returns
   `errors.ErrUnsupported`.
 - Repo-wide: `make verify` (`gofmt`, `vet`, `staticcheck`,
   bare-go guard, `go test ./... -race`, darwin/windows builds).
 
-## Deferred (not in this area)
+## Windows and macOS
 
-No orchestrator wiring (H8), no sd_notify watchdog pings or
-`enable-linger` handling (H10 daemon work), no vault KDF/unlock flow
-(H10; the keyring only exposes the fallback hook), no cgroup
-per-run delegation setup (created by the future executor), no macOS
-or Windows backends.
+Both have native paths, process control, priority, sampling, file locking,
+keyring, service management and PTY backends, with OS-suffixed tests.
+Windows uses Job Objects, Credential Manager, Task Scheduler and ConPTY
+(Windows 10 1809 or newer). macOS uses process groups, Keychain, a per-user
+LaunchAgent and Unix PTYs.
+
+See [Windows](windows.md) and [macOS](macos.md) for prerequisites and native
+verification. Linux cgroups, systemd watchdogs and network namespaces do not
+carry over to either platform. Isolators are pass-through here; optional tool
+isolation is feature and platform dependent. Robot Lab requires Apple Silicon
+on macOS; Intel Macs can run the rest of Excalibur. Cross builds do not prove
+native service, browser, keyring or rendering behavior.

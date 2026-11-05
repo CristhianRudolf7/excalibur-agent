@@ -1,9 +1,9 @@
 # Windows development
 
-Platform scope: Linux, Windows (in progress) and macOS (in progress).
-A separate team is implementing macOS. Native Windows backend behavior still
-needs verification on a real Windows runner; the paths and integrations below
-are the Windows design, not a claim that all backends are complete.
+Windows is a supported platform, alongside Linux and macOS. Native backends
+implement paths, process trees, priorities, sampling, file locks, Credential
+Manager, Task Scheduler and ConPTY. Cross-compilation verifies buildability;
+native integration checks require a Windows runner and installed dependencies.
 
 ## Requirements
 
@@ -60,7 +60,7 @@ temporary directory. `pnpm test:e2e` sets the Robot Lab test tracker without she
 environment syntax and forwards Playwright arguments. Integration tests use
 `node scripts/dev-daemon.mjs`; the existing Linux shell launcher remains available.
 
-## Windows platform design
+## Windows platform backends
 
 | Location | Directory |
 | --- | --- |
@@ -68,7 +68,7 @@ environment syntax and forwards Playwright arguments. Integration tests use
 | Configuration | `%APPDATA%\Excalibur` |
 | Runtime files | `%LOCALAPPDATA%\Excalibur\run` |
 
-Autostart is designed as a per-user Task Scheduler task that runs the daemon at
+Autostart uses a per-user Task Scheduler task that runs the daemon at
 logon, with restart supervision. The vault keyring uses Windows Credential
 Manager through the existing keyring adapter; secrets are not stored in the
 scheduled task or command line. These integrations belong behind
@@ -76,6 +76,6 @@ scheduled task or command line. These integrations belong behind
 
 Interactive terminal sessions use ConPTY and require Windows 10 version 1809 or
 later (Section 13.5). Diagram renderers have no Windows network isolation;
-network namespace isolation remains unavailable. Backend tests and a real
-Windows run must confirm paths, Task Scheduler, Credential Manager, ConPTY and
-child-tree cancellation before Windows support is considered complete.
+network namespace isolation remains unavailable. Backend tests cover these interfaces. Actual Task Scheduler registration,
+Credential Manager access, ConPTY interaction and child-tree cancellation must
+also be checked on a native Windows host; this Linux checkout cannot verify them.

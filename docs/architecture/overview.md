@@ -1,7 +1,8 @@
 # Architecture overview
 
 Excalibur is a personal AI assistant and programming harness: a single
-Go binary (`cmd/excalibur`) that receives requests, converses through a
+Go binary (`cmd/excalibur`), React web app (`apps/web`) and public Astro
+site (`apps/site`). The backend receives requests, converses through a
 master agent, plans verifiable work, executes tools as low-priority
 child processes, coordinates subagents, remembers across scopes,
 compiles small stable contexts, verifies with executable checks and
@@ -42,12 +43,13 @@ only for tool execution, each in its own process group. Key pieces:
   cursors, per-task metrics, ATIF traces.
 - **Capabilities** (`internal/capabilities`): browser, search, vision,
   voice, devices, documents, apps, messaging, nodes, MCP, store, GPU.
-- **Vault** (`internal/vault`): the only security piece of this
-  version (20.1).
+- **Vault** (`internal/vault`): encrypted secrets, credential references and
+  redaction (20.1). The gateway defaults to localhost; public preview links
+  expose their app to anyone who has the link.
 - **Daemon** (`internal/daemon`): boot, supervision, updates.
 - **Eval** (`internal/eval`): `exec`, eval profile, Harbor adapter.
 - **Platform** (`internal/platform`): every OS dependency behind
-  interfaces; Linux implemented, the rest stubs.
+  interfaces with Linux, Windows and macOS backends.
 - **CLI** (`internal/cli`, `cmd/excalibur`): thin layers over the core.
 
 ## Design principles (2)
@@ -61,7 +63,7 @@ budgets (P9); OS behind interfaces (P10).
 
 ## Deployment (3.2, 3.3)
 
-Full profile (Linux desktop/server) and eval profile (ephemeral
+Full profile (Linux, Windows and macOS) and eval profile (ephemeral
 container, `exec` only). Remote nodes are external capabilities.
 Background work is admission-controlled with reserved cores for the
 interactive path; tool processes run at low priority; panics are
