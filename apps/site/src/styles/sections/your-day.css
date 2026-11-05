@@ -328,7 +328,7 @@
 }
 @media (min-width: 1024px) {
   .your-day:not(.line-ready) .desktop-line .time-tick {
-    transform: translate(937px, 740px);
+    transform: translate(700px, 963px);
   }
 }
 
