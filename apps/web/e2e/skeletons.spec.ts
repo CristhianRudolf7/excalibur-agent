@@ -244,8 +244,12 @@ test('older chat messages keep their button label and show two pending message r
   await expect(button).toHaveAttribute('aria-busy', 'true')
   await expect(button).toHaveAccessibleName('Cargar mensajes anteriores')
   await expect(page.locator('.sk-history .sk-message')).toHaveCount(2)
-  await expect(page.getByText('Existing history 0', { exact: true })).toBeVisible()
+  // History is virtualized; the latest loaded message stays visible during loading.
+  await expect(page.getByText('Existing history 49', { exact: true })).toBeVisible()
   release()
   await expect(page.locator('.sk-history')).toHaveCount(0)
+  await page.locator('.messages').evaluate((element) => {
+    element.scrollTop = 0
+  })
   await expect(page.getByText('Earlier history arrived')).toBeVisible()
 })
