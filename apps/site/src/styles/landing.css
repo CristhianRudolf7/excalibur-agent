@@ -114,6 +114,7 @@ a {
   opacity: 1;
 }
 .headline {
+  isolation: isolate;
   font-family: var(--font-sans);
   font-weight: 800;
   letter-spacing: -0.05em;
@@ -121,9 +122,14 @@ a {
   margin: 0;
 }
 .headline span {
+  position: relative;
+}
+.headline span::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: var(--bg);
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+  z-index: -1;
 }
 .mono,
 .section-index {
