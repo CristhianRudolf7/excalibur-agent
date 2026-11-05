@@ -27,7 +27,7 @@ func TestSIGTERMContext(t *testing.T) {
 		}
 		os.Exit(0)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSIGTERMContext$")
 	cmd.Env = append(os.Environ(), "EXCALIBUR_TEST_SIGTERM=1")

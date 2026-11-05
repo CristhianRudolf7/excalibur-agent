@@ -148,7 +148,8 @@ func evidenceFixture(t *testing.T) (*deliveryEvidence, map[string]any) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = png.Encode(f, image.NewRGBA(image.Rect(0, 0, size.width, size.height)))
+		encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+		err = encoder.Encode(f, image.NewRGBA(image.Rect(0, 0, size.width, size.height)))
 		_ = f.Close()
 		if err != nil {
 			t.Fatal(err)

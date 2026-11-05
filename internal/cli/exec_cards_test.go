@@ -121,7 +121,7 @@ func TestExecEngineSkillsCards(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "hello.txt")
 	fake := providerfake.New("e2e-cards")
-	makeArgs, _ := json.Marshal(map[string]string{"command": "make -C /tmp/definitely-missing-xyz-cards", "workdir": dir})
+	makeArgs, _ := json.Marshal(map[string]string{"command": "make excalibur-test-missing-target", "workdir": dir})
 	args, _ := json.Marshal(map[string]string{"path": target, "content": "hello cards"})
 	readArgs, _ := json.Marshal(map[string]string{"path": target})
 	fake.Responses = []providers.ChatResponse{
@@ -205,7 +205,7 @@ func TestExecEngineSkillsCardsErrorCardsOff(t *testing.T) {
 	t.Setenv("EXCALIBUR_TIME_BUDGET_ONLY", "0")
 	dir := t.TempDir()
 	fake := providerfake.New("e2e-cards-off")
-	makeArgs, _ := json.Marshal(map[string]string{"command": "make -C /tmp/definitely-missing-xyz-cards", "workdir": dir})
+	makeArgs, _ := json.Marshal(map[string]string{"command": "make excalibur-test-missing-target", "workdir": dir})
 	fake.Responses = []providers.ChatResponse{
 		{Message: providers.Message{Role: providers.RoleAssistant, Content: "",
 			ToolCalls: []providers.ToolCall{{ID: "c1", Name: "exec", Arguments: makeArgs}}}},
