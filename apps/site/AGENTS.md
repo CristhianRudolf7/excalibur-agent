@@ -91,8 +91,8 @@ import { reveal, drawPath, steppedHop, countUp } from '../line/helpers'
 
 export function init(section: HTMLElement) {
   const line = createSectionLine(section, {
-    start: 'top 62%',
-    end: 'bottom 62%',
+    start: 'top 50%',
+    end: 'bottom 50%',
   })
   line.onReach(0.42, () => reveal(section.querySelector('[data-reveal]')))
   return () => line.destroy()
@@ -156,36 +156,36 @@ phone compositions. Use
 - `brand/Logo`: optional `swordOnly`; the original 6 × 16 pixel sword grid.
 - `Quadruped`: hand-drawn decorative SVG group, optional `transform`, `class`.
 
-### Fixed ownership
+### Integrated sections
 
-For each row, edit only the component and its same-named CSS and script.
-Shared components, engine, page order and dependencies belong to the foundation.
-A section must not need shared-file edits to replace its stub.
+All sections are implemented. Ownership boundaries from the parallel build no
+longer apply. Reusable artwork lives in `components/landing/parts/` and rail
+geometry in `scripts/line/geometry.ts`; do not create worker-specific copies.
+`ScoreRuler` shares the exact linear 0–100 scale between Machine and Measured.
 
-| Section component           | Anchor / CSS and script basename | Owner      |
-| --------------------------- | -------------------------------- | ---------- |
-| `Hero.astro`                | `top` / `hero`                   | Foundation |
-| `sections/YourDay.astro`    | `your-day`                       | A          |
-| `sections/Memory.astro`     | `memory`                         | A          |
-| `sections/Data.astro`       | `data`                           | A          |
-| `sections/Code.astro`       | `code`                           | B          |
-| `sections/Work.astro`       | `work`                           | B          |
-| `sections/Machine.astro`    | `machine`                        | B          |
-| `sections/Measured.astro`   | `measured`                       | B          |
-| `sections/Extensions.astro` | `extensions`                     | B          |
+The order is Hero, YourDay, Memory, Data, Code, Work, Machine, Measured, Install,
+and Extensions. The eight feature sections use `/ 08`; Machine is an unnumbered
+blueprint interlude. Install's commands and platform controls are HTML, with
+all commands available without JavaScript. Its small module adds OS selection,
+keyboard tabs, and clipboard feedback.
 
-CSS lives under `src/styles/sections/`; scripts under `src/scripts/sections/`.
-Scope section rules by their section class so workers cannot affect each other.
-All other sections are intentional stubs until their owner implements them.
+The line engine builds a monotone schedule from its cached 361 path samples.
+Backtracking excursions are drawn while they fit in the viewport. The native
+sticky Machine reserves 150vh in CSS, and its line schedule includes that
+journey. Neither geometry nor viewport measurements run in the frame callback.
+Keep the live contexts on a persisted `pagehide` and refresh on `pageshow`.
+Stage paint is contained. Desktop stages except the sticky Machine use native
+`content-visibility: auto`; their fixed aspect ratios reserve the complete
+height. Phones retain normal rendering so stacked content never changes height.
 
 ### Browser verification
 
 Use Node 22 / pnpm from `~/.local/opt/node/bin`. Run heavy commands with
 `nice -n 10`. Browser tools use installed Google Chrome, never download one.
 All tests serve the production `dist/` through Astro preview on
-`127.0.0.1:4331`. `tests/server.ts` records its own preview PID and stops only
+`127.0.0.1:4336`. `tests/server.ts` records its own preview PID and stops only
 that process; it can reuse an already running preview. Later workers must use
-their assigned port through `SITE_PORT=4332 pnpm shots ...` (and the same override
+their assigned port through `SITE_PORT=4336 pnpm shots ...` (and the same override
 for tests/perf). Do not share another worker's port or stop their server.
 
 ```sh
@@ -209,4 +209,12 @@ contrast, themes, keyboard navigation, no-JS and reduced motion. Budgets follow
 only assets reachable from the landing (including all lazy chunks), not docs
 bundles. Performance reports are in `test-results/`, include rAF p50/p95 at 4×
 CPU throttling, longest task, CLS and DOM count, and state the headless software
-rendering limitation. Rerun budgets and performance after all stubs are filled.
+rendering limitation. Measure the complete integrated landing in both themes.
+
+When an earlier session owns the assigned port, `startPreview` checks the HTML
+against this checkout's `dist/index.html`. If it differs, the Chrome harness
+serves the current production files through request routing on the same origin.
+It never stops that foreign process or reads its worktree. `SITE_FROM_DISK=1`
+forces this mode. The warning and final report must disclose it. The setting
+is test-only and ships no runtime code. Run build-changing fixture checks
+sequentially; never rebuild `dist` while another browser audit is using it.

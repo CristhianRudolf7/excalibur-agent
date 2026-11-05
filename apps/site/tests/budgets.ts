@@ -29,8 +29,15 @@ const size = (extension: string) =>
   [...used]
     .filter((file) => file.endsWith(extension))
     .reduce((sum, file) => sum + gzipSync(readFileSync(file)).length, 0)
+const inlineScripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
+  .map((match) => match[1]!.trim())
+  .filter(Boolean)
+  .join('\n')
+const inlineJavaScriptGzip = inlineScripts ? gzipSync(inlineScripts).length : 0
 const report = {
-  javascriptGzip: size('.js'),
+  externalJavaScriptGzip: size('.js'),
+  inlineJavaScriptGzip,
+  javascriptGzip: size('.js') + inlineJavaScriptGzip,
   cssGzip: size('.css'),
   htmlGzip: gzipSync(html).length,
   budgets: { javascriptGzip: 60 * 1024, cssGzip: 40 * 1024, htmlGzip: 60 * 1024 },

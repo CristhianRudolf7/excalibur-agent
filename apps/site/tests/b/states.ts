@@ -1,3 +1,4 @@
+import { productionBrowser } from '../build-browser.ts'
 import { chromium } from '@playwright/test'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { serveBuild } from './static.ts'
@@ -6,7 +7,7 @@ import { baseURL } from '../server.ts'
 const names = (process.env.B_SECTIONS ?? 'code,work,machine,measured,extensions').split(',')
 const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/b'
 await mkdir(out, { recursive: true })
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 async function capture(page: import('@playwright/test').Page, name: string, file: string) {
   if (name === 'machine' && page.viewportSize()!.width >= 1024 && !file.includes('no-js')) {
     await page.screenshot({ path: `${out}/${file}.png` })

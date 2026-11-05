@@ -1,3 +1,4 @@
+import { productionBrowser } from '../build-browser.ts'
 /** Capture the normal production splash, then make local art-direction sheets. */
 import { chromium } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
@@ -7,7 +8,7 @@ const out =
   process.env.DOCS_SHOTS_DIR ??
   '/home/cristhian/projects/ui-conceptos/landing/implementacion/docs/accepted'
 const stop = await startPreview()
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 try {
   for (const width of [1280, 1536, 390]) {
     for (const theme of ['light', 'dark'] as const) {

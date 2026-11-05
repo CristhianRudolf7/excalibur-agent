@@ -1,3 +1,4 @@
+import { productionBrowser } from './build-browser.ts'
 import { chromium } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -18,7 +19,7 @@ const out = resolve(option('out', 'test-results/shots'))
 const widths = option('widths', '1280,1536,1920,390').split(',').map(Number)
 const themes = option('theme', 'light,dark').split(',') as ('light' | 'dark')[]
 const stop = await startPreview()
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 await mkdir(out, { recursive: true })
 try {
   for (const theme of themes)

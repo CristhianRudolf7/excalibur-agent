@@ -1,3 +1,4 @@
+import { productionBrowser } from '../build-browser.ts'
 import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { chromium } from '@playwright/test'
@@ -6,7 +7,7 @@ import { baseURL, startPreview } from '../server.ts'
 
 // Use the assigned production-preview port. The server helper records and stops
 // only the PID that it starts. No browser or daemon installation is performed.
-assert.equal(process.env.SITE_PORT, '4335', 'Set SITE_PORT=4335 for this content worktree.')
+assert(process.env.SITE_PORT, 'Set SITE_PORT to the assigned preview port.')
 const stop = await startPreview()
 let browser
 const output = 'test-results/content'
@@ -20,7 +21,7 @@ const examples = new Set([
 const report = { views: 0, maxOverflow: 0, screenshots: [], errors: [], shellBrokenLinks: [] }
 try {
   await mkdir(output, { recursive: true })
-  browser = await chromium.launch({ channel: 'chrome', headless: true })
+  browser = productionBrowser(await chromium.launch({ channel: 'chrome', headless: true }))
   for (const theme of ['light', 'dark']) {
     for (const width of [360, 390, 1024, 1280, 1366, 1536, 1920]) {
       const context = await browser.newContext({

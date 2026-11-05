@@ -1,10 +1,11 @@
+import { productionBrowser } from '../build-browser.ts'
 import { chromium } from '@playwright/test'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { baseURL } from '../server.ts'
 import { serveBuild } from './static.ts'
 
 const stop = async () => {}
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 try {
   const page = await browser.newPage({ viewport: { width: 1536, height: 864 } })
   await serveBuild(page.context())

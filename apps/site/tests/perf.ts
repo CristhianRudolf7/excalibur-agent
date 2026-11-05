@@ -1,11 +1,13 @@
+import { productionBrowser } from './build-browser.ts'
 import { chromium } from '@playwright/test'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { startPreview, baseURL } from './server.ts'
 
+const theme = process.env.SITE_THEME === 'dark' ? 'dark' : 'light'
 const stop = await startPreview()
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 try {
-  const page = await browser.newPage({ viewport: { width: 1536, height: 864 } })
+  const page = await browser.newPage({ viewport: { width: 1536, height: 864 }, colorScheme: theme })
   const client = await page.context().newCDPSession(page)
   await client.send('Emulation.setCPUThrottlingRate', { rate: 4 })
   await page.addInitScript(() => {
@@ -24,6 +26,8 @@ try {
   await page.goto(baseURL)
   await page.evaluate(() => document.fonts.ready)
   await page.waitForTimeout(2500)
+  await client.send('Performance.enable')
+  const metricsBefore = (await client.send('Performance.getMetrics')).metrics
   const report = await page.evaluate(async () => {
     const data = (
       window as unknown as {
@@ -62,13 +66,23 @@ try {
       domNodes: document.querySelectorAll('*').length,
     }
   })
+  const metricsAfter = (await client.send('Performance.getMetrics')).metrics
+  const costs = Object.fromEntries(
+    ['ScriptDuration', 'LayoutDuration', 'RecalcStyleDuration', 'TaskDuration'].map((name) => [
+      name,
+      (metricsAfter.find((metric) => metric.name === name)?.value ?? 0) -
+        (metricsBefore.find((metric) => metric.name === name)?.value ?? 0),
+    ]),
+  )
   const result = {
+    theme,
     ...report,
-    note: 'System Chrome, headless software rendering. Paint cost may exceed hardware rendering; frame intervals are rAF samples during a native scripted scroll of the current skeleton.',
+    cpuSeconds: costs,
+    note: 'System Chrome, headless software rendering. Paint cost may exceed hardware rendering; frame intervals are rAF samples during a native scripted scroll of the complete landing.',
   }
   console.log(JSON.stringify(result, null, 2))
   await mkdir('test-results', { recursive: true })
-  await writeFile('test-results/perf.json', JSON.stringify(result, null, 2))
+  await writeFile(`test-results/perf-${theme}.json`, JSON.stringify(result, null, 2))
   if (report.longestTask > 100 || report.cls > 0.02) process.exitCode = 1
 } finally {
   await browser.close()

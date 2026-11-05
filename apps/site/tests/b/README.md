@@ -6,16 +6,16 @@ Playwright uses system Chrome.
 ```sh
 export PATH=$HOME/.local/opt/node/bin:$PATH
 nice -n 10 pnpm build
-SITE_PORT=4333 nice -n 10 pnpm exec playwright test --config tests/b/playwright.config.ts
-SITE_PORT=4333 nice -n 10 node --experimental-strip-types tests/b/capture.ts
-SITE_PORT=4333 nice -n 10 node --experimental-strip-types tests/b/states.ts
-SITE_PORT=4333 nice -n 10 node --experimental-strip-types tests/b/perf.ts
+SITE_PORT=4336 nice -n 10 pnpm exec playwright test --config tests/b/playwright.config.ts
+SITE_PORT=4336 nice -n 10 node --experimental-strip-types tests/b/capture.ts
+SITE_PORT=4336 nice -n 10 node --experimental-strip-types tests/b/states.ts
+SITE_PORT=4336 nice -n 10 node --experimental-strip-types tests/b/perf.ts
 ```
 
 The default fixture fulfills Chrome requests from this worktree's production
 `dist/`. It needs no listening server and cannot reuse another worker's stale
 preview. Set `B_DIRECT_PREVIEW=1` to verify an already running, owned production
-preview at `127.0.0.1:4333` instead. Astro's global preview lock may refer to another
+preview at `127.0.0.1:4336` instead. Astro's global preview lock may refer to another
 worker: use `--ignore-lock` when starting an owned foreground preview, never
 `--force` or `astro preview stop`. Stop only the PID you recorded yourself.
 
@@ -32,5 +32,5 @@ beyond-viewport document clips misrepresent sticky paint positions.
 Performance uses an 18-second native scripted scroll, 4x CDP CPU throttling, and
 rAF samples. A zero longest-task value means no task reached the browser's 50ms
 long-task threshold. Headless software rendering and host contention can inflate
-paint and scheduling costs. This worktree still has worker A's section placeholders;
-repeat budgets and performance after integration.
+paint and scheduling costs. All sections are integrated; measure the complete
+landing in both themes with the shared `pnpm perf` runner.

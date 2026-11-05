@@ -1,3 +1,4 @@
+import { productionBrowser } from '../build-browser.ts'
 import { chromium } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { baseURL } from '../server.ts'
@@ -7,7 +8,7 @@ const names = (process.env.B_SECTIONS ?? 'code,work,machine,measured,extensions'
 const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/b'
 const widths = (process.env.B_WIDTHS ?? '1024,1280,1536,1920,390').split(',').map(Number)
 
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 await mkdir(out, { recursive: true })
 try {
   for (const theme of ['light', 'dark'] as const)

@@ -3,12 +3,16 @@ import { readFile } from 'node:fs/promises'
 import { resolve, extname, sep } from 'node:path'
 import { baseURL } from './server.ts'
 
+const routed = new WeakSet<BrowserContext>()
+const patched = new WeakSet<Browser>()
+
 /** Optional production-file routing when another worker owns the assigned port.
  * Requests retain the assigned origin; only this checkout's dist is served.
  * No process, source directory, or build in another worktree is modified.
  */
 export async function serveBuild(context: BrowserContext) {
-  if (process.env.SITE_FROM_DISK !== '1') return
+  if (process.env.SITE_FROM_DISK !== '1' || routed.has(context)) return
+  routed.add(context)
   const root = resolve('dist')
   const types: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
@@ -36,6 +40,8 @@ export async function serveBuild(context: BrowserContext) {
 }
 
 export function productionBrowser(browser: Browser): Browser {
+  if (patched.has(browser)) return browser
+  patched.add(browser)
   const newContext = browser.newContext.bind(browser)
   const newPage = browser.newPage.bind(browser)
   browser.newContext = async (options) => {

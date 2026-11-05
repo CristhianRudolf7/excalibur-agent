@@ -1,3 +1,4 @@
+import { productionBrowser } from '../build-browser.ts'
 /** Run after `pnpm build`: Node 22, installed Chrome, assigned port only.
  * A separate test build temporarily promotes the private draft. The source is
  * restored immediately and a normal production build is restored on exit.
@@ -62,7 +63,7 @@ try {
     await writeFile(fixture, source)
   }
   stop = await startPreview()
-  browser = await chromium.launch({ channel: 'chrome' })
+  browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
   const errors: string[] = []
   const initialScripts = new Set<string>()
   const searchScripts = new Set<string>()
@@ -100,7 +101,12 @@ try {
         expect(fontSize).toBeGreaterThanOrEqual(18.67)
         await page.screenshot({ path: `${out}/home-focus-${width}-${theme}.png` })
       }
-      for (const route of ['/docs/', '/es/docs/', '/docs/style-guide/']) {
+      for (const route of [
+        '/docs/',
+        '/es/docs/',
+        '/docs/getting-started/install/',
+        '/docs/style-guide/',
+      ]) {
         await page.goto(`${baseURL}${route}`)
         await page.evaluate(() => document.fonts.ready)
         expect(await page.locator('h1').count()).toBe(1)
@@ -156,9 +162,9 @@ try {
           return failures
         })
         expect(failures, `${route}, ${theme}, ${width}: text contrast`).toEqual([])
+        if (route.includes('getting-started/install') && width >= 800)
+          await expect(page.locator('.sidebar-content a[aria-current="page"]')).toBeVisible()
       }
-      if (width >= 800)
-        await expect(page.locator('.sidebar-content a[aria-current="page"]')).toBeVisible()
       await page.screenshot({ path: `${out}/article-${width}-${theme}.png` })
       await page.screenshot({ path: `${out}/article-full-${width}-${theme}.png`, fullPage: true })
       expect(

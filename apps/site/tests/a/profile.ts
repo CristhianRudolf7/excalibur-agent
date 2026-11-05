@@ -1,8 +1,9 @@
+import { productionBrowser } from '../build-browser.ts'
 import { chromium } from '@playwright/test'
 import { writeFile } from 'node:fs/promises'
 import { baseURL } from '../server.ts'
 
-const browser = await chromium.launch({ channel: 'chrome' })
+const browser = productionBrowser(await chromium.launch({ channel: 'chrome' }))
 try {
   const page = await browser.newPage({ viewport: { width: 1536, height: 864 } })
   const client = await page.context().newCDPSession(page)

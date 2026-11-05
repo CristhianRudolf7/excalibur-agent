@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../browser'
 import { baseURL } from '../server'
 import { serveBuild } from './static'
 
@@ -192,7 +192,7 @@ for (const width of [390, 1280, 1536, 1920])
     await page.goto('/')
     const gaps = await page.evaluate(() => {
       const selector = innerWidth < 1024 ? '.mobile-line' : '.desktop-line'
-      const paths = ['code', 'work', 'machine', 'measured', 'extensions'].map((name) =>
+      const paths = ['code', 'work', 'machine', 'measured', 'install', 'extensions'].map((name) =>
         document.querySelector<SVGPathElement>(`#${name} ${selector} [data-line-path]`)!,
       )
       return paths.slice(1).map((path, i) => {

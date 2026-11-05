@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './browser'
 import { baseURL } from './server'
 
 for (const width of [1280, 1536, 1920]) {
