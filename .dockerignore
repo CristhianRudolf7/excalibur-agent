@@ -1,0 +1,5 @@
+**
+!build/
+!bin/linux/
+!bin/linux/**
+!Dockerfile

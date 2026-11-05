@@ -1,0 +1,202 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Existing v-prefixed release tag'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version || github.ref }}
+      - id: version
+        env:
+          RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || exit 1
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          test -n "$(sed -n 's/^const ReleasePublicKey = "\([a-f0-9]\{64\}\)"$/\1/p' internal/daemon/release.go)"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter @excalibur/web...
+      - run: pnpm --filter @excalibur/web build
+      - name: Check public installer copies
+        run: |
+          cmp scripts/install/install.sh apps/site/public/install.sh
+          cmp scripts/install/install.ps1 apps/site/public/install.ps1
+          shellcheck scripts/install/install.sh scripts/release/genkey
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-web
+          path: apps/web/dist/
+
+  native:
+    needs: web
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04, os: linux, arch: amd64, cgo: '1' }
+          - { runner: ubuntu-22.04-arm, os: linux, arch: arm64, cgo: '1' }
+          - { runner: macos-latest, os: darwin, arch: arm64, cgo: '1' }
+          - { runner: macos-15-intel, os: darwin, arch: amd64, cgo: '1' }
+          - { runner: windows-latest, os: windows, arch: amd64, cgo: '1' }
+          # sqlite-vec's bundled Windows library is x64. ARM64 uses modernc SQLite.
+          - { runner: windows-11-arm, os: windows, arch: arm64, cgo: '0' }
+    env:
+      CGO_ENABLED: ${{ matrix.cgo }}
+      GOFLAGS: '-p=2 -tags=sqlite_fts5'
+      GOMAXPROCS: '2'
+      RELEASE_VERSION: ${{ needs.web.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.web.outputs.version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-web
+          path: apps/web/dist/
+      - run: node scripts/release/embed-web.mjs
+      - name: Build native binary
+        run: |
+          test "$(go env GOOS)" = '${{ matrix.os }}'
+          test "$(go env GOARCH)" = '${{ matrix.arch }}'
+          mkdir -p build
+          go build -trimpath -ldflags "-s -w -X main.version=$RELEASE_VERSION" -o build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} ./cmd/excalibur
+      - name: Package native archive
+        run: python scripts/release/package.py --os '${{ matrix.os }}' --arch '${{ matrix.arch }}' --binary build/excalibur${{ matrix.os == 'windows' && '.exe' || '' }} --out release --version "$RELEASE_VERSION"
+      - name: Smoke actual installer, UI, health, chat and uninstall
+        run: go run ./scripts/release/smoke release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            release/excalibur_*
+            release/version.txt
+
+  docker-check:
+    needs: [web, native]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.web.outputs.version }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-linux-*
+          path: release
+          merge-multiple: true
+      - name: Assemble multi-architecture image context
+        run: |
+          for arch in amd64 arm64; do
+            mkdir -p "bin/linux/$arch"
+            tar -xzf "release/excalibur_linux_$arch.tar.gz" -C "bin/linux/$arch" excalibur
+          done
+      - name: Test image on both architectures
+        run: |
+          for arch in amd64 arm64; do
+            docker build --platform "linux/$arch" --build-arg "TARGETARCH=$arch" -t "excalibur-smoke:$arch" .
+            docker run -d --name "excalibur-release-$arch" -p 127.0.0.1:7787:7787 "excalibur-smoke:$arch"
+            for attempt in $(seq 1 90); do
+              echo "Health attempt $attempt ($arch)"
+              if curl -fsS http://127.0.0.1:7787/healthz; then break; fi
+              sleep 1
+            done
+            curl -fsS http://127.0.0.1:7787/healthz
+            curl -fsS http://127.0.0.1:7787/ | grep -q '<html'
+            docker rm -f "excalibur-release-$arch"
+          done
+      - name: Clean smoke containers
+        if: always()
+        run: |
+          docker rm -f excalibur-release-amd64 excalibur-release-arm64 2>/dev/null || true
+
+  publish:
+    needs: [web, native, docker-check]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      RELEASE_VERSION: ${{ needs.web.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.web.outputs.version }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-*
+          path: release
+          merge-multiple: true
+      - name: Collect and sign checksums
+        env:
+          EXCALIBUR_RELEASE_KEY: ${{ secrets.EXCALIBUR_RELEASE_KEY }}
+        run: |
+          cd release
+          sha256sum excalibur_*.tar.gz excalibur_*.zip version.txt > checksums.txt
+          cd ..
+          go run ./scripts/release/keytool sign release/checksums.txt
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$RELEASE_VERSION" release/excalibur_* release/version.txt release/checksums.txt release/checksums.txt.sig --verify-tag --generate-notes --title "Excalibur $RELEASE_VERSION"
+      - name: Assemble image context
+        run: |
+          for arch in amd64 arm64; do
+            mkdir -p "bin/linux/$arch"
+            tar -xzf "release/excalibur_linux_$arch.tar.gz" -C "bin/linux/$arch" excalibur
+          done
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/cristhianrudolf7/excalibur:latest
+            ghcr.io/cristhianrudolf7/excalibur:${{ needs.web.outputs.version }}
