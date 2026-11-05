@@ -33,7 +33,7 @@ func run() error {
 	if runtime.GOOS == "windows" {
 		systemRoot := os.Getenv("SystemRoot")
 		if systemRoot == "" {
-			return fmt.Errorf("Windows SystemRoot is required for the release smoke")
+			return fmt.Errorf("the Windows SystemRoot is required for the release smoke")
 		}
 		// Test the CLI without MinGW, Go or Node DLL directories on PATH.
 		env = append(env, "PATH="+strings.Join([]string{filepath.Join(systemRoot, "System32"), systemRoot, filepath.Join(systemRoot, "System32", "WindowsPowerShell", "v1.0")}, string(os.PathListSeparator)))
