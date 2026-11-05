@@ -69,8 +69,9 @@ While iterating prefer `go test -race -p 2` for package-scoped runs.
 
 ## Milestones
 
-Status: H0–H13 implemented, each with its verification-table tests
-green, plus the W6 production model wiring: real providers build
+H0–H13 have implementations and verification-table tests. Verify the current
+checkout before claiming those tests pass. Production model wiring builds
+real providers
 from layered config, environment, the operator credentials file and
 `secret://` vault refs through `internal/providers/registry`, and
 every entry point (`exec`, `task` background runs, `mcp`, `acp`,
