@@ -53,7 +53,8 @@ try {
       .evaluateAll((images) =>
         Promise.all(images.map((image) => (image as HTMLImageElement).decode())),
       )
-    await sheet.screenshot({ path: `${out}/comparison-${theme}.png`, fullPage: true })
+    await sheet.waitForTimeout(200)
+    await sheet.screenshot({ path: `${out}/comparison-${theme}-review.png`, fullPage: true })
     await sheet.close()
   }
 } finally {
