@@ -18,7 +18,7 @@ type Options struct {
 	InProcess       bool                     // Tests only: execute WebAssembly without a child process.
 	Timeout         time.Duration            // Per document; default EXCALIBUR_PDF_TIMEOUT or 10m.
 	PageTimeout     time.Duration            // Per page (including worker startup); default 30s.
-	MemoryLimit     uint64                   // Worker RSS limit; default 1 GiB. Wasm linear memory is capped at 512 MiB.
+	MemoryLimit     uint64                   // Worker RSS limit; default 1 GiB (2 GiB in Linux race builds). Wasm linear memory is capped at 512 MiB.
 	WorkerPath      string                   // Defaults to the current executable.
 	ProcessGroup    platform.ProcessGroup    // Optional platform implementation.
 	ResourceSampler platform.ResourceSampler // Optional platform implementation.

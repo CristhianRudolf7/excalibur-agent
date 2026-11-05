@@ -18,7 +18,9 @@ The parent bounds input to 64 MiB, documents to 2,000 pages by default, each
 page to 30 seconds, and each document to 10 minutes. Wasm linear memory has a
 hard 512 MiB limit; the parent samples child RSS every 100 ms and terminates its
 process group above 1 GiB. RSS monitoring is a sampled limit, so brief overshoot
-is possible. `Options` can override timeouts, RSS limit, executable path, and
+is possible. Linux race builds allow 2 GiB for instrumentation overhead; release
+builds retain 1 GiB. Explicit `Options.MemoryLimit` values apply unchanged in
+every build. `Options` can override timeouts, RSS limit, executable path, and
 platform collaborators. Production workers use native Linux, Windows and macOS
 process control and RSS samplers; unsupported operating systems return
 `errors.ErrUnsupported`. macOS uses the interpreter for race builds
@@ -78,3 +80,48 @@ short test deadlines on the heavily loaded shared host. Persisted Wasm
 compilation caching, document-level instance reuse and small generated render
 fixtures resolved those failures. The final PDF race suite completed in 93
 seconds on that host, while the production-entrypoint check took 4 seconds.
+
+## Linux cold-worker memory verification
+
+The Linux parent enforces the worker budget by polling
+`platform.LinuxResourceSampler` every 100 ms. RSS comes from the child's
+`/proc/<pid>/status` `VmRSS`, converted from KiB to bytes. This budget uses
+neither `RLIMIT_AS` nor cgroup-wide memory consumption; the sampler's separate
+cgroup OOM/process counters do not determine termination. The 512 MiB Wasm
+linear-memory cap also does not bound compiler allocations or race shadow
+memory in the host process.
+
+`TestPDFWorkerIsHiddenAndReadsDocument` launches the command test executable
+itself, including its race runtime. On Linux, cold native compilation of
+PDFium in that executable exceeds the production RSS budget. A warm disk
+compilation cache can conceal the failure. The test now gives the child a
+fresh `XDG_CACHE_HOME` and allows three minutes for cold compilation while
+other verification packages compete for CPU. Linux race builds keep the native
+compiler and use a 2 GiB default worker budget. Other builds, explicit budgets,
+and Wasm limits are unchanged.
+
+Local Linux/amd64 measurements with Go 1.27.3, `GOMAXPROCS=4`, affinity to four
+CPUs, a fresh Wasm cache for each run, and the generated one-page text PDF:
+
+| Worker | Peak sampled RSS | Result |
+| --- | ---: | --- |
+| Original command race executable, 1 GiB budget | 1,024.0 MiB | Killed during compilation; unchanged command test also reproduced the CI error |
+| Same race executable, explicit 2 GiB budget | 1,175.6 MiB | Extracted title and exact page text in 39.7 seconds |
+| Release executable with embedded web UI | 407.6 MiB | Extracted title and exact page text in 6.8 seconds |
+| Same release executable under CPU and allocation load | 419.3 MiB | Extracted title and exact page text in 8.1 seconds |
+
+The release executable was built after `make web`, using `CGO_ENABLED=1`,
+`-tags=sqlite_fts5`, `-trimpath`, and `-ldflags '-s -w -X main.version=ci2-local'`,
+matching the native Linux release recipe. Its file size was about 85 MiB.
+Extraction used `pdf.New` with that executable as `WorkerPath`, the real Linux
+sampler, and the default 1 GiB limit. The load run used a `MemoryMax=2G`,
+`MemorySwapMax=0` user scope and three additional processes, each touching
+256 MiB continuously, all on the same four CPUs. Binary size alone does not
+imply resident memory, and the release worker stayed within its budget even
+with slower cold startup. These fixture measurements do not guarantee that
+every PDF will fit; oversized workers are still terminated.
+
+The fixed cold command test also passed in a `MemoryMax=3G`,
+`MemorySwapMax=0` user scope with the same four-CPU affinity (43.2 seconds).
+The PDF package race suite passed with `-p 2 -count=1`. This investigation did
+not add native Windows or macOS verification.

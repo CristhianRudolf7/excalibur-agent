@@ -256,7 +256,7 @@ func (w *worker) call(ctx context.Context, q request) (response, error) {
 	defer ticker.Stop()
 	limit := w.options.MemoryLimit
 	if limit == 0 {
-		limit = 1 << 30
+		limit = defaultWorkerMemoryLimit
 	}
 	stop := func(err error) (response, error) { w.close(); <-done; return zero, err }
 	for {

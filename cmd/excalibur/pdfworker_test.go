@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,11 @@ import (
 )
 
 func TestPDFWorkerIsHiddenAndReadsDocument(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		// A warm Wasm cache hides the cold compiler's peak RSS, especially in
+		// the race-instrumented command binary used as the worker here.
+		t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	}
 	if strings.Contains(topUsage(commands()), "pdf-worker") {
 		t.Fatal("private worker appeared in global help")
 	}
@@ -22,7 +28,9 @@ func TestPDFWorkerIsHiddenAndReadsDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 	input := testpdf.Build([]testpdf.Page{{Lines: []testpdf.Line{{Text: "Production worker dispatch", X: 50, Y: 700}}}}, testpdf.Options{Title: "Worker fixture"})
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Cold compilation under race instrumentation can take longer than a
+	// minute when the remaining verification packages compete for CPU.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	d, err := pdf.New(pdf.Options{WorkerPath: executable}).Extract(ctx, bytes.NewReader(input), int64(len(input)), docextract.Options{})
 	if err != nil {
