@@ -75,3 +75,18 @@ installations. Native autostart behavior remains subject to native CI.
 The non-root Linux Docker image was built locally from the embedded binary,
 started with a named `/data` volume and loopback host port mapping, served
 `/` and `/healthz`, and reached Docker's healthy state as user `10001:10001`.
+
+## Download scripts
+
+The POSIX shell and PowerShell installers live in `scripts/install/`; identical
+copies are served by the site from `apps/site/public/`. CI checks byte equality.
+They select Linux/macOS/Windows and amd64/arm64, download the matching archive
+and `checksums.txt`, verify SHA-256 before replacement, install into the user's
+bin directory, add PATH without replacing existing entries, install autostart,
+and wait for health. Reruns stop the previous service while keeping data.
+
+`EXCALIBUR_VERSION=vX.Y.Z` pins an existing GitHub release tag;
+`EXCALIBUR_BASE_URL=http://127.0.0.1:PORT` overrides the asset directory for
+local smoke tests. The main-function wrapper prevents a truncated POSIX
+script from starting installation before its complete function has arrived.
+ShellCheck 0.11.0 passes for the shell installer and key generation wrapper.
