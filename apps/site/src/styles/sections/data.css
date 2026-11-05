@@ -349,3 +349,11 @@
     transform: translate(792px, 634px);
   }
 }
+.anim .data-section [data-data-plate] {
+  transform: translateY(-24px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim .data-section [data-data-plate] {
+    transform: none;
+  }
+}

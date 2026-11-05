@@ -326,3 +326,28 @@
     transform: none;
   }
 }
+@media (min-width: 1024px) {
+  .your-day:not(.line-ready) .desktop-line .time-tick {
+    transform: translate(937px, 740px);
+  }
+}
+
+.your-day .day-sample {
+  margin: 0.911458cqw 0 0;
+  color: var(--ink-2);
+  font-size: 0.78125cqw;
+}
+@media (max-width: 1023px) {
+  .your-day .day-sample {
+    margin-top: 14px;
+    font-size: 10px;
+  }
+}
+.anim .your-day .day-action-highlight {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim .your-day .day-action-highlight {
+    opacity: 1;
+  }
+}

@@ -1,6 +1,8 @@
+import { prepareRailGeometry } from '../../components/landing/sections/parts-a/rail-geometry'
 import { createSectionLine, gsap } from '../line'
 
 export function init(section: HTMLElement) {
+  const restoreGeometry = prepareRailGeometry(section)
   const line = createSectionLine(section)
   line.onReach({ desktop: 0.18, phone: 0.27 }, () =>
     gsap.fromTo(
@@ -63,5 +65,8 @@ export function init(section: HTMLElement) {
         { opacity: 1, duration: 0.25 },
       ),
   )
-  return () => line.destroy()
+  return () => {
+    line.destroy()
+    restoreGeometry()
+  }
 }

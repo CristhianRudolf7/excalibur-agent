@@ -6,7 +6,7 @@ export function init(section: HTMLElement) {
   const restoreGeometry = prepareRailGeometry(section)
   const line = createSectionLine(section)
   section.querySelectorAll('[data-cell]').forEach((cell, index) => {
-    line.onReach({ desktop: 0.38 + index * 0.04, phone: 0.27 + index * 0.04 }, () =>
+    line.onReach({ desktop: 0.42 + index * 0.03, phone: 0.27 + index * 0.04 }, () =>
       gsap.fromTo(
         cell,
         { x: -32, opacity: 0 },
@@ -22,7 +22,7 @@ export function init(section: HTMLElement) {
     ),
   )
   section.querySelectorAll('[data-data-plate]').forEach((plate, index) => {
-    line.onReach({ desktop: 0.56 + index * 0.05, phone: 0.49 + index * 0.07 }, () =>
+    line.onReach({ desktop: 0.6 + index * 0.04, phone: 0.49 + index * 0.07 }, () =>
       gsap.fromTo(plate, { y: -24 }, { y: 0, duration: 0.5, ease: 'power3.inOut', paused: true }),
     )
   })

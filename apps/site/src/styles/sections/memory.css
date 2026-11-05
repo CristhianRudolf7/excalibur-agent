@@ -281,6 +281,6 @@
 }
 @media (min-width: 1024px) {
   .memory:not(.line-ready) .desktop-line .time-tick {
-    transform: translate(870px, 968px);
+    transform: translate(500px, 968px);
   }
 }
