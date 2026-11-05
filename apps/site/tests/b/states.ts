@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'node:fs/promises'
 import { serveBuild } from './static.ts'
 import { baseURL } from '../server.ts'
 
+const names = (process.env.B_SECTIONS ?? 'code,work,machine,measured,extensions').split(',')
 const out = '/home/cristhian/projects/ui-conceptos/landing/implementacion/b'
 await mkdir(out, { recursive: true })
 const browser = await chromium.launch({ channel: 'chrome' })
@@ -30,9 +31,7 @@ async function capture(page: import('@playwright/test').Page, name: string, file
 }
 try {
   for (const theme of (process.env.B_THEMES ?? 'light,dark').split(',') as ('light' | 'dark')[]) {
-    for (const name of process.env.B_NO_JS_ONLY === '1'
-      ? []
-      : ['code', 'work', 'machine', 'measured', 'extensions']) {
+    for (const name of process.env.B_NO_JS_ONLY === '1' ? [] : names) {
       const page = await browser.newPage({
         viewport: { width: 1536, height: 1024 },
         colorScheme: theme,
@@ -75,7 +74,7 @@ try {
       await serveBuild(page.context())
       await page.goto(baseURL)
       await page.evaluate(() => document.fonts.ready)
-      for (const name of ['code', 'work', 'machine', 'measured', 'extensions']) {
+      for (const name of names) {
         await page.locator(`#${name}`).evaluate((el) => el.scrollIntoView({ block: 'start' }))
         await capture(page, name, `${name}-${width}-${theme}-no-js`)
       }

@@ -127,7 +127,7 @@ try {
   const result = {
     ...report,
     directPreview: process.env.B_DIRECT_PREVIEW === '1',
-    note: 'System Chrome, headless software rendering. Paint cost may exceed hardware rendering; frame intervals are rAF samples during a native scripted scroll of this production landing build, of the local production build. The directPreview field identifies server versus request routing.',
+    note: 'System Chrome, headless software rendering. Paint cost may exceed hardware rendering; frame intervals are rAF samples during an 18-second native scripted scroll of the local production landing build. The directPreview field identifies server versus request routing.',
   }
   console.log(JSON.stringify(result, null, 2))
   await mkdir('test-results', { recursive: true })

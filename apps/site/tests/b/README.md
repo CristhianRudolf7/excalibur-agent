@@ -25,7 +25,7 @@ release, direct anchors, motion cleanup, terminal stop, and complete no-JS state
 The shared 31-test suite also passed against the owned production preview.
 
 Screenshots are written to the task's `implementacion/b/` directory. Capture filters
-are `B_SECTIONS` and `B_WIDTHS`; state filters are `B_THEMES`, `B_WIDTHS`, and
+are `B_SECTIONS` and `B_WIDTHS`; state filters also accept `B_SECTIONS`, `B_THEMES`, `B_WIDTHS`, and
 `B_NO_JS_ONLY=1`. The state tool captures the sticky machine as a viewport, since
 beyond-viewport document clips misrepresent sticky paint positions.
 

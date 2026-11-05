@@ -22,7 +22,7 @@
 }
 .measured-number [data-measured-number] {
   display: inline-block;
-  width: 2.42em;
+  width: 1.945em;
 }
 .measured-caption {
   --x: 44;

@@ -47,6 +47,7 @@ for (const width of [360, 390, 768, 1024, 1280, 1366, 1536, 1920]) {
 test('benchmark ticks share one 0–100 linear axis', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto('/#measured')
+  await page.evaluate(() => document.fonts.ready)
   const marks = await page.locator('.measured-rule').evaluateAll((rules) =>
     rules.map((rule) => {
       const r = rule.getBoundingClientRect(),
@@ -67,6 +68,12 @@ test('benchmark ticks share one 0–100 linear axis', async ({ page }) => {
   }
   await expect(page.locator('.measured-axis')).toHaveText('0100')
   await expect(page.locator('.measured-number')).toHaveText('59.6%')
+  const reservedGap = await page.locator('[data-measured-number]').evaluate((el) => {
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    return el.getBoundingClientRect().right - range.getBoundingClientRect().right
+  })
+  expect(Math.abs(reservedGap)).toBeLessThan(1)
 })
 test('machine distances come from the translated layers, pin releases, and final anchors land', async ({
   page,
