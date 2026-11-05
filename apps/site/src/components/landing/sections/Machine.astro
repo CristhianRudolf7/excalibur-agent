@@ -3,11 +3,136 @@ import Stage from '../Stage.astro'
 import SectionLine from '../parts/SectionLine.astro'
 import Headline from '../parts/Headline.astro'
 import SectionIndex from '../parts/SectionIndex.astro'
+import Plate from './parts-b/Plate.astro'
+import RobotArm from './parts-b/RobotArm.astro'
+import Logo from '../../brand/Logo.astro'
 import '../../../styles/sections/machine.css'
+const layers = [
+  { name: 'INPUT', label: 'Your voice or text', x: 900, y: 170, w: 384, d: 66, t: 22, shift: 230 },
+  { name: 'MASTER AGENT', label: 'Master agent', x: 886, y: 290, w: 397, d: 73, t: 55, shift: 165 },
+  { name: 'PARALLEL SUBAGENTS', label: '', x: 914, y: 460, w: 350, d: 80, t: 30, shift: 75 },
+  {
+    name: 'CONTEXT COMPILER',
+    label: 'Context compiler',
+    x: 902,
+    y: 613,
+    w: 400,
+    d: 50,
+    t: 40,
+    shift: 0,
+  },
+  { name: 'TOOLS', label: '', x: 840, y: 766, w: 509, d: 35, t: 24, shift: -80 },
+  {
+    name: 'ROBOTICS LAB EXTENSION',
+    label: 'Robotics Lab extension',
+    x: 860,
+    y: 891,
+    w: 468,
+    d: 56,
+    t: 22,
+    shift: -130,
+  },
+]
 ---
 
-<Stage id="machine" class="section-stub machine" label="Built like a machine.">
-  <SectionLine />
-  <SectionIndex index={6} />
-  <Headline lines={['Built like', 'a machine.']} />
-</Stage>
+<div class="machine-track">
+  <Stage id="machine" class="machine" label="Built like a machine">
+    <div class="machine-canvas">
+      <SectionLine path="M218 0 V1024" mobilePath="M24 0 V1370" mobileHeight={1370} />
+      <SectionIndex index={6} style="--x:40;--y:40;--w:150" />
+      <Headline lines={['Built like', 'a machine.']} class="machine-headline" />
+      <div class="machine-progress canvas-item" aria-hidden="true">
+        <span data-machine-clock>00:00.0</span>
+        <i>
+          <b data-machine-progress></b>
+        </i>
+      </div>
+      <svg
+        class="machine-axis drawing canvas-item"
+        style="--x:1114;--y:190;--w:2"
+        viewBox="0 0 2 760"
+        aria-hidden="true"
+      >
+        <path d="M1 0 V760" stroke="var(--leader)" stroke-dasharray="5 5" fill="none" />
+      </svg>
+      <div
+        class="machine-packet canvas-item"
+        style="--x:1108;--y:250;--w:12"
+        data-machine-packet
+        aria-hidden="true"
+      ></div>
+      <ol class="machine-layers">
+        {layers.map((layer, i) => (
+          <li
+            class={`machine-layer machine-layer-${i} canvas-item`}
+            style={`--x:${layer.x};--y:${layer.y};--w:${layer.w + layer.d};--order:${i}`}
+            data-machine-layer
+            data-origin={layer.y}
+            data-shift={layer.shift}
+          >
+            <div class="machine-note">
+              <span>
+                ({i + 1}) {layer.name}
+              </span>
+              <small data-machine-z>z = {((layer.y - 170) / 10).toFixed(1)} mm</small>
+            </div>
+            {i === 4 ? (
+              <div class="machine-tools">
+                {['Browser', 'Code', 'Documents', 'Google', 'My data', 'Web'].map((label) => (
+                  <Plate width={76} depth={15} thickness={42} label={label} />
+                ))}
+              </div>
+            ) : (
+              <Plate
+                width={layer.w}
+                depth={layer.d}
+                thickness={layer.t}
+                label={layer.label}
+                active={i === 2}
+              >
+                {i === 1 && (
+                  <div class="machine-sword">
+                    <Logo swordOnly />
+                  </div>
+                )}
+                {i === 2 && (
+                  <>
+                    <div class="machine-insets">
+                      {[0, 1, 2].map(() => (
+                        <Plate width={66} depth={32} thickness={8} />
+                      ))}
+                    </div>
+                    <span class="sr-only">Parallel subagents: three independent workers.</span>
+                  </>
+                )}
+                {i === 5 && (
+                  <div class="machine-arm">
+                    <RobotArm />
+                  </div>
+                )}
+              </Plate>
+            )}
+          </li>
+        ))}
+      </ol>
+      <div class="machine-dimensions" aria-hidden="true">
+        {layers.slice(0, -1).map((layer, i) => (
+          <div
+            class="machine-dimension canvas-item"
+            style={`--x:1402;--y:${layer.y};--w:100;--gap:${layers[i + 1]!.y - layer.y}`}
+            data-machine-dimension
+          >
+            <i class="machine-dimension-rule"></i>
+            <i class="machine-dimension-cap"></i>
+            <span data-machine-distance>{((layers[i + 1]!.y - layer.y) / 10).toFixed(1)} mm</span>
+          </div>
+        ))}
+      </div>
+      <p class="sr-only">
+        Exploded assembly: input, master agent, parallel subagents, context compiler, tools, and the
+        Robotics Lab extension. Millimeters describe this illustration's relative layer positions,
+        using ten drawing units per millimeter.
+      </p>
+    </div>
+  </Stage>
+</div>
