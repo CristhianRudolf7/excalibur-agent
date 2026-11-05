@@ -12,21 +12,27 @@ func TestRunningProgressAndDuplicateJobs(t *testing.T) {
 	tool := execTestTool(t)
 	defer closeSessions(tool.Sessions)
 	dir := t.TempDir()
-	first := callTool(t, tool, map[string]any{"command": "printf ready; sleep 8", "workdir": dir, "yield_ms": 250})
+	first := callTool(t, tool, map[string]any{"command": "printf ready; while [ ! -f release ]; do sleep 0.01; done", "workdir": dir, "yield_ms": 250})
 	s := tool.Sessions.List("")[0]
-	for _, want := range []string{"STILL RUNNING", string(s.ID), "elapsed:", "last_output_age:", "output_bytes: 5"} {
+	for _, want := range []string{"STILL RUNNING", string(s.ID), "elapsed:", "last_output_age:"} {
 		if !strings.Contains(first.Output, want) {
 			t.Fatalf("missing %s: %s", want, first.Output)
 		}
 	}
 	ioTool := &ExecIOTool{Sessions: tool.Sessions}
+	// Shell startup can exceed the initial yield on Windows. Synchronize on
+	// output before checking the byte count; the release file keeps it alive.
+	ready := callTool(t, ioTool, map[string]any{"action": "wait_for", "session": string(s.ID), "pattern": "ready", "timeout_s": 10})
+	if !strings.Contains(ready.Output, "ready") || !strings.Contains(ready.Output, "output_bytes: 5") {
+		t.Fatal(ready.Output)
+	}
 	for _, action := range []string{"read", "wait_for"} {
 		res := callTool(t, ioTool, map[string]any{"action": action, "session": string(s.ID), "pattern": "never", "timeout_s": 0.25})
 		if !strings.Contains(res.Output, "STILL RUNNING") || !strings.Contains(res.Output, string(s.ID)) {
 			t.Fatal(res.Output)
 		}
 	}
-	second := callTool(t, tool, map[string]any{"command": "printf ready; sleep 8", "workdir": dir, "yield_ms": 250})
+	second := callTool(t, tool, map[string]any{"command": "printf ready; while [ ! -f release ]; do sleep 0.01; done", "workdir": dir, "yield_ms": 250})
 	if !strings.HasPrefix(second.Output, "exit: ") {
 		t.Fatal("duplicate warning displaced the exit header", second.Output)
 	}
@@ -34,13 +40,13 @@ func TestRunningProgressAndDuplicateJobs(t *testing.T) {
 		t.Fatal(second.Output)
 	}
 	// Same outputs with different command lines still receive a warning.
-	callTool(t, tool, map[string]any{"command": "sleep 8 > shared.txt", "workdir": dir, "yield_ms": 250})
+	callTool(t, tool, map[string]any{"command": "while [ ! -f release ]; do sleep 0.01; done > shared.txt", "workdir": dir, "yield_ms": 250})
 	duplicate := callTool(t, tool, map[string]any{"command": "printf other > shared.txt", "workdir": dir})
 	if !strings.Contains(duplicate.Output, "warning: command duplicates") {
 		t.Fatal(duplicate.Output)
 	}
 	t.Setenv("EXCALIBUR_LIVE_JOB_DUPLICATES", "off")
-	if warning := tool.Sessions.duplicateJobWarning("sleep 8 > shared.txt", dir); warning != "" {
+	if warning := tool.Sessions.duplicateJobWarning("while [ ! -f release ]; do sleep 0.01; done > shared.txt", dir); warning != "" {
 		t.Fatal(warning)
 	}
 	t.Setenv("EXCALIBUR_LIVE_JOB_PROGRESS", "off")
