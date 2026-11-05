@@ -13,7 +13,7 @@ Necesitas una copia del repositorio de Excalibur y la versión de Go indicada en
 | macOS      | Compatibilidad en desarrollo, compilaciones para Apple Silicon e Intel | LaunchAgent de usuario de launchd             |
 | Windows    | Compatibilidad en desarrollo                                           | Tarea por usuario en el Programador de tareas |
 
-Hay integraciones nativas para macOS y Windows y trabajos de CI definidos para esas plataformas. Esto no garantiza que todas las funciones estén verificadas en cada sistema. La navegación automatizada necesita un navegador compatible instalado por separado. Las terminales interactivas de Windows requieren Windows 10 versión 1809 o posterior.
+Hay integraciones nativas para macOS y Windows, pero la compatibilidad sigue en desarrollo. Una compilación correcta no demuestra que todas las funciones operen en esa plataforma. La navegación automatizada necesita un navegador compatible instalado por separado. Las terminales interactivas de Windows requieren Windows 10 versión 1809 o posterior.
 
 ## Compila el ejecutable
 

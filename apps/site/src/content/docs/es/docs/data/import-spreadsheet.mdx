@@ -3,14 +3,25 @@ title: 'Importar una hoja de cálculo'
 description: 'Revisa los campos y resuelve valores ambiguos antes de guardar las filas.'
 ---
 
-Usa Importar en Mis datos para convertir un archivo CSV o Excel en registros. Necesitas la aplicación web conectada al daemon y un agente disponible. El selector admite `.csv`, `.xlsx` y `.xls`; los formatos antiguos de Excel también dependen del soporte de conversión de documentos de la instalación.
+import { Aside, Steps } from '@astrojs/starlight/components'
+
+Usa Importar en Mis datos para convertir un archivo CSV o Excel en registros. Necesitas la aplicación web conectada al daemon y un agente disponible. El importador de colecciones lee archivos CSV y XLSX.
+
+<Aside type="caution">
+  El selector también ofrece `.xls`, pero el importador de colecciones no interpreta ese formato
+  binario antiguo de Excel. Guarda esos archivos como CSV o XLSX antes de importarlos.
+</Aside>
 
 ## Revisa antes de guardar
+
+<Steps>
 
 1. Selecciona Importar desde Mis datos o desde una colección existente.
 2. Elige el archivo. Excalibur lo carga y prepara una solicitud de conversación con el adjunto.
 3. Envía la solicitud y pide una vista previa. Revisa campos propuestos, correspondencias, correcciones y conflictos.
 4. Si necesitas una colección nueva, confirma su estructura y pide aplicar las filas válidas.
+
+</Steps>
 
 `Datos de ejemplo`
 

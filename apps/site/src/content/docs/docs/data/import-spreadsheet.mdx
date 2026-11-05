@@ -3,14 +3,25 @@ title: 'Import a spreadsheet'
 description: 'Preview field mapping and resolve ambiguous values before saving rows.'
 ---
 
-Use Import in My data to turn a CSV or Excel file into collection records. You need the web application connected to the daemon and an available agent. The file picker accepts `.csv`, `.xlsx`, and `.xls`; legacy Excel conversion also depends on the installation's document conversion support.
+import { Aside, Steps } from '@astrojs/starlight/components'
+
+Use Import in My data to turn a CSV or Excel file into collection records. You need the web application connected to the daemon and an available agent. The collection importer reads CSV and XLSX files.
+
+<Aside type="caution">
+  The file picker also offers `.xls`, but the collection importer does not parse legacy binary Excel
+  files. Save those files as CSV or XLSX before importing.
+</Aside>
 
 ## Preview before saving
+
+<Steps>
 
 1. Select Import from My data or from an existing collection.
 2. Choose the file. Excalibur uploads it and prepares a conversation request with the attachment.
 3. Send the request and ask for an import preview. Inspect the proposed fields, mappings, fixes, and conflicts.
 4. Confirm the collection proposal if you are creating a new collection, then ask to apply the valid rows.
+
+</Steps>
 
 `Sample data`
 

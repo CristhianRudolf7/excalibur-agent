@@ -13,7 +13,7 @@ Start with a checkout of the Excalibur repository and the Go version required by
 | macOS    | Support in progress, Apple Silicon and Intel builds | launchd user LaunchAgent     |
 | Windows  | Support in progress                                 | Per-user Task Scheduler task |
 
-Native macOS and Windows integrations exist, and the repository defines native CI jobs for them. That does not mean every feature has been verified on every platform. Browser automation needs a separately installed supported browser. Windows interactive terminals require Windows 10 version 1809 or later.
+Native macOS and Windows integrations exist, but support remains in progress. A successful build does not establish that every feature works on that platform. Browser automation needs a separately installed supported browser. Windows interactive terminals require Windows 10 version 1809 or later.
 
 ## Build a binary
 
