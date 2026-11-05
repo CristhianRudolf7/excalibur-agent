@@ -1917,12 +1917,6 @@ dialog::backdrop {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.header-action-divider {
-  width: 1px;
-  height: 22px;
-  margin: 0 5px;
-  background: var(--border);
-}
 .header-overflow-trigger {
   display: none;
 }
